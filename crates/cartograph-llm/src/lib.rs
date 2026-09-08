@@ -9,6 +9,7 @@ mod models;
 mod project_config;
 mod rerank;
 mod tls;
+mod transport;
 
 pub use chat::{
     CHAT_API_KEY_ENV, CHAT_ENDPOINT_ENV, CHAT_MODEL_ENV, ChatCompletion, ChatError,

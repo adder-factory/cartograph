@@ -43,8 +43,8 @@ pub use model::{
     CloneTokenCount, CloneTokenProfile, Containment, DYNAMIC_DISPATCH_RESOLUTION_PREFIX,
     DiagnosticCode, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
-    ImportBindingKind, RUST_MACRO_RESOLUTION_PREFIX, SymbolHealthMetrics,
-    TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
+    ImportBindingKind, RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX,
+    SymbolHealthMetrics, TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
 };
 pub use module_alias::substitute_module_alias;
 pub use native::{

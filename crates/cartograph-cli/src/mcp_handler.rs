@@ -33,10 +33,9 @@ use cartograph_db::{
     FileSummarySaveRequest, ModuleSummarySaveRequest, NeighborSummarySaveInput,
     NeighborSummarySaveRequest, NeighborSummarySource, NewAgentArtifact, PendingFileSummary,
     PendingModelSummaryQuery, PendingModuleSummary, PendingNeighborSummary,
-    PendingNeighborSummaryQuery, PendingRoleSymbol, PendingStructuralSummary,
-    PendingStructuralSummaryQuery, PendingSummaryRollupQuery, PendingSummarySymbol,
-    StructuralSummaryEdge, StructuralSymbolSummarySaveInput, SummaryCandidatePolicy,
-    SummarySaveInput, SymbolRoleSaveInput, SymbolSummarySaveInput,
+    PendingNeighborSummaryQuery, PendingRoleSymbol, PendingSummaryRollupQuery,
+    PendingSummarySymbol, SummaryCandidatePolicy, SummarySaveInput, SymbolRoleSaveInput,
+    SymbolSummarySaveInput,
 };
 use cartograph_db::{
     CurrentGenerationLookup, CurrentGenerationRecord, CurrentSymbolRecord, CurrentSymbolSetLookup,
@@ -391,8 +390,11 @@ const MACRO_MAXIMUM_POSITIONAL_ARGS: usize = 32;
 const MACRO_MAXIMUM_DEPTH: usize = 8;
 const MACRO_STEP_OUTPUT_BYTES: usize = 16 * 1_024;
 const SUMMARY_MAXIMUM_BATCH: u16 = 40;
-const STRUCTURAL_SUMMARY_PAGE_SIZE: u16 = 320;
-const STRUCTURAL_SUMMARY_MODEL: &str = "structural:v2";
+#[cfg(test)]
+use cartograph_agent::STRUCTURAL_SUMMARY_PAGE_SIZE;
+use cartograph_agent::{STRUCTURAL_SUMMARY_MODEL, cap_structural_summary};
+#[cfg(test)]
+use cartograph_db::PendingStructuralSummaryQuery;
 const NEIGHBOR_SUMMARY_PAGE_SIZE: u16 = 320;
 const NEIGHBOR_SUMMARY_LOOKUP_LIMIT: u16 = 8;
 const NEIGHBOR_SUMMARY_MINIMUM_SIMILARITY: f64 = 0.85;
@@ -758,23 +760,6 @@ struct SummarySweepReport<'context> {
     files: &'context FileSummarySweepStats,
     modules: &'context ModuleSummarySweepStats,
     options: &'context SummarySweepOptions,
-}
-
-#[derive(Default)]
-struct StructuralSummarySweepStats {
-    candidates: u64,
-    generated: u64,
-    unmatched: u64,
-    preserved_or_source_changed: u64,
-    source_changed: bool,
-}
-
-struct StructuralSummaryContext<'context> {
-    runtime: Arc<ProjectRuntime>,
-    project_id: ProjectId,
-    expected_generation: String,
-    policy: &'context SummaryCandidatePolicy,
-    cancellation: ProjectCancellation,
 }
 
 struct StructuralRollupContext {
@@ -5772,7 +5757,10 @@ impl ContextTools<'_> {
         {
             return Ok(Vec::new());
         }
-        let mut source_windows = Vec::new();
+        let Some(generation) = request.packet.generation() else {
+            return Ok(Vec::new());
+        };
+        let mut source_requests = Vec::new();
         let mut paths = BTreeSet::new();
         let primary_edit_paths = request
             .packet
@@ -5796,7 +5784,7 @@ impl ContextTools<'_> {
                     .filter(|evidence| !primary_edit_paths.contains(evidence.path())),
             );
         for evidence in prioritized_evidence {
-            if source_windows.len() >= usize::from(request.parsed.maximum_nodes)
+            if source_requests.len() >= usize::from(request.parsed.maximum_nodes)
                 || request.cancellation.is_cancelled()
             {
                 break;
@@ -5807,20 +5795,16 @@ impl ContextTools<'_> {
             if !paths.insert(evidence.path().to_owned()) {
                 continue;
             }
-            match self
-                .runtime
-                .source_context_with_cancellation(
-                    SourceContextRequest::new(symbol_id.clone(), options),
-                    request.cancellation.clone(),
-                )
-                .await
-            {
-                Ok(source) => source_windows.push(source),
-                Err(ProjectError::SymbolNotFound) => {}
-                Err(error) => return Err(project_error(&error)),
-            }
+            source_requests.push(SourceContextRequest::new(symbol_id.clone(), options));
         }
-        Ok(source_windows)
+        self.runtime
+            .source_context_batch_with_cancellation(
+                generation.generation_id(),
+                source_requests,
+                request.cancellation.clone(),
+            )
+            .await
+            .map_err(|error| project_error(&error))
     }
 
     async fn context_response(
@@ -11539,6 +11523,7 @@ impl AdminCoreTools<'_> {
                 "keepSuperseded",
                 "maximumDeletions",
                 "maximumCascadeRows",
+                "maximumSearchRelationBytes",
                 "k",
                 "minScore",
                 "maxAgeDays",
@@ -12560,6 +12545,7 @@ impl AdminLifecycleTools<'_> {
                 "keepSuperseded",
                 "maximumDeletions",
                 "maximumCascadeRows",
+                "maximumSearchRelationBytes",
                 "confirm",
             ],
         )?;
@@ -12595,6 +12581,13 @@ impl AdminLifecycleTools<'_> {
         )? {
             policy = policy
                 .with_maximum_cascade_rows(maximum_cascade_rows)
+                .map_err(internal_error)?;
+        }
+        if let Some(bytes) =
+            optional_bounded_admin_u64(arguments, "maximumSearchRelationBytes", 68_719_476_736)?
+        {
+            policy = policy
+                .with_maximum_search_relation_bytes(bytes)
                 .map_err(internal_error)?;
         }
         let cancellation = ProjectCancellation::new();
@@ -13186,341 +13179,9 @@ async fn run_structural_summary_sweep(
     policy: &SummaryCandidatePolicy,
     cancellation: ProjectCancellation,
 ) -> Result<Value, ProjectError> {
-    let snapshot = runtime
-        .database()
-        .project_snapshot_by_root(runtime.root_identity())
-        .await
-        .map_err(|_| ProjectError::StatusFailed)?
-        .ok_or(ProjectError::StatusFailed)?;
-    let context = StructuralSummaryContext {
-        expected_generation: snapshot
-            .current
-            .as_ref()
-            .map(|current| current.generation_id.as_str().to_owned())
-            .ok_or(ProjectError::StatusFailed)?,
-        project_id: snapshot.project_id,
-        runtime,
-        policy,
-        cancellation,
-    };
-    let mut after = None::<SymbolId>;
-    let mut stats = StructuralSummarySweepStats::default();
-    loop {
-        if context.cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled);
-        }
-        let pending = context
-            .runtime
-            .database()
-            .pending_structural_summaries(
-                PendingStructuralSummaryQuery::new(
-                    &context.project_id,
-                    STRUCTURAL_SUMMARY_PAGE_SIZE,
-                    context.policy,
-                )
-                .after_symbol(after.as_ref()),
-            )
-            .await
-            .map_err(|_| ProjectError::EnrichmentReadFailed)?;
-        if pending.is_empty() {
-            break;
-        }
-        let last_id = pending
-            .last()
-            .map(|candidate| candidate.symbol_id().to_owned())
-            .ok_or(ProjectError::EnrichmentDataInvalid)?;
-        persist_structural_summary_page(&context, pending, &mut stats).await?;
-        if stats.source_changed {
-            break;
-        }
-        after = Some(SymbolId::parse(&last_id).map_err(|_| ProjectError::IndexFailed)?);
-    }
-    finish_structural_summary_sweep(&context, stats).await
-}
-
-async fn persist_structural_summary_page(
-    context: &StructuralSummaryContext<'_>,
-    pending: Vec<PendingStructuralSummary>,
-    stats: &mut StructuralSummarySweepStats,
-) -> Result<(), ProjectError> {
-    for candidate in pending {
-        if context.cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled);
-        }
-        if candidate.generation_id() != context.expected_generation {
-            stats.source_changed = true;
-            break;
-        }
-        stats.candidates = stats.candidates.saturating_add(1);
-        let Some(summary) = structural_summary_for(&candidate) else {
-            stats.unmatched = stats.unmatched.saturating_add(1);
-            continue;
-        };
-        let symbol_id = SymbolId::parse(candidate.symbol_id())
-            .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-        let source_digest = ContentDigest::parse(candidate.content_hash())
-            .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-        match context
-            .runtime
-            .database()
-            .save_structural_symbol_summary(
-                StructuralSymbolSummarySaveInput::new(
-                    &context.project_id,
-                    &symbol_id,
-                    &source_digest,
-                )
-                .with_summary(&summary),
-            )
-            .await
-            .map_err(|_| ProjectError::EnrichmentWriteFailed)?
-        {
-            Some(_) => stats.generated = stats.generated.saturating_add(1),
-            None => {
-                stats.preserved_or_source_changed =
-                    stats.preserved_or_source_changed.saturating_add(1);
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn finish_structural_summary_sweep(
-    context: &StructuralSummaryContext<'_>,
-    mut stats: StructuralSummarySweepStats,
-) -> Result<Value, ProjectError> {
-    let latest = context
-        .runtime
-        .database()
-        .project_snapshot_by_root(context.runtime.root_identity())
-        .await
-        .map_err(|_| ProjectError::StatusFailed)?
-        .and_then(|snapshot| snapshot.current)
-        .map(|current| current.generation_id.as_str().to_owned());
-    stats.source_changed |= latest.as_deref() != Some(context.expected_generation.as_str());
-    Ok(json!({
-        "generationId": context.expected_generation,
-        "candidates": stats.candidates,
-        "generated": stats.generated,
-        "unmatched": stats.unmatched,
-        "preservedOrSourceChanged": stats.preserved_or_source_changed,
-        "sourceChanged": stats.source_changed,
-        "model": STRUCTURAL_SUMMARY_MODEL,
-        "generationMode": "structural_rule",
-        "patterns": [
-            "route", "one_call_forwarder", "one_instantiation_factory",
-            "single_field_accessor", "cross_file_reexport", "type_alias",
-            "declaration_only", "typed_relationships", "safe_signature_fallback"
-        ],
-    }))
-}
-
-fn structural_summary_for(candidate: &PendingStructuralSummary) -> Option<String> {
-    structural_route_summary(candidate)
-        .or_else(|| structural_simple_summary(candidate))
-        .or_else(|| structural_reexport_summary(candidate))
-        .or_else(|| structural_alias_summary(candidate))
-        .or_else(|| structural_declaration_summary(candidate))
-        .or_else(|| structural_relationship_summary(candidate))
-        .or_else(|| Some(structural_signature_summary(candidate)))
-}
-
-fn structural_route_summary(candidate: &PendingStructuralSummary) -> Option<String> {
-    if candidate.symbol_kind() != "route" {
-        return None;
-    }
-    let route = if candidate.name().to_ascii_lowercase().starts_with("cmd ") {
-        format!(
-            "CLI command {}",
-            candidate.name().trim_start_matches("cmd ")
-        )
-    } else {
-        format!("HTTP {}", candidate.name())
-    };
-    Some(structural_edges(candidate, "calls").first().map_or_else(
-        || cap_structural_summary(&route),
-        |handler| cap_structural_summary(&format!("{route} (handler: {})", handler.target_name())),
-    ))
-}
-
-fn structural_simple_summary(candidate: &PendingStructuralSummary) -> Option<String> {
-    let source_lines = candidate
-        .end_line()
-        .saturating_sub(candidate.start_line())
-        .saturating_add(1);
-    if source_lines > 4 {
-        return None;
-    }
-    let calls = structural_edges(candidate, "calls");
-    if calls.len() == 1 {
-        return Some(cap_structural_summary(&format!(
-            "Delegates to {}",
-            calls[0].target_name()
-        )));
-    }
-    let instantiations = structural_edges(candidate, "instantiates");
-    if instantiations.len() == 1 {
-        return Some(cap_structural_summary(&format!(
-            "Factory for {}",
-            instantiations[0].target_name()
-        )));
-    }
-    let field_accesses = structural_edges(candidate, "field_access");
-    if !calls.is_empty() || field_accesses.len() != 1 {
-        return None;
-    }
-    Some(cap_structural_summary(&format!(
-        "{} {}",
-        structural_accessor_verb(candidate),
-        field_accesses[0].target_name()
-    )))
-}
-
-fn structural_accessor_verb(candidate: &PendingStructuralSummary) -> &'static str {
-    let name = candidate.name().to_ascii_lowercase();
-    let signature = candidate.signature().to_ascii_lowercase();
-    if name.starts_with("get_") || name.starts_with("get") || signature.contains(" get ") {
-        "Gets"
-    } else if name.starts_with("set_") || name.starts_with("set") || signature.contains(" set ") {
-        "Sets"
-    } else {
-        "Accesses"
-    }
-}
-
-fn structural_reexport_summary(candidate: &PendingStructuralSummary) -> Option<String> {
-    if !matches!(
-        candidate.symbol_kind(),
-        "function" | "type_alias" | "interface" | "class" | "method"
-    ) || candidate.end_line().saturating_sub(candidate.start_line()) > 1
-    {
-        return None;
-    }
-    structural_edges(candidate, "references")
-        .into_iter()
-        .find(|edge| edge.target_path() != candidate.path())
-        .map(|target| {
-            cap_structural_summary(&format!(
-                "Re-exports {} from {}",
-                target.target_name(),
-                target.target_path()
-            ))
-        })
-}
-
-fn structural_alias_summary(candidate: &PendingStructuralSummary) -> Option<String> {
-    if candidate.symbol_kind() != "type_alias" || !candidate.edges().is_empty() {
-        return None;
-    }
-    let evidence = if candidate.signature().contains('=') {
-        candidate.signature()
-    } else {
-        candidate.code()
-    };
-    let (_, right) = evidence.split_once('=')?;
-    let right = right.trim().trim_end_matches(';').trim();
-    (!right.is_empty()).then(|| cap_structural_summary(&format!("Type alias for {right}")))
-}
-
-fn structural_declaration_summary(candidate: &PendingStructuralSummary) -> Option<String> {
-    let declaration = candidate.declaration_only()
-        || (candidate.start_line() == candidate.end_line()
-            && candidate.signature().trim_end().ends_with(';'));
-    declaration.then(|| {
-        cap_structural_summary(&format!(
-            "Declaration-only {}: {}",
-            candidate.symbol_kind(),
-            candidate.name()
-        ))
-    })
-}
-
-fn structural_relationship_summary(candidate: &PendingStructuralSummary) -> Option<String> {
-    let mut relationships = Vec::new();
-    for (kind, verb) in [
-        ("calls", "calls"),
-        ("instantiates", "instantiates"),
-        ("extends", "extends"),
-        ("implements", "implements"),
-        ("overrides", "overrides"),
-        ("tests", "tests"),
-    ] {
-        let edges = structural_edges(candidate, kind);
-        if !edges.is_empty() {
-            relationships.push(format!("{verb} {}", structural_target_list(&edges, 3)));
-        }
-    }
-    (!relationships.is_empty()).then(|| {
-        cap_structural_summary(&format!(
-            "{} {} {}",
-            structural_kind_label(candidate.symbol_kind()),
-            candidate.name(),
-            relationships.join("; ")
-        ))
-    })
-}
-
-fn structural_signature_summary(candidate: &PendingStructuralSummary) -> String {
-    let signature = candidate.signature().trim();
-    let summary = if signature.is_empty() {
-        format!(
-            "Indexed {} {}",
-            candidate.symbol_kind().replace('_', " "),
-            candidate.name()
-        )
-    } else {
-        format!(
-            "{} {}: {signature}",
-            structural_kind_label(candidate.symbol_kind()),
-            candidate.name()
-        )
-    };
-    cap_structural_summary(&summary)
-}
-
-fn structural_target_list(edges: &[&StructuralSummaryEdge], limit: usize) -> String {
-    let shown = edges
-        .iter()
-        .take(limit)
-        .map(|edge| edge.target_name())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let omitted = edges.len().saturating_sub(limit);
-    if omitted == 0 {
-        shown
-    } else {
-        format!("{shown} (+{omitted} more)")
-    }
-}
-
-fn structural_kind_label(kind: &str) -> String {
-    let mut label = kind.replace('_', " ");
-    if let Some(first) = label.get_mut(0..1) {
-        first.make_ascii_uppercase();
-    }
-    label
-}
-
-fn structural_edges<'candidate>(
-    candidate: &'candidate PendingStructuralSummary,
-    kind: &str,
-) -> Vec<&'candidate StructuralSummaryEdge> {
-    let mut seen = BTreeSet::new();
-    candidate
-        .edges()
-        .iter()
-        .filter(|edge| edge.edge_kind() == kind)
-        .filter(|edge| seen.insert(edge.target_symbol_id()))
-        .collect()
-}
-
-fn cap_structural_summary(value: &str) -> String {
-    let one_line = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if one_line.len() <= SUMMARY_MAXIMUM_TEXT_BYTES {
-        return one_line;
-    }
-    let body_limit = SUMMARY_MAXIMUM_TEXT_BYTES.saturating_sub("...".len());
-    let (body, _) = bounded_utf8_text(&one_line, body_limit);
-    format!("{}...", body.trim_end())
+    let report =
+        cartograph_agent::run_structural_summary_sweep(runtime, policy, cancellation).await?;
+    serde_json::to_value(report).map_err(|_| ProjectError::EnrichmentDataInvalid)
 }
 
 async fn run_structural_rollup_sweep(
@@ -15957,6 +15618,8 @@ fn ready_database_storage(totals: StorageTotalsReport) -> Value {
     json!({
         "state": "ready",
         "databaseBytes": totals.database_bytes,
+        "databaseCatalogBytes": totals.database_catalog_bytes,
+        "unattributedDatabaseBytes": totals.unattributed_database_bytes,
         "schemaBytes": totals.schema_bytes,
         "heapBytes": totals.heap_bytes,
         "indexBytes": totals.index_bytes,
@@ -20185,7 +19848,8 @@ fn admin_definition() -> Result<ToolDefinition, ToolContractError> {
         "maximumSourceBytes": {"type": "integer", "minimum": 1, "maximum": ADMIN_DEFAULT_IMPORT_SOURCE_BYTES},
         "keepSuperseded": {"type": "integer", "minimum": 0, "maximum": ADMIN_RETENTION_MAXIMUM_COUNT},
         "maximumDeletions": {"type": "integer", "minimum": 1, "maximum": ADMIN_RETENTION_MAXIMUM_COUNT},
-        "maximumCascadeRows": {"type": "integer", "minimum": 1, "maximum": ADMIN_RETENTION_MAXIMUM_CASCADE_ROWS, "description": "prune-generations only. Override the default 5,000,000 canonical/cascade-row transaction cap within the hard 100,000,000-row bound."},
+        "maximumCascadeRows": {"type": "integer", "minimum": 1, "maximum": ADMIN_RETENTION_MAXIMUM_CASCADE_ROWS, "description": "prune-generations only. Override the default 5,000,000 canonical-row invocation cap within the hard 100,000,000-row bound."},
+        "maximumSearchRelationBytes": {"type": "integer", "minimum": 1, "maximum": 68_719_476_736_u64, "description": "prune-generations only. Audited physical search-relation byte budget; default 8 GiB, hard maximum 64 GiB."},
         "k": {"type": "integer", "minimum": 1, "maximum": ADMIN_SIMILARITY_MAXIMUM_K},
         "minScore": {"type": "number", "minimum": 0, "maximum": 1},
         "maxAgeDays": {"type": "number", "minimum": 0},
@@ -21791,6 +21455,7 @@ const ADMIN_ARGUMENT_FIELDS: &[&str] = &[
     "keepSuperseded",
     "maximumDeletions",
     "maximumCascadeRows",
+    "maximumSearchRelationBytes",
     "k",
     "minScore",
     "maxAgeDays",
@@ -25183,6 +24848,8 @@ mod tests {
     fn database_storage_status_is_human_readable_without_replacing_exact_bytes() {
         let storage = ready_database_storage(StorageTotalsReport {
             database_bytes: 2_175_776_447,
+            database_catalog_bytes: 2_100_000_000,
+            unattributed_database_bytes: 75_776_447,
             schema_bytes: 2_028_986_368,
             heap_bytes: 951_353_344,
             index_bytes: 993_681_408,
@@ -25191,6 +24858,8 @@ mod tests {
         });
 
         assert_eq!(storage["databaseBytes"], 2_175_776_447_u64);
+        assert_eq!(storage["databaseCatalogBytes"], 2_100_000_000_u64);
+        assert_eq!(storage["unattributedDatabaseBytes"], 75_776_447_u64);
         assert_eq!(storage["schemaBytes"], 2_028_986_368_u64);
         assert_eq!(storage["humanReadable"]["database"], "2.03 GiB");
         assert_eq!(storage["humanReadable"]["schema"], "1.89 GiB");
@@ -27884,11 +27553,22 @@ app.get('/orders', forward);
             assert_eq!(rollups[0].metadata()["model"], "fixture-rollup-model");
             assert_eq!(rollups[0].metadata()["generationMode"], "llm");
         }
-        let cached =
-            run_structural_summary_sweep(runtime.clone(), policy, ProjectCancellation::new())
-                .await
-                .unwrap_or_else(|error| panic!("cached structural sweep failed: {error}"));
-        assert_eq!(cached["generated"], 0);
+        let cached = cartograph_agent::run_structural_summary_sweep(
+            runtime.clone(),
+            policy,
+            ProjectCancellation::new(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cached structural sweep failed: {error}"));
+        assert_eq!(cached.generated(), 0);
+        assert!(!cached.source_changed());
+        let cancelled = ProjectCancellation::new();
+        cancelled.cancel();
+        assert!(matches!(
+            cartograph_agent::run_structural_summary_sweep(runtime.clone(), policy, cancelled)
+                .await,
+            Err(ProjectError::RequestCancelled)
+        ));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -28228,6 +27908,10 @@ pub fn root() -> u32 {
                     ("keepSuperseded".to_owned(), json!(0)),
                     ("maximumDeletions".to_owned(), json!(1)),
                     ("maximumCascadeRows".to_owned(), json!(5_200_000)),
+                    (
+                        "maximumSearchRelationBytes".to_owned(),
+                        json!(10_737_418_240_u64),
+                    ),
                     ("confirm".to_owned(), json!(true)),
                 ]),
             )

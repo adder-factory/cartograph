@@ -7,14 +7,14 @@ use crate::{
     EmbeddingBatch, EmbeddingError, EmbeddingModelIdentity, EmbeddingSettings, EmbeddingVector,
 };
 
-const USER_AGENT: &str = concat!("cartograph/", env!("CARGO_PKG_VERSION"));
+use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model_transport};
 
 /// Reusable bounded async client for one immutable endpoint/model configuration.
 #[derive(Clone)]
 pub struct OpenAiEmbeddingClient {
     settings: EmbeddingSettings,
     identity: EmbeddingModelIdentity,
-    client: reqwest::Client,
+    transport: std::sync::Arc<ModelTransport>,
 }
 
 impl std::fmt::Debug for OpenAiEmbeddingClient {
@@ -34,14 +34,14 @@ impl OpenAiEmbeddingClient {
     /// Returns an error if no TLS crypto provider can be installed or the
     /// redirect-free bounded embedding HTTP client cannot be built.
     pub fn new(settings: EmbeddingSettings) -> Result<Self, EmbeddingError> {
-        crate::ensure_tls_crypto_provider().map_err(|_| EmbeddingError::ClientUnavailable)?;
-        let client = reqwest::Client::builder()
-            .connect_timeout(settings.connect_timeout())
-            .timeout(settings.request_timeout())
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|_| EmbeddingError::ClientUnavailable)?;
+        let transport = model_transport(TransportSettings {
+            endpoint: settings.endpoint(),
+            model: settings.model(),
+            api_key: settings.api_key(),
+            connect_timeout: settings.connect_timeout(),
+            request_timeout: settings.request_timeout(),
+        })
+        .map_err(|()| EmbeddingError::ClientUnavailable)?;
         let identity = EmbeddingModelIdentity::from_endpoint_and_model(
             settings.endpoint().as_str(),
             settings.model(),
@@ -49,7 +49,7 @@ impl OpenAiEmbeddingClient {
         Ok(Self {
             settings,
             identity,
-            client,
+            transport,
         })
     }
 
@@ -77,15 +77,48 @@ impl OpenAiEmbeddingClient {
     /// Returns an error if batch/text/header bounds fail, the endpoint rejects
     /// or is unavailable, or response bytes/JSON/indices/vectors violate the contract.
     pub async fn embed(&self, inputs: &[String]) -> Result<EmbeddingBatch, EmbeddingError> {
+        self.embed_with_priority(inputs, RequestPriority::Foreground)
+            .await
+    }
+
+    /// Embed a background batch while reserving endpoint capacity for queries.
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::embed`], including endpoint unavailability
+    /// when the bounded queue or shared request deadline is exhausted.
+    pub async fn embed_background(
+        &self,
+        inputs: &[String],
+    ) -> Result<EmbeddingBatch, EmbeddingError> {
+        self.embed_with_priority(inputs, RequestPriority::Background)
+            .await
+    }
+
+    async fn embed_with_priority(
+        &self,
+        inputs: &[String],
+        priority: RequestPriority,
+    ) -> Result<EmbeddingBatch, EmbeddingError> {
         validate_inputs(inputs, &self.settings)?;
+        let admission = self
+            .transport
+            .admit(priority, self.settings.request_timeout())
+            .await
+            .map_err(|()| EmbeddingError::EndpointUnavailable)?;
         let request = EmbeddingRequest {
             model: self.settings.model(),
             input: inputs,
             encoding_format: "float",
         };
         let mut builder = self
+            .transport
             .client
             .post(self.settings.endpoint().clone())
+            .timeout(
+                admission
+                    .remaining()
+                    .map_err(|()| EmbeddingError::EndpointUnavailable)?,
+            )
             .json(&request);
         if let Some(api_key) = self.settings.api_key() {
             let value = format!("Bearer {}", api_key.expose_secret());

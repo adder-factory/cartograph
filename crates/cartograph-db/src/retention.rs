@@ -1,5 +1,9 @@
 use std::{future::Future, time::Duration};
 
+mod drain;
+mod telemetry;
+pub use telemetry::GenerationRetentionAttempt;
+
 use cartograph_domain::{GenerationId, ProjectOperation};
 use serde::Serialize;
 use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
@@ -63,7 +67,8 @@ pub struct GenerationRetentionPolicy {
     maximum_ddl_relations: u32,
 }
 
-/// Exact lease fence and deadline for one bounded retention transaction.
+/// Exact lease fence and deadline for a bounded sequence of retention transactions.
+#[derive(Clone, Copy)]
 pub struct GenerationRetentionRequest<'a> {
     policy: GenerationRetentionPolicy,
     fence: &'a LeaseFence,
@@ -187,6 +192,23 @@ impl GenerationRetentionPolicy {
         Ok(self)
     }
 
+    /// Admit an explicitly audited physical search-relation byte budget.
+    /// # Errors
+    /// Returns an error for zero or a budget above the 64 GiB hard maximum.
+    pub const fn with_maximum_search_relation_bytes(
+        mut self,
+        maximum_search_relation_bytes: u64,
+    ) -> Result<Self, GenerationRetentionError> {
+        if !valid_positive_limit(
+            maximum_search_relation_bytes,
+            MAXIMUM_SEARCH_RELATION_BYTE_BUDGET,
+        ) {
+            return Err(GenerationRetentionError::InvalidPolicy);
+        }
+        self.maximum_search_relation_bytes = maximum_search_relation_bytes;
+        Ok(self)
+    }
+
     /// Override exact row, physical relation-byte, and DDL-count work caps.
     /// # Errors
     ///
@@ -284,6 +306,12 @@ pub struct GenerationRetentionReport {
     pub staging_remaining: u64,
     /// Ready generations still protected or waiting for a later bounded batch.
     pub ready_remaining: u64,
+    /// Generations with committed partial cleanup still awaiting a later batch.
+    pub retiring_remaining: u64,
+    /// Number of independently committed, bounded row batches.
+    pub batches_committed: u64,
+    /// Stable reason more eligible work was left for a later invocation.
+    pub deferred_reason: Option<&'static str>,
     /// Canonical and cascading rows admitted under the exact row-work cap.
     pub cascade_rows_removed: u64,
     /// Physical generation search relations removed in the bounded DDL batch.
@@ -402,70 +430,7 @@ impl CartographDatabase {
         Observe: FnOnce() -> Observed,
         Observed: Future<Output = ()>,
     {
-        validate_fence_shape(request.fence)?;
-        if request.statement_timeout.is_zero() {
-            return Err(GenerationRetentionError::InvalidPolicy);
-        }
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("begin"))?;
-        if crate::database::set_local_statement_timeout(&mut transaction, request.statement_timeout)
-            .await
-            .is_err()
-        {
-            let _ = transaction.rollback().await;
-            return Err(GenerationRetentionError::InvalidPolicy);
-        }
-        let context = RetentionContext {
-            database: self,
-            policy: request.policy,
-            fence: request.fence,
-            quoted_schema: crate::database::quoted_schema(&self.schema),
-        };
-        let result = cleanup_transaction(&mut transaction, &context, observe_catalog).await;
-        match result {
-            Ok(report) => {
-                transaction
-                    .commit()
-                    .await
-                    .map_err(|_| database_error("commit"))?;
-                let mut report = report;
-                match post_retention_maintenance_plan(
-                    report.cascade_rows_removed,
-                    request.post_retention_maintenance,
-                ) {
-                    PostRetentionMaintenancePlan::NotNeeded => {}
-                    PostRetentionMaintenancePlan::DelegateToAutovacuum => {
-                        report.maintenance = PostRetentionMaintenance::Delegated {
-                            mechanism: "autovacuum",
-                        };
-                    }
-                    PostRetentionMaintenancePlan::VacuumTables => {
-                        report.maintenance = match self
-                            .vacuum_retention_tables(request.statement_timeout)
-                            .await
-                        {
-                            Ok(tables_attempted) => {
-                                PostRetentionMaintenance::Completed { tables_attempted }
-                            }
-                            Err(()) => PostRetentionMaintenance::Deferred {
-                                reason: "table_maintenance_unavailable",
-                            },
-                        };
-                    }
-                }
-                Ok(report)
-            }
-            Err(error) => {
-                transaction
-                    .rollback()
-                    .await
-                    .map_err(|_| database_error("rollback"))?;
-                Err(error)
-            }
-        }
+        drain::cleanup(self, request, observe_catalog).await
     }
 
     async fn vacuum_retention_tables(&self, statement_timeout: Duration) -> Result<u64, ()> {
@@ -526,6 +491,7 @@ struct RetentionContext<'a> {
     quoted_schema: String,
 }
 
+#[derive(Default)]
 struct RemovedGenerationCounts {
     staging: u64,
     ready: u64,
@@ -540,6 +506,7 @@ struct PreservedGenerationCounts {
     ready: u64,
     superseded: u64,
     failed: u64,
+    retiring: u64,
 }
 
 struct RetentionCandidate {
@@ -548,7 +515,6 @@ struct RetentionCandidate {
 
 struct CandidateWork {
     candidate: RetentionCandidate,
-    cascade_rows: u64,
     search_relation_bytes: u64,
     search_relation_present: bool,
 }
@@ -556,7 +522,6 @@ struct CandidateWork {
 #[derive(Default)]
 struct BoundedCandidateWork {
     candidates: Vec<CandidateWork>,
-    cascade_rows: u64,
     search_relation_bytes: u64,
     search_relations: u64,
 }
@@ -576,26 +541,16 @@ where
     lock_retention_relations(connection, context).await?;
     verify_retention_cascade_catalog(connection, context).await?;
     observe_catalog().await;
-    let candidates = load_terminal_candidates(connection, context).await?;
+    let candidates = load_terminal_candidates(connection, context, true).await?;
+    let relation_budget_blocked = candidates.is_empty()
+        && !load_terminal_candidates(connection, context, false)
+            .await?
+            .is_empty();
     let bounded = bound_candidate_work(connection, context, candidates).await?;
-    for work in bounded
-        .candidates
-        .iter()
-        .filter(|work| work.search_relation_present)
-    {
-        crate::search_relation::drop_generation_search_relation(
-            connection,
-            &context.database.schema,
-            &work.candidate.generation_id,
-        )
-        .await
-        .map_err(|_| database_error("drop-generation-search-relation"))?;
-    }
-    // The relation locks make FK-changing DDL wait. Re-reading the complete
-    // catalog immediately before DELETE also fails closed if pre-existing
-    // catalog drift was exposed by a concurrent transaction snapshot.
+    let progress = drain::delete_rows(connection, context, &bounded.candidates).await?;
+    // Revalidate the complete FK graph while its DDL fence is still held.
     verify_retention_cascade_catalog(connection, context).await?;
-    let removed = delete_terminal_generations(connection, context, &bounded.candidates).await?;
+    let removed = progress.removed;
     let preserved = load_preserved_counts(connection, context).await?;
     // Row locks prevent takeover, but they do not freeze database-clock expiry.
     require_live_fence(connection, context).await?;
@@ -610,9 +565,18 @@ where
         failed_remaining: preserved.failed,
         staging_remaining: preserved.staging,
         ready_remaining: preserved.ready,
-        cascade_rows_removed: bounded.cascade_rows,
-        search_relations_removed: bounded.search_relations,
-        search_relation_bytes_removed: bounded.search_relation_bytes,
+        retiring_remaining: preserved.retiring,
+        batches_committed: 1,
+        deferred_reason: relation_budget_blocked.then_some(
+            if context.policy.maximum_ddl_relations == 0 {
+                "search_relation_ddl_budget"
+            } else {
+                "search_relation_byte_budget"
+            },
+        ),
+        cascade_rows_removed: progress.rows,
+        search_relations_removed: progress.relations,
+        search_relation_bytes_removed: progress.bytes,
         maintenance: PostRetentionMaintenance::NotNeeded,
     })
 }
@@ -620,6 +584,7 @@ where
 async fn load_terminal_candidates(
     connection: &mut sqlx_postgres::PgConnection,
     context: &RetentionContext<'_>,
+    within_relation_budget: bool,
 ) -> Result<Vec<RetentionCandidate>, GenerationRetentionError> {
     let stale_staging_millis = i64::try_from(context.policy.stale_staging_age.as_millis())
         .map_err(|_| GenerationRetentionError::InvalidPolicy)?;
@@ -628,76 +593,53 @@ async fn load_terminal_candidates(
     let sql = format!(
         r#"WITH ranked AS (
                 SELECT generation_id, generation_sequence, state, started_at, ready_at,
-                       row_number() OVER (
-                           PARTITION BY state ORDER BY generation_sequence DESC
-                       ) AS state_rank
-                FROM {}."index_generations"
-                WHERE project_id = CAST($1 AS uuid)
-            )
-            SELECT generation_id::text
-            FROM ranked
-            WHERE (state = 'failed' AND NOT EXISTS (
-                    SELECT 1
-                    FROM {}."v1_import_runs" AS import_runs
-                    WHERE import_runs.project_id = CAST($1 AS uuid)
-                      AND import_runs.generation_id = ranked.generation_id
-                      AND import_runs.checkpoint <> 'complete'
-                ))
-               OR (state = 'superseded' AND state_rank > $2)
-               OR (state = 'ready'
-                   AND COALESCE(ready_at, started_at)
-                       <= clock_timestamp() - $4 * interval '1 millisecond'
-                   AND generation_id IS DISTINCT FROM (
-                       SELECT current_generation_id
-                       FROM {}."projects"
-                       WHERE project_id = CAST($1 AS uuid)
-                   )
-                   AND NOT EXISTS (
-                       SELECT 1
-                       FROM {}."project_operation_leases" AS leases
-                       WHERE leases.project_id = CAST($1 AS uuid)
-                         AND leases.generation_id = ranked.generation_id
-                         AND leases.expires_at > clock_timestamp()
-                   )
-                   AND NOT EXISTS (
-                       SELECT 1
-                       FROM {}."v1_import_runs" AS import_runs
-                       WHERE import_runs.project_id = CAST($1 AS uuid)
-                         AND import_runs.generation_id = ranked.generation_id
-                         AND import_runs.checkpoint <> 'complete'
-                   ))
-               OR (state = 'staging'
-                   AND started_at <= clock_timestamp() - $3 * interval '1 millisecond'
-                   AND NOT EXISTS (
-                       SELECT 1
-                       FROM {}."project_operation_leases" AS leases
-                       WHERE leases.project_id = CAST($1 AS uuid)
-                         AND leases.generation_id = ranked.generation_id
-                         AND leases.expires_at > clock_timestamp()
-                   )
-                   AND NOT EXISTS (
-                       SELECT 1
-                       FROM {}."v1_import_runs" AS import_runs
-                       WHERE import_runs.project_id = CAST($1 AS uuid)
-                         AND import_runs.generation_id = ranked.generation_id
-                         AND import_runs.checkpoint <> 'complete'
-                   ))
-            ORDER BY generation_sequence ASC
-            LIMIT $5"#,
-        context.quoted_schema,
-        context.quoted_schema,
-        context.quoted_schema,
-        context.quoted_schema,
-        context.quoted_schema,
-        context.quoted_schema,
-        context.quoted_schema,
+                    row_number() OVER (PARTITION BY state ORDER BY generation_sequence DESC) AS state_rank
+                FROM {schema}."index_generations" WHERE project_id = $1::uuid
+            ) SELECT generation_id::text FROM ranked
+            WHERE (state IN ('failed', 'retiring')
+                OR (state = 'superseded' AND state_rank > $2)
+                OR (state = 'ready' AND COALESCE(ready_at, started_at)
+                    <= clock_timestamp() - $4 * interval '1 millisecond')
+                OR (state = 'staging' AND started_at
+                    <= clock_timestamp() - $3 * interval '1 millisecond'))
+              AND generation_id IS DISTINCT FROM (
+                  SELECT current_generation_id FROM {schema}."projects" WHERE project_id = $1::uuid
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM {schema}."project_operation_leases" AS active
+                  WHERE active.project_id = $1::uuid AND active.generation_id = ranked.generation_id
+                    AND active.expires_at > clock_timestamp()
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM {schema}."v1_import_runs" AS recovery
+                  WHERE recovery.project_id = $1::uuid AND recovery.generation_id = ranked.generation_id
+                    AND recovery.checkpoint <> 'complete'
+              )
+              AND (COALESCE(pg_total_relation_size(to_regclass(format(
+                  '%I.%I', $6::text, 'search_g_' || replace(generation_id::text, '-', '')
+              ))), 0) <= $7 AND ($9 > 0 OR to_regclass(format(
+                  '%I.%I', $6::text, 'search_g_' || replace(generation_id::text, '-', '')
+              )) IS NULL)) = $8
+            ORDER BY (state = 'retiring') DESC, generation_sequence ASC LIMIT $5"#,
+        schema = context.quoted_schema,
     );
     query(AssertSqlSafe(sql))
         .bind(context.fence.target().project_id().as_str())
         .bind(i64::from(context.policy.recent_superseded))
         .bind(stale_staging_millis)
         .bind(stale_ready_millis)
-        .bind(i64::from(context.policy.maximum_deletions))
+        .bind(i64::from(if within_relation_budget {
+            context.policy.maximum_deletions
+        } else {
+            1
+        }))
+        .bind(context.database.schema.as_str())
+        .bind(
+            i64::try_from(context.policy.maximum_search_relation_bytes)
+                .map_err(|_| GenerationRetentionError::InvalidPolicy)?,
+        )
+        .bind(within_relation_budget)
+        .bind(i64::from(context.policy.maximum_ddl_relations))
         .fetch_all(connection)
         .await
         .map_err(|_| database_error("load-terminal-generations"))?
@@ -738,20 +680,13 @@ fn select_bounded_candidate_work(
         {
             continue;
         }
-        let cascade_rows = bounded
-            .cascade_rows
-            .checked_add(work.cascade_rows)
-            .ok_or_else(|| database_error("candidate-row-budget"))?;
         let search_relation_bytes = bounded
             .search_relation_bytes
             .checked_add(work.search_relation_bytes)
             .ok_or_else(|| database_error("candidate-byte-budget"))?;
-        if cascade_rows > policy.maximum_cascade_rows
-            || search_relation_bytes > policy.maximum_search_relation_bytes
-        {
+        if search_relation_bytes > policy.maximum_search_relation_bytes {
             continue;
         }
-        bounded.cascade_rows = cascade_rows;
         bounded.search_relation_bytes = search_relation_bytes;
         if work.search_relation_present {
             bounded.search_relations += 1;
@@ -773,54 +708,19 @@ async fn load_candidate_work(
         .iter()
         .map(|candidate| candidate.generation_id.as_str().to_owned())
         .collect::<Vec<_>>();
-    let cascade_counts = RETENTION_ROW_TABLES
-        .iter()
-        .map(|table| {
-            format!(
-                r#"SELECT rows.generation_id, count(*)::bigint AS relation_rows
-                    FROM {}."{table}" AS rows
-                    INNER JOIN candidates
-                        ON candidates.generation_id = rows.generation_id
-                    WHERE rows.project_id = CAST($1 AS uuid)
-                    GROUP BY rows.generation_id"#,
-                context.quoted_schema,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" UNION ALL ");
-    let sql = format!(
-        r"WITH candidates AS (
-                SELECT listed.generation_id, listed.ordinal
-                FROM unnest(CAST($2 AS uuid[])) WITH ORDINALITY
-                    AS listed(generation_id, ordinal)
-            ), relation_counts AS (
-                {cascade_counts}
-            ), cascade_counts AS (
-                SELECT generation_id, sum(relation_rows)::bigint AS cascade_rows
-                FROM relation_counts
-                GROUP BY generation_id
-            )
-            SELECT
-                candidates.generation_id::text AS generation_id,
-                COALESCE(cascade_counts.cascade_rows, 0)::bigint AS cascade_rows,
-                COALESCE(
-                    pg_total_relation_size(to_regclass(format(
-                        '%I.%I',
-                        CAST($3 AS text),
-                        'search_g_' || replace(candidates.generation_id::text, '-', '')
-                    ))),
-                    0
-                )::bigint AS search_relation_bytes,
-                to_regclass(format(
-                    '%I.%I',
-                    CAST($3 AS text),
-                    'search_g_' || replace(candidates.generation_id::text, '-', '')
+    // Only catalog metadata is measured. Fact rows are admitted by DELETE LIMIT,
+    // never by counting an entire retained generation before enforcing a cap.
+    let sql = r"SELECT listed.generation_id::text AS generation_id,
+                COALESCE(pg_total_relation_size(to_regclass(format(
+                    '%I.%I', $3::text,
+                    'search_g_' || replace(listed.generation_id::text, '-', '')
+                ))), 0)::bigint AS search_relation_bytes,
+                to_regclass(format('%I.%I', $3::text,
+                    'search_g_' || replace(listed.generation_id::text, '-', '')
                 )) IS NOT NULL AS search_relation_present
-            FROM candidates
-            LEFT JOIN cascade_counts
-                ON cascade_counts.generation_id = candidates.generation_id
-            ORDER BY candidates.ordinal",
-    );
+            FROM unnest(CAST($2 AS uuid[])) WITH ORDINALITY
+                AS listed(generation_id, ordinal)
+            WHERE $1::uuid IS NOT NULL ORDER BY listed.ordinal";
     query(AssertSqlSafe(sql))
         .bind(context.fence.target().project_id().as_str())
         .bind(generation_ids)
@@ -835,14 +735,12 @@ async fn load_candidate_work(
                 .map_err(|_| database_error("decode-candidate-work"))?;
             let generation_id = GenerationId::parse(&generation_id)
                 .map_err(|_| database_error("decode-candidate-work"))?;
-            let cascade_rows = read_named_count(row, "cascade_rows")?;
             let search_relation_bytes = read_named_count(row, "search_relation_bytes")?;
             let search_relation_present = row
                 .try_get::<bool, _>("search_relation_present")
                 .map_err(|_| database_error("decode-candidate-work"))?;
             Ok(CandidateWork {
                 candidate: RetentionCandidate { generation_id },
-                cascade_rows,
                 search_relation_bytes,
                 search_relation_present,
             })
@@ -880,7 +778,7 @@ async fn verify_retention_cascade_catalog(
             ORDER BY nspname, relname",
     )
     .bind(context.database.schema.as_str())
-    .fetch_all(connection)
+    .fetch_all(&mut *connection)
     .await
     .map_err(|_| database_error("verify-cascade-catalog"))?;
     let actual = rows
@@ -906,7 +804,7 @@ async fn verify_retention_cascade_catalog(
         .collect::<Vec<_>>();
     expected.sort_unstable();
     if actual == expected {
-        Ok(())
+        drain::verify_delete_order(connection, context).await
     } else {
         Err(database_error("cascade-catalog-mismatch"))
     }
@@ -998,61 +896,6 @@ async fn lock_project(
     }
 }
 
-async fn delete_terminal_generations(
-    connection: &mut sqlx_postgres::PgConnection,
-    context: &RetentionContext<'_>,
-    candidates: &[CandidateWork],
-) -> Result<RemovedGenerationCounts, GenerationRetentionError> {
-    if candidates.is_empty() {
-        return Ok(RemovedGenerationCounts {
-            staging: 0,
-            ready: 0,
-            superseded: 0,
-            failed: 0,
-            embeddings: 0,
-        });
-    }
-    let generation_ids = candidates
-        .iter()
-        .map(|work| work.candidate.generation_id.as_str().to_owned())
-        .collect::<Vec<_>>();
-    let cleanup_sql = format!(
-        r#"WITH candidate_embeddings AS MATERIALIZED (
-                SELECT count(*)::bigint AS embeddings_removed
-                FROM {}."document_embeddings" AS embeddings
-                WHERE embeddings.project_id = CAST($1 AS uuid)
-                  AND embeddings.generation_id = ANY(CAST($2 AS uuid[]))
-            ), deleted AS (
-                DELETE FROM {}."index_generations" AS generations
-                WHERE generations.project_id = CAST($1 AS uuid)
-                  AND generations.generation_id = ANY(CAST($2 AS uuid[]))
-                  AND generations.state IN ('staging', 'ready', 'failed', 'superseded')
-                RETURNING generations.state
-            )
-            SELECT
-                count(*) FILTER (WHERE state = 'staging')::bigint AS staging_removed,
-                count(*) FILTER (WHERE state = 'ready')::bigint AS ready_removed,
-                count(*) FILTER (WHERE state = 'superseded')::bigint AS superseded_removed,
-                count(*) FILTER (WHERE state = 'failed')::bigint AS failed_removed,
-                (SELECT embeddings_removed FROM candidate_embeddings) AS embeddings_removed
-            FROM deleted"#,
-        context.quoted_schema, context.quoted_schema
-    );
-    let row = query(AssertSqlSafe(cleanup_sql))
-        .bind(context.fence.target().project_id().as_str())
-        .bind(generation_ids)
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(|_| database_error("delete-terminal-generations"))?;
-    Ok(RemovedGenerationCounts {
-        staging: read_named_count(&row, "staging_removed")?,
-        ready: read_named_count(&row, "ready_removed")?,
-        superseded: read_named_count(&row, "superseded_removed")?,
-        failed: read_named_count(&row, "failed_removed")?,
-        embeddings: read_named_count(&row, "embeddings_removed")?,
-    })
-}
-
 async fn load_preserved_counts(
     connection: &mut sqlx_postgres::PgConnection,
     context: &RetentionContext<'_>,
@@ -1063,7 +906,8 @@ async fn load_preserved_counts(
             count(*) FILTER (WHERE state = 'staging')::bigint AS staging_remaining,
             count(*) FILTER (WHERE state = 'ready')::bigint AS ready_remaining,
             count(*) FILTER (WHERE state = 'superseded')::bigint AS superseded_preserved,
-            count(*) FILTER (WHERE state = 'failed')::bigint AS failed_remaining
+            count(*) FILTER (WHERE state = 'failed')::bigint AS failed_remaining,
+            count(*) FILTER (WHERE state = 'retiring')::bigint AS retiring_remaining
         FROM {}."index_generations"
         WHERE project_id = CAST($1 AS uuid)"#,
         context.quoted_schema
@@ -1079,6 +923,7 @@ async fn load_preserved_counts(
         ready: read_named_count(&remaining, "ready_remaining")?,
         superseded: read_named_count(&remaining, "superseded_preserved")?,
         failed: read_named_count(&remaining, "failed_remaining")?,
+        retiring: read_named_count(&remaining, "retiring_remaining")?,
     })
 }
 
@@ -1247,8 +1092,8 @@ mod tests {
         let policy = GenerationRetentionPolicy::new(0, 3)
             .and_then(|policy| policy.with_work_limits(10, 100, 3))
             .unwrap_or_else(|error| panic!("retention test policy failed: {error}"));
-        let oversized = candidate_work("00000000-0000-0000-0000-000000000001", 11, 1, true);
-        let smaller = candidate_work("00000000-0000-0000-0000-000000000002", 4, 20, true);
+        let oversized = candidate_work("00000000-0000-0000-0000-000000000001", 101, true);
+        let smaller = candidate_work("00000000-0000-0000-0000-000000000002", 20, true);
 
         let selected = select_bounded_candidate_work(policy, [oversized, smaller])
             .unwrap_or_else(|error| panic!("candidate selection failed: {error}"));
@@ -1258,7 +1103,6 @@ mod tests {
             selected.candidates[0].candidate.generation_id.as_str(),
             "00000000-0000-0000-0000-000000000002"
         );
-        assert_eq!(selected.cascade_rows, 4);
         assert_eq!(selected.search_relation_bytes, 20);
         assert_eq!(selected.search_relations, 1);
     }
@@ -1268,15 +1112,13 @@ mod tests {
         let policy = GenerationRetentionPolicy::new(0, 100)
             .and_then(|policy| policy.with_work_limits(1_000, 1_000, 2))
             .unwrap_or_else(|error| panic!("retention test policy failed: {error}"));
-        let candidates = (1_u32..=100).map(|index| {
-            candidate_work(&format!("00000000-0000-0000-0000-{index:012}"), 1, 0, false)
-        });
+        let candidates = (1_u32..=100)
+            .map(|index| candidate_work(&format!("00000000-0000-0000-0000-{index:012}"), 0, false));
 
         let selected = select_bounded_candidate_work(policy, candidates)
             .unwrap_or_else(|error| panic!("candidate selection failed: {error}"));
 
         assert_eq!(selected.candidates.len(), 100);
-        assert_eq!(selected.cascade_rows, 100);
         assert_eq!(selected.search_relation_bytes, 0);
         assert_eq!(selected.search_relations, 0);
     }
@@ -1286,9 +1128,8 @@ mod tests {
         let policy = GenerationRetentionPolicy::new(0, 100)
             .and_then(|policy| policy.with_work_limits(1_000, 1_000, 2))
             .unwrap_or_else(|error| panic!("retention test policy failed: {error}"));
-        let candidates = (0_u32..5).map(|index| {
-            candidate_work(&format!("10000000-0000-0000-0000-{index:012}"), 1, 1, true)
-        });
+        let candidates = (0_u32..5)
+            .map(|index| candidate_work(&format!("10000000-0000-0000-0000-{index:012}"), 1, true));
 
         let selected = select_bounded_candidate_work(policy, candidates)
             .unwrap_or_else(|error| panic!("candidate selection failed: {error}"));
@@ -1299,7 +1140,6 @@ mod tests {
 
     fn candidate_work(
         generation_id: &str,
-        cascade_rows: u64,
         relation_bytes: u64,
         search_relation_present: bool,
     ) -> CandidateWork {
@@ -1308,7 +1148,6 @@ mod tests {
                 generation_id: GenerationId::parse(generation_id)
                     .unwrap_or_else(|error| panic!("test generation id failed: {error}")),
             },
-            cascade_rows,
             search_relation_bytes: relation_bytes,
             search_relation_present,
         }

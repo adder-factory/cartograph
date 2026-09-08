@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-08-25 (`v2.1.27`).
+Last release audit: 2026-09-08 (`v2.1.28`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds and confirmation phrases in the installed version. This page
@@ -130,7 +130,7 @@ or database settings.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.27 top-level command advertised
+This inventory contains every non-hidden v2.1.28 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 
@@ -250,6 +250,22 @@ cartograph db prune
 cartograph db usage
 cartograph db compact
 ```
+
+Storage inventory accepts `--limit` (1–128), `--table-offset`, and
+`--index-offset` (0–100,000) for independent table/index pages. JSON includes
+complete catalog counts, per-page truncation, statistics observation/reset
+context, and nullable live/dead row estimates when counters are unobserved.
+It also reports the latest automatic retention attempt, retiring generations,
+and database allocation outside the observed relation catalog. This allocation
+gap does not identify safely deletable files.
+
+Prune accepts `--maximum-cascade-rows` (1–100,000,000; default 5,000,000) and
+`--maximum-search-relation-bytes` (1–68,719,476,736; default 8 GiB). These are
+invocation budgets. Canonical rows drain in resumable transactions of at most
+10,000 rows; `batches_committed`, `retiring_remaining`, and `deferred_reason`
+distinguish durable progress from pending work. Inspect the report before
+repeating the confirmed command. MCP exposes the same limits as
+`maximumCascadeRows` and `maximumSearchRelationBytes` on `prune-generations`.
 
 Managed lifecycle is supported on macOS/Linux with local Docker. Windows uses
 external PostgreSQL. Restore, upgrade, derived-index rebuild, remove, v1 import,

@@ -32,14 +32,60 @@ pub struct TableStorageUsage {
     pub toast_bytes: u64,
     /// Number of bytes used by the total.
     pub total_bytes: u64,
-    /// Number of estimated live rows.
-    pub estimated_live_rows: u64,
-    /// Number of estimated dead rows.
-    pub estimated_dead_rows: u64,
+    /// Estimated live rows; absent when tracking or an observation is unavailable.
+    pub estimated_live_rows: Option<u64>,
+    /// Estimated dead rows; absent when tracking or an observation is unavailable.
+    pub estimated_dead_rows: Option<u64>,
     /// Optional last autovacuum, when available.
     pub last_autovacuum: Option<String>,
     /// Number of autovacuum entries.
-    pub autovacuum_count: u64,
+    pub autovacuum_count: Option<u64>,
+    /// Most recent manual VACUUM, if retained by PostgreSQL statistics.
+    pub last_vacuum: Option<String>,
+    /// Most recent manual ANALYZE, if retained by PostgreSQL statistics.
+    pub last_analyze: Option<String>,
+    /// Most recent automatic ANALYZE, if retained by PostgreSQL statistics.
+    pub last_autoanalyze: Option<String>,
+}
+
+/// Observation context for cumulative estimates, distinct from allocated bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageStatisticsObservation {
+    /// Server time when the statistics context was read.
+    pub observed_at: String,
+    /// Database-wide reset time; individual relation resets can occur separately.
+    pub database_stats_reset: Option<String>,
+    /// Statistics snapshot time, absent when PostgreSQL uses per-object caching.
+    pub snapshot_at: Option<String>,
+    /// Whether this server currently collects table row statistics.
+    pub track_counts: bool,
+}
+
+/// Independently bounded offsets into the table and index inventories.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StorageUsageOffsets {
+    /// Number of table rows preceding this page.
+    pub tables: u32,
+    /// Number of index rows preceding this page.
+    pub indexes: u32,
+}
+
+/// Bounds and independent offsets for one consistent storage inventory page.
+#[derive(Clone, Copy, Debug)]
+pub struct StorageUsagePage {
+    /// Maximum rows returned from each inventory.
+    pub limit: u16,
+    /// Positions within the table and index inventories.
+    pub offsets: StorageUsageOffsets,
+    /// Maximum duration of each storage statement.
+    pub statement_timeout: Duration,
+}
+
+#[derive(Clone, Copy)]
+struct RelationPage {
+    limit: u16,
+    offset: u32,
 }
 
 /// One bounded index allocation and catalog-health signal.
@@ -121,6 +167,22 @@ pub enum StorageWarning {
     RelationListTruncated,
     /// Represents the index list truncated storage warning.
     IndexListTruncated,
+    /// Allocated tables lack a usable cumulative row-estimate observation.
+    UnobservedTableStatistics,
+    /// A zero-byte spill heap still owns substantial index allocation; inspect the bounded compaction plan.
+    EmptySpillIndexAllocation,
+}
+
+/// Last bounded maintenance attempt, retained in one project row across restarts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationRetentionSnapshot {
+    /// Database time of the last recorded attempt.
+    pub attempted_at: String,
+    /// Consecutive attempts with an unavailable phase or a failed row batch.
+    pub consecutive_failures: u64,
+    /// Bounded structured generation/cache outcomes; never query or credential text.
+    pub outcome: serde_json::Value,
 }
 
 /// Database, schema, relation, cache, generation, and maintenance-pressure
@@ -128,8 +190,23 @@ pub enum StorageWarning {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageUsageReport {
+    /// Observation/reset context; tuple counters remain estimates.
+    pub statistics: StorageStatisticsObservation,
+    /// Complete table inventory count, including rows outside this page.
+    pub table_count: u64,
+    /// Complete index inventory count, including rows outside this page.
+    pub index_count: u64,
+    /// Number of preceding table rows omitted by the requested page.
+    pub table_offset: u32,
+    /// Number of preceding index rows omitted by the requested page.
+    pub index_offset: u32,
     /// Number of bytes used by the database.
     pub database_bytes: u64,
+    /// Allocated forks attributed to non-shared relations across every database schema.
+    pub database_catalog_bytes: u64,
+    /// Database allocation not attributed to those catalog forks at observation time.
+    /// This includes auxiliary/transient files and is not proof of orphaned data.
+    pub unattributed_database_bytes: u64,
     /// Number of bytes used by the schema.
     pub schema_bytes: u64,
     /// Number of bytes used by the heap.
@@ -146,6 +223,8 @@ pub struct StorageUsageReport {
     pub parse_cache: ParseCacheStorageUsage,
     /// Number of stale ready generations.
     pub stale_ready_generations: u64,
+    /// Last independently recorded generation/cache maintenance outcome.
+    pub retention_maintenance: Option<GenerationRetentionSnapshot>,
     /// Bounded tables included in this result.
     pub tables: Vec<TableStorageUsage>,
     /// Bounded indexes included in this result.
@@ -166,6 +245,11 @@ pub struct StorageUsageReport {
 pub struct StorageTotalsReport {
     /// Allocated bytes for the current PostgreSQL database, including other schemas.
     pub database_bytes: u64,
+    /// Allocated forks attributed to non-shared relations across every database schema.
+    pub database_catalog_bytes: u64,
+    /// Database allocation not attributed to those catalog forks at observation time.
+    /// This includes auxiliary/transient files and is not proof of orphaned data.
+    pub unattributed_database_bytes: u64,
     /// Allocated bytes for Cartograph tables, indexes, and TOAST in the configured schema.
     pub schema_bytes: u64,
     /// Heap bytes in the configured schema.
@@ -226,11 +310,36 @@ impl CartographDatabase {
         limit: u16,
         statement_timeout: Duration,
     ) -> Result<StorageUsageReport, StorageError> {
-        if limit == 0 || limit > MAXIMUM_STORAGE_ROWS || statement_timeout.is_zero() {
-            return Err(StorageError::InvalidInput {
-                field: "storage_usage",
-            });
-        }
+        self.storage_usage_page(
+            project_id,
+            StorageUsagePage {
+                limit,
+                offsets: StorageUsageOffsets::default(),
+                statement_timeout,
+            },
+        )
+        .await
+    }
+
+    /// Read a bounded page of allocated storage and cumulative statistics.
+    ///
+    /// Pages retain largest-first ordering. Concurrent allocation or DDL can
+    /// reorder later pages; compare observation times and inventory counts.
+    /// # Errors
+    ///
+    /// Returns an error for invalid limits, offsets above 100,000, unavailable
+    /// projects, or database/decoding failures within the statement deadline.
+    pub async fn storage_usage_page(
+        &self,
+        project_id: &ProjectId,
+        page: StorageUsagePage,
+    ) -> Result<StorageUsageReport, StorageError> {
+        let StorageUsagePage {
+            offsets,
+            statement_timeout,
+            ..
+        } = page;
+        page.validate()?;
         let mut transaction = self
             .pool
             .begin()
@@ -246,14 +355,22 @@ impl CartographDatabase {
                 field: "storage_usage",
             })?;
         let totals = load_storage_totals(&mut transaction, self).await?;
+        let retention_maintenance =
+            load_retention_snapshot(&mut transaction, self, project_id).await?;
         let generation_storage =
             load_generation_storage(&mut transaction, self, project_id).await?;
         let parse_cache = load_parse_cache_storage(&mut transaction, self, project_id).await?;
         let stale_ready_generations =
             load_stale_ready_generations(&mut transaction, self, project_id).await?;
-        let (tables, tables_truncated) = load_table_storage(&mut transaction, self, limit).await?;
-        let (indexes, indexes_truncated) =
-            load_index_storage(&mut transaction, self, limit).await?;
+        let StorageInventoryPage {
+            statistics,
+            table_count,
+            index_count,
+            tables,
+            indexes,
+            tables_truncated,
+            indexes_truncated,
+        } = load_storage_inventory(&mut transaction, self, page).await?;
         let deduplication = load_deduplication(&mut transaction, self, project_id).await?;
         transaction
             .commit()
@@ -269,7 +386,14 @@ impl CartographDatabase {
             deduplication,
         });
         Ok(StorageUsageReport {
+            statistics,
+            table_count,
+            index_count,
+            table_offset: offsets.tables,
+            index_offset: offsets.indexes,
             database_bytes: totals.database_bytes,
+            database_catalog_bytes: totals.database_catalog_bytes,
+            unattributed_database_bytes: totals.unattributed_database_bytes,
             schema_bytes: totals.schema_bytes,
             heap_bytes: totals.heap_bytes,
             index_bytes: totals.index_bytes,
@@ -278,6 +402,7 @@ impl CartographDatabase {
             generation_storage,
             parse_cache,
             stale_ready_generations,
+            retention_maintenance,
             tables,
             indexes,
             tables_truncated,
@@ -286,6 +411,74 @@ impl CartographDatabase {
             warnings,
         })
     }
+}
+
+impl StorageUsagePage {
+    fn validate(self) -> Result<(), StorageError> {
+        if self.limit == 0
+            || self.limit > MAXIMUM_STORAGE_ROWS
+            || self.statement_timeout.is_zero()
+            || self.offsets.tables > 100_000
+            || self.offsets.indexes > 100_000
+        {
+            return Err(StorageError::InvalidInput {
+                field: "storage_usage",
+            });
+        }
+        Ok(())
+    }
+}
+
+struct StorageInventoryPage {
+    statistics: StorageStatisticsObservation,
+    table_count: u64,
+    index_count: u64,
+    tables: Vec<TableStorageUsage>,
+    indexes: Vec<IndexStorageUsage>,
+    tables_truncated: bool,
+    indexes_truncated: bool,
+}
+
+async fn load_storage_inventory(
+    connection: &mut sqlx_postgres::PgConnection,
+    database: &CartographDatabase,
+    page: StorageUsagePage,
+) -> Result<StorageInventoryPage, StorageError> {
+    let (statistics, table_count, index_count) =
+        load_statistics_observation(&mut *connection, database).await?;
+    let tables = load_table_storage(
+        &mut *connection,
+        database,
+        RelationPage {
+            limit: page.limit,
+            offset: page.offsets.tables,
+        },
+    )
+    .await?;
+    let indexes = load_index_storage(
+        connection,
+        database,
+        RelationPage {
+            limit: page.limit,
+            offset: page.offsets.indexes,
+        },
+    )
+    .await?;
+    let tables_truncated = table_count
+        > u64::from(page.offsets.tables)
+            + u64::try_from(tables.len()).map_err(|_| corrupt("table_count"))?;
+    let indexes_truncated = index_count
+        > u64::from(page.offsets.indexes)
+            + u64::try_from(indexes.len()).map_err(|_| corrupt("index_count"))?;
+    Ok(StorageInventoryPage {
+        statistics,
+        table_count,
+        index_count,
+        tables,
+        indexes,
+        tables_truncated,
+        indexes_truncated,
+    })
 }
 
 async fn load_storage_totals(
@@ -315,6 +508,13 @@ async fn load_storage_totals(
               AND methods.amname = 'btree'
         )
         SELECT pg_database_size(current_database())::bigint AS database_bytes,
+               (SELECT COALESCE(sum(
+                    COALESCE(pg_relation_size(c.oid, 'main'), 0)
+                    + COALESCE(pg_relation_size(c.oid, 'fsm'), 0)
+                    + COALESCE(pg_relation_size(c.oid, 'vm'), 0)
+                    + COALESCE(pg_relation_size(c.oid, 'init'), 0)
+                ), 0)::bigint FROM pg_catalog.pg_class c
+                WHERE NOT c.relisshared AND c.relkind IN ('r', 'm', 'i', 'S', 't')) AS database_catalog_bytes,
                COALESCE(sum(tables.total_bytes), 0)::bigint AS schema_bytes,
                COALESCE(sum(tables.heap_bytes), 0)::bigint AS heap_bytes,
                COALESCE(sum(tables.index_bytes), 0)::bigint AS index_bytes,
@@ -328,14 +528,52 @@ async fn load_storage_totals(
         .fetch_one(connection)
         .await
         .map_err(|error| storage_query_error(&error, "storage-totals"))?;
+    let database_bytes = nonnegative(&row, "database_bytes")?;
+    let database_catalog_bytes = nonnegative(&row, "database_catalog_bytes")?;
     Ok(StorageTotalsReport {
-        database_bytes: nonnegative(&row, "database_bytes")?,
+        database_bytes,
+        database_catalog_bytes,
+        unattributed_database_bytes: database_bytes.saturating_sub(database_catalog_bytes),
         schema_bytes: nonnegative(&row, "schema_bytes")?,
         heap_bytes: nonnegative(&row, "heap_bytes")?,
         index_bytes: nonnegative(&row, "index_bytes")?,
         btree_index_bytes: nonnegative(&row, "btree_index_bytes")?,
         toast_bytes: nonnegative(&row, "toast_bytes")?,
     })
+}
+
+async fn load_retention_snapshot(
+    connection: &mut sqlx_postgres::PgConnection,
+    database: &CartographDatabase,
+    project_id: &ProjectId,
+) -> Result<Option<GenerationRetentionSnapshot>, StorageError> {
+    let schema = quoted_schema(&database.schema);
+    let row = query(AssertSqlSafe(format!(
+        r#"SELECT retention_last_attempt_at::text AS attempted_at,
+        retention_consecutive_failures AS failures, retention_last_outcome::text AS outcome
+        FROM {schema}."projects" WHERE project_id = $1::uuid
+            AND retention_last_attempt_at IS NOT NULL"#
+    )))
+    .bind(project_id.as_str())
+    .fetch_optional(connection)
+    .await
+    .map_err(|_| database_error("storage-retention-snapshot"))?;
+    row.map(|row| {
+        let encoded: String = row
+            .try_get("outcome")
+            .map_err(|_| corrupt("retention_outcome"))?;
+        if encoded.len() > 16_384 {
+            return Err(corrupt("retention_outcome"));
+        }
+        Ok(GenerationRetentionSnapshot {
+            attempted_at: row
+                .try_get("attempted_at")
+                .map_err(|_| corrupt("retention_attempted_at"))?,
+            consecutive_failures: nonnegative(&row, "failures")?,
+            outcome: serde_json::from_str(&encoded).map_err(|_| corrupt("retention_outcome"))?,
+        })
+    })
+    .transpose()
 }
 
 async fn load_generation_storage(
@@ -351,6 +589,9 @@ async fn load_generation_storage(
                 count(*) FILTER (WHERE state = 'current')::bigint AS current,
                 count(*) FILTER (WHERE state = 'superseded')::bigint AS superseded,
                 count(*) FILTER (WHERE state = 'failed')::bigint AS failed,
+                    count(*) FILTER (WHERE state = 'retiring')::bigint AS retiring,
+                    GREATEST(COALESCE(extract(epoch FROM clock_timestamp() -
+                        min(started_at) FILTER (WHERE state IN ('failed', 'superseded', 'retiring')))::bigint, 0), 0) AS oldest_terminal_age_seconds,
                 COALESCE((
                     SELECT sum(files.byte_size)::bigint
                     FROM {schema}."files" AS files
@@ -384,6 +625,8 @@ async fn load_generation_storage(
         current: nonnegative(&row, "current")?,
         superseded: nonnegative(&row, "superseded")?,
         failed: nonnegative(&row, "failed")?,
+        retiring: nonnegative(&row, "retiring")?,
+        oldest_terminal_age_seconds: nonnegative(&row, "oldest_terminal_age_seconds")?,
         source_bytes,
         search_relation_bytes,
         estimated_retained_bytes: source_bytes
@@ -476,11 +719,62 @@ async fn load_stale_ready_generations(
     nonnegative(&row, "stale_ready")
 }
 
+async fn load_statistics_observation(
+    connection: &mut sqlx_postgres::PgConnection,
+    database: &CartographDatabase,
+) -> Result<(StorageStatisticsObservation, u64, u64), StorageError> {
+    let row = query(r"SELECT clock_timestamp()::text AS observed_at,
+            stats.stats_reset::text AS database_stats_reset,
+            pg_stat_get_snapshot_timestamp()::text AS snapshot_at,
+            current_setting('track_counts') = 'on' AS track_counts,
+            (SELECT count(*) FROM pg_catalog.pg_class AS classes
+                JOIN pg_catalog.pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = $1 AND classes.relkind IN ('r', 'p', 'm'))::bigint AS table_count,
+            (SELECT count(*) FROM pg_catalog.pg_index AS indexes
+                JOIN pg_catalog.pg_class AS classes ON classes.oid = indexes.indexrelid
+                JOIN pg_catalog.pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = $1)::bigint AS index_count
+        FROM pg_catalog.pg_stat_database AS stats WHERE stats.datname = current_database()")
+        .bind(database.schema.as_str()).fetch_one(connection).await
+        .map_err(|_| database_error("storage-statistics-observation"))?;
+    Ok((
+        StorageStatisticsObservation {
+            observed_at: row
+                .try_get("observed_at")
+                .map_err(|_| corrupt("observed_at"))?,
+            database_stats_reset: optional_statistic_time(&row, "database_stats_reset")?,
+            snapshot_at: optional_statistic_time(&row, "snapshot_at")?,
+            track_counts: row
+                .try_get("track_counts")
+                .map_err(|_| corrupt("track_counts"))?,
+        },
+        nonnegative(&row, "table_count")?,
+        nonnegative(&row, "index_count")?,
+    ))
+}
+
+fn optional_statistic_time(
+    row: &sqlx_postgres::PgRow,
+    field: &'static str,
+) -> Result<Option<String>, StorageError> {
+    row.try_get(field).map_err(|_| corrupt(field))
+}
+
+fn optional_nonnegative(
+    row: &sqlx_postgres::PgRow,
+    field: &'static str,
+) -> Result<Option<u64>, StorageError> {
+    row.try_get::<Option<i64>, _>(field)
+        .map_err(|_| corrupt(field))?
+        .map(|value| u64::try_from(value).map_err(|_| corrupt(field)))
+        .transpose()
+}
+
 async fn load_table_storage(
     connection: &mut sqlx_postgres::PgConnection,
     database: &CartographDatabase,
-    limit: u16,
-) -> Result<(Vec<TableStorageUsage>, bool), StorageError> {
+    page: RelationPage,
+) -> Result<Vec<TableStorageUsage>, StorageError> {
     let statement = r"SELECT classes.relname,
                pg_relation_size(classes.oid)::bigint AS heap_bytes,
                pg_indexes_size(classes.oid)::bigint AS index_bytes,
@@ -490,11 +784,17 @@ async fn load_table_storage(
                    - pg_indexes_size(classes.oid), 0
                )::bigint AS toast_bytes,
                pg_total_relation_size(classes.oid)::bigint AS total_bytes,
-               COALESCE(stats.n_live_tup, 0)::bigint AS live_rows,
-               COALESCE(stats.n_dead_tup, 0)::bigint AS dead_rows,
+               stats.n_live_tup::bigint AS live_rows,
+               stats.n_dead_tup::bigint AS dead_rows,
                stats.last_autovacuum::text,
-               COALESCE(stats.autovacuum_count, 0)::bigint AS autovacuum_count,
-               count(*) OVER ()::bigint AS total_relations
+               stats.last_vacuum::text, stats.last_analyze::text, stats.last_autoanalyze::text,
+               CASE WHEN current_setting('track_counts') = 'on' THEN stats.autovacuum_count END::bigint AS autovacuum_count,
+               current_setting('track_counts') = 'on' AND COALESCE(
+                   stats.n_live_tup > 0 OR stats.n_dead_tup > 0
+                   OR stats.last_vacuum IS NOT NULL OR stats.last_autovacuum IS NOT NULL
+                   OR stats.last_analyze IS NOT NULL OR stats.last_autoanalyze IS NOT NULL,
+                   false
+               ) AS estimates_observed
         FROM pg_catalog.pg_class AS classes
         INNER JOIN pg_catalog.pg_namespace AS namespaces
             ON namespaces.oid = classes.relnamespace
@@ -503,51 +803,52 @@ async fn load_table_storage(
         WHERE namespaces.nspname = $1
           AND classes.relkind IN ('r', 'p', 'm')
         ORDER BY total_bytes DESC, classes.relname
-        LIMIT $2";
+        LIMIT $2 OFFSET $3";
     let rows = query(statement)
         .bind(database.schema.as_str())
-        .bind(i64::from(limit))
+        .bind(i64::from(page.limit))
+        .bind(i64::from(page.offset))
         .fetch_all(connection)
         .await
         .map_err(|_| database_error("storage-tables"))?;
-    let total = rows
-        .first()
-        .map(|row| nonnegative(row, "total_relations"))
-        .transpose()?
-        .unwrap_or(0);
     let tables = rows
         .iter()
         .map(|row| {
+            let observed = row
+                .try_get::<bool, _>("estimates_observed")
+                .map_err(|_| corrupt("estimates_observed"))?;
             Ok(TableStorageUsage {
                 relation: stored_name(row, "relname")?,
                 heap_bytes: nonnegative(row, "heap_bytes")?,
                 index_bytes: nonnegative(row, "index_bytes")?,
                 toast_bytes: nonnegative(row, "toast_bytes")?,
                 total_bytes: nonnegative(row, "total_bytes")?,
-                estimated_live_rows: nonnegative(row, "live_rows")?,
-                estimated_dead_rows: nonnegative(row, "dead_rows")?,
+                estimated_live_rows: optional_nonnegative(row, "live_rows")?.filter(|_| observed),
+                estimated_dead_rows: optional_nonnegative(row, "dead_rows")?.filter(|_| observed),
                 last_autovacuum: row
                     .try_get::<Option<String>, _>("last_autovacuum")
                     .map_err(|_| corrupt("last_autovacuum"))?,
-                autovacuum_count: nonnegative(row, "autovacuum_count")?,
+                autovacuum_count: optional_nonnegative(row, "autovacuum_count")?,
+                last_vacuum: optional_statistic_time(row, "last_vacuum")?,
+                last_analyze: optional_statistic_time(row, "last_analyze")?,
+                last_autoanalyze: optional_statistic_time(row, "last_autoanalyze")?,
             })
         })
         .collect::<Result<Vec<_>, StorageError>>()?;
-    Ok((tables, total > u64::from(limit)))
+    Ok(tables)
 }
 
 async fn load_index_storage(
     connection: &mut sqlx_postgres::PgConnection,
     database: &CartographDatabase,
-    limit: u16,
-) -> Result<(Vec<IndexStorageUsage>, bool), StorageError> {
+    page: RelationPage,
+) -> Result<Vec<IndexStorageUsage>, StorageError> {
     let statement = r"SELECT indexes.relname AS index_name,
                tables.relname AS table_name,
                methods.amname AS access_method,
                pg_relation_size(indexes.oid)::bigint AS bytes,
                catalog.indisvalid,
-               catalog.indisready,
-               count(*) OVER ()::bigint AS total_indexes
+               catalog.indisready
         FROM pg_catalog.pg_index AS catalog
         INNER JOIN pg_catalog.pg_class AS indexes
             ON indexes.oid = catalog.indexrelid
@@ -559,18 +860,14 @@ async fn load_index_storage(
             ON methods.oid = indexes.relam
         WHERE namespaces.nspname = $1
         ORDER BY bytes DESC, indexes.relname
-        LIMIT $2";
+        LIMIT $2 OFFSET $3";
     let rows = query(statement)
         .bind(database.schema.as_str())
-        .bind(i64::from(limit))
+        .bind(i64::from(page.limit))
+        .bind(i64::from(page.offset))
         .fetch_all(connection)
         .await
         .map_err(|_| database_error("storage-indexes"))?;
-    let total = rows
-        .first()
-        .map(|row| nonnegative(row, "total_indexes"))
-        .transpose()?
-        .unwrap_or(0);
     let indexes = rows
         .iter()
         .map(|row| {
@@ -588,7 +885,7 @@ async fn load_index_storage(
             })
         })
         .collect::<Result<Vec<_>, StorageError>>()?;
-    Ok((indexes, total > u64::from(limit)))
+    Ok(indexes)
 }
 
 async fn load_deduplication(
@@ -657,8 +954,33 @@ struct StorageWarningInput<'a> {
     deduplication: GenerationDeduplicationAssessment,
 }
 
+impl TableStorageUsage {
+    fn has_empty_spill_index_allocation(&self) -> bool {
+        self.relation.starts_with("native_generation_spill_")
+            && self.heap_bytes == 0
+            && self.index_bytes >= PARSE_CACHE_AMPLIFICATION_MINIMUM_BYTES
+    }
+
+    fn has_dead_tuple_pressure(&self) -> bool {
+        self.estimated_live_rows
+            .zip(self.estimated_dead_rows)
+            .is_some_and(|(live, dead)| dead >= 10_000 && dead > live.saturating_add(dead) / 10)
+    }
+
+    fn has_unobserved_statistics(&self) -> bool {
+        self.heap_bytes > 0 && self.estimated_live_rows.is_none()
+    }
+}
+
 fn storage_warnings(input: StorageWarningInput<'_>) -> Vec<StorageWarning> {
     let mut warnings = Vec::new();
+    if input
+        .tables
+        .iter()
+        .any(TableStorageUsage::has_empty_spill_index_allocation)
+    {
+        warnings.push(StorageWarning::EmptySpillIndexAllocation);
+    }
     if input.parse_cache.contracts > DEFAULT_PARSE_CACHE_CONTRACTS {
         warnings.push(StorageWarning::ParseCacheContractBudgetExceeded);
     }
@@ -681,15 +1003,19 @@ fn storage_warnings(input: StorageWarningInput<'_>) -> Vec<StorageWarning> {
     {
         warnings.push(StorageWarning::InvalidConcurrentIndexArtifact);
     }
-    if input.tables.iter().any(|table| {
-        table.estimated_dead_rows >= 10_000
-            && table.estimated_dead_rows
-                > table
-                    .estimated_live_rows
-                    .saturating_add(table.estimated_dead_rows)
-                    / 10
-    }) {
+    if input
+        .tables
+        .iter()
+        .any(TableStorageUsage::has_dead_tuple_pressure)
+    {
         warnings.push(StorageWarning::DeadTuplePressure);
+    }
+    if input
+        .tables
+        .iter()
+        .any(TableStorageUsage::has_unobserved_statistics)
+    {
+        warnings.push(StorageWarning::UnobservedTableStatistics);
     }
     if input.deduplication.duplicate_content_groups > 0 {
         warnings.push(StorageWarning::DuplicateGenerationContent);
@@ -757,10 +1083,13 @@ mod tests {
             index_bytes: 1,
             toast_bytes: 0,
             total_bytes: 2,
-            estimated_live_rows: 1,
-            estimated_dead_rows: 10_000,
+            estimated_live_rows: Some(1),
+            estimated_dead_rows: Some(10_000),
             last_autovacuum: None,
-            autovacuum_count: 0,
+            autovacuum_count: Some(0),
+            last_vacuum: None,
+            last_analyze: None,
+            last_autoanalyze: None,
         }];
         let indexes = [IndexStorageUsage {
             index: "references_ccnew".to_owned(),
@@ -803,5 +1132,58 @@ mod tests {
             physical_overhead_bytes: PARSE_CACHE_AMPLIFICATION_MINIMUM_BYTES - 2,
             ..ParseCacheStorageUsage::default()
         }));
+    }
+
+    #[test]
+    fn empty_spill_warning_requires_empty_heap_and_substantial_index_allocation() {
+        for (relation, heap_bytes, index_bytes, expected) in [
+            (
+                "native_generation_spill_references",
+                0,
+                64 * 1024 * 1024,
+                true,
+            ),
+            (
+                "native_generation_spill_references",
+                8192,
+                64 * 1024 * 1024,
+                false,
+            ),
+            (
+                "native_generation_spill_references",
+                0,
+                64 * 1024 * 1024 - 1,
+                false,
+            ),
+            ("references", 0, 64 * 1024 * 1024, false),
+        ] {
+            let tables = [TableStorageUsage {
+                relation: relation.to_owned(),
+                heap_bytes,
+                index_bytes,
+                toast_bytes: 0,
+                total_bytes: heap_bytes + index_bytes,
+                estimated_live_rows: Some(0),
+                estimated_dead_rows: Some(0),
+                last_autovacuum: None,
+                autovacuum_count: Some(0),
+                last_vacuum: None,
+                last_analyze: None,
+                last_autoanalyze: None,
+            }];
+            let warnings = storage_warnings(StorageWarningInput {
+                parse_cache: ParseCacheStorageUsage::default(),
+                stale_ready_generations: 0,
+                tables: &tables,
+                indexes: &[],
+                tables_truncated: false,
+                indexes_truncated: false,
+                deduplication: GenerationDeduplicationAssessment::default(),
+            });
+            assert_eq!(
+                warnings.contains(&StorageWarning::EmptySpillIndexAllocation),
+                expected
+            );
+        }
     }
 }

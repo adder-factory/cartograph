@@ -1,3 +1,7 @@
+mod plan;
+
+pub use plan::{ScipOverlayPlan, ScipOverlayPreparation, prepare_scip_overlay, scip_overlay_paths};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use cartograph_db::{
@@ -314,12 +318,6 @@ struct ScipOccurrenceContext<'context, 'document> {
     file_symbol_id: &'context SymbolId,
 }
 
-struct ReplacementInput<'input, 'document> {
-    facts: &'input mut GenerationFacts,
-    prepared: &'input [PreparedDocument<'document>],
-    file_symbol_by_id: &'input BTreeMap<FileId, SymbolId>,
-}
-
 #[derive(Clone, Copy)]
 struct SourceLines<'source> {
     source: &'source [u8],
@@ -436,74 +434,22 @@ where
         bytes,
         maximum_rows,
     } = input;
-    poll(&mut cancelled)?;
-    if maximum_rows == 0 || maximum_rows > MAXIMUM_OVERLAY_ROWS {
-        return Err(ScipError::LimitExceeded);
-    }
-    let index = decode_scip_index(bytes)?;
-    let row_count = index
-        .documents
-        .iter()
-        .try_fold(index.documents.len(), |total, document| {
-            let rows = total
-                .checked_add(document.symbols.len())
-                .and_then(|value| value.checked_add(document.occurrences.len()))
-                .ok_or(ScipError::LimitExceeded)?;
-            document.symbols.iter().try_fold(rows, |rows, symbol| {
-                rows.checked_add(symbol.relationships.len())
-                    .and_then(|value| value.checked_add(symbol.cartograph_edges.len()))
-                    .ok_or(ScipError::LimitExceeded)
-            })
-        })?;
-    if row_count > maximum_rows {
-        return Err(ScipError::LimitExceeded);
-    }
-
-    let file_by_path = facts
-        .files
-        .iter()
-        .map(|file| (file.normalized_path.clone(), file))
-        .collect::<BTreeMap<_, _>>();
-    let file_symbol_by_id = facts
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.symbol_kind == SymbolKind::File.as_str())
-        .map(|symbol| (symbol.file_id.clone(), symbol.symbol_id.clone()))
-        .collect::<BTreeMap<_, _>>();
-    let native_symbol_candidates = native_symbol_candidates(facts);
-    let (prepared, skipped) = {
-        let mut source = DocumentSource {
-            read_source: &mut read_source,
-            cancelled: &mut cancelled,
-        };
-        prepare_documents(&index.documents, &file_by_path, &mut source)?
-    };
-    let mut imported = ImportAccumulator::new(skipped);
-    {
-        let mut state = ImportState {
-            imported: &mut imported,
-            cancelled: &mut cancelled,
-        };
-        build_symbols(
-            &prepared,
-            SymbolBuildLookups {
-                file_symbol_by_id: &file_symbol_by_id,
-                native_candidates: &native_symbol_candidates,
-            },
-            &mut state,
-        )?;
-        build_edges_and_references(&prepared, &file_symbol_by_id, &mut state)?;
-    }
-    poll(&mut cancelled)?;
-    apply_replacement(
-        ReplacementInput {
+    let plan = prepare_scip_overlay(
+        ScipOverlayPreparation {
             facts,
-            prepared: &prepared,
-            file_symbol_by_id: &file_symbol_by_id,
+            bytes,
+            maximum_rows,
         },
-        &mut imported,
-    );
-    Ok(imported.report)
+        &mut read_source,
+        &mut cancelled,
+    )?;
+    plan.retain_native_facts(facts, &mut cancelled)?;
+    let (mut imported, report) = plan.into_imported();
+    facts.symbols.append(&mut imported.symbols);
+    facts.documents.append(&mut imported.documents);
+    facts.references.append(&mut imported.references);
+    facts.edges.append(&mut imported.edges);
+    Ok(report)
 }
 
 fn prepare_documents<'a, ReadSource, Cancel>(
@@ -951,97 +897,6 @@ fn add_reference_occurrence(
         false,
     )?;
     Ok(())
-}
-
-fn apply_replacement(input: ReplacementInput<'_, '_>, imported: &mut ImportAccumulator) {
-    let ReplacementInput {
-        facts,
-        prepared,
-        file_symbol_by_id,
-    } = input;
-    let covered = prepared
-        .iter()
-        .map(|document| document.file_id.clone())
-        .collect::<BTreeSet<_>>();
-    let removed = facts
-        .symbols
-        .iter()
-        .filter(|symbol| {
-            covered.contains(&symbol.file_id) && symbol.symbol_kind != SymbolKind::File.as_str()
-        })
-        .map(|symbol| symbol.symbol_id.clone())
-        .collect::<BTreeSet<_>>();
-    let imported_ids = imported
-        .symbols
-        .iter()
-        .map(|symbol| symbol.symbol_id.clone())
-        .collect::<BTreeSet<_>>();
-    let file_symbol_ids = file_symbol_by_id.values().cloned().collect::<BTreeSet<_>>();
-    let retained_targets = imported_ids
-        .iter()
-        .cloned()
-        .chain(file_symbol_ids.iter().cloned())
-        .collect::<BTreeSet<_>>();
-
-    facts.symbols.retain(|symbol| {
-        !covered.contains(&symbol.file_id) || symbol.symbol_kind == SymbolKind::File.as_str()
-    });
-    facts.documents.retain(|document| {
-        document
-            .file_id
-            .as_ref()
-            .is_none_or(|file_id| !covered.contains(file_id))
-            || document
-                .symbol_id
-                .as_ref()
-                .is_some_and(|symbol_id| file_symbol_ids.contains(symbol_id))
-    });
-    facts.references.retain_mut(|reference| {
-        if covered.contains(&reference.file_id) {
-            return false;
-        }
-        if reference
-            .target_symbol_id
-            .as_ref()
-            .is_some_and(|target| removed.contains(target) && !retained_targets.contains(target))
-        {
-            reference.target_symbol_id = None;
-            reference.confidence = 0.0;
-            reference.resolution_provenance.clear();
-            reference
-                .resolution_provenance
-                .push_str(SCIP_UNRESOLVED_PROVENANCE);
-        }
-        true
-    });
-    for site in &mut facts.numerical_sites {
-        if covered.contains(&site.file_id)
-            && site
-                .owner_symbol_id
-                .as_ref()
-                .is_some_and(|owner| removed.contains(owner) && !retained_targets.contains(owner))
-        {
-            // SCIP does not carry Cartograph's numerical fact extension. Keep the exact
-            // source-derived site, but drop only an owner identity the replacement removed.
-            site.owner_symbol_id = None;
-        }
-    }
-    facts.edges.retain(|edge| {
-        !removed.contains(&edge.source_symbol_id)
-            && (!removed.contains(&edge.target_symbol_id)
-                || retained_targets.contains(&edge.target_symbol_id))
-    });
-
-    imported.report.covered_documents = usize_to_u64(covered.len());
-    imported.report.replaced_native_symbols = usize_to_u64(removed.len());
-    imported.report.imported_symbols = usize_to_u64(imported.symbols.len());
-    imported.report.imported_references = usize_to_u64(imported.references.len());
-    facts.symbols.append(&mut imported.symbols);
-    facts.documents.append(&mut imported.documents);
-    facts.references.append(&mut imported.references);
-    facts
-        .edges
-        .extend(std::mem::take(&mut imported.edges).into_values());
 }
 
 fn definition_occurrences(prepared: &PreparedDocument<'_>) -> BTreeMap<String, ScipOccurrence> {

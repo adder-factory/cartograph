@@ -2,7 +2,7 @@ services:
   postgres:
     # Cartograph does not redistribute ParadeDB. Development pulls the pinned
     # upstream multi-architecture image so runtime and extension upgrades are explicit.
-    image: paradedb/paradedb:0.25.3@sha256:82d0c8bb0263c4320cb321591dd6831ecdd04b4b27328ef658358a9a8c383ac5
+    image: paradedb/paradedb:0.25.6@sha256:c5b04eba22497fa25de12265692e9578e309c2e2001d023ce6d08a17226c200a
     restart: unless-stopped
     shm_size: 256m
     mem_limit: 2g

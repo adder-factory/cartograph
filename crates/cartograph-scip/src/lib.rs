@@ -11,7 +11,9 @@ pub use export::{
     ScipExport, ScipExportOptions, ScipExportOptionsInput, ScipExportStats, export_snapshot,
 };
 pub use import::{
-    ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay, apply_scip_overlay_with_cancellation,
+    ScipOverlayPlan, ScipOverlayPreparation, ScipOverlayReport, ScipOverlayRequest,
+    apply_scip_overlay, apply_scip_overlay_with_cancellation, prepare_scip_overlay,
+    scip_overlay_paths,
 };
 pub use model::{
     CartographScipEdge, SYMBOL_ROLE_DEFINITION, ScipDocument, ScipError, ScipIndex, ScipOccurrence,

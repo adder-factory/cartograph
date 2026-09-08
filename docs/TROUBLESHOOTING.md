@@ -30,10 +30,10 @@ MCP call is the control evidence.
 ## PostgreSQL capability failure
 
 Cartograph requires PostgreSQL 18.4 or newer within major version 18,
-`pg_search` 0.25.3 with the expected preload state/ParadeDB access method/BM25
+`pg_search` 0.25.6 with the expected preload state/ParadeDB access method/BM25
 tokenizer behavior, and pgvector 0.8.4 or newer. Pgvector 0.8.6 is recommended
-for external PostgreSQL; the managed ParadeDB 0.25.3 image bundles
-`pg_search` 0.25.3 and pgvector 0.8.4.
+for external PostgreSQL; the managed ParadeDB 0.25.6 image bundles
+`pg_search` 0.25.6 and pgvector 0.8.4.
 Upgrade or correct the external service, or use the pinned managed database on
 macOS/Linux. There is no SQLite or plain-FTS
 fallback.
@@ -214,9 +214,10 @@ When the error occurs at the maximum, exclude generated metadata, compiled
 artifacts, or other machine-produced paths with `index --exclude`, project
 `exclude`, or `.cartographignore`, then run an explicit index. Invalid values
 now name `maxGenerationBytes` and its exact inclusive range instead of making
-status/index fail with an opaque options message. A configured SCIP
-overlay currently selects the memory path in `auto`; forcing `postgres` with
-that overlay is rejected until streamed replacement parity is available.
+status/index fail with an opaque options message. SCIP overlays support both
+storage strategies and no longer force `auto` into memory. Their covered-source
+basis and imported facts remain bounded by native working limits; reduce an
+oversized overlay or source admission policy when that independent bound fails.
 
 For a measured example with parser, resolver, publication, memory, row-count,
 and no-op timings kept separate, see the published
@@ -302,9 +303,23 @@ See [PostgreSQL operations](STORAGE-BACKENDS.md) for the exact sequence.
 
 Prune requires the exact `prune-old-generations` confirmation and a live
 project-wide migration lease. Publication/retention locks and a final
-PostgreSQL-clock fence check intentionally roll the transaction back if
-ownership expires or changes. Retry only after inspecting current operations;
-never bypass the fence.
+PostgreSQL-clock fence check intentionally roll the active transaction back if
+ownership expires or changes. Earlier committed batches remain durable. Inspect
+`batches_committed`, `retiring_remaining`, and `deferred_reason`, then retry the
+same bounded command after inspecting current operations; never bypass the fence.
+
+`search_relation_byte_budget` means eligible search relations exceed the
+remaining byte budget. Inspect `db usage` and the backup before using an audited
+`--maximum-search-relation-bytes` override (hard maximum 64 GiB). A large old
+relation does not prevent cleanup of later relations within budget.
+
+Automatic indexing can report `cache_only` when generation cleanup failed but
+parse-cache eviction committed. `db usage` exposes the persisted latest phase
+outcomes and consecutive failure count through `retentionMaintenance`, including
+maintenance attempted after failed indexing. Empty spill heaps with large B-tree
+files are a separate allocation problem: inspect the online compaction plan.
+Unattributed database bytes require catalog and filesystem investigation; an
+extension upgrade does not prove historical orphaned files were reclaimed.
 
 ## Git review is unavailable
 

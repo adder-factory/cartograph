@@ -1144,12 +1144,15 @@ struct PruneArguments {
     /// Number of newest superseded generations that must be retained.
     #[arg(long, default_value_t = 2)]
     keep_superseded: u32,
-    /// Maximum generations deleted in one transaction.
+    /// Maximum generations deleted across this invocation's committed batches.
     #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=10000))]
     maximum_deletions: u32,
-    /// Maximum canonical/cascade rows admitted into one transaction.
+    /// Maximum canonical rows deleted across this invocation's committed batches.
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..=100_000_000))]
     maximum_cascade_rows: Option<u64>,
+    /// Audited physical search-relation byte budget (default 8 GiB, maximum 64 GiB).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=68_719_476_736))]
+    maximum_search_relation_bytes: Option<u64>,
     /// Exact acknowledgement: prune-old-generations.
     #[arg(long)]
     confirm: String,
@@ -1166,6 +1169,12 @@ struct DatabaseUsageArguments {
     /// Maximum largest table and index rows returned per list.
     #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u16).range(1..=128))]
     limit: u16,
+    /// Skip this many table rows in the bounded storage inventory.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=100_000))]
+    table_offset: u32,
+    /// Skip this many index rows in the bounded storage inventory.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=100_000))]
+    index_offset: u32,
     /// Output format for humans or automation.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
@@ -3478,6 +3487,7 @@ fn render_generation_storage(generations: &Map<String, Value>) {
     let current = status_count(generations, "current");
     let superseded = status_count(generations, "superseded");
     let failed = status_count(generations, "failed");
+    let retiring = status_count(generations, "retiring");
     let retained_bytes = status_count(generations, "estimated_retained_bytes");
     let generation_storage = GenerationStorageSummary {
         staging,
@@ -3485,12 +3495,13 @@ fn render_generation_storage(generations: &Map<String, Value>) {
         current,
         superseded,
         failed,
+        retiring,
         estimated_retained_bytes: retained_bytes,
         ..GenerationStorageSummary::default()
     };
     println!(
         "Retained generations: {staging} staging, {ready} ready, {current} current, \
-         {superseded} superseded, {failed} failed; source plus generation-local BM25 \
+         {superseded} superseded, {failed} failed, {retiring} retiring; source plus generation-local BM25 \
          lower bound {}",
         render_byte_count(retained_bytes)
     );
@@ -3509,6 +3520,7 @@ fn status_count(values: &Map<String, Value>, field: &str) -> u64 {
 const fn generation_storage_needs_attention(storage: GenerationStorageSummary) -> bool {
     storage.staging > 1
         || storage.ready > 1
+        || storage.retiring > 0
         || storage.superseded > MAXIMUM_SUPERSEDED_GENERATIONS_WITHOUT_ATTENTION
         || storage.failed > MAXIMUM_FAILED_GENERATIONS_WITHOUT_ATTENTION
         || storage.estimated_retained_bytes > RETAINED_BYTE_WARNING
@@ -3872,6 +3884,7 @@ async fn run_generation_prune(arguments: PruneArguments) -> Result<ExitCode, Str
         keep_superseded,
         maximum_deletions,
         maximum_cascade_rows,
+        maximum_search_relation_bytes,
         confirm,
         format,
     } = arguments;
@@ -3885,6 +3898,11 @@ async fn run_generation_prune(arguments: PruneArguments) -> Result<ExitCode, Str
     if let Some(maximum_cascade_rows) = maximum_cascade_rows {
         policy = policy
             .with_maximum_cascade_rows(maximum_cascade_rows)
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(maximum_search_relation_bytes) = maximum_search_relation_bytes {
+        policy = policy
+            .with_maximum_search_relation_bytes(maximum_search_relation_bytes)
             .map_err(|error| error.to_string())?;
     }
     let runtime = open_runtime(&project_path).await?;
@@ -3934,7 +3952,17 @@ async fn run_database_usage(arguments: DatabaseUsageArguments) -> Result<ExitCod
         .ok_or_else(|| "project has no index; storage usage is unavailable".to_owned())?;
     let report = runtime
         .database()
-        .storage_usage(&project_id, arguments.limit, MAINTENANCE_STATEMENT_TIMEOUT)
+        .storage_usage_page(
+            &project_id,
+            cartograph_db::StorageUsagePage {
+                limit: arguments.limit,
+                offsets: cartograph_db::StorageUsageOffsets {
+                    tables: arguments.table_offset,
+                    indexes: arguments.index_offset,
+                },
+                statement_timeout: MAINTENANCE_STATEMENT_TIMEOUT,
+            },
+        )
         .await
         .map_err(|error| error.to_string());
     runtime.close().await;
@@ -6750,6 +6778,8 @@ mod tests {
             "prune",
             "--maximum-cascade-rows",
             "7700000",
+            "--maximum-search-relation-bytes",
+            "10737418240",
             "--confirm",
             RETENTION_CONFIRMATION,
         ])
@@ -6759,10 +6789,25 @@ mod tests {
             Command::Db {
                 command: DatabaseCommand::Prune(PruneArguments {
                     maximum_cascade_rows: Some(7_700_000),
+                    maximum_search_relation_bytes: Some(10_737_418_240),
                     ..
                 })
             }
         ));
+        for invalid in ["0", "68719476737"] {
+            assert!(
+                Cli::try_parse_from([
+                    "cartograph",
+                    "db",
+                    "prune",
+                    "--maximum-search-relation-bytes",
+                    invalid,
+                    "--confirm",
+                    RETENTION_CONFIRMATION,
+                ])
+                .is_err()
+            );
+        }
         assert!(
             Cli::try_parse_from([
                 "cartograph",

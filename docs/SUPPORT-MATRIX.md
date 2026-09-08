@@ -4,7 +4,7 @@
 [Coverage report](LANGUAGE-COVERAGE-REPORT.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last implementation audit: 2026-08-25 (`v2.1.27`).
+Last implementation audit: 2026-09-08 (`v2.1.28`).
 
 Cartograph v2 supports all 73 v1.1.33 language modes, native TOML, 52
 dedicated textual game-scripting modes, the WGSL and Metal shader modes added

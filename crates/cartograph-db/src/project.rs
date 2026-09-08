@@ -148,6 +148,10 @@ pub struct GenerationStorageSummary {
     pub superseded: u64,
     /// Terminal failed generations awaiting bounded cleanup.
     pub failed: u64,
+    /// Retired generations with committed partial cleanup awaiting completion.
+    pub retiring: u64,
+    /// Age since reservation of the oldest failed/superseded/retiring generation; zero when none.
+    pub oldest_terminal_age_seconds: u64,
     /// Sum of source byte sizes represented by all retained generations.
     pub source_bytes: u64,
     /// Exact physical bytes occupied by generation-scoped search tables and indexes.
@@ -160,7 +164,7 @@ impl GenerationStorageSummary {
     /// Total durable generation rows retained for the project.
     #[must_use]
     pub const fn generations(self) -> u64 {
-        self.staging + self.ready + self.current + self.superseded + self.failed
+        self.staging + self.ready + self.current + self.superseded + self.failed + self.retiring
     }
 }
 
@@ -304,6 +308,9 @@ impl CartographDatabase {
                     count(*) FILTER (WHERE state = 'current')::bigint AS current,
                     count(*) FILTER (WHERE state = 'superseded')::bigint AS superseded,
                     count(*) FILTER (WHERE state = 'failed')::bigint AS failed,
+                    count(*) FILTER (WHERE state = 'retiring')::bigint AS retiring,
+                    GREATEST(COALESCE(extract(epoch FROM clock_timestamp() -
+                        min(started_at) FILTER (WHERE state IN ('failed', 'superseded', 'retiring')))::bigint, 0), 0) AS oldest_terminal_age_seconds,
                     COALESCE((
                         SELECT sum(files.byte_size)::bigint
                         FROM {schema}."files" AS files
@@ -340,6 +347,11 @@ impl CartographDatabase {
             current: read_named_nonnegative(&row, "current")?,
             superseded: read_named_nonnegative(&row, "superseded")?,
             failed: read_named_nonnegative(&row, "failed")?,
+            retiring: read_named_nonnegative(&row, "retiring")?,
+            oldest_terminal_age_seconds: read_named_nonnegative(
+                &row,
+                "oldest_terminal_age_seconds",
+            )?,
             source_bytes,
             search_relation_bytes,
             estimated_retained_bytes,

@@ -857,6 +857,11 @@ async fn acquire_transaction(
                 SELECT 1 FROM {schema}."project_operation_leases"
                 WHERE project_id = CAST($1 AS uuid)
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM {schema}."index_generations"
+                WHERE project_id = CAST($1 AS uuid) AND generation_id = CAST($5 AS uuid)
+                  AND state = 'retiring'
+            )
             ON CONFLICT (project_id, operation) DO NOTHING
             RETURNING lease_id::text, expires_at::text"#
     );

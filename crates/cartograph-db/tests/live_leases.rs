@@ -72,9 +72,11 @@ const STRUCTURAL_FINDING_CACHE_MIGRATION_VERSION: i64 = 37;
 const SHADER_AND_DISPATCH_DIGEST_V14_MIGRATION_VERSION: i64 = 38;
 const GENERATION_SOURCE_ADMISSION_MIGRATION_VERSION: i64 = 39;
 const ADA_VHDL_NUMERICAL_DIGEST_V15_MIGRATION_VERSION: i64 = 40;
-const LATEST_MIGRATION_VERSION: i64 = ADA_VHDL_NUMERICAL_DIGEST_V15_MIGRATION_VERSION;
-const LATER_MIGRATION_COUNT: u64 = 39;
-const EXPECTED_MIGRATIONS: [i64; 40] = [
+const RUST_SELF_RECEIVER_DIGEST_V16_MIGRATION_VERSION: i64 = 41;
+const RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION: i64 = 42;
+const LATEST_MIGRATION_VERSION: i64 = RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION;
+const LATER_MIGRATION_COUNT: u64 = 41;
+const EXPECTED_MIGRATIONS: [i64; 42] = [
     INITIAL_MIGRATION_VERSION,
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
@@ -115,8 +117,10 @@ const EXPECTED_MIGRATIONS: [i64; 40] = [
     SHADER_AND_DISPATCH_DIGEST_V14_MIGRATION_VERSION,
     GENERATION_SOURCE_ADMISSION_MIGRATION_VERSION,
     ADA_VHDL_NUMERICAL_DIGEST_V15_MIGRATION_VERSION,
+    RUST_SELF_RECEIVER_DIGEST_V16_MIGRATION_VERSION,
+    RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION,
 ];
-const EXPECTED_V1_UPGRADE_MIGRATIONS: [i64; 39] = [
+const EXPECTED_V1_UPGRADE_MIGRATIONS: [i64; 41] = [
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
     REFERENCE_EVIDENCE_MIGRATION_VERSION,
@@ -156,6 +160,8 @@ const EXPECTED_V1_UPGRADE_MIGRATIONS: [i64; 39] = [
     SHADER_AND_DISPATCH_DIGEST_V14_MIGRATION_VERSION,
     GENERATION_SOURCE_ADMISSION_MIGRATION_VERSION,
     ADA_VHDL_NUMERICAL_DIGEST_V15_MIGRATION_VERSION,
+    RUST_SELF_RECEIVER_DIGEST_V16_MIGRATION_VERSION,
+    RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION,
 ];
 
 static SCHEMA_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -423,6 +429,19 @@ async fn assert_v1_to_latest_upgrade(
 
 async fn remove_post_v12_schema(pool: &sqlx_postgres::PgPool, schema: &str) {
     let statements = [
+        format!(
+            r#"ALTER TABLE "{schema}"."index_generations"
+            DROP CONSTRAINT index_generations_retention_state_check,
+            DROP COLUMN retention_original_state, DROP COLUMN retention_started_at,
+            DROP CONSTRAINT index_generations_state_check,
+            ADD CONSTRAINT index_generations_state_check
+                CHECK (state IN ('staging', 'ready', 'current', 'superseded', 'failed'))"#
+        ),
+        format!(
+            r#"ALTER TABLE "{schema}"."projects"
+            DROP COLUMN retention_last_attempt_at, DROP COLUMN retention_last_outcome,
+            DROP COLUMN retention_consecutive_failures"#
+        ),
         format!(
             r#"ALTER TABLE "{schema}"."index_generations"
                 DROP CONSTRAINT index_generations_run_excludes_check,

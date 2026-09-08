@@ -92,7 +92,7 @@ struct DefinitionInterval {
 
 struct DigestFrame<'tree> {
     node: Node<'tree>,
-    next_child: usize,
+    next_child: u32,
     child_digest_start: usize,
     child_count: usize,
 }
@@ -671,7 +671,7 @@ fn collect_matches<'tree>(
             cursor.matches_with_options(input.query, input.root, input.source.as_bytes(), options);
         while let Some(query_match) = matches.next() {
             let mut state = RawCaptureState::default();
-            for capture in query_match.captures {
+            for capture in query_match.captures() {
                 let Some(capture_name) = capture_names.get(capture.index as usize) else {
                     return Err(ExtractError::GrammarUnavailable);
                 };
@@ -914,7 +914,6 @@ fn next_digest_child<'tree>(
         if *visited > node_limit {
             return Err(ExtractError::OutputLimit);
         }
-        let child_index = u32::try_from(child_index).map_err(|_| ExtractError::OutputLimit)?;
         let Some(child) = frame.node.child(child_index) else {
             continue;
         };

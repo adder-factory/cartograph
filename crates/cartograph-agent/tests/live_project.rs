@@ -1,6 +1,18 @@
 //! Integration coverage for Cartograph project-runtime and agent evidence contracts.
 
 mod dependency_ownership;
+#[path = "live_project/retention.rs"]
+mod retention;
+#[path = "live_project/rust_receivers.rs"]
+mod rust_receivers;
+#[path = "live_project/source_batches.rs"]
+mod source_batches;
+
+#[path = "live_project/scip_spill.rs"]
+mod scip_spill;
+
+#[path = "live_project/architecture_workload.rs"]
+mod architecture_workload;
 
 use std::{
     env,
@@ -1280,7 +1292,7 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
         .unwrap_or_else(|error| panic!("source directory failed: {error}"));
     std::fs::write(
         project.path().join("src/main.rs"),
-        "pub fn caller() { callee(); }\npub fn callee() {}\n",
+        scip_spill::large_overlay_source(),
     )
     .unwrap_or_else(|error| panic!("main source failed: {error}"));
     std::fs::write(
@@ -1369,6 +1381,7 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
             .await
             .unwrap_or_else(|error| panic!("SCIP status failed: {error}"));
         assert!(status.fresh);
+        scip_spill::assert_overlay_storage_parity(&runtime, project.path()).await;
         runtime.close().await;
     }
 

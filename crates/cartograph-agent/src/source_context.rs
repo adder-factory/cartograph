@@ -2,7 +2,9 @@ use cartograph_db::{
     CurrentFileLookup, CurrentFileRecord, CurrentSymbolRecord, CurrentSymbolSetLookup,
     ProjectSnapshot, StorageError,
 };
-use cartograph_domain::{ContentDigest, GenerationDigestVersion, NormalizedPath, SymbolId};
+use cartograph_domain::{
+    ContentDigest, GenerationDigestVersion, GenerationId, NormalizedPath, SymbolId,
+};
 use serde::Serialize;
 
 use crate::{ProjectCancellation, ProjectError, ProjectRuntime, utf8_boundary};
@@ -16,6 +18,8 @@ const SOURCE_CONTEXT_ATTEMPTS: usize = 2;
 const DEFAULT_FILE_LINE_LIMIT: u16 = 200;
 const MAXIMUM_FILE_LINE_LIMIT: u16 = 500;
 const MAXIMUM_FILE_EXCERPT_BYTES: usize = 256 * 1_024;
+pub(crate) const MAXIMUM_CONTEXT_BATCH: usize = 500;
+pub(crate) const MAXIMUM_CAPTURE_BATCH_BYTES: usize = 64 * 1_024 * 1_024;
 
 /// Validated line and byte bounds for one source-context request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -235,6 +239,97 @@ impl SymbolSourceContext {
 }
 
 impl ProjectRuntime {
+    /// Read up to 500 symbol windows from one bounded source-manifest observation.
+    ///
+    /// All returned windows use the exact bytes hashed by that observation and
+    /// belong to `expected_generation`. Missing symbols are omitted. Captured
+    /// source is limited to 64 MiB across distinct files and is released on return.
+    /// # Errors
+    ///
+    /// Returns an error for excessive requests, cancellation, source admission
+    /// or capture failure, or a generation change. No partial batch is returned.
+    pub async fn source_context_batch_with_cancellation(
+        &self,
+        expected_generation: &GenerationId,
+        requests: Vec<SourceContextRequest>,
+        cancellation: ProjectCancellation,
+    ) -> Result<Vec<SymbolSourceContext>, ProjectError> {
+        if requests.len() > MAXIMUM_CONTEXT_BATCH {
+            return Err(ProjectError::InvalidOptions);
+        }
+        if cancellation.is_cancelled() {
+            return Err(ProjectError::RequestCancelled);
+        }
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+        let before = self.source_context_snapshot().await?;
+        let current = before
+            .current
+            .as_ref()
+            .filter(|current| &current.generation_id == expected_generation)
+            .ok_or(ProjectError::SourceContextUnavailable)?;
+        let ids = requests
+            .iter()
+            .map(|request| request.symbol_id.clone())
+            .collect::<Vec<_>>();
+        let symbols = self
+            .database()
+            .current_symbols_by_ids(CurrentSymbolSetLookup::new(
+                &before.project_id,
+                expected_generation,
+                &ids,
+            ))
+            .await
+            .map_err(|_| ProjectError::SourceContextUnavailable)?;
+        let paths = symbols.iter().map(|symbol| symbol.path().clone()).collect();
+        let source = self
+            .scan_source_batch(
+                paths,
+                current.source_admission.run_excludes(),
+                cancellation.clone(),
+            )
+            .await?;
+        let fresh = current.source_revision == source.digest.as_str()
+            && current.digest_version == GenerationDigestVersion::CURRENT;
+        let mut contexts = Vec::new();
+        contexts
+            .try_reserve_exact(requests.len())
+            .map_err(|_| ProjectError::SourceContextUnavailable)?;
+        for request in requests {
+            if cancellation.is_cancelled() {
+                return Err(ProjectError::RequestCancelled);
+            }
+            let Some(symbol) = symbols
+                .iter()
+                .find(|symbol| symbol.symbol_id() == &request.symbol_id)
+            else {
+                continue;
+            };
+            let file = self
+                .database()
+                .exact_current_file_by_path(CurrentFileLookup::new(
+                    &before.project_id,
+                    expected_generation,
+                    symbol.path(),
+                ))
+                .await
+                .map_err(|_| ProjectError::SourceContextUnavailable)?
+                .ok_or(ProjectError::SourceContextUnavailable)?;
+            contexts.push(build_symbol_source_context(SymbolSourceContextInput {
+                symbol: symbol.clone(),
+                indexed_file: &file,
+                source: &source,
+                fresh,
+                options: request.options,
+            })?);
+        }
+        if !self.generation_is_current(&before).await? {
+            return Err(ProjectError::SourceContextUnavailable);
+        }
+        Ok(contexts)
+    }
+
     /// Resolve one exact current-generation symbol and return bounded source only
     /// when the complete live checkout still matches that generation.
     /// # Errors
@@ -332,7 +427,7 @@ impl ProjectRuntime {
             SymbolSourceContextInput {
                 symbol,
                 indexed_file: &indexed_file,
-                source,
+                source: &source,
                 fresh,
                 options,
             },
@@ -437,14 +532,12 @@ impl ProjectRuntime {
             }
             let fresh = current.source_revision == source.digest.as_str()
                 && current.digest_version == GenerationDigestVersion::CURRENT;
-            let file_fresh = source
-                .captured_content_hash
-                .as_ref()
-                .is_some_and(|digest| digest == file.content_hash());
+            let capture = source.captures.get(&path);
+            let file_fresh =
+                capture.is_some_and(|capture| &capture.content_hash == file.content_hash());
             let excerpt = if file_fresh {
-                let captured = source
-                    .captured_source
-                    .as_deref()
+                let captured = capture
+                    .map(|capture| capture.source.as_ref())
                     .ok_or(ProjectError::SourceContextUnavailable)?;
                 Some(extract_file_excerpt(captured, options)?)
             } else {
@@ -494,7 +587,7 @@ struct SourceContextAttempt<'a> {
 struct SymbolSourceContextInput<'a> {
     symbol: CurrentSymbolRecord,
     indexed_file: &'a CurrentFileRecord,
-    source: crate::SourceRevision,
+    source: &'a crate::SourceRevision,
     fresh: bool,
     options: SourceContextOptions,
 }
@@ -509,15 +602,13 @@ fn build_symbol_source_context(
         fresh,
         options,
     } = input;
-    let file_fresh = source
-        .captured_content_hash
-        .as_ref()
-        .is_some_and(|digest| digest == indexed_file.content_hash());
+    let capture = source.captures.get(symbol.path());
+    let file_fresh =
+        capture.is_some_and(|capture| &capture.content_hash == indexed_file.content_hash());
     let live_source = !file_fresh && options.allow_stale_live_source;
     let excerpt = if file_fresh || live_source {
-        let captured = source
-            .captured_source
-            .as_deref()
+        let captured = capture
+            .map(|capture| capture.source.as_ref())
             .ok_or(ProjectError::SourceContextUnavailable)?;
         Some(extract_excerpt(ExcerptRequest {
             source: captured,
@@ -530,7 +621,7 @@ fn build_symbol_source_context(
     };
     Ok(SymbolSourceContext {
         symbol,
-        live_source_revision: source.digest,
+        live_source_revision: source.digest.clone(),
         fresh,
         excerpt,
         live_source,
@@ -704,10 +795,10 @@ mod tests {
 
         std::fs::write(&file, "pub fn after() {}\n")
             .unwrap_or_else(|error| panic!("fixture mutation failed: {error}"));
-        let captured = revision
-            .captured_source
-            .as_deref()
-            .unwrap_or_else(|| panic!("target source was not captured"));
+        let captured = revision.captures.get(&path).map_or_else(
+            || panic!("target source was not captured"),
+            |capture| capture.source.as_ref(),
+        );
         let excerpt = extract_excerpt(ExcerptRequest {
             source: captured,
             symbol_start: 1,

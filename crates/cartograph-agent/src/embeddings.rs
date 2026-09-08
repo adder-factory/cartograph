@@ -637,7 +637,7 @@ impl EmbeddingBatchTask {
         let embeddings = tokio::select! {
             biased;
             () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.client.embed(&inputs) => {
+            result = self.client.embed_background(&inputs) => {
                 result.map_err(|_| ProjectError::EmbeddingOperationFailed)?
             }
         };

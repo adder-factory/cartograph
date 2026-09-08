@@ -159,7 +159,7 @@ jobs:
         if: needs.classify.outputs.full == 'true'
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          rust-version: '1.98.0'
+          rust-version: '1.98.1'
           command: check
           arguments: --all-features
 
@@ -382,8 +382,8 @@ jobs:
           scripts/build-linux-rust-release.sh
           x86_64-unknown-linux-gnu
           linux-x64
-          rust:1.98.0-trixie@sha256:f233b97992246783782a48b923934820e7ba7d13105cf861276de36b09bfa68f
-          debian:13-slim@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16
+          rust:1.98.0-trixie@sha256:8aea3a845c48caac4091a8d0e6494d213061f8f014dc2f5a5f1a88a1a8c9f301
+          debian:13-slim@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f
 
   paradedb:
     name: PostgreSQL 18 + ParadeDB + pgvector (${{ matrix.shard }})
@@ -401,7 +401,7 @@ jobs:
       CARTOGRAPH_POSTGRES_PASSWORD: cartograph-v2-ci-only
       CARTOGRAPH_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
       CARTOGRAPH_TEST_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
-      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.25.3@sha256:82d0c8bb0263c4320cb321591dd6831ecdd04b4b27328ef658358a9a8c383ac5
+      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.25.6@sha256:c5b04eba22497fa25de12265692e9578e309c2e2001d023ce6d08a17226c200a
     steps:
       - name: Documentation-only required-check fast path
         if: needs.classify.outputs.docs_only == 'true'

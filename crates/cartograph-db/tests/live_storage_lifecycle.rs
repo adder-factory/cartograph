@@ -1,6 +1,12 @@
 //! Live PostgreSQL integration coverage for Cartograph storage contracts.
 
 mod dependency_ownership;
+#[path = "live_storage_lifecycle/retention_bounds.rs"]
+mod retention_bounds;
+#[path = "live_storage_lifecycle/retention_progress.rs"]
+mod retention_progress;
+#[path = "live_storage_lifecycle/statistics.rs"]
+mod statistics;
 
 use std::{env, process, time::Duration};
 
@@ -62,6 +68,7 @@ async fn storage_lifecycle_is_bounded_observable_and_online() {
         .unwrap_or_else(|error| panic!("storage project registration failed: {error}"));
     let cascade_generation =
         create_generation_cascade_fixture(&database, &pool, &schema, &project).await;
+    statistics::assert_statistics_and_inventory(&database, &pool, &schema, &project).await;
     let first_ready = prepare_empty_generation(&database, &project, "storage-ready-one").await;
     let second_ready = prepare_empty_generation(&database, &project, "storage-ready-two").await;
     let migration_lease = assert_generation_retention_fences(
@@ -83,6 +90,10 @@ async fn storage_lifecycle_is_bounded_observable_and_online() {
     assert_heap_storage_compaction(&database, &pool, &schema, &project).await;
     assert_online_storage_compaction(&database, &database_url, &pool, &schema).await;
 
+    retention_progress::assert_retention_progress(&database, &pool, &schema).await;
+    retention_progress::assert_search_budget_progress(&database, &pool, &schema).await;
+    retention_bounds::assert_pool_deadline(&database, &pool, &schema).await;
+    retention_bounds::assert_ddl_budget_progress(&database, &pool, &schema).await;
     drop(database);
     drop_schema(&pool, &schema).await;
     pool.close().await;
@@ -590,8 +601,8 @@ async fn assert_cascade_row_limit_is_exact(
         .await
         .unwrap_or_else(|error| panic!("bounded cascade preflight failed: {error}"));
     assert_eq!(preserved.removed(), 0);
-    assert_eq!(preserved.cascade_rows_removed, 0);
-    assert_eq!(preserved.failed_remaining, 1);
+    assert_eq!(preserved.cascade_rows_removed, CASCADE_FIXTURE_ROWS - 1);
+    assert_eq!(preserved.retiring_remaining, 1);
 
     let exact = GenerationRetentionPolicy::new(0, 1)
         .and_then(|policy| policy.with_work_limits(CASCADE_FIXTURE_ROWS, 1024 * 1024 * 1024, 1))
@@ -605,7 +616,7 @@ async fn assert_cascade_row_limit_is_exact(
         .await
         .unwrap_or_else(|error| panic!("exact cascade cleanup failed: {error}"));
     assert_eq!(removed.failed_removed, 1);
-    assert_eq!(removed.cascade_rows_removed, CASCADE_FIXTURE_ROWS);
+    assert_eq!(removed.cascade_rows_removed, 1);
     assert_eq!(removed.maintenance, PostRetentionMaintenance::NotNeeded);
     assert_eq!(removed.failed_remaining, 0);
     let remaining = query(AssertSqlSafe(format!(

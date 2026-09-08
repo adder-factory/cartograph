@@ -100,7 +100,7 @@ jobs:
           echo "Using exact-SHA main gate run $run_id"
 
       - name: Download exact-SHA gate manifest
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: v2-main-gate-${{ github.sha }}
           path: gate-attestation
@@ -155,15 +155,15 @@ jobs:
             asset_target: linux-x64
             shell: bash
             cache_key: unused-linux-x64
-            build_image: rust:1.98.0-trixie@sha256:f233b97992246783782a48b923934820e7ba7d13105cf861276de36b09bfa68f
-            runtime_image: debian:13-slim@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16
+            build_image: rust:1.98.0-trixie@sha256:8aea3a845c48caac4091a8d0e6494d213061f8f014dc2f5a5f1a88a1a8c9f301
+            runtime_image: debian:13-slim@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f
           - os: ubuntu-24.04-arm
             rust_target: aarch64-unknown-linux-gnu
             asset_target: linux-arm64
             shell: bash
             cache_key: unused-linux-arm64
-            build_image: rust:1.98.0-trixie@sha256:d0b711f23af4af59fca18e9705436f3cf88fad404e0640881c6c7e3bcceed152
-            runtime_image: debian:13-slim@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+            build_image: rust:1.98.0-trixie@sha256:47a38c2b79ea33ae2ce886508310fb9d07998ebc5f8df966b2c442cda04c90df
+            runtime_image: debian:13-slim@sha256:7215f78f35ffe58fe13f244fac9c4f21326d55187271fbb3e1a8aa5cc7e387ab
           - os: macos-26
             rust_target: aarch64-apple-darwin
             asset_target: darwin-arm64
@@ -253,7 +253,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: release-artifacts
 

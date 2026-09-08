@@ -1816,10 +1816,7 @@ fn direct_logical_operator_count(node: Node<'_>, source: &str) -> u16 {
     }
     let mut count = 0_u16;
     for index in 0..node.child_count() {
-        let Some(child) = u32::try_from(index)
-            .ok()
-            .and_then(|index| node.child(index))
-        else {
+        let Some(child) = node.child(index) else {
             continue;
         };
         if matches!(text_for(source, child).trim(), "&&" | "||" | "and" | "or") {

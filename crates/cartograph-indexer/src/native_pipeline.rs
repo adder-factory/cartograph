@@ -1,3 +1,5 @@
+mod scip_spill;
+
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
@@ -34,14 +36,14 @@ use cartograph_extract::{
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
     EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ImportBindingKind, MAXIMUM_AST_DEPTH,
-    MINIMUM_AST_DEPTH, NativeExtractor, RUST_MACRO_RESOLUTION_PREFIX, SourceDiscoveryOptions,
-    SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
-    SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
-    native_extraction_reservation, native_extractor_contract_digest, native_read_reservation,
-    substitute_module_alias,
+    MINIMUM_AST_DEPTH, NativeExtractor, RUST_MACRO_RESOLUTION_PREFIX,
+    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
+    SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
+    TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
+    native_extractor_contract_digest, native_read_reservation, substitute_module_alias,
 };
 use cartograph_scip::{
-    ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
+    ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
 };
 use globset::GlobBuilder;
 use serde_json::{Value, json};
@@ -210,15 +212,8 @@ impl NativeParseCache {
     }
 
     fn with_maximum_ast_depth(mut self, maximum_ast_depth: usize) -> Self {
-        let mut hasher =
-            blake3::Hasher::new_derive_key("cartograph.v2.native-parse-cache-policy.2026-08-13");
-        hasher.update(self.extractor_contract_digest.as_str().as_bytes());
-        hasher.update(
-            &u64::try_from(maximum_ast_depth)
-                .unwrap_or(u64::MAX)
-                .to_le_bytes(),
-        );
-        self.extractor_contract_digest = ContentDigest::from_bytes(*hasher.finalize().as_bytes());
+        self.extractor_contract_digest =
+            parse_cache_policy_digest(&self.extractor_contract_digest, maximum_ast_depth);
         self
     }
 
@@ -232,6 +227,27 @@ impl NativeParseCache {
             source_bytes: manifest.byte_size,
         })
     }
+}
+
+/// Exact current parse-cache identity, including the admitted AST depth.
+#[must_use]
+pub fn native_parse_cache_contract_digest(maximum_ast_depth: usize) -> ContentDigest {
+    parse_cache_policy_digest(&native_extractor_contract_digest(), maximum_ast_depth)
+}
+
+fn parse_cache_policy_digest(
+    extractor_contract_digest: &ContentDigest,
+    maximum_ast_depth: usize,
+) -> ContentDigest {
+    let mut hasher =
+        blake3::Hasher::new_derive_key("cartograph.v2.native-parse-cache-policy.2026-08-13");
+    hasher.update(extractor_contract_digest.as_str().as_bytes());
+    hasher.update(
+        &u64::try_from(maximum_ast_depth)
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    ContentDigest::from_bytes(*hasher.finalize().as_bytes())
 }
 
 /// Hard discovery, source, manifest, and canonical-generation memory bounds.
@@ -1161,7 +1177,7 @@ pub async fn build_native_generation_with_scip_and_cache(
 /// # Errors
 ///
 /// Returns an error if the runtime, source, parser, resolver, spill quota/fence, canonical
-/// reduction, or digest contract fails. Persistent SCIP overlays are not admitted by this path.
+/// reduction, source-verified overlay, or digest contract fails.
 pub async fn build_native_generation_spilled(
     runner: &StageRunner,
     request: NativeGenerationBuild,
@@ -1175,11 +1191,6 @@ pub async fn build_native_generation_spilled(
     } = request;
     let parse_cache =
         parse_cache.map(|cache| cache.with_maximum_ast_depth(config.maximum_ast_depth()));
-    if scip_overlay.is_some() {
-        return Err(NativePipelineError::Spill {
-            stage: PipelineStage::Overlay,
-        });
-    }
     require_multithread_runtime()?;
     let stages = NativeStageContext {
         runner,
@@ -1206,7 +1217,7 @@ pub async fn build_native_generation_spilled(
         },
     )
     .await?;
-    let resolved = run_spilled_resolve_stage(&stages, extracted).await?;
+    let resolved = run_spilled_resolve_stage(&stages, extracted, scip_overlay).await?;
     let spill = resolved.spill;
     let digest = run_spilled_reduce_stage(&stages, spill.clone()).await?;
     let spill_report = spill
@@ -1226,6 +1237,8 @@ pub async fn build_native_generation_spilled(
             resolve_high_water_bytes: resolved.report.charged_high_water_bytes,
             validation_high_water_bytes: SPILLED_REDUCTION_RESERVATION_BYTES,
             parse_cache,
+            scip_overlay: resolved.scip_overlay,
+            overlay_high_water_bytes: resolved.overlay_high_water_bytes,
             spill: Some(spill_report),
             ..report_seed
         },
@@ -2870,6 +2883,8 @@ async fn run_resolve_stage(
 }
 
 struct SpilledResolutionOutput {
+    scip_overlay: Option<ScipOverlayReport>,
+    overlay_high_water_bytes: u64,
     spill: NativeGenerationSpill,
     report: ResolutionReport,
     degraded_files: Vec<NativeDegradedFile>,
@@ -2877,6 +2892,7 @@ struct SpilledResolutionOutput {
 }
 
 struct SpilledResolutionState {
+    overlay: Option<ScipOverlayPlan>,
     clone_evidence: CloneEvidenceMap,
     index: Arc<ResolutionIndex>,
     report: ResolutionReport,
@@ -3036,7 +3052,7 @@ impl<'context> SpilledResolutionFold<'context> {
 
     async fn commit_resolved(
         &mut self,
-        resolved: ResolvedFileFacts,
+        mut resolved: ResolvedFileFacts,
     ) -> Result<(), ResolveGenerationFailure> {
         if resolved.sequence != self.next_sequence || self.cancellation.is_cancelled() {
             return Err(ResolveGenerationFailure::unclassified());
@@ -3054,6 +3070,11 @@ impl<'context> SpilledResolutionFold<'context> {
             .checked_add(resolved.report.unresolved)
             .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
         self.state.high_water = self.state.high_water.max(resolved.high_water);
+        scip_spill::filter_native(
+            self.state.overlay.as_ref(),
+            &mut resolved.facts,
+            self.cancellation,
+        )?;
         if self.state.centrality_enabled {
             append_spilled_centrality_facts(
                 &mut self.state.centrality,
@@ -3092,6 +3113,7 @@ impl<'context> SpilledResolutionFold<'context> {
 async fn run_spilled_resolve_stage(
     stages: &NativeStageContext<'_>,
     source: SpilledNativeFacts,
+    overlay: Option<ScipOverlayInput>,
 ) -> Result<SpilledResolutionOutput, NativePipelineError> {
     let config = stages.config;
     let deadline = config.stage_deadlines();
@@ -3106,7 +3128,7 @@ async fn run_spilled_resolve_stage(
                 item_deadline,
             ),
         ),
-        source,
+        (source, overlay),
     )];
     let source_root = stages.source_root.clone();
     let progress = stages.runner.clone();
@@ -3116,16 +3138,19 @@ async fn run_spilled_resolve_stage(
         StageRunConfig::new(PipelineStage::Resolve, StageCapacity::new(1, 0), deadline),
         StageWorkload::new(
             inputs,
-            move |item: StageWorkItem<u8, SpilledNativeFacts>| {
+            move |item: StageWorkItem<u8, (SpilledNativeFacts, Option<ScipOverlayInput>)>| {
                 let source_root = source_root.clone();
                 let progress = progress.clone();
                 let failure_reason = Arc::clone(&worker_failure_reason);
                 async move {
                     let cancellation = item.cancellation();
-                    let (_, _, source) = item.into_parts();
+                    let (_, _, (source, overlay)) = item.into_parts();
                     match resolve_spilled_generation(
-                        source,
-                        source_root,
+                        SpilledGenerationSource {
+                            facts: source,
+                            root: source_root,
+                            overlay,
+                        },
                         SpilledStageContext {
                             config,
                             cancellation: &cancellation,
@@ -3270,22 +3295,41 @@ struct SpilledStageContext<'context> {
     progress: &'context StageRunner,
 }
 
+struct SpilledGenerationSource {
+    facts: SpilledNativeFacts,
+    root: SourceRoot,
+    overlay: Option<ScipOverlayInput>,
+}
+
 async fn resolve_spilled_generation(
-    source: SpilledNativeFacts,
-    source_root: SourceRoot,
+    input: SpilledGenerationSource,
     context: SpilledStageContext<'_>,
 ) -> Result<SpilledResolutionOutput, ResolveGenerationFailure> {
+    let SpilledGenerationSource {
+        facts: source,
+        root: source_root,
+        overlay,
+    } = input;
     let SpilledStageContext {
-        config,
+        config: _,
         cancellation,
         progress,
     } = context;
     if cancellation.is_cancelled() {
         return Err(ResolveGenerationFailure::unclassified());
     }
+    let (overlay, overlay_high_water_bytes, config) = context
+        .prepare_overlay(&source, &source_root, overlay)
+        .await?;
+    let context = SpilledStageContext { config, ..context };
+    let overlay_report = overlay.as_ref().map(ScipOverlayPlan::report);
     let mut state = initialize_spilled_resolution(&source, &source_root, context).await?;
+    state.overlay = overlay;
     spill_resolved_files(&source, &mut state, context).await?;
-    spill_derived_generation_facts(&source, &mut state, context).await?;
+    let next_sequence = spill_derived_generation_facts(&source, &mut state, context).await?;
+    state
+        .append_imported(&source, next_sequence, context)
+        .await?;
     if state.centrality_enabled {
         apply_spilled_centrality(
             &source.spill,
@@ -3307,6 +3351,8 @@ async fn resolve_spilled_generation(
     state.report.retained_bytes = state.high_water;
     state.report.charged_high_water_bytes = state.high_water;
     Ok(SpilledResolutionOutput {
+        scip_overlay: overlay_report,
+        overlay_high_water_bytes,
         spill: source.spill,
         report: state.report,
         degraded_files: source.degraded_files,
@@ -3348,6 +3394,7 @@ async fn initialize_spilled_resolution(
     let validation_limits = generation_validation_limits(maximum_bytes, PipelineStage::Resolve)
         .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
     Ok(SpilledResolutionState {
+        overlay: None,
         clone_evidence,
         index: Arc::new(index),
         report: ResolutionReport {
@@ -3545,7 +3592,7 @@ async fn spill_derived_generation_facts(
     source: &SpilledNativeFacts,
     state: &mut SpilledResolutionState,
     context: SpilledStageContext<'_>,
-) -> Result<(), ResolveGenerationFailure> {
+) -> Result<u64, ResolveGenerationFailure> {
     let SpilledStageContext {
         config,
         cancellation,
@@ -3554,7 +3601,7 @@ async fn spill_derived_generation_facts(
     let maximum_bytes = config.limits.retained.max_generation_bytes;
     let mut derived_sequence = source.files;
     for kind in SpilledDerivedFactKind::ALL {
-        let (facts, charged) = derive_spilled_facts(
+        let (mut facts, charged) = derive_spilled_facts(
             &state.index,
             DerivedFactBound {
                 cancellation,
@@ -3564,6 +3611,7 @@ async fn spill_derived_generation_facts(
         )
         .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
         state.high_water = state.high_water.max(charged);
+        scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
         if !generation_facts_are_empty(&facts) {
             if state.centrality_enabled {
                 append_spilled_centrality_facts(
@@ -3597,7 +3645,7 @@ async fn spill_derived_generation_facts(
             .await
             .map_err(|_| ResolveGenerationFailure::unclassified())?;
     }
-    Ok(())
+    Ok(derived_sequence)
 }
 
 fn append_spilled_centrality_facts(
@@ -10515,6 +10563,7 @@ impl<'a> ImportBindingSelection<'a> {
 /// stripped once here rather than being re-tested through the resolution path.
 struct ReferenceLookup<'reference> {
     dynamic_dispatch_name: Option<&'reference str>,
+    rust_self_receiver_name: Option<&'reference str>,
     rust_macro_name: Option<&'reference str>,
     type_query_value_name: Option<&'reference str>,
     embedded_sql: Option<EmbeddedSqlLookup<'reference>>,
@@ -10526,18 +10575,22 @@ impl<'reference> ReferenceLookup<'reference> {
         let resolution_name = reference.resolution_name.as_deref();
         let dynamic_dispatch_name =
             resolution_name.and_then(|name| name.strip_prefix(DYNAMIC_DISPATCH_RESOLUTION_PREFIX));
+        let rust_self_receiver_name = resolution_name
+            .and_then(|name| name.strip_prefix(RUST_SELF_RECEIVER_RESOLUTION_PREFIX));
         let rust_macro_name =
             resolution_name.and_then(|name| name.strip_prefix(RUST_MACRO_RESOLUTION_PREFIX));
         let type_query_value_name =
             resolution_name.and_then(|name| name.strip_prefix(TYPE_QUERY_VALUE_RESOLUTION_PREFIX));
         let embedded_sql = embedded_sql_lookup(resolution_name);
-        let lookup_name = dynamic_dispatch_name
+        let lookup_name = rust_self_receiver_name
+            .or(dynamic_dispatch_name)
             .or(rust_macro_name)
             .or(type_query_value_name)
             .or_else(|| embedded_sql.as_ref().map(|lookup| lookup.table))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
         Self {
             dynamic_dispatch_name,
+            rust_self_receiver_name,
             rust_macro_name,
             type_query_value_name,
             embedded_sql,
@@ -10657,7 +10710,10 @@ impl ResolutionOutput<'_> {
         Ok(())
     }
 
-    fn append_file_records(&mut self, input: FileRecordInput<'_>) -> Result<(), StageItemFailure> {
+    fn append_file_records(
+        &mut self,
+        mut input: FileRecordInput<'_>,
+    ) -> Result<(), StageItemFailure> {
         self.facts.documents.push(SearchDocumentInput {
             document_id: native_document_id("file", input.identity.file_id.as_str()),
             file_id: Some(input.identity.file_id.clone()),
@@ -10667,31 +10723,14 @@ impl ResolutionOutput<'_> {
             kind: document_kind_for_path(&input.identity.path, DocumentKind::File),
             qualified_name: String::new(),
             code: try_clone_text(&input.identity.path)?,
-            natural_text: input.test_search_text,
+            natural_text: take(&mut input.test_search_text),
             metadata: json!({
                 "byte_size": input.file.byte_size,
                 "parse_status": input.file.parse_status.as_str(),
                 "test_search_truncated": input.test_search_truncated,
             }),
         });
-        self.facts.symbols.push(SymbolInput {
-            symbol_id: input.file_symbol_id.clone(),
-            file_id: input.identity.file_id.clone(),
-            symbol_kind: SymbolKind::File.as_str().to_owned(),
-            qualified_name: file_symbol_qualified_name(input.identity)?,
-            signature: String::new(),
-            start_byte: 0,
-            end_byte: input.file.byte_size,
-            start_line: 1,
-            end_line: input.line_count,
-            structural_digest: input.file.content_hash.clone(),
-            visibility: None,
-            export: SymbolExportFlags::default(),
-            execution: SymbolExecutionFlags::default(),
-            declaration_only: false,
-            betweenness_ppb: None,
-            pagerank_ppb: None,
-        });
+        self.facts.symbols.push(native_file_symbol_input(&input)?);
         Ok(())
     }
 
@@ -10747,6 +10786,7 @@ impl ResolutionOutput<'_> {
         let lookup = ReferenceLookup::classify(&reference);
         let ReferenceLookup {
             dynamic_dispatch_name,
+            rust_self_receiver_name,
             rust_macro_name,
             type_query_value_name,
             embedded_sql,
@@ -10767,7 +10807,13 @@ impl ResolutionOutput<'_> {
                     import_bindings,
                     owner: reference.owner.as_ref(),
                     name: lookup_name,
-                    dynamic_dispatch: dynamic_dispatch_name.is_some(),
+                    dispatch: if rust_self_receiver_name.is_some() {
+                        ReferenceDispatch::RustSelf
+                    } else if dynamic_dispatch_name.is_some() {
+                        ReferenceDispatch::Dynamic
+                    } else {
+                        ReferenceDispatch::Static
+                    },
                     kind: if type_query_value_name.is_some() {
                         ReferenceKind::References
                     } else {
@@ -11522,6 +11568,13 @@ fn push_default_export(
     Ok(())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReferenceDispatch {
+    Static,
+    Dynamic,
+    RustSelf,
+}
+
 struct ResolutionRequest<'a> {
     file_id: &'a FileId,
     file_path: &'a str,
@@ -11529,7 +11582,7 @@ struct ResolutionRequest<'a> {
     import_bindings: ImportBindingSelection<'a>,
     owner: Option<&'a SymbolId>,
     name: &'a str,
-    dynamic_dispatch: bool,
+    dispatch: ReferenceDispatch,
     kind: ReferenceKind,
     span: SourceSpan,
 }
@@ -11734,11 +11787,11 @@ where
     }))
 }
 
-fn resolve_reference<Cancel>(
+fn resolve_declaration_reference<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
     cancelled: &mut Cancel,
-) -> Result<ReferenceResolution, StageItemFailure>
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
@@ -11747,7 +11800,7 @@ where
         && let Some(resolution) =
             import_reference_resolution(resolve_include_file_reference(index, request, cancelled)?)
     {
-        return Ok(resolution);
+        return Ok(Some(resolution));
     }
     if request.owner.is_none()
         && request.kind == ReferenceKind::References
@@ -11760,7 +11813,7 @@ where
             cancelled,
         )?)
     {
-        return Ok(resolution);
+        return Ok(Some(resolution));
     }
     if request.kind == ReferenceKind::Exports
         && let Some(resolution) = import_reference_resolution(resolve_import(
@@ -11772,10 +11825,34 @@ where
             cancelled,
         )?)
     {
+        return Ok(Some(resolution));
+    }
+    Ok(None)
+}
+
+fn resolve_reference<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if request.dispatch == ReferenceDispatch::RustSelf && !request.name.contains("::") {
+        return Ok(ReferenceResolution::unresolved(
+            DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
+        ));
+    }
+    if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
     if let Some(target) = resolve_lexical(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
+    }
+    if rust_self_has_local_nominal(index, request, cancelled)? {
+        return Ok(ReferenceResolution::unresolved(
+            DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
+        ));
     }
     if let Some(target) = resolve_rust_qualified_path(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
@@ -11835,7 +11912,7 @@ where
 }
 
 fn fixed_unresolved_provenance(request: &ResolutionRequest<'_>) -> Option<&'static str> {
-    if request.dynamic_dispatch {
+    if request.dispatch != ReferenceDispatch::Static {
         Some(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)
     } else if request.kind == ReferenceKind::FieldAccess {
         Some(MEMBER_ACCESS_UNRESOLVED_PROVENANCE)
@@ -12219,6 +12296,9 @@ fn import_reference_resolution(resolution: ImportResolution) -> Option<Reference
 }
 
 fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
+    if request.dispatch == ReferenceDispatch::RustSelf {
+        return false;
+    }
     let runtime_require = javascript_family_name(request.language)
         && request.kind == ReferenceKind::Calls
         && request.name == "require";
@@ -12237,13 +12317,19 @@ fn resolve_lexical<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let candidates = resolution_candidates_for_file(index, request.name, request.file_id);
+    let exact_name = if request.dispatch == ReferenceDispatch::RustSelf {
+        request.name.strip_prefix("self::").unwrap_or(request.name)
+    } else {
+        request.name
+    };
+    let candidates = resolution_candidates_for_file(index, exact_name, request.file_id);
     if let Some(candidate) = select_candidate(
         candidates,
         |candidate| {
             &candidate.file_id == request.file_id
-                && candidate.qualified_name == request.name
-                && request.owner != Some(&candidate.symbol_id)
+                && candidate.qualified_name == exact_name
+                && (request.dispatch == ReferenceDispatch::RustSelf
+                    || request.owner != Some(&candidate.symbol_id))
                 && reference_kind_candidate(request.kind, candidate)
         },
         cancelled,
@@ -12292,6 +12378,41 @@ where
     Ok(None)
 }
 
+fn rust_self_has_local_nominal<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if request.dispatch != ReferenceDispatch::RustSelf {
+        return Ok(false);
+    }
+    let Some((nominal, _)) = request
+        .name
+        .strip_prefix("self::")
+        .and_then(|name| name.rsplit_once("::"))
+    else {
+        return Ok(false);
+    };
+    for candidate in resolution_candidates_for_file(index, nominal, request.file_id) {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if candidate.file_id == *request.file_id
+            && candidate.qualified_name == nominal
+            && matches!(
+                candidate.kind,
+                SymbolKind::Struct | SymbolKind::Enum | SymbolKind::Union | SymbolKind::TypeAlias
+            )
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn resolve_rust_qualified_path<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
@@ -12309,7 +12430,8 @@ where
     if !matches!(
         module_specifier.split("::").next(),
         Some("crate" | "self" | "super")
-    ) {
+    ) && request.dispatch != ReferenceDispatch::RustSelf
+    {
         return Ok(None);
     }
     if let Some(target) = resolve_rust_qualified_in_module(
@@ -12330,7 +12452,8 @@ where
     if !matches!(
         associated_module.split("::").next(),
         Some("crate" | "self" | "super")
-    ) {
+    ) && request.dispatch != ReferenceDispatch::RustSelf
+    {
         return Ok(None);
     }
     let parent_and_member = request
@@ -12345,7 +12468,8 @@ where
             request,
             module_specifier: associated_module,
             target_name: parent_and_member,
-            allow_unique_project_reexport: associated_module == "crate",
+            allow_unique_project_reexport: associated_module == "crate"
+                && request.dispatch != ReferenceDispatch::RustSelf,
         },
         cancelled,
     )
@@ -12976,7 +13100,8 @@ where
         &[] as &[ResolutionCandidate],
         ResolutionCandidateBucket::as_slice,
     );
-    let allow_unique_project_reexport = parent_specifier == "crate";
+    let allow_unique_project_reexport =
+        parent_specifier == "crate" && reference.dispatch != ReferenceDispatch::RustSelf;
     let mut candidate = select_candidate(
         candidates,
         |candidate| {
@@ -13057,7 +13182,7 @@ where
             import_bindings: ImportBindingSelection::empty(),
             owner: None,
             name: re_export_target,
-            dynamic_dispatch: false,
+            dispatch: ReferenceDispatch::Static,
             kind: reference.kind,
             span: reference.span,
         };
@@ -14117,7 +14242,7 @@ where
                 source,
                 source_file_id: request.file_id,
                 reference_name: request.name,
-                dynamic_dispatch: request.dynamic_dispatch,
+                dynamic_dispatch: request.dispatch == ReferenceDispatch::Dynamic,
                 rust_local_import,
                 candidate,
             }) && reference_kind_candidate(request.kind, candidate)
@@ -14173,7 +14298,7 @@ where
             import_bindings: request.import_bindings,
             owner: request.owner,
             name: &fallback_name,
-            dynamic_dispatch: request.dynamic_dispatch,
+            dispatch: request.dispatch,
             kind: request.kind,
             span: request.span,
         };
@@ -15343,6 +15468,27 @@ fn native_document_id(kind: &str, identity: &str) -> DocumentId {
     DocumentId::from_uuid_v8(bytes)
 }
 
+fn native_file_symbol_input(input: &FileRecordInput<'_>) -> Result<SymbolInput, StageItemFailure> {
+    Ok(SymbolInput {
+        symbol_id: input.file_symbol_id.clone(),
+        file_id: input.identity.file_id.clone(),
+        symbol_kind: SymbolKind::File.as_str().to_owned(),
+        qualified_name: file_symbol_qualified_name(input.identity)?,
+        signature: String::new(),
+        start_byte: 0,
+        end_byte: input.file.byte_size,
+        start_line: 1,
+        end_line: input.line_count,
+        structural_digest: input.file.content_hash.clone(),
+        visibility: None,
+        export: SymbolExportFlags::default(),
+        execution: SymbolExecutionFlags::default(),
+        declaration_only: false,
+        betweenness_ppb: None,
+        pagerank_ppb: None,
+    })
+}
+
 fn native_file_symbol_id(file_id: &FileId) -> SymbolId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(FILE_SYMBOL_ID_DOMAIN);
@@ -15548,6 +15694,8 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod rust_receivers;
+
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};
 
     use cartograph_scip::{
@@ -15620,21 +15768,21 @@ mod tests {
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "4df59245deee1ac806287b6abe07f890a0a8c20a785ac1bc8e8a2293d4c9a968";
+        "33d3bb8a4a25ef9670c3a23e9f0306c2e9a9a746b988a70f6b3597b42e8f66bc";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "aba2fcc0693d156e83e81760df1b31bb3404cbce7442a5da9224a8721bc3fa19";
+        "6473a685acc96538c409b7ef156eb3ab19bf174d9975c3c110eb37b917155481";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "05ce412e8859e31831249ab8e784a4c014c5783b36fa6f5a7963aa2f535e7994";
+        "d1318b5d3337dc3f1db895d21fc08f3b2b8c274729ef6b09a1555274c60a7f7f";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 220, 213, 64, 220);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "128028945772ba1d9b0470480f3d980fd5c02f56ca4aa68a4f2e8908583a7b5a";
+        "dadab384defe74714e96036894719bfbcf08334a7fdcbf01f5fb69098772c1b8";
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (13, 49, 44, 32, 49);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [

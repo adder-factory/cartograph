@@ -159,8 +159,9 @@ pub use qualified::{
     QualifiedSymbolSort,
 };
 pub use retention::{
-    GenerationRetentionError, GenerationRetentionPolicy, GenerationRetentionReport,
-    GenerationRetentionRequest, PostRetentionMaintenance, PostRetentionMaintenancePolicy,
+    GenerationRetentionAttempt, GenerationRetentionError, GenerationRetentionPolicy,
+    GenerationRetentionReport, GenerationRetentionRequest, PostRetentionMaintenance,
+    PostRetentionMaintenancePolicy,
 };
 pub use retrieval::{
     CurrentEntryPointPage, CurrentEntryPointsLookup, CurrentFileLookup, CurrentFileRecord,
@@ -202,8 +203,9 @@ pub use spill::{
 use sqlx_core::{pool::PoolOptions, query::query};
 use sqlx_postgres::{PgConnectOptions, PgPool, PgSslMode, Postgres};
 pub use storage::{
-    GenerationDeduplicationAssessment, IndexStorageUsage, ParseCacheStorageUsage,
-    StorageTotalsReport, StorageUsageReport, StorageWarning, TableStorageUsage,
+    GenerationDeduplicationAssessment, GenerationRetentionSnapshot, IndexStorageUsage,
+    ParseCacheStorageUsage, StorageStatisticsObservation, StorageTotalsReport, StorageUsageOffsets,
+    StorageUsagePage, StorageUsageReport, StorageWarning, TableStorageUsage,
 };
 pub use structural_findings::StructuralFindingRefresh;
 pub use summary_priority::{

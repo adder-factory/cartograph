@@ -926,7 +926,7 @@ async fn reconcile_completed_import(
             )
             .await?;
         }
-        None => {}
+        None | Some(GenerationState::Retiring) => {}
         Some(GenerationState::Staging | GenerationState::Ready | GenerationState::Failed) => {
             return Err(V1PostgresImportError::CorruptCheckpoint);
         }
@@ -1141,7 +1141,10 @@ fn validate_active_checkpoint(active: &ActiveImport) -> Result<(), V1PostgresImp
     let valid = match active.generation_state {
         GenerationState::Staging => checkpoint == V1PostgresImportCheckpoint::Staged,
         GenerationState::Ready => checkpoint != V1PostgresImportCheckpoint::Complete,
-        GenerationState::Current | GenerationState::Superseded | GenerationState::Failed => false,
+        GenerationState::Current
+        | GenerationState::Superseded
+        | GenerationState::Failed
+        | GenerationState::Retiring => false,
     };
     if valid {
         Ok(())
@@ -1174,7 +1177,9 @@ fn validate_checkpoint_state(
 ) -> Result<(), V1PostgresImportError> {
     validate_checkpoint_history(run)?;
     let valid = match state {
-        None => run.checkpoint == V1PostgresImportCheckpoint::Complete,
+        None | Some(GenerationState::Retiring) => {
+            run.checkpoint == V1PostgresImportCheckpoint::Complete
+        }
         Some(GenerationState::Staging) => run.checkpoint == V1PostgresImportCheckpoint::Staged,
         Some(GenerationState::Ready) => matches!(
             run.checkpoint,
@@ -1284,9 +1289,13 @@ async fn recover_import_generation(
             GenerationState::Staging | GenerationState::Ready,
             RecoverableGeneration::Staged(_) | RecoverableGeneration::Ready(_),
         )
-        | (GenerationState::Current | GenerationState::Superseded | GenerationState::Failed, _) => {
-            Err(V1PostgresImportError::CorruptCheckpoint)
-        }
+        | (
+            GenerationState::Current
+            | GenerationState::Superseded
+            | GenerationState::Failed
+            | GenerationState::Retiring,
+            _,
+        ) => Err(V1PostgresImportError::CorruptCheckpoint),
     }
 }
 
@@ -3245,6 +3254,7 @@ fn parse_generation_state(raw: &str) -> Result<GenerationState, V1PostgresImport
         "current" => Ok(GenerationState::Current),
         "superseded" => Ok(GenerationState::Superseded),
         "failed" => Ok(GenerationState::Failed),
+        "retiring" => Ok(GenerationState::Retiring),
         _ => Err(V1PostgresImportError::CorruptCheckpoint),
     }
 }
