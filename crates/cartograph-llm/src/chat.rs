@@ -616,6 +616,39 @@ impl OpenAiChatClient {
             .iter()
             .map(|argument| render_cli_argument(argument, &self.settings.model, &prompt))
             .collect::<Vec<_>>();
+        let body = CliBridgeProcess::spawn(bridge, &args)?
+            .exchange(
+                &prompt,
+                CliBridgeBounds {
+                    maximum_response_bytes: self.settings.maximum_response_bytes,
+                    timeout: self.settings.timeout,
+                },
+            )
+            .await?;
+        decode_cli_bridge_response(CliBridgeResponseInput {
+            body: &body,
+            configured_model: &self.settings.model,
+            response_format: bridge.response_format(),
+            response_path: bridge.response_path(),
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CliBridgeBounds {
+    maximum_response_bytes: usize,
+    timeout: Duration,
+}
+
+struct CliBridgeProcess {
+    child: tokio::process::Child,
+    stdin: Option<tokio::process::ChildStdin>,
+    stdout: tokio::process::ChildStdout,
+    stderr: tokio::process::ChildStderr,
+}
+
+impl CliBridgeProcess {
+    fn spawn(bridge: &CliBridgeConfig, args: &[String]) -> Result<Self, ChatError> {
         let mut command = Command::new(bridge.command());
         command
             .args(args)
@@ -629,7 +662,7 @@ impl OpenAiChatClient {
         let mut child = command
             .spawn()
             .map_err(|_| ChatError::EndpointUnavailable)?;
-        let mut stdin = match bridge.input() {
+        let stdin = match bridge.input() {
             CliBridgeInputMode::Stdin => {
                 Some(child.stdin.take().ok_or(ChatError::ClientUnavailable)?)
             }
@@ -637,23 +670,31 @@ impl OpenAiChatClient {
         };
         let stdout = child.stdout.take().ok_or(ChatError::ClientUnavailable)?;
         let stderr = child.stderr.take().ok_or(ChatError::ClientUnavailable)?;
-        let maximum_stdout = u64::try_from(self.settings.maximum_response_bytes)
+        Ok(Self {
+            child,
+            stdin,
+            stdout,
+            stderr,
+        })
+    }
+
+    async fn exchange(self, prompt: &str, bounds: CliBridgeBounds) -> Result<Vec<u8>, ChatError> {
+        let Self {
+            mut child,
+            stdin,
+            stdout,
+            stderr,
+        } = self;
+        let maximum_stdout = u64::try_from(bounds.maximum_response_bytes)
             .map_err(|_| ChatError::ResponseLimit)?
             .saturating_add(1);
         let maximum_stderr = u64::try_from(CLAUDE_STDERR_MAXIMUM_BYTES)
             .map_err(|_| ChatError::ResponseLimit)?
             .saturating_add(1);
         let operation = async {
-            if let Some(mut stdin) = stdin.take() {
-                stdin
-                    .write_all(prompt.as_bytes())
-                    .await
-                    .map_err(|_| ChatError::EndpointUnavailable)?;
-                stdin
-                    .shutdown()
-                    .await
-                    .map_err(|_| ChatError::EndpointUnavailable)?;
-            }
+            // Collect stdin failures without letting a fast exit mask the bounded
+            // response or the child's actual rejection status.
+            let stdin_write = async { Ok::<_, ChatError>(write_cli_prompt(stdin, prompt).await) };
             let stdout_read = async {
                 let mut bytes = Vec::new();
                 stdout
@@ -678,13 +719,15 @@ impl OpenAiChatClient {
                     .await
                     .map_err(|_| ChatError::EndpointUnavailable)
             };
-            let (stdout, stderr, status) = tokio::try_join!(stdout_read, stderr_read, child_wait)?;
-            Ok::<_, ChatError>((stdout, stderr, status))
+            let (stdout, stderr, status, input_result) =
+                tokio::try_join!(stdout_read, stderr_read, child_wait, stdin_write)?;
+            Ok::<_, ChatError>((stdout, stderr, status, input_result))
         };
-        let (stdout, stderr, status) = tokio::time::timeout(self.settings.timeout, operation)
-            .await
-            .map_err(|_| ChatError::EndpointUnavailable)??;
-        if stdout.len() > self.settings.maximum_response_bytes
+        let (stdout, stderr, status, input_result) =
+            tokio::time::timeout(bounds.timeout, operation)
+                .await
+                .map_err(|_| ChatError::EndpointUnavailable)??;
+        if stdout.len() > bounds.maximum_response_bytes
             || stderr.len() > CLAUDE_STDERR_MAXIMUM_BYTES
         {
             return Err(ChatError::ResponseLimit);
@@ -692,13 +735,26 @@ impl OpenAiChatClient {
         if !status.success() {
             return Err(ChatError::BackendRejected);
         }
-        decode_cli_bridge_response(CliBridgeResponseInput {
-            body: &stdout,
-            configured_model: &self.settings.model,
-            response_format: bridge.response_format(),
-            response_path: bridge.response_path(),
-        })
+        input_result?;
+        Ok(stdout)
     }
+}
+
+async fn write_cli_prompt(
+    stdin: Option<tokio::process::ChildStdin>,
+    prompt: &str,
+) -> Result<(), ChatError> {
+    if let Some(mut stdin) = stdin {
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .map_err(|_| ChatError::EndpointUnavailable)?;
+        stdin
+            .shutdown()
+            .await
+            .map_err(|_| ChatError::EndpointUnavailable)?;
+    }
+    Ok(())
 }
 
 fn render_cli_prompt(template: &str, system: &str, user: &str) -> Result<String, ChatError> {
@@ -1456,6 +1512,71 @@ mod tests {
                 .await,
             Err(ChatError::EndpointUnavailable)
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cli_bridge_closed_stdin_preserves_exit_status_and_rejects_incomplete_success() {
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        for (name, exit_code, expected) in [
+            ("rejected", 17, ChatError::BackendRejected),
+            ("incomplete", 0, ChatError::EndpointUnavailable),
+        ] {
+            let script = format!("#!/bin/sh\nexec 0<&-\nprintf '!answer'\nexit {exit_code}\n");
+            let bridge = CliBridgeConfig::new(CliBridgeConfigInput::new(
+                executable_fixture(root.path(), name, &script),
+                CliBridgeInputMode::Stdin,
+                CliBridgeResponseFormat::Raw,
+            ))
+            .unwrap_or_else(|error| panic!("bridge config failed: {error}"));
+            let mut process = CliBridgeProcess::spawn(&bridge, &[])
+                .unwrap_or_else(|error| panic!("bridge spawn failed: {error}"));
+            // The marker proves the child closed its only stdin read descriptor.
+            // Prompt delivery must now fail, regardless of scheduler ordering.
+            let mut marker = [0_u8; 1];
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                process.stdout.read_exact(&mut marker),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("stdin-close marker timed out"))
+            .unwrap_or_else(|error| panic!("stdin-close marker failed: {error}"));
+            assert_eq!(marker, *b"!");
+            assert_eq!(
+                process
+                    .exchange(
+                        "complete prompt",
+                        CliBridgeBounds {
+                            maximum_response_bytes: DEFAULT_MAXIMUM_RESPONSE_BYTES,
+                            timeout: Duration::from_secs(5),
+                        }
+                    )
+                    .await,
+                Err(expected)
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cli_bridge_drains_output_while_delivering_a_bounded_prompt() {
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let bridge = CliBridgeConfig::new(CliBridgeConfigInput::new(
+            executable_fixture(root.path(), "output-before-input", "#!/bin/sh\ndd if=/dev/zero bs=1048576 count=1 2>/dev/null | tr '\\000' x\ncat >/dev/null\n"),
+            CliBridgeInputMode::Stdin,
+            CliBridgeResponseFormat::Raw,
+        )).unwrap_or_else(|error| panic!("bridge config failed: {error}"));
+        let mut settings = ChatSettings::new_cli_bridge("fixture-model", &bridge)
+            .unwrap_or_else(|error| panic!("bridge settings failed: {error}"));
+        settings.timeout = Duration::from_secs(5);
+        let user = "u".repeat(DEFAULT_MAXIMUM_INPUT_BYTES / 2);
+        let completion = OpenAiChatClient::new(settings)
+            .unwrap_or_else(|error| panic!("bridge client failed: {error}"))
+            .complete_message(ChatMessageRequest::new("system", &user, None))
+            .await
+            .unwrap_or_else(|error| panic!("concurrent bridge I/O failed: {error}"));
+        assert_eq!(completion.content().len(), 1_024 * 1_024);
+        assert!(completion.content().bytes().all(|byte| byte == b'x'));
     }
 
     #[cfg(unix)]
