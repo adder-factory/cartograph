@@ -506,7 +506,9 @@ impl OpenAiChatClient {
             ProjectLlmProvider::OpenAiCompat => self.send_openai(request).await,
             ProjectLlmProvider::AnthropicApi => self.send_anthropic(request).await,
             ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge => {
-                self.send_cli_bridge(request.system, request.user).await
+                // Keep platform-sized process and pipe state out of enclosing
+                // caller futures while retaining cancellation by ownership.
+                Box::pin(self.send_cli_bridge(request.system, request.user)).await
             }
         }
     }
