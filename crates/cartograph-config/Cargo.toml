@@ -10,9 +10,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+cartograph-domain.workspace = true
 secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [lints]
 workspace = true

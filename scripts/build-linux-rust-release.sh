@@ -7,6 +7,11 @@ TARGET="${1:-}"
 ASSET_TARGET="${2:-}"
 BUILD_IMAGE="${3:-}"
 RUNTIME_IMAGE="${4:-}"
+BUILD_TOOLCHAIN="$(sed -n 's/^channel = "\([^" ]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")"
+if [[ ! "$BUILD_TOOLCHAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "the release compiler must be an exact stable toolchain" >&2
+  exit 2
+fi
 
 if [[ -z "$TARGET" || -z "$ASSET_TARGET" || -z "$BUILD_IMAGE" || -z "$RUNTIME_IMAGE" ]]; then
   echo "usage: $0 <rust-target-triple> <asset-target> <pinned-build-image> <pinned-runtime-image>" >&2
@@ -44,7 +49,8 @@ docker run --rm --pull never \
   --workdir /workspace \
   --env HOME=/tmp/cartograph-home \
   --env CARGO_HOME=/tmp/cartograph-cargo \
-  --env RUSTUP_HOME=/usr/local/rustup \
+  --env RUSTUP_HOME=/tmp/cartograph-rustup \
+  --env CARTOGRAPH_RELEASE_TOOLCHAIN="$BUILD_TOOLCHAIN" \
   --env CARGO_TARGET_DIR=/tmp/cartograph-target \
   --env CARTOGRAPH_RELEASE_TARGET="$TARGET" \
   --env CARTOGRAPH_RELEASE_ASSET_TARGET="$ASSET_TARGET" \
@@ -52,14 +58,18 @@ docker run --rm --pull never \
   "$BUILD_IMAGE" \
   bash -c '
     set -euo pipefail
-    mkdir -p "$HOME" "$CARGO_HOME" "$CARGO_TARGET_DIR"
+    mkdir -p "$HOME" "$CARGO_HOME" "$CARGO_TARGET_DIR" "$RUSTUP_HOME"
     machine="$(uname -m)"
     if [[ "$machine" != "$CARTOGRAPH_RELEASE_MACHINE" ]]; then
       echo "release container architecture mismatch: expected $CARTOGRAPH_RELEASE_MACHINE, got $machine" >&2
       exit 1
     fi
-    if [[ "$(rustc --version)" != rustc\ 1.98.0* ]]; then
-      echo "release container did not provide the pinned Rust 1.98.0 toolchain" >&2
+    # The published 1.98.0 image supplies Debian/build utilities. Install the
+    # exact reviewed compiler independently; a lagging image must not select rustc.
+    rustup toolchain install "$CARTOGRAPH_RELEASE_TOOLCHAIN" --profile minimal \
+      --component clippy,rustfmt --no-self-update
+    if [[ "$(rustc --version)" != "rustc $CARTOGRAPH_RELEASE_TOOLCHAIN "* ]]; then
+      echo "release container did not provide the pinned Rust compiler" >&2
       rustc --version >&2
       exit 1
     fi

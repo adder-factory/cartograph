@@ -3,7 +3,7 @@ use tree_sitter::Node;
 
 use crate::{
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, ExtractError, ExtractedReference,
-    TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
+    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
 };
 
 use super::{
@@ -494,7 +494,7 @@ fn anonymous_call_target(language: SourceLanguage, target: Node<'_>, depth: usiz
 }
 
 fn rust_receiver_call_resolution(
-    builder: &ExtractionBuilder<'_, '_>,
+    builder: &mut ExtractionBuilder<'_, '_>,
     target: Node<'_>,
 ) -> Result<Option<String>, ExtractError> {
     let Some(target) = rust_receiver_target(target, 0) else {
@@ -503,11 +503,230 @@ fn rust_receiver_call_resolution(
     let Some(field) = target.child_by_field_name("field") else {
         return Ok(None);
     };
+    if target
+        .child_by_field_name("value")
+        .is_some_and(|receiver| receiver.kind() == "self")
+    {
+        let nominal = rust_self_nominal_type(builder, target)?;
+        let type_name = nominal.as_deref();
+        let field = builder.context.text(field).trim();
+        if field.is_empty() {
+            return Ok(None);
+        }
+        let capacity = RUST_SELF_RECEIVER_RESOLUTION_PREFIX
+            .len()
+            .checked_add(type_name.map_or(0, |name| name.len().saturating_add(2)))
+            .and_then(|bytes| bytes.checked_add(field.len()))
+            .ok_or(ExtractError::OutputLimit)?;
+        builder.context.budget.ensure_string_length(capacity)?;
+        let mut resolution = String::new();
+        resolution
+            .try_reserve_exact(capacity)
+            .map_err(|_| ExtractError::OutputLimit)?;
+        resolution.push_str(RUST_SELF_RECEIVER_RESOLUTION_PREFIX);
+        if let Some(type_name) = type_name {
+            resolution.push_str(type_name);
+            resolution.push_str("::");
+        }
+        resolution.push_str(field);
+        return Ok(Some(resolution));
+    }
     let field = builder.context.text(field).trim();
     if field.is_empty() {
         return Ok(None);
     }
     dynamic_dispatch_resolution(builder, field).map(Some)
+}
+
+fn rust_self_nominal_type(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    target: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    let mut ancestor = target.parent();
+    let mut receiver_seen = false;
+    for _ in 0..=builder.maximum_ast_depth {
+        builder.context.ensure_active()?;
+        let Some(node) = ancestor else {
+            break;
+        };
+        if node.kind() == "function_item" {
+            if receiver_seen || !rust_function_has_self_parameter(node) {
+                return Ok(None);
+            }
+            receiver_seen = true;
+        }
+        if node.kind() == "impl_item" && receiver_seen {
+            return rust_impl_nominal_type(builder, node);
+        }
+        ancestor = node.parent();
+    }
+    Ok(None)
+}
+
+fn rust_function_has_self_parameter(function: Node<'_>) -> bool {
+    function
+        .child_by_field_name("parameters")
+        .is_some_and(|parameters| {
+            named_children(parameters).any(|parameter| parameter.kind() == "self_parameter")
+        })
+}
+
+fn rust_impl_nominal_type(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    implementation: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    let Some(mut nominal) = implementation.child_by_field_name("type") else {
+        return Ok(None);
+    };
+    if nominal.kind() == "generic_type" {
+        let Some(base) = nominal.child_by_field_name("type") else {
+            return Ok(None);
+        };
+        nominal = base;
+    }
+    if !matches!(nominal.kind(), "type_identifier" | "scoped_type_identifier") {
+        return Ok(None);
+    }
+    let receiver_name = builder.context.owned_text(nominal)?;
+    if rust_impl_parameter_shadows_type(builder, implementation, &receiver_name)?
+        || !receiver_name
+            .chars()
+            .all(|character| character.is_alphanumeric() || matches!(character, '_' | ':' | '#'))
+    {
+        return Ok(None);
+    }
+    rust_self_type_in_scope(builder, implementation, nominal)
+}
+
+fn rust_impl_parameter_shadows_type(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    implementation: Node<'_>,
+    receiver_name: &str,
+) -> Result<bool, ExtractError> {
+    let Some(parameters) = implementation.child_by_field_name("type_parameters") else {
+        return Ok(false);
+    };
+    let receiver_root = receiver_name.split("::").next();
+    for parameter in named_children(parameters) {
+        builder.context.ensure_active()?;
+        if parameter
+            .child_by_field_name("name")
+            .is_some_and(|name| Some(builder.context.text(name)) == receiver_root)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn rust_self_type_in_scope(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    implementation: Node<'_>,
+    nominal: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    let Some(scope) = implementation.parent() else {
+        return Ok(None);
+    };
+    if !matches!(scope.kind(), "source_file" | "declaration_list") {
+        // A block-local type needs its enclosing function identity, not a module path.
+        return Ok(None);
+    }
+    let local_type = rust_scope_declares_type(builder, scope, nominal)?;
+    let mut nominal_name = builder.context.owned_text(nominal)?;
+    if !local_type && nominal.kind() == "type_identifier" {
+        let Some(imported) = super::polyglot::rust_nominal_import(builder, scope, &nominal_name)?
+        else {
+            return Ok(None);
+        };
+        nominal_name = imported;
+    }
+    if !local_type && !nominal_name.starts_with("self::") && !nominal_name.starts_with("super::") {
+        return Ok(Some(nominal_name));
+    }
+    let Some(mut modules) = rust_self_inline_modules(builder, scope)? else {
+        return Ok(None);
+    };
+    let mut relative = nominal_name.strip_prefix("self::").unwrap_or(&nominal_name);
+    let mut parents = 0;
+    while let Some(remainder) = relative.strip_prefix("super::") {
+        if modules.pop().is_none() {
+            parents += 1;
+        }
+        relative = remainder;
+    }
+    let mut name = String::new();
+    for component in std::iter::repeat_n("super", parents)
+        .chain(std::iter::once("self").take(usize::from(parents == 0)))
+        .chain(
+            modules
+                .into_iter()
+                .map(|module| builder.context.text(module)),
+        )
+        .chain(std::iter::once(relative))
+    {
+        let length = name
+            .len()
+            .checked_add(component.len())
+            .and_then(|bytes| bytes.checked_add(2))
+            .ok_or(ExtractError::OutputLimit)?;
+        builder.context.budget.ensure_string_length(length)?;
+        name.try_reserve(component.len().saturating_add(2))
+            .map_err(|_| ExtractError::OutputLimit)?;
+        if !name.is_empty() {
+            name.push_str("::");
+        }
+        name.push_str(component);
+    }
+    Ok(Some(name))
+}
+
+fn rust_scope_declares_type(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    scope: Node<'_>,
+    nominal: Node<'_>,
+) -> Result<bool, ExtractError> {
+    if nominal.kind() != "type_identifier" {
+        return Ok(false);
+    }
+    for declaration in named_children(scope) {
+        builder.context.ensure_active()?;
+        if matches!(
+            declaration.kind(),
+            "struct_item" | "enum_item" | "union_item" | "type_item"
+        ) && declaration
+            .child_by_field_name("name")
+            .is_some_and(|name| builder.context.text(name) == builder.context.text(nominal))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn rust_self_inline_modules<'tree>(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    scope: Node<'tree>,
+) -> Result<Option<Vec<Node<'tree>>>, ExtractError> {
+    let mut modules = Vec::new();
+    let mut ancestor = Some(scope);
+    for _ in 0..=builder.maximum_ast_depth {
+        builder.context.ensure_active()?;
+        let Some(node) = ancestor else { break };
+        if node.kind() == "function_item" {
+            return Ok(None);
+        }
+        if node.kind() == "mod_item"
+            && let Some(name) = node.child_by_field_name("name")
+        {
+            modules
+                .try_reserve(1)
+                .map_err(|_| ExtractError::OutputLimit)?;
+            modules.push(name);
+        }
+        ancestor = node.parent();
+    }
+    modules.reverse();
+    Ok(Some(modules))
 }
 
 fn rust_receiver_target(target: Node<'_>, depth: usize) -> Option<Node<'_>> {

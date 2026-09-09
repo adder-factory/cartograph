@@ -1487,9 +1487,10 @@ impl CartographDatabase {
             GenerationState::Failed if content_digest.is_some() != digest_version.is_some() => {
                 return Err(corrupt("content_digest_version"));
             }
-            GenerationState::Current | GenerationState::Superseded | GenerationState::Failed => {
-                None
-            }
+            GenerationState::Current
+            | GenerationState::Superseded
+            | GenerationState::Failed
+            | GenerationState::Retiring => None,
         })
     }
 
@@ -1799,7 +1800,7 @@ async fn cleanup_transaction(
             }
         }
         GenerationState::Failed => {}
-        GenerationState::Current | GenerationState::Superseded => {
+        GenerationState::Current | GenerationState::Superseded | GenerationState::Retiring => {
             return Err(StorageError::InvalidGenerationTransition {
                 actual: state.as_str().to_owned(),
                 requested: GenerationState::Failed.as_str(),
@@ -2781,6 +2782,12 @@ fn decode_reconciled_generation(
                 digest_version: digest_version.ok_or_else(|| corrupt("content_digest_version"))?,
             })
         }
+        GenerationState::Retiring => {
+            return Err(StorageError::InvalidGenerationTransition {
+                actual: "retiring".to_owned(),
+                requested: "reconcile",
+            });
+        }
         GenerationState::Failed => {
             if content_digest.is_some() != digest_version.is_some() {
                 return Err(corrupt("content_digest_version"));
@@ -3050,6 +3057,7 @@ fn parse_generation_state(
         "current" => Ok(GenerationState::Current),
         "superseded" => Ok(GenerationState::Superseded),
         "failed" => Ok(GenerationState::Failed),
+        "retiring" => Ok(GenerationState::Retiring),
         _ => Err(StorageError::CorruptStoredValue { field: "state" }),
     }
 }

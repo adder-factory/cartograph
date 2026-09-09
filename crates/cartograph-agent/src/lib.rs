@@ -12,24 +12,31 @@ use sha2 as _;
 use sqlx_core as _;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions},
     io::{self, Read},
     path::{Path, PathBuf},
     process,
-    sync::{Arc, OnceLock, RwLock},
+    sync::{
+        Arc, OnceLock, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use cartograph_config::DatabaseSettings;
+use cartograph_config::{
+    ProjectConfigError, ProjectGenerationStorage, ProjectSourceSettings,
+    load_project_source_settings,
+};
 use cartograph_db::NativeGenerationSpillReport;
 use cartograph_db::{
-    CartographDatabase, GenerationContents, GenerationRecoveryRequest, GenerationRetentionPolicy,
-    GenerationRetentionReport, GenerationRetentionRequest, HistoryRefreshReport,
-    IssueHistoryRefreshReport, LeaseError, LeaseRequest, LeaseTarget, MigrationError,
-    NativeGenerationSpillPolicy, NativeParseCacheRetentionPolicy, NativeParseCacheRetentionReport,
-    NativeParseCacheRetentionRequest, NewGeneration, NewProject, PostRetentionMaintenancePolicy,
-    ProjectSnapshot, SpilledGenerationContents, StagedGeneration,
+    CartographDatabase, GenerationContents, GenerationRecoveryRequest, GenerationRetentionAttempt,
+    GenerationRetentionPolicy, GenerationRetentionReport, GenerationRetentionRequest,
+    HistoryRefreshReport, IssueHistoryRefreshReport, LeaseError, LeaseRequest, LeaseTarget,
+    MigrationError, NativeGenerationSpillPolicy, NativeParseCacheRetentionPolicy,
+    NativeParseCacheRetentionReport, NativeParseCacheRetentionRequest, NewGeneration, NewProject,
+    PostRetentionMaintenancePolicy, ProjectSnapshot, SpilledGenerationContents, StagedGeneration,
 };
 use cartograph_domain::{
     ContentDigest, GenerationDigestVersion, NormalizedPath, ProjectId, ProjectOperation,
@@ -37,7 +44,7 @@ use cartograph_domain::{
 };
 use cartograph_extract::{
     DiscoveryLimits, DiscoveryPolicy, NestedRepositoryPolicy, SourceDiscoveryOptions, SourceLimits,
-    SourceReadError, SourceReadOptions, SourceRoot, native_extractor_contract_digest,
+    SourceReadError, SourceReadOptions, SourceRoot,
 };
 use cartograph_indexer::{
     IndexerSupervisor, NativeGenerationBuild, NativeGenerationStorage, NativeParseCache,
@@ -45,14 +52,10 @@ use cartograph_indexer::{
     NativePipelineReport, NativeRetainedLimits, PipelineFailure, PipelineStageTiming,
     ScipOverlayInput, StageCapacity, SupervisorConfig, SupervisorContext, SupervisorError,
     SupervisorRequest, build_native_generation_spilled,
-    build_native_generation_with_scip_and_cache,
+    build_native_generation_with_scip_and_cache, native_parse_cache_contract_digest,
 };
 pub use cartograph_indexer::{
     PipelineFailureReason, PipelineFileFailure, PipelineStage, SupervisorStatus,
-};
-use cartograph_llm::{
-    ProjectGenerationStorage, ProjectLlmConfigError, ProjectSourceSettings,
-    load_project_source_settings,
 };
 use cartograph_scip::ScipOverlayReport;
 use serde::Serialize;
@@ -78,9 +81,15 @@ mod review;
 mod scip_interchange;
 mod source_context;
 mod source_search;
+mod structural_summaries;
 mod test_intelligence;
 mod verification;
 mod working_tree;
+
+pub use structural_summaries::{
+    STRUCTURAL_SUMMARY_MODEL, STRUCTURAL_SUMMARY_PAGE_SIZE, StructuralSummaryReport,
+    cap_structural_summary, run_structural_summary_sweep,
+};
 
 pub use compare::{
     SourceCompareError, SourceCompareOptions, SourceCompareReport, SourceEdgeDelta,
@@ -587,6 +596,8 @@ pub struct IndexReport {
     pub generation_id: cartograph_domain::GenerationId,
     /// Source-manifest digest used for freshness checks.
     pub source_revision: ContentDigest,
+    /// Exact parsing-policy identity protected by automatic cache maintenance.
+    pub parse_cache_contract_digest: ContentDigest,
     /// Complete logical generation digest.
     pub content_digest: ContentDigest,
     /// Number of workers selected from the bounded corpus policy.
@@ -641,6 +652,15 @@ pub enum GenerationRetentionStatus {
         parse_cache: Option<NativeParseCacheRetentionReport>,
         /// Stable warning describing the unconfirmed lease-release outcome.
         warning: &'static str,
+    },
+    /// Cache eviction committed independently while generation cleanup failed.
+    CacheOnly {
+        /// Committed cache progress; generation rows were not removed.
+        parse_cache: NativeParseCacheRetentionReport,
+        /// Stable generation-cleanup failure label.
+        reason: &'static str,
+        /// Whether the migration lease release was confirmed.
+        lease_released: bool,
     },
     /// Cleanup was safely deferred because another writer won or storage was unavailable.
     Deferred {
@@ -817,6 +837,7 @@ pub struct ProjectRuntime {
     repository_fingerprint: ContentDigest,
     database: CartographDatabase,
     source_scan_permits: Arc<Semaphore>,
+    source_scan_observations: Arc<AtomicU64>,
 }
 
 struct AbortTaskOnDrop {
@@ -928,7 +949,10 @@ async fn run_core_index(
         .await?
         {
             report.retention = runtime
-                .maintain_generation_retention(&report.project_id)
+                .maintain_generation_retention(
+                    &report.project_id,
+                    &report.parse_cache_contract_digest,
+                )
                 .await;
             return Ok(report);
         }
@@ -956,6 +980,8 @@ async fn run_core_index_attempt(
     let mut report = match preparation {
         IndexPreparation::Unchanged(report) => *report,
         IndexPreparation::Pending(pending) => {
+            let cache_contract =
+                native_parse_cache_contract_digest(pending.index_policy.maximum_ast_depth);
             match runtime
                 .publish_index(*pending, cancellation, options.profile)
                 .await
@@ -963,7 +989,7 @@ async fn run_core_index_attempt(
                 Ok(report) => report,
                 Err(error) => {
                     if options.failure_retention == IndexFailureRetention::AutomaticFailures {
-                        maintain_failed_generation_retention(runtime).await;
+                        maintain_failed_generation_retention(runtime, &cache_contract).await;
                     }
                     return Err(error);
                 }
@@ -975,7 +1001,7 @@ async fn run_core_index_attempt(
     }
     if unchanged {
         report.retention = runtime
-            .maintain_generation_retention(&report.project_id)
+            .maintain_generation_retention(&report.project_id, &report.parse_cache_contract_digest)
             .await;
         return Ok(IndexAttemptOutcome::Complete(report));
     }
@@ -1264,6 +1290,7 @@ async fn attach_issue_history_result(
 async fn maintain_generation_retention(
     runtime: &ProjectRuntime,
     project_id: &ProjectId,
+    contract: &ContentDigest,
 ) -> GenerationRetentionStatus {
     let Ok(policy) = GenerationRetentionPolicy::new(
         AUTOMATIC_RETENTION_KEEP_SUPERSEDED,
@@ -1311,42 +1338,90 @@ async fn maintain_generation_retention(
                 .with_post_retention_maintenance(AUTOMATIC_RETENTION_MAINTENANCE),
         )
         .await;
-    let contract = native_extractor_contract_digest();
-    let parse_cache = if report.is_ok() {
+    // This is an independent transaction with its own exact-fence check. A
+    // generation timeout must not suppress eviction of old unpinned contracts.
+    let parse_cache = tokio::time::timeout(
+        AUTOMATIC_RETENTION_STATEMENT_TIMEOUT,
         runtime
             .database
             .cleanup_native_parse_cache(NativeParseCacheRetentionRequest {
                 project_id,
-                protected_contract_digest: &contract,
+                protected_contract_digest: contract,
                 policy: NativeParseCacheRetentionPolicy::automatic(),
                 fence: &fence,
                 statement_timeout: AUTOMATIC_RETENTION_STATEMENT_TIMEOUT,
-            })
-            .await
-            .ok()
-    } else {
-        None
-    };
+            }),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
+    let recorded = matches!(
+        tokio::time::timeout(
+            AUTOMATIC_RETENTION_RELEASE_TIMEOUT,
+            runtime.database.record_generation_retention_attempt(
+                &fence,
+                GenerationRetentionAttempt::new(&report, parse_cache),
+                AUTOMATIC_RETENTION_RELEASE_TIMEOUT,
+            )
+        )
+        .await,
+        Ok(Ok(()))
+    );
     let released = runtime
         .database
         .release_lease_bounded(&lease, AUTOMATIC_RETENTION_RELEASE_TIMEOUT)
         .await;
+    generation_retention_outcome(
+        report,
+        parse_cache,
+        RetentionFinalization {
+            lease_released: released.is_ok(),
+            recorded,
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+struct RetentionFinalization {
+    lease_released: bool,
+    recorded: bool,
+}
+
+fn generation_retention_outcome(
+    report: Result<GenerationRetentionReport, cartograph_db::GenerationRetentionError>,
+    parse_cache: Option<NativeParseCacheRetentionReport>,
+    finalization: RetentionFinalization,
+) -> GenerationRetentionStatus {
+    let RetentionFinalization {
+        lease_released: released,
+        recorded,
+    } = finalization;
     match (report, parse_cache, released) {
-        (Ok(report), Some(parse_cache), Ok(())) => GenerationRetentionStatus::Completed {
+        (Ok(report), Some(parse_cache), true) if recorded => GenerationRetentionStatus::Completed {
             report,
             parse_cache,
         },
-        (Ok(report), None, Ok(())) => GenerationRetentionStatus::CompletedWithWarning {
+        (Ok(report), Some(parse_cache), true) => GenerationRetentionStatus::CompletedWithWarning {
+            report,
+            parse_cache: Some(parse_cache),
+            warning: "maintenance_report_unavailable",
+        },
+        (Ok(report), None, true) => GenerationRetentionStatus::CompletedWithWarning {
             report,
             parse_cache: None,
             warning: "parse_cache_cleanup_unavailable",
         },
-        (Ok(report), parse_cache, Err(_)) => GenerationRetentionStatus::CompletedWithWarning {
+        (Ok(report), parse_cache, false) => GenerationRetentionStatus::CompletedWithWarning {
             report,
             parse_cache,
             warning: "lease_release_unavailable",
         },
-        (Err(_), _, _) => GenerationRetentionStatus::Deferred {
+        (Err(_), Some(parse_cache), released) => GenerationRetentionStatus::CacheOnly {
+            parse_cache,
+            reason: "generation_cleanup_unavailable",
+            lease_released: released,
+        },
+        (Err(_), None, _) => GenerationRetentionStatus::Deferred {
             reason: "cleanup_unavailable",
             retryable: true,
             unlock_applicable: false,
@@ -1355,7 +1430,7 @@ async fn maintain_generation_retention(
     }
 }
 
-async fn maintain_failed_generation_retention(runtime: &ProjectRuntime) {
+async fn maintain_failed_generation_retention(runtime: &ProjectRuntime, contract: &ContentDigest) {
     let Ok(Some(snapshot)) = runtime
         .database
         .project_snapshot_by_root(&runtime.root_identity)
@@ -1363,7 +1438,7 @@ async fn maintain_failed_generation_retention(runtime: &ProjectRuntime) {
     else {
         return;
     };
-    let _status = maintain_generation_retention(runtime, &snapshot.project_id).await;
+    let _status = maintain_generation_retention(runtime, &snapshot.project_id, contract).await;
 }
 
 impl ProjectRuntime {
@@ -1447,6 +1522,7 @@ impl ProjectRuntime {
             repository_fingerprint,
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
+            source_scan_observations: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -1479,6 +1555,7 @@ impl ProjectRuntime {
             repository_fingerprint,
             database: CartographDatabase::new(pool, settings.schema().clone()),
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
+            source_scan_observations: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -1509,6 +1586,7 @@ impl ProjectRuntime {
             repository_fingerprint,
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
+            source_scan_observations: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -1648,6 +1726,7 @@ impl ProjectRuntime {
             source: &source.source,
             options: &options,
             effective_run_excludes: &source.effective_run_excludes,
+            maximum_ast_depth: source.index_policy.maximum_ast_depth,
         }) {
             return Ok(unchanged);
         }
@@ -1737,9 +1816,8 @@ impl ProjectRuntime {
                 source_bytes: source.source.source_bytes,
                 cargo_manifests: source.source.cargo_manifests,
                 maximum_generation_bytes: source.max_generation_bytes,
-                has_scip_overlay: source.source.scip_overlay.is_some(),
             },
-        )?;
+        );
         let project_id = self
             .database
             .register_project(NewProject::new(
@@ -1876,6 +1954,9 @@ impl ProjectRuntime {
             report_sender,
         };
         Ok(PreparedIndexPublication {
+            parse_cache_contract_digest: native_parse_cache_contract_digest(
+                index_policy.maximum_ast_depth,
+            ),
             project_id,
             generation_id,
             source_revision,
@@ -1892,8 +1973,18 @@ impl ProjectRuntime {
     async fn maintain_generation_retention(
         &self,
         project_id: &ProjectId,
+        contract: &ContentDigest,
     ) -> GenerationRetentionStatus {
-        maintain_generation_retention(self, project_id).await
+        maintain_generation_retention(self, project_id, contract).await
+    }
+
+    /// Number of admitted full source-manifest observations by this runtime.
+    ///
+    /// Includes failed scans; queued requests cancelled before admission do not
+    /// increment it. The counter saturates and contains no source or query data.
+    #[must_use]
+    pub fn source_scan_observations(&self) -> u64 {
+        self.source_scan_observations.load(Ordering::Relaxed)
     }
 
     /// Close all PostgreSQL connections owned by this project runtime.
@@ -1907,6 +1998,23 @@ impl ProjectRuntime {
         additional_excludes: &[String],
         cancellation: ProjectCancellation,
     ) -> Result<SourceRevision, ProjectError> {
+        self.scan_source_batch(
+            capture_path.into_iter().collect(),
+            additional_excludes,
+            cancellation,
+        )
+        .await
+    }
+
+    async fn scan_source_batch(
+        &self,
+        capture_paths: BTreeSet<NormalizedPath>,
+        additional_excludes: &[String],
+        cancellation: ProjectCancellation,
+    ) -> Result<SourceRevision, ProjectError> {
+        if capture_paths.len() > source_context::MAXIMUM_CONTEXT_BATCH {
+            return Err(ProjectError::InvalidOptions);
+        }
         let source_policy = project_source_policy_with_excludes(&self.root, additional_excludes)?;
         let max_source_bytes = source_policy
             .maximum_file_bytes
@@ -1914,7 +2022,8 @@ impl ProjectRuntime {
         scan_source_path(SourceScanRequest {
             root: self.root.clone(),
             permits: self.source_scan_permits.clone(),
-            capture_path,
+            observations: self.source_scan_observations.clone(),
+            capture_paths,
             retain_scip_overlay: false,
             max_source_bytes,
             discovery_policy: source_policy.discovery,
@@ -1955,7 +2064,8 @@ impl ProjectRuntime {
         scan_source_path(SourceScanRequest {
             root: self.root.clone(),
             permits: self.source_scan_permits.clone(),
-            capture_path: None,
+            observations: self.source_scan_observations.clone(),
+            capture_paths: BTreeSet::new(),
             retain_scip_overlay: true,
             max_source_bytes,
             discovery_policy,
@@ -2010,6 +2120,7 @@ struct UnchangedIndexInput<'input> {
     source: &'input SourceRevision,
     options: &'input IndexOptions,
     effective_run_excludes: &'input [String],
+    maximum_ast_depth: usize,
 }
 
 fn unchanged_index_preparation(input: UnchangedIndexInput<'_>) -> Option<IndexPreparation> {
@@ -2026,6 +2137,7 @@ fn unchanged_index_preparation(input: UnchangedIndexInput<'_>) -> Option<IndexPr
         project_id: prior.project_id.clone(),
         generation_id: current.generation_id.clone(),
         source_revision: input.source.digest.clone(),
+        parse_cache_contract_digest: native_parse_cache_contract_digest(input.maximum_ast_depth),
         content_digest: current.content_digest.clone(),
         workers: select_worker_count(
             input.source.files,
@@ -2070,6 +2182,7 @@ struct PendingIndex {
 }
 
 struct PreparedIndexPublication {
+    parse_cache_contract_digest: ContentDigest,
     project_id: ProjectId,
     generation_id: cartograph_domain::GenerationId,
     source_revision: ContentDigest,
@@ -2139,6 +2252,7 @@ impl PreparedIndexPublication {
             project_id: self.project_id,
             generation_id: self.generation_id,
             source_revision: self.source_revision,
+            parse_cache_contract_digest: self.parse_cache_contract_digest,
             content_digest: current.content_digest().clone(),
             workers: self.workers,
             published: true,
@@ -2234,7 +2348,8 @@ fn native_pipeline_failure(error: &cartograph_indexer::NativePipelineError) -> P
 struct SourceScanRequest {
     root: PathBuf,
     permits: Arc<Semaphore>,
-    capture_path: Option<NormalizedPath>,
+    observations: Arc<AtomicU64>,
+    capture_paths: BTreeSet<NormalizedPath>,
     retain_scip_overlay: bool,
     max_source_bytes: usize,
     discovery_policy: DiscoveryPolicy,
@@ -2253,7 +2368,8 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
     let SourceScanRequest {
         root,
         permits,
-        capture_path,
+        observations,
+        capture_paths,
         retain_scip_overlay,
         max_source_bytes,
         discovery_policy,
@@ -2275,10 +2391,13 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
         // permit in the async caller would allow a dropped request to start a
         // second scan while the first worker was still unwinding.
         let _permit = permit;
+        let _ = observations.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            Some(value.saturating_add(1))
+        });
         source_revision_with_options(
             SourceRevisionRequest {
                 root: &root,
-                capture_path: capture_path.as_ref(),
+                capture_paths: &capture_paths,
                 retain_scip_overlay,
                 max_source_bytes,
                 discovery_policy,
@@ -2302,9 +2421,46 @@ struct SourceRevision {
     files: usize,
     source_bytes: u64,
     cargo_manifests: usize,
-    captured_source: Option<Box<str>>,
-    captured_content_hash: Option<ContentDigest>,
+    captures: BTreeMap<NormalizedPath, CapturedSource>,
     scip_overlay: Option<ScipOverlayInput>,
+}
+
+struct CapturedSource {
+    source: Box<str>,
+    content_hash: ContentDigest,
+}
+
+#[derive(Default)]
+struct SourceCaptures {
+    entries: BTreeMap<NormalizedPath, CapturedSource>,
+    bytes: usize,
+}
+
+impl SourceCaptures {
+    fn insert(
+        &mut self,
+        path: &NormalizedPath,
+        snapshot: &cartograph_extract::SourceSnapshot,
+    ) -> Result<(), ProjectError> {
+        self.bytes = self
+            .bytes
+            .checked_add(snapshot.source().len())
+            .filter(|bytes| *bytes <= source_context::MAXIMUM_CAPTURE_BATCH_BYTES)
+            .ok_or(ProjectError::SourceScanFailed)?;
+        let mut source = String::new();
+        source
+            .try_reserve_exact(snapshot.source().len())
+            .map_err(|_| ProjectError::SourceScanFailed)?;
+        source.push_str(snapshot.source());
+        self.entries.insert(
+            path.clone(),
+            CapturedSource {
+                source: source.into_boxed_str(),
+                content_hash: snapshot.content_hash().clone(),
+            },
+        );
+        Ok(())
+    }
 }
 
 struct ProjectSourcePolicy {
@@ -2477,29 +2633,21 @@ struct GenerationStorageSignals {
     source_bytes: u64,
     cargo_manifests: usize,
     maximum_generation_bytes: u64,
-    has_scip_overlay: bool,
 }
 
 fn select_generation_storage(
     policy: GenerationStoragePolicy,
     signals: GenerationStorageSignals,
-) -> Result<GenerationStorageSelection, ProjectError> {
+) -> GenerationStorageSelection {
     let GenerationStorageSignals {
         files,
         source_bytes,
         cargo_manifests,
         maximum_generation_bytes,
-        has_scip_overlay,
     } = signals;
     match policy.preference {
-        ProjectGenerationStorage::Memory => Ok(GenerationStorageSelection::Memory),
-        ProjectGenerationStorage::Postgres if has_scip_overlay => Err(ProjectError::InvalidOptions),
-        ProjectGenerationStorage::Postgres => {
-            Ok(GenerationStorageSelection::Postgres(policy.spill))
-        }
-        ProjectGenerationStorage::Auto if has_scip_overlay => {
-            Ok(GenerationStorageSelection::Memory)
-        }
+        ProjectGenerationStorage::Memory => GenerationStorageSelection::Memory,
+        ProjectGenerationStorage::Postgres => GenerationStorageSelection::Postgres(policy.spill),
         ProjectGenerationStorage::Auto => {
             let estimated_generation_bytes =
                 source_bytes.saturating_mul(AUTO_SPILL_EXPANSION_FACTOR);
@@ -2508,9 +2656,9 @@ fn select_generation_storage(
                 || estimated_generation_bytes >= maximum_generation_bytes
                 || cargo_manifests >= AUTO_SPILL_MINIMUM_CARGO_MANIFESTS
             {
-                Ok(GenerationStorageSelection::Postgres(policy.spill))
+                GenerationStorageSelection::Postgres(policy.spill)
             } else {
-                Ok(GenerationStorageSelection::Memory)
+                GenerationStorageSelection::Memory
             }
         }
     }
@@ -2551,7 +2699,7 @@ where
     source_revision_with_options(
         SourceRevisionRequest {
             root,
-            capture_path,
+            capture_paths: &capture_path.into_iter().cloned().collect(),
             retain_scip_overlay: false,
             max_source_bytes: source_policy
                 .maximum_file_bytes
@@ -2565,7 +2713,7 @@ where
 
 struct SourceRevisionRequest<'path> {
     root: &'path Path,
-    capture_path: Option<&'path NormalizedPath>,
+    capture_paths: &'path BTreeSet<NormalizedPath>,
     retain_scip_overlay: bool,
     max_source_bytes: usize,
     discovery_policy: DiscoveryPolicy,
@@ -2581,7 +2729,7 @@ where
 {
     let SourceRevisionRequest {
         root,
-        capture_path,
+        capture_paths,
         retain_scip_overlay,
         max_source_bytes,
         discovery_policy,
@@ -2602,8 +2750,7 @@ where
     v1_manifest_entries
         .try_reserve_exact(files.len())
         .map_err(|_| ProjectError::SourceScanFailed)?;
-    let mut captured_source = None;
-    let mut captured_content_hash = None;
+    let mut captures = SourceCaptures::default();
     let mut source_bytes = 0_u64;
     let mut cargo_manifests = 0_usize;
     for file in &files {
@@ -2643,9 +2790,8 @@ where
             v1_manifest_entries.push((file.path().clone(), content_hash.clone()));
         }
         manifest_entries.push((file.path().clone(), content_hash));
-        if capture_path == Some(file.path()) {
-            captured_source = Some(snapshot.source().to_owned().into_boxed_str());
-            captured_content_hash = Some(snapshot.content_hash().clone());
+        if capture_paths.contains(file.path()) {
+            captures.insert(file.path(), &snapshot)?;
         }
     }
     let source_digest = finish_source_manifest(&manifest_entries)?;
@@ -2662,8 +2808,7 @@ where
         files: manifest_entries.len(),
         source_bytes,
         cargo_manifests,
-        captured_source,
-        captured_content_hash,
+        captures: captures.entries,
         scip_overlay: overlay.input,
     })
 }
@@ -3119,7 +3264,7 @@ pub enum ProjectError {
     InvalidOptions,
     /// Project configuration could not be parsed or violated a named bound.
     #[error(transparent)]
-    ProjectConfiguration(#[from] ProjectLlmConfigError),
+    ProjectConfiguration(#[from] ProjectConfigError),
     /// No current-generation symbol matches the supplied exact identity.
     #[error("Cartograph symbol was not found in the current generation")]
     SymbolNotFound,
@@ -3306,6 +3451,9 @@ mod tests {
                 failed_remaining: 0,
                 staging_remaining: 0,
                 ready_remaining: 0,
+                retiring_remaining: 0,
+                batches_committed: 1,
+                deferred_reason: None,
                 cascade_rows_removed: 20,
                 search_relations_removed: 2,
                 search_relation_bytes_removed: 1_024,
@@ -3391,10 +3539,9 @@ mod tests {
                     source_bytes: AUTO_SPILL_MINIMUM_SOURCE_BYTES,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Memory)
+            GenerationStorageSelection::Memory
         ));
         assert!(matches!(
             select_generation_storage(
@@ -3404,10 +3551,9 @@ mod tests {
                     source_bytes: 1,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Postgres(_))
+            GenerationStorageSelection::Postgres(_)
         ));
         assert!(matches!(
             select_generation_storage(
@@ -3417,10 +3563,9 @@ mod tests {
                     source_bytes: (DEFAULT_MAX_GENERATION_BYTES / AUTO_SPILL_EXPANSION_FACTOR) - 1,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Memory)
+            GenerationStorageSelection::Memory
         ));
         assert!(matches!(
             select_generation_storage(
@@ -3430,10 +3575,9 @@ mod tests {
                     source_bytes: 1,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Postgres(_))
+            GenerationStorageSelection::Postgres(_)
         ));
         assert!(matches!(
             select_generation_storage(
@@ -3443,10 +3587,9 @@ mod tests {
                     source_bytes: 1,
                     cargo_manifests: AUTO_SPILL_MINIMUM_CARGO_MANIFESTS,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Postgres(_))
+            GenerationStorageSelection::Postgres(_)
         ));
         assert!(is_cargo_manifest(
             &NormalizedPath::parse("crates/service/Cargo.toml")
@@ -3459,7 +3602,7 @@ mod tests {
     }
 
     #[test]
-    fn generation_storage_selection_honours_forced_preferences_and_overlay() {
+    fn generation_storage_selection_honours_forced_preferences() {
         let policy = |preference| GenerationStoragePolicy {
             preference,
             spill: NativeGenerationSpillPolicy::default(),
@@ -3472,10 +3615,9 @@ mod tests {
                     source_bytes: AUTO_SPILL_MINIMUM_SOURCE_BYTES,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Postgres(_))
+            GenerationStorageSelection::Postgres(_)
         ));
         assert!(matches!(
             select_generation_storage(
@@ -3485,10 +3627,9 @@ mod tests {
                     source_bytes: DEFAULT_MAX_GENERATION_BYTES / AUTO_SPILL_EXPANSION_FACTOR,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: false,
                 },
             ),
-            Ok(GenerationStorageSelection::Postgres(_))
+            GenerationStorageSelection::Postgres(_)
         ));
         assert!(matches!(
             select_generation_storage(
@@ -3498,12 +3639,11 @@ mod tests {
                     source_bytes: AUTO_SPILL_MINIMUM_SOURCE_BYTES,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: true,
                 },
             ),
-            Ok(GenerationStorageSelection::Memory)
+            GenerationStorageSelection::Postgres(_)
         ));
-        assert_eq!(
+        assert!(matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Postgres),
                 GenerationStorageSignals {
@@ -3511,12 +3651,10 @@ mod tests {
                     source_bytes: 1,
                     cargo_manifests: 0,
                     maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                    has_scip_overlay: true,
                 },
-            )
-            .err(),
-            Some(ProjectError::InvalidOptions)
-        );
+            ),
+            GenerationStorageSelection::Postgres(_)
+        ));
     }
 
     #[test]
@@ -3601,7 +3739,7 @@ mod tests {
         let retained = source_revision_with_options(
             SourceRevisionRequest {
                 root: directory.path(),
-                capture_path: None,
+                capture_paths: &BTreeSet::new(),
                 retain_scip_overlay: true,
                 max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
                 discovery_policy: DiscoveryPolicy::v1_defaults()
@@ -3926,7 +4064,7 @@ mod tests {
             .unwrap_or_else(|| panic!("out-of-range source identity unexpectedly succeeded"));
         assert_eq!(
             error,
-            ProjectError::ProjectConfiguration(ProjectLlmConfigError::NumericFieldOutOfRange {
+            ProjectError::ProjectConfiguration(ProjectConfigError::NumericFieldOutOfRange {
                 field: "maxGenerationBytes",
                 minimum: 1,
                 maximum: 8_589_934_592,
@@ -4002,7 +4140,8 @@ mod tests {
             scans.push(tokio::spawn(scan_source_path(SourceScanRequest {
                 root: root.clone(),
                 permits: permits.clone(),
-                capture_path: None,
+                observations: Arc::new(AtomicU64::new(0)),
+                capture_paths: BTreeSet::new(),
                 retain_scip_overlay: false,
                 max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
                 discovery_policy: DiscoveryPolicy::v1_defaults()

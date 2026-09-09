@@ -47,6 +47,9 @@ use tokio::sync::oneshot;
 #[path = "live_supervisor/native_corpus.rs"]
 mod native_corpus;
 
+#[path = "live_supervisor/scip_spill.rs"]
+mod scip_spill;
+
 const TEST_DATABASE_URL_ENV: &str = "CARTOGRAPH_TEST_DATABASE_URL";
 const PROJECT_FINGERPRINT: &str =
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

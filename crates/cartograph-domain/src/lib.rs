@@ -259,6 +259,8 @@ pub enum GenerationState {
     Superseded,
     /// Indexing terminated without producing a publishable generation.
     Failed,
+    /// Retention owns this generation; its facts may be partially deleted.
+    Retiring,
 }
 
 impl GenerationState {
@@ -271,6 +273,7 @@ impl GenerationState {
             Self::Current => "current",
             Self::Superseded => "superseded",
             Self::Failed => "failed",
+            Self::Retiring => "retiring",
         }
     }
 }
@@ -309,17 +312,19 @@ pub enum GenerationDigestVersion {
     V14 = 14,
     /// Ada/VHDL unit resolution and guarded numerical-analysis precision.
     V15 = 15,
+    /// Nominal Rust self-receiver ownership and cross-file method resolution.
+    V16 = 16,
 }
 
 impl GenerationDigestVersion {
     /// Current digest contract emitted by this Cartograph v2 binary.
-    pub const CURRENT: Self = Self::V15;
+    pub const CURRENT: Self = Self::V16;
 
     /// Every admitted contract version in ascending order.
     ///
     /// A new version is added here and nowhere else; validation walks this list
     /// rather than repeating one guarded arm per version.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::V1,
         Self::V2,
         Self::V3,
@@ -335,6 +340,7 @@ impl GenerationDigestVersion {
         Self::V13,
         Self::V14,
         Self::V15,
+        Self::V16,
     ];
 
     /// Stable PostgreSQL `smallint` representation.
@@ -657,7 +663,8 @@ mod tests {
     const DIGEST_V13_DATABASE_VALUE: i16 = 13;
     const DIGEST_V14_DATABASE_VALUE: i16 = 14;
     const DIGEST_V15_DATABASE_VALUE: i16 = 15;
-    const UNKNOWN_DIGEST_DATABASE_VALUE: i16 = 16;
+    const DIGEST_V16_DATABASE_VALUE: i16 = 16;
+    const UNKNOWN_DIGEST_DATABASE_VALUE: i16 = 17;
 
     #[test]
     fn branded_ids_canonicalize_and_validate_deserialized_values() {
@@ -690,7 +697,7 @@ mod tests {
         );
         assert_eq!(
             GenerationDigestVersion::CURRENT.database_value(),
-            DIGEST_V15_DATABASE_VALUE
+            DIGEST_V16_DATABASE_VALUE
         );
         assert_eq!(
             GenerationDigestVersion::from_database_value(DIGEST_V1_DATABASE_VALUE),
@@ -751,6 +758,10 @@ mod tests {
         assert_eq!(
             GenerationDigestVersion::from_database_value(DIGEST_V15_DATABASE_VALUE),
             Ok(GenerationDigestVersion::V15)
+        );
+        assert_eq!(
+            GenerationDigestVersion::from_database_value(DIGEST_V16_DATABASE_VALUE),
+            Ok(GenerationDigestVersion::V16)
         );
         assert!(
             GenerationDigestVersion::from_database_value(UNKNOWN_DIGEST_DATABASE_VALUE).is_err()

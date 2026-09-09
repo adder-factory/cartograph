@@ -36,9 +36,9 @@ Cartograph v2 is:
 
 - a native Rust executable;
 - PostgreSQL 18.4 or newer within major version 18;
-- code-aware BM25 through ParadeDB `pg_search` 0.25.3;
+- code-aware BM25 through ParadeDB `pg_search` 0.25.6;
 - pgvector 0.8.4 or newer (0.8.6 recommended for external PostgreSQL; the
-  managed ParadeDB 0.25.3 image bundles `pg_search` 0.25.3 and pgvector 0.8.4);
+  managed ParadeDB 0.25.6 image bundles `pg_search` 0.25.6 and pgvector 0.8.4);
 - useful without an LLM through exact, lexical, graph, review, and test-impact
   retrieval.
 
@@ -98,7 +98,7 @@ older containers are reported rather than silently replaced.
 ### External PostgreSQL (all supported platforms)
 
 The database administrator must install PostgreSQL 18.4 or newer within major
-version 18, `pg_search` 0.25.3, and pgvector 0.8.4 or newer, then create pgvector
+version 18, `pg_search` 0.25.6, and pgvector 0.8.4 or newer, then create pgvector
 before creating `pg_search`. Supply the URL through the environment:
 
 ```sh
@@ -281,9 +281,16 @@ before returning: it keeps the two newest superseded generations, terminalizes
 failed pre-lease work, and can collect staging rows only after they have been unleased
 for at least ten minutes. It can also reconcile ready work only after 24 hours
 when it is unleased, non-current, and not part of incomplete import recovery.
-The same lease bounds the parse cache by current-plus-one extractor contracts,
-20,000 rows, 2 GiB logical payload, and a 10,000-row deletion batch. After
-backup and import verification, an explicit larger bounded batch is:
+Cleanup claims eligible generations as `retiring` and drains child rows before
+parents in transactions of at most 10,000 rows. Earlier committed batches
+survive a later timeout; retry the same bounded operation after inspecting its
+`retiring_remaining` and `deferred_reason`. A retiring generation cannot admit
+writers, resume an import, or publish. The same lease independently bounds the
+parse cache by the exact current parsing-policy contract plus one older
+contract, 20,000 rows, 2 GiB logical payload, and a 10,000-row deletion batch.
+Generation cleanup failure still permits cache cleanup. Protected current and
+spill-pinned cache rows can exceed those targets. After backup and import
+verification, an explicit larger bounded batch is:
 
 ```sh
 cartograph db prune \
@@ -297,8 +304,10 @@ cartograph db prune \
 This preserves the current generation, recent or leased staging/ready work,
 incomplete import recovery state, and the two newest superseded generations.
 The requested generation batch can exceed the independent 64-derived-relation
-drop cap when failed generations own no derived relation. Inspect each report
-before requesting another batch. Use `serve --mcp --no-auto-sync` to keep a
+drop cap when failed generations own no derived relation. The default search
+relation byte budget is 8 GiB; `--maximum-search-relation-bytes` admits an audited
+override up to 64 GiB. Oversized relations do not block later smaller work.
+Inspect each report before requesting another batch. Use `serve --mcp --no-auto-sync` to keep a
 recovery host quiescent while draining a capacity-failure backlog.
 
 Use `cartograph db usage --project-path . --format json` before diagnosing
@@ -306,7 +315,10 @@ bloat. Treat `generationStorage.estimatedRetainedBytes` only as its documented
 source-plus-generation-BM25 lower bound; shared fact heaps, B-trees, embeddings,
 and reusable space are accounted by the full storage report. Compare parse
 cache logical, stored, schema-stored, and physical-overhead bytes before
-attributing its allocated TOAST file to live payload. `cartograph db compact` is a read-only online B-tree plan by default;
+attributing its allocated TOAST file to live payload. `retentionMaintenance`
+records the latest automatic cleanup outcomes and consecutive failures.
+`unattributedDatabaseBytes` is an allocation gap, not proof that files can be
+deleted. Never remove PostgreSQL data files by name. `cartograph db compact` is a read-only online B-tree plan by default;
 apply requires `--confirm compact-online-indexes`, verified free-space headroom,
 and rebuilds one index at a time. `db compact --heap` is a separate read-only
 main/TOAST heap plan; its apply path requires `--confirm

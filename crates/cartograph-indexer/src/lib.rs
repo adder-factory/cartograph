@@ -30,7 +30,7 @@ pub use native_pipeline::{
     NativePipelineDeadlines, NativePipelineError, NativePipelineLimits, NativePipelineParallelism,
     NativePipelineReport, NativeRetainedLimits, NativeSpilledGeneration, ScipOverlayInput,
     build_native_generation, build_native_generation_spilled, build_native_generation_with_scip,
-    build_native_generation_with_scip_and_cache,
+    build_native_generation_with_scip_and_cache, native_parse_cache_contract_digest,
 };
 pub use prepare_scope::SupervisedPrepareError;
 pub use progress::{

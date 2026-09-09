@@ -48,7 +48,9 @@ const STRUCTURAL_FINDING_CACHE_SCHEMA_VERSION: i64 = 37;
 const SHADER_AND_DISPATCH_DIGEST_V14_SCHEMA_VERSION: i64 = 38;
 const GENERATION_SOURCE_ADMISSION_SCHEMA_VERSION: i64 = 39;
 const ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA_VERSION: i64 = 40;
-const LATEST_SCHEMA_VERSION: i64 = ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA_VERSION;
+const RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA_VERSION: i64 = 41;
+const RESUMABLE_RETENTION_SCHEMA_VERSION: i64 = 42;
+const LATEST_SCHEMA_VERSION: i64 = RESUMABLE_RETENTION_SCHEMA_VERSION;
 const MIGRATION_LOCK_NAMESPACE: &str = "cartograph-v2-schema-migration";
 
 /// Latest append-only schema version understood by this native binary.
@@ -1618,7 +1620,38 @@ const ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA: Migration = Migration {
                 CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))"#],
 };
 
-const MIGRATIONS: [&Migration; 40] = [
+const RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA: Migration = Migration {
+    version: RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA_VERSION,
+    name: "rust_self_receiver_digest_v16",
+    statements: &[r#"ALTER TABLE {schema}."index_generations"
+            DROP CONSTRAINT index_generations_digest_version_check,
+            ADD CONSTRAINT index_generations_digest_version_check
+                CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))"#],
+};
+
+const RESUMABLE_RETENTION_SCHEMA: Migration = Migration {
+    version: RESUMABLE_RETENTION_SCHEMA_VERSION,
+    name: "resumable_generation_retention",
+    statements: &[
+        r#"ALTER TABLE {schema}."index_generations"
+            DROP CONSTRAINT index_generations_state_check,
+            ADD CONSTRAINT index_generations_state_check
+                CHECK (state IN ('staging', 'ready', 'current', 'superseded', 'failed', 'retiring')),
+            ADD COLUMN retention_original_state text
+                CHECK (retention_original_state IN ('staging', 'ready', 'superseded', 'failed')),
+            ADD COLUMN retention_started_at timestamptz,
+            ADD CONSTRAINT index_generations_retention_state_check CHECK (
+                (state = 'retiring' AND retention_original_state IS NOT NULL AND retention_started_at IS NOT NULL)
+                OR (state <> 'retiring' AND retention_original_state IS NULL AND retention_started_at IS NULL)
+            )"#,
+        r#"ALTER TABLE {schema}."projects"
+            ADD COLUMN retention_last_attempt_at timestamptz,
+            ADD COLUMN retention_last_outcome jsonb CHECK (octet_length(retention_last_outcome::text) <= 16384),
+            ADD COLUMN retention_consecutive_failures bigint NOT NULL DEFAULT 0 CHECK (retention_consecutive_failures >= 0)"#,
+    ],
+};
+
+const MIGRATIONS: [&Migration; 42] = [
     &INITIAL_SCHEMA,
     &OPERATION_LEASES_SCHEMA,
     &COMPLETE_EDGE_KINDS_SCHEMA,
@@ -1659,6 +1692,8 @@ const MIGRATIONS: [&Migration; 40] = [
     &SHADER_AND_DISPATCH_DIGEST_V14_SCHEMA,
     &GENERATION_SOURCE_ADMISSION_SCHEMA,
     &ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA,
+    &RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA,
+    &RESUMABLE_RETENTION_SCHEMA,
 ];
 
 #[cfg(test)]
@@ -2055,7 +2090,7 @@ mod tests {
 
     const MIGRATION_CHECKSUM_HEX_LENGTH: usize = 64;
     const CHECKSUM_COMPARISON_WINDOW: usize = 2;
-    const EXPECTED_MIGRATION_VERSIONS: [i64; 40] = [
+    const EXPECTED_MIGRATION_VERSIONS: [i64; 42] = [
         INITIAL_SCHEMA_VERSION,
         OPERATION_LEASES_SCHEMA_VERSION,
         COMPLETE_EDGE_KINDS_SCHEMA_VERSION,
@@ -2096,9 +2131,11 @@ mod tests {
         SHADER_AND_DISPATCH_DIGEST_V14_SCHEMA_VERSION,
         GENERATION_SOURCE_ADMISSION_SCHEMA_VERSION,
         ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA_VERSION,
+        RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA_VERSION,
+        RESUMABLE_RETENTION_SCHEMA_VERSION,
     ];
 
-    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 40] = [
+    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 42] = [
         (
             1,
             "47651685dfea852db86d644f0e777bd479a3926cfce9e7750887a61cfe4ddc8e",
@@ -2259,6 +2296,14 @@ mod tests {
             40,
             "a5fc95d44ff7b12038baa012552316c3ac5ba7e7a214c4aa2bcc47d7c04e14c5",
         ),
+        (
+            41,
+            "1bf568eee031e851410c76a5bea4a847e61060560679b7576fc9d3bf238de583",
+        ),
+        (
+            42,
+            "fa7dfc71f61d0fccbb9da5d8255b3771b38af4d3cb6ac27739b2dd2c5604114c",
+        ),
     ];
 
     #[test]
@@ -2302,10 +2347,7 @@ mod tests {
                 .windows(CHECKSUM_COMPARISON_WINDOW)
                 .all(|pair| pair[0] != pair[1])
         );
-        assert_eq!(
-            LATEST_SCHEMA_VERSION,
-            ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA_VERSION
-        );
+        assert_eq!(LATEST_SCHEMA_VERSION, RESUMABLE_RETENTION_SCHEMA_VERSION);
     }
 
     #[test]

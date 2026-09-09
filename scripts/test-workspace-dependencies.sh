@@ -87,6 +87,84 @@ def metadata_member_packages(metadata: dict) -> list[dict]:
     return [packages_by_id[member_id] for member_id in member_ids]
 
 
+# Production/build dependencies form reviewed, directed capabilities. Test-only
+# support is admitted separately and must never enter a shipped dependency tree.
+ARCHITECTURE_BOUNDARIES = {
+    "cartograph-domain": set(),
+    "cartograph-config": {"cartograph-domain"},
+    "cartograph-mcp": set(),
+    "cartograph-test-support": set(),
+    "cartograph-extract": {"cartograph-domain"},
+    "cartograph-db": {"cartograph-config", "cartograph-domain"},
+    "cartograph-scip": {"cartograph-db", "cartograph-domain"},
+    "cartograph-llm": {"cartograph-config", "cartograph-domain"},
+    "cartograph-search": {"cartograph-db", "cartograph-domain"},
+    "cartograph-indexer": {"cartograph-db", "cartograph-domain", "cartograph-extract", "cartograph-scip"},
+    "cartograph-agent": {"cartograph-config", "cartograph-db", "cartograph-domain", "cartograph-extract", "cartograph-indexer", "cartograph-llm", "cartograph-scip", "cartograph-search"},
+    "cartograph-cli": {"cartograph-agent", "cartograph-config", "cartograph-db", "cartograph-domain", "cartograph-llm", "cartograph-mcp", "cartograph-search"},
+}
+
+
+def architecture_violations(packages: list[dict], boundaries: dict[str, set[str]]) -> list[str]:
+    violations = []
+    graph = {package["name"]: set() for package in packages}
+    for package in packages:
+        name = package["name"]
+        if name not in boundaries:
+            violations.append(f"{name} needs an explicit architecture boundary")
+            continue
+        for dependency in package.get("dependencies", []):
+            target = dependency["name"]  # Cargo's actual package name, even for aliases.
+            if target not in graph or dependency.get("kind") == "dev":
+                continue
+            graph[name].add(target)
+            if target not in boundaries[name]:
+                violations.append(f"{name} cannot depend on {target} outside dev-dependencies")
+    visited = set()
+    active = set()
+
+    def visit(name: str) -> None:
+        if name in active:
+            violations.append(f"production dependency cycle reaches {name}")
+            return
+        if name in visited:
+            return
+        active.add(name)
+        for target in sorted(graph[name]):
+            visit(target)
+        active.remove(name)
+        visited.add(name)
+
+    for name in sorted(graph):
+        visit(name)
+    return violations
+
+
+def run_architecture_regressions() -> None:
+    fixture = [
+        {"name": "cartograph-extract", "dependencies": []},
+        {"name": "cartograph-db", "dependencies": []},
+        {"name": "cartograph-test-support", "dependencies": []},
+    ]
+    if architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+        fail("the acyclic independent-crate fixture was rejected")
+    for kind in (None, "build"):
+        fixture[0]["dependencies"] = [{"name": "cartograph-db", "rename": "store", "kind": kind, "target": "cfg(windows)"}]
+        if not architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+            fail("an aliased target-specific forbidden dependency bypassed architecture checks")
+    fixture[0]["dependencies"] = [{"name": "cartograph-test-support", "kind": "dev"}]
+    if architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+        fail("test-only support was rejected")
+    fixture[0]["dependencies"][0]["kind"] = None
+    if not architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+        fail("test support entered the production dependency graph")
+    cycle = [{"name": "a", "dependencies": [{"name": "b"}]}, {"name": "b", "dependencies": [{"name": "a"}]}]
+    if not architecture_violations(cycle, {"a": {"b"}, "b": {"a"}}):
+        fail("the dependency cycle fixture was accepted")
+    if not architecture_violations([{"name": "unreviewed"}], ARCHITECTURE_BOUNDARIES):
+        fail("an unreviewed workspace member was accepted")
+
+
 def run_parser_regressions() -> None:
     inherited = tomllib.loads(
         """
@@ -143,10 +221,11 @@ def run_parser_regressions() -> None:
 
 
 run_parser_regressions()
+run_architecture_regressions()
 
 root = Path(sys.argv[1]).resolve()
 metadata_process = subprocess.run(
-    ["cargo", "metadata", "--locked", "--format-version", "1", "--no-deps"],
+    ["cargo", "metadata", "--locked", "--format-version", "1", "--all-features"],
     cwd=root,
     check=False,
     stdout=subprocess.PIPE,
@@ -173,6 +252,20 @@ if not isinstance(workspace, dict):
 workspace_dependencies = workspace.get("dependencies")
 if not isinstance(workspace_dependencies, dict) or not workspace_dependencies:
     fail("Cargo.toml has no non-empty [workspace.dependencies] table")
+
+native_parsers = [package for package in metadata["packages"] if package.get("links") == "tree-sitter"]
+expected_runtime = workspace_dependencies["tree-sitter"].removeprefix("=")
+if len(native_parsers) != 1 or native_parsers[0]["version"] != expected_runtime:
+    fail("the dependency graph must contain exactly the pinned native Tree-sitter runtime")
+facades = [package for package in metadata["packages"]
+           if package["name"] == "tree-sitter" and package.get("source") is None]
+if len(facades) != 1:
+    fail("the ABAP compatibility facade must have exactly one local owner")
+facade = facades[0]
+if (Path(facade["manifest_path"]).resolve() != root / "vendor/tree-sitter-026-compat/Cargo.toml"
+        or facade.get("links") is not None
+        or any("custom-build" in target["kind"] for target in facade["targets"])):
+    fail("the compatibility facade must not contain another native build")
 
 members = metadata_member_packages(metadata)
 seen_names: set[str] = set()
@@ -203,6 +296,10 @@ for package in members:
     violations = dependency_violations(member_document)
     if violations:
         fail(f"{relative_manifest.as_posix()}: {violations[0]}")
+
+violations = architecture_violations(members, ARCHITECTURE_BOUNDARIES)
+if violations:
+    fail(violations[0])
 
 print(f"workspace dependency contract passed: {len(members)} member manifests")
 PY

@@ -1,0 +1,22 @@
+[package]
+name = "tree-sitter"
+version = "0.26.13"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+license = "MIT"
+description = "Cartograph's runtime-neutral compatibility facade for ABAP grammar bindings"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = ["std"]
+std = ["tree-sitter-runtime/std"]
+
+[dependencies]
+tree-sitter-runtime = { package = "tree-sitter", version = "=0.27.0", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"

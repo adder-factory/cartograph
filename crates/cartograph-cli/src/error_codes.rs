@@ -345,8 +345,8 @@ const fn pipeline_progress_stalled_code(stage: PipelineStage) -> &'static str {
 mod tests {
     use super::*;
     use cartograph_agent::PipelineFileFailure;
+    use cartograph_config::ProjectConfigError;
     use cartograph_domain::NormalizedPath;
-    use cartograph_llm::ProjectLlmConfigError;
 
     #[test]
     fn direct_cli_progress_stall_message_includes_the_qualified_stable_code() {
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn direct_cli_configuration_failure_names_the_field_range_and_stable_code() {
         let error =
-            ProjectError::ProjectConfiguration(ProjectLlmConfigError::NumericFieldOutOfRange {
+            ProjectError::ProjectConfiguration(ProjectConfigError::NumericFieldOutOfRange {
                 field: "maxGenerationBytes",
                 minimum: 1,
                 maximum: 8_589_934_592,

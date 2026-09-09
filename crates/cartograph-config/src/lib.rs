@@ -10,6 +10,17 @@ use secrecy::SecretString;
 use thiserror::Error;
 use url::Url;
 
+mod numeric;
+mod project;
+
+pub use numeric::{BoundedU64Field, optional_bounded_u64};
+
+pub use project::{
+    ProjectConfigError, ProjectConfigSnapshot, ProjectGenerationStorage, ProjectSourceSettings,
+    load_project_source_settings, read_project_config, read_project_config_snapshot,
+    update_project_config, write_project_config_if_unchanged, write_project_max_file_size,
+};
+
 /// Environment variable containing the only supported v2 database URL.
 pub const DATABASE_URL_ENV: &str = "CARTOGRAPH_DATABASE_URL";
 /// Environment variable controlling the bounded PostgreSQL connection pool.

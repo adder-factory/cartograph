@@ -87,7 +87,10 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V15 fences Ada/VHDL unit resolution and guarded numerical
+contract. Contract V16 fences nominal Rust self-receiver ownership: syntax-proven
+receiver types resolve through lexical and import paths, and unresolved or
+ambiguous self calls never fall back to unrelated project-wide methods.
+Contract V15 fences Ada/VHDL unit resolution and guarded numerical
 precision; contract V14 fenced first-class Slang/WESL module semantics and
 JavaScript static dynamic-dispatch evidence; contract V13 fenced named
 TypeScript and JavaScript construction targets; contract V12 fenced stable
@@ -319,9 +322,24 @@ outer work item cannot hide healthy progress. The project-wide resolution
 lookup, clone profile, and centrality graph remain explicitly bounded compact
 native structures because exact cross-file resolution needs the full
 declaration domain; an extreme graph can still be rejected before unsafe
-allocation or publication. Persistent SCIP replacement overlays remain on the
-memory path until their per-file replacement contract has an equivalent
-streamed implementation.
+allocation or publication. Persistent SCIP overlays use the same source-verified
+replacement plan in both strategies. The spill path loads a bounded basis for
+covered files, filters each native file and derived batch, then appends compiler
+facts in bounded batches before centrality and canonical reduction. Uncovered
+facts, unambiguous native IDs, edge multiplicity, numerical sites, and explicit
+unresolved targets follow the same replacement rules as memory. Overlay source
+bytes, replacement rules, and imported facts still have native working bounds;
+spill does not imply an unbounded compiler artifact. Ordinary spill quotas,
+batch replay checks, cancellation, relation validation, and publication fencing
+also apply to compiler facts.
+
+The parse-cache fingerprint retains the complete workspace lockfile alongside
+extractor/domain source, all workspace manifests, the pinned toolchain,
+repository Cargo config, and compiler target/feature inputs. An otherwise
+unrelated dependency can change unified features of a shared parser or
+serialization dependency. A forward-only lockfile closure cannot prove safe
+cache reuse, so narrower dependency and language-specific fingerprints remain
+deferred until that independence is established.
 
 ## Search document boundary
 

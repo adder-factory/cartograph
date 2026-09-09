@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-08-25 (`v2.1.27`)
+Last implementation review: 2026-09-08 (`v2.1.28`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -37,14 +37,14 @@ lexical, graph, review, freshness, and affected-test workflows require no LLM.
 | Crate | Responsibility |
 | --- | --- |
 | `cartograph-domain` | Branded IDs, enums, source language/path/digest contracts, project identity, canonical manifest digest |
-| `cartograph-config` | PostgreSQL-only secret settings and bounded pool/timeouts |
+| `cartograph-config` | Secret database settings, pool/timeouts, neutral project source/storage policy, bounded atomic configuration I/O |
 | `cartograph-extract` | Bounded discovery/read/hash, native tree-sitter parsing, declarations/references, deterministic resolution |
 | `cartograph-db` | Capabilities, migrations, leases/fences, COPY, publication, retrieval, semantic storage, v1 import, retention, managed lifecycle |
 | `cartograph-indexer` | Bounded parallel stages, deterministic reduction, supervisor/cancellation/reaping, corpus-aware workers |
 | `cartograph-search` | Exact/BM25/hybrid evidence, typed intent, graph traversal, RRF, affected tests, trust/abstention |
 | `cartograph-scip` | Bounded zero-runtime protobuf codec, exact typed-edge extension, deterministic export, per-file replacement overlay |
 | `cartograph-llm` | Bounded redacted embedding/reranker/chat clients, provider config, model identity, and local backend supervision contracts |
-| `cartograph-agent` | Project runtime, freshness, indexing, embedding sweeps, Git review, source excerpts, working-tree overlay |
+| `cartograph-agent` | Project runtime, freshness, indexing, structural summary services, embedding sweeps, Git review, source excerpts, working-tree overlay |
 | `cartograph-mcp` | Bounded stdio JSON-RPC/MCP protocol, profiles, cancellation, stable errors |
 | `cartograph-cli` | Native command routing, database operations, MCP adapter, project-local agent installation |
 
@@ -52,17 +52,40 @@ Dependencies point inward through typed contracts. MCP/CLI do not issue SQL;
 database code does not read arbitrary project files; extractors do not know
 about PostgreSQL or transport.
 
+`scripts/test-workspace-dependencies.sh` enforces the reviewed production/build
+dependency directions, rejects cycles and test-support dependencies in shipped
+crates, and requires an explicit boundary decision for a new workspace crate.
+Neutral project configuration is owned by `cartograph-config`; the LLM crate
+retains provider interpretation and compatibility wrappers. Structural symbol
+summary sweeps expose a typed agent service used by the CLI/MCP adapter.
+
+Context source windows share one bounded source-manifest scan and captured file
+set per request. They carry the expected generation and reject a generation
+change before returning evidence. Per-file source hashes and source-policy
+identity remain authoritative; concurrent requests still perform independent
+validation. No time-based freshness cache is introduced.
+
+Embedding and rerank clients share a process-bounded transport registry, keyed
+privately by effective endpoint/model/credential/timeout settings. HTTP origins
+share four active slots, with at most three occupied by background embeddings;
+32 queued requests include at most 16 background waiters. Queueing consumes the
+same deadline as the HTTP request, and cancellation releases admission. At most
+32 transports and 32 origin gates are retained. Chat transports remain separate.
+
 ## Database capability and schema
 
 Before migration or normal work, Cartograph proves:
 
 - PostgreSQL 18.4 or newer within major version 18;
-- `pg_search` 0.25.3, expected preload state, the `paradedb` access method, and
+- `pg_search` 0.25.6, expected preload state, the `paradedb` access method, and
   exact `pdb.source_code` token behavior;
 - pgvector 0.8.4 or newer, with 0.8.6 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
 
-The append-only migration ledger currently owns forty versions. Migration 40
+The append-only migration ledger currently owns forty-two versions. Migration 42
+adds resumable generation retirement and bounded maintenance telemetry. Migration
+41 admits generation digest V16 for nominal Rust self-receiver ownership, including
+private parent methods called across split implementation files. Migration 40
 admits generation digest V15 for Ada/VHDL unit resolution and guarded numerical
 precision. Migration 39 stores the privacy-preserving run-scoped exclusion policy on each
 generation so freshness and reconciliation replay the admission policy that
@@ -271,7 +294,7 @@ batch-local validation uses the same field contract, global conflicts and edge
 multiplicity are reduced under database constraints, and each canonical
 partition group proves its file/symbol/span cross-relations before its raw
 evidence is removed. The durable completed phase makes a redundant final
-generation-wide relation scan unnecessary. The V15 digest is streamed as exact
+generation-wide relation scan unnecessary. The V16 digest is streamed as exact
 canonical row bytes in the memory reducer's table/key order. Centrality uses
 the same pre-dedup calls/reference graph and is patched onto fenced raw symbols
 before sealing. Exact batch replay and the canonical cursor make an interrupted

@@ -16,7 +16,7 @@ const MAXIMUM_DOCUMENTS: usize = 128;
 const MAXIMUM_DOCUMENT_BYTES: usize = 512 * 1024;
 const MAXIMUM_INPUT_BYTES: usize = 4 * 1024 * 1024;
 const MAXIMUM_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
-const USER_AGENT: &str = concat!("cartograph/", env!("CARGO_PKG_VERSION"));
+use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model_transport};
 
 /// Validated Cohere-compatible `/v1/rerank` configuration.
 #[derive(Clone)]
@@ -101,7 +101,7 @@ impl RerankBatch {
 #[derive(Clone)]
 pub struct OpenAiRerankClient {
     settings: RerankSettings,
-    client: reqwest::Client,
+    transport: std::sync::Arc<ModelTransport>,
 }
 
 impl OpenAiRerankClient {
@@ -112,15 +112,18 @@ impl OpenAiRerankClient {
     /// Returns an error if no TLS crypto provider can be installed or the
     /// redirect-free bounded rerank HTTP client cannot be built.
     pub fn new(settings: RerankSettings) -> Result<Self, RerankError> {
-        crate::ensure_tls_crypto_provider().map_err(|_| RerankError::ClientUnavailable)?;
-        let client = reqwest::Client::builder()
-            .connect_timeout(settings.timeout.min(MAXIMUM_CONNECT_TIMEOUT))
-            .timeout(settings.timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|_| RerankError::ClientUnavailable)?;
-        Ok(Self { settings, client })
+        let transport = model_transport(TransportSettings {
+            endpoint: &settings.endpoint,
+            model: &settings.model,
+            api_key: settings.api_key.as_ref(),
+            connect_timeout: settings.timeout.min(MAXIMUM_CONNECT_TIMEOUT),
+            request_timeout: settings.timeout,
+        })
+        .map_err(|()| RerankError::ClientUnavailable)?;
+        Ok(Self {
+            settings,
+            transport,
+        })
     }
 
     /// Validated configured model identity used for retrieval provenance.
@@ -141,6 +144,11 @@ impl OpenAiRerankClient {
         documents: &[String],
     ) -> Result<RerankBatch, RerankError> {
         validate_input(query, documents)?;
+        let admission = self
+            .transport
+            .admit(RequestPriority::Foreground, self.settings.timeout)
+            .await
+            .map_err(|()| RerankError::EndpointUnavailable)?;
         let request = RerankRequest {
             model: &self.settings.model,
             query,
@@ -148,8 +156,14 @@ impl OpenAiRerankClient {
             top_n: documents.len(),
         };
         let mut builder = self
+            .transport
             .client
             .post(self.settings.endpoint.clone())
+            .timeout(
+                admission
+                    .remaining()
+                    .map_err(|()| RerankError::EndpointUnavailable)?,
+            )
             .json(&request);
         if let Some(api_key) = &self.settings.api_key {
             let authorization =

@@ -20,6 +20,13 @@ pub const DYNAMIC_DISPATCH_RESOLUTION_PREFIX: &str = "cartograph.dynamic-dispatc
 #[doc(hidden)]
 pub const RUST_MACRO_RESOLUTION_PREFIX: &str = "cartograph.rust-macro::";
 
+/// Internal lookup marker for a Rust `self` call with syntax-proven receiver ownership.
+///
+/// The suffix is an enclosing nominal implementation type and member, or only the member
+/// when the syntax cannot prove a nominal type. Neither form permits global name guessing.
+#[doc(hidden)]
+pub const RUST_SELF_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.rust-self::";
+
 /// Internal lookup marker for a TypeScript `typeof` query against a runtime value declaration.
 ///
 /// The persisted reference remains a typed `type_of` edge. The indexer removes this marker and

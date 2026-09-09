@@ -130,6 +130,11 @@ choice does not change the logical source digest, so changing it does not make
 an otherwise fresh generation stale; use `cartograph index --force` when you
 want to rebuild unchanged source with a different strategy.
 
+Persistent SCIP overlays support all three choices. They use the same
+source-verified replacement rules in memory and PostgreSQL, with bounded
+compiler-fact batches before spill reduction. The overlay's native basis and
+imported payload remain subject to `maxGenerationBytes` working limits.
+
 On the memory path, `maxGenerationBytes` bounds the reduced canonical
 generation; resolve and validation have separately measured working allowances
 of up to four times that value. On the PostgreSQL path, bulky per-file
@@ -148,7 +153,7 @@ digest-fenced; exact replay is idempotent, while a different retry fails
 closed. PostgreSQL reduces six relations through 64 deterministic UUID
 partitions each, commits four contiguous partitions at a time, proves
 cross-relations within those transactions, can use its own temporary storage
-for grouping/sorting, and streams exact V15 row bytes from final canonical
+for grouping/sorting, and streams exact V16 row bytes from final canonical
 rows. The final ready transaction rechecks the fence, completed-validation
 phase (`canonicalized`), counts, and digest capability before it deletes spill
 state. Only the later short publication transaction changes the current pointer.

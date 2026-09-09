@@ -4,9 +4,9 @@
 [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
 Cartograph v2 has one storage engine: PostgreSQL 18.4 or newer within major
-version 18 with ParadeDB `pg_search` 0.25.3 and pgvector 0.8.4 or newer.
+version 18 with ParadeDB `pg_search` 0.25.6 and pgvector 0.8.4 or newer.
 Pgvector 0.8.6 is recommended for external PostgreSQL; the managed upstream
-ParadeDB 0.25.3 image bundles `pg_search` 0.25.3 and pgvector 0.8.4. SQLite is
+ParadeDB 0.25.6 image bundles `pg_search` 0.25.6 and pgvector 0.8.4. SQLite is
 not a backend, fallback, migration target, importer, feature, or test utility.
 
 ## Choose database ownership
@@ -90,8 +90,8 @@ that migration has not yet proved.
 The upgrade starts the exact digest against the retained volume, reconciles
 pgvector and then `pg_search` transactionally before calling extension-defined
 functions, and requires capability plus Cartograph migration proof before it
-discards the old container. The ParadeDB 0.25.3 image upgrades `pg_search` to
-0.25.3 and retains the legacy `bm25` access method, so existing
+discards the old container. The ParadeDB 0.25.6 image upgrades `pg_search` to
+0.25.6 and retains the legacy `bm25` access method, so existing
 derived indexes remain valid and queryable; Cartograph
 creates replacement/new generation indexes with the current `paradedb` access
 method and accepts both catalog names during this upgrade boundary.
@@ -120,7 +120,7 @@ disabled there until private credential ACL behavior can be proved equivalent.
 ## External database
 
 The database administrator installs PostgreSQL 18.4 or newer within major
-version 18, `pg_search` 0.25.3, and pgvector 0.8.4 or newer (0.8.6
+version 18, `pg_search` 0.25.6, and pgvector 0.8.4 or newer (0.8.6
 recommended), and creates pgvector before `pg_search`. Supply secrets only
 through the process environment:
 
@@ -137,7 +137,7 @@ update both catalogs before running `cartograph doctor`:
 
 ```sql
 ALTER EXTENSION vector UPDATE TO '0.8.6';
-ALTER EXTENSION pg_search UPDATE TO '0.25.3';
+ALTER EXTENSION pg_search UPDATE TO '0.25.6';
 ```
 
 Optional bounded pool controls:
@@ -190,7 +190,7 @@ document relation uses an indexed exact duplicate-identity probe, so large
 text fields are compared only when two raw rows claim the same document ID.
 This changes no conflict semantics and avoids materializing unique document
 text into a `DISTINCT` aggregate. The
-canonical V15 digest streams exact canonical row bytes from PostgreSQL in the
+canonical V16 digest streams exact canonical row bytes from PostgreSQL in the
 same table/key order as the memory reducer. The final ready transaction checks
 the lease/state, the durable `canonicalized` phase that only validated groups
 can reach, digest capability, and canonical counts, builds the generation
@@ -299,26 +299,23 @@ cartograph db derived-index --project-path /absolute/path/to/checkout
 
 ## Bounded retention
 
-Successful index and no-op reconciliation requests perform an automatic cleanup
-with a 32-generation transaction cap while preserving the two newest
-superseded generations. Failed automatic indexes run the terminal-generation
-portion of the same bounded cleanup before returning, preventing a persistent
-capacity failure from creating one retained failed spill generation per retry.
-The same exact migration lease also runs parse-cache
-retention: the running extractor contract is always protected, at most one
-recent older contract is retained, and independent defaults cap the project at
-20,000 rows, 2 GiB of logical payload, and 10,000 deletions per pass. Cache hits
-touch `last_used_at` at most hourly rather than writing on every hit.
+Successful index and no-op reconciliation requests remove up to 32 generations
+while preserving the two newest superseded generations. Failed automatic
+indexes attempt the same maintenance before returning. Generation cleanup and
+parse-cache cleanup use separate transactions under one exact migration lease:
+a failed generation pass still permits an independently fenced cache pass.
 
-This keeps routine watcher churn bounded. Explicit pruning remains separate
-from import, backup, physical compaction, and derived-index recovery and is
-available for larger audited batches after a verified backup:
+Cache retention protects the exact running parsing-policy contract, including
+its AST-depth limit, and spill-pinned rows. At most one recent older contract is
+retained, with defaults of 20,000 rows, 2 GiB logical payload and 10,000 deletions
+per pass. Protected rows may exceed these policy targets. Cache hits touch
+`last_used_at` at most hourly. Automatic maintenance stores its latest outcome,
+including failures during failed indexing, in one bounded project row; `db usage`
+reports both phase outcomes and consecutive failures through `retentionMaintenance`.
+A `cache_only` indexing outcome means cache eviction committed while generation
+cleanup failed.
 
-Automatic post-index cleanup delegates thresholded dead-row reclamation to the
-table-specific autovacuum policy instead of synchronously vacuuming every
-retention relation on the watcher hot path. Explicit `db prune` retains the
-thresholded, table-scoped synchronous maintenance result for operator-audited
-batches; neither path performs `VACUUM FULL` or database-wide `ANALYZE`.
+Explicit pruning accepts larger audited budgets after a verified backup:
 
 ```sh
 cartograph db prune \
@@ -330,46 +327,59 @@ cartograph db prune \
   --format json
 ```
 
-Omit `--maximum-cascade-rows` for the conservative five-million-row default.
-Use the override only after a read-only storage audit proves that an individual
-terminal generation cannot fit under that default and the database filesystem
-has enough WAL/maintenance headroom. The CLI and MCP admin surface both enforce
-the same 100-million-row hard maximum; increasing this cap does not weaken the
-independent relation-byte or DDL limits.
+The five-million-row default and `--maximum-cascade-rows` bound rows actually
+deleted across committed batches. An oversized generation can now make progress
+without increasing that limit. The independent defaults admit at most 8 GiB of
+generation search relations and 64 relation drops; hard policy limits remain
+100 million rows, 64 GiB and 64 drops. Generation limits remain independent of
+DDL limits, so failed generations without derived relations can exceed the
+64-drop cap.
 
-One invocation deletes at most the requested batch of stale unleased staging,
-stale unleased ready, failed, and old superseded generations. Staging must be at
-least ten minutes old and ready work at least 24 hours old by default. It always
-preserves the current generation, recent or leased staging/ready work,
-staging/ready/failed generations referenced by non-complete v1 import runs, and
-the newest configured superseded histories. The import-run exception preserves
-the exact state needed for concurrent-publication recovery.
-The transaction also enforces independent canonical/cascade-row,
-generation-relation-byte, and DDL-relation caps. Defaults admit at most five
-million cascade rows, 8 GiB of generation search relations, and 64 relation
-drops; hard bounds are 100 million rows, 64 GiB, and 64 drops. The requested
-generation limit is independent: a `--maximum-deletions 10000` recovery can
-delete up to 10,000 failed generations that own no derived search relation,
-while relation-bearing generations remain capped at 64 drops. Candidate work
-is accounted in one bounded batch rather than silently pre-limiting every prune
-to the DDL cap. For every
-selected terminal generation it accounts work first, drops the physical search
-table (including its BM25 index), deletes canonical rows by cascade, and reports
-the exact admitted rows, relations, and bytes. Before selection it walks the
-PostgreSQL cascade catalog across every schema and verifies the namespace plus
-relation identity of every known direct and indirect generation-owned table;
-same-schema or cross-schema drift fails closed instead of weakening the row cap.
-The transaction shares the schema-migration advisory lock, holds relation locks
-that conflict with foreign-key DDL through accounting and deletion, and rechecks
-the catalog immediately before `DELETE`. Child evidence tables such as coverage,
-issue history, similarity, and summary-priority state are included in both
-accounting and maintenance. It also acquires publication/retention locks and
-rechecks the exact live migration lease after deletion before commit.
-At 100,000 or more admitted cascade rows, a post-commit maintenance pass vacuums
-and analyzes only the named high-churn tables with `SKIP_LOCKED`, forced index
-cleanup, truncation disabled, and the same bounded deadline. A maintenance
-failure is reported as deferred and cannot roll back already committed
-retention.
+Each transaction handles at most 10,000 canonical rows and 32 candidate
+generations. An invocation runs at most 512 such transactions within its existing
+time budget, including connection acquisition, setup, commit/rollback, and
+post-retention maintenance. Each transaction has a ten-second ceiling. A timed-out
+transaction's connection is discarded before independent cache maintenance.
+There is no full
+fact-table row census before admission. Physical search-relation metadata is
+checked separately, and individually over-budget relations do not hide later
+eligible candidates. Exhausted DDL allowances also filter relation-bearing work
+before pagination; `search_relation_ddl_budget` reports that deferral without
+blocking later relation-free generations. Large relations still require a sufficient explicit
+`--maximum-search-relation-bytes` budget (MCP `maximumSearchRelationBytes`) before
+they can be dropped. Raise it only after verifying filesystem/WAL headroom.
+
+Staging work must be at least ten minutes old and ready work at least 24 hours
+old. Current pointers, live leases, incomplete import recovery, and the retained
+superseded histories are protected before a generation enters `retiring` state.
+A retiring generation cannot acquire a writer lease, resume indexing, or publish.
+Its original state is preserved for final removal counts. Children are deleted
+before FK parents, with statement-local bounded tuple selection; the parent is
+removed only after its descendants have been drained. A failed or cancelled later
+batch cannot undo earlier committed progress. Repeat bounded cleanup until
+`retiring_remaining` and the eligible backlog reach zero. Inspect
+`batches_committed`, `cascade_rows_removed`, and `deferred_reason` on every pass.
+
+Every batch reacquires the schema/publication/retention locks and exact live
+migration fence. Relation locks exclude FK-changing DDL while the complete
+cross-schema cascade catalog, deletion order, and project/generation key mappings
+are verified. Catalog drift fails closed. Expiry or takeover aborts the current
+batch. The current complete generation remains the reader's source of truth.
+
+Automatic cleanup delegates dead-row reclamation to table-specific autovacuum.
+Explicit `db prune` retains thresholded table-scoped maintenance after 100,000
+deleted rows: `VACUUM`/`ANALYZE` uses `SKIP_LOCKED`, forced index cleanup, and
+disabled truncation. Maintenance failure cannot roll back committed retention.
+Physical heap/TOAST or index allocation remains a separate measured compaction
+step. Empty spill heaps with large index allocation produce
+`empty_spill_index_allocation`; inspect `db compact` for a bounded rebuild plan.
+
+Storage reports distinguish `databaseCatalogBytes`, covering non-shared relation
+forks across all database schemas, from `unattributedDatabaseBytes`. The latter
+may include auxiliary, transient, or historical unowned files; it does not prove
+a particular leak and never authorizes deleting raw PGDATA files. Use supported
+PostgreSQL/ParadeDB diagnostics and a verified backup/restore when physical
+recovery is necessary.
 
 Status and doctor expose generation-state counts plus a conservative retained
 byte lower bound (source bytes plus physical generation search tables/indexes).
@@ -388,10 +398,26 @@ Use the read-only report before deciding that the database is bloated:
 
 ```sh
 cartograph db usage --project-path . --limit 64 --format json
+cartograph db usage --project-path . --limit 64 --table-offset 64 --index-offset 64 --format json
 ```
 
 Both `db usage` and the default `db compact` plan verify the exact current
 migration ledger without creating or upgrading the selected schema.
+
+Table and index lists have independent offsets, complete catalog counts, and
+truncation flags. `--limit` is at most 128; offsets are at most 100,000. Each
+page is ordered by allocation and identity. Concurrent DDL or allocation changes
+can reorder later pages; these are bounded observations rather than a durable
+inventory cursor.
+
+`statistics` records the observation time, database-wide reset time, optional
+statistics snapshot time, and `trackCounts` setting. Estimated live/dead rows
+are nullable: no observed table counters or vacuum/analyze history means unknown,
+rather than a measured empty table. Manual and automatic vacuum/analyze dates
+are reported separately. PostgreSQL counters remain estimates and may lag or
+reset independently; a database reset timestamp does not prove table-counter
+history. An allocated table without observed statistics emits
+`unobserved_table_statistics` without claiming that its space is reclaimable.
 
 It separates whole-database bytes from this schema's heap, B-tree/all-index,
 TOAST, generation-search, and parse-cache allocations. Parse-cache evidence

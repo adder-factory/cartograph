@@ -1248,8 +1248,8 @@ mod tests {
     const HEADROOM_VOLUME_BYTES: u64 = 512 * 1024 * 1024;
     const HEADROOM_FILL_PATH: &str = "/var/lib/postgresql/cartograph-upgrade-headroom-fixture";
     const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
-        "paradedb/paradedb:0.25.2@sha256:",
-        "f34b716407b4d509d3e59e649495964b296ad7c0931658dbf99d3cf1b35bc994"
+        "paradedb/paradedb:0.25.3@sha256:",
+        "82d0c8bb0263c4320cb321591dd6831ecdd04b4b27328ef658358a9a8c383ac5"
     );
 
     struct LiveDockerCleanup {
@@ -2094,7 +2094,7 @@ mod tests {
         assert_eq!(rolled_back.image, old_image);
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.2"
+            "0.25.3"
         );
         assert_eq!(
             read_upgrade_marker(database).await,
@@ -2155,7 +2155,7 @@ mod tests {
         );
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.3"
+            "0.25.6"
         );
         let connection = open_test_database(database).await;
         let capabilities = connection

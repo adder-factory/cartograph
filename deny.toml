@@ -8,6 +8,9 @@ targets = [
 all-features = true
 
 [advisories]
+# Apply maintenance advisories to direct and transitive dependencies alike.
+unmaintained = "all"
+yanked = "deny"
 ignore = []
 
 [licenses]
@@ -43,6 +46,8 @@ deny = [
   { crate = "sqlx-sqlite", reason = "Cartograph v2 is PostgreSQL-only" },
 ]
 skip = [
+  { crate = "base64@0.22.1", reason = "SQLx 0.9 and hyper-util still require base64 0.22; reqwest 0.13.5 now requires 0.23" },
+  { crate = "tree-sitter@0.26.13", reason = "Local ABAP compatibility facade reexports 0.27 types and has no native code; the workspace gate verifies exactly one 0.27 runtime" },
   { crate = "getrandom@0.2.17", reason = "ring/rustls has not yet adopted getrandom 0.4" },
   { crate = "hashbrown@0.16.1", reason = "sqlx hashlink and serde indexmap currently require adjacent releases" },
   { crate = "syn@2.0.119", reason = "Tokio and ICU derive macros have not yet adopted syn 3" },

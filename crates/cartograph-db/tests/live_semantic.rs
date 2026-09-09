@@ -605,18 +605,6 @@ async fn assert_semantic_retention(fixture: &Fixture, scenario: &SemanticScenari
         ))
         .await
         .unwrap_or_else(|error| panic!("retention lease failed: {error}"));
-    let row_limited = fixture
-        .database
-        .cleanup_generations(GenerationRetentionRequest::new(
-            GenerationRetentionPolicy::new(0, 10)
-                .and_then(|policy| policy.with_work_limits(1, 8 * 1_024 * 1_024 * 1_024, 1))
-                .unwrap_or_else(|error| panic!("row-limited retention policy failed: {error}")),
-            &lease.fence(),
-            STATEMENT_TIMEOUT,
-        ))
-        .await
-        .unwrap_or_else(|error| panic!("row-limited retention failed: {error}"));
-    assert_eq!(row_limited.removed(), 0);
     let byte_limited = fixture
         .database
         .cleanup_generations(GenerationRetentionRequest::new(
@@ -629,6 +617,29 @@ async fn assert_semantic_retention(fixture: &Fixture, scenario: &SemanticScenari
         .await
         .unwrap_or_else(|error| panic!("byte-limited retention failed: {error}"));
     assert_eq!(byte_limited.removed(), 0);
+    assert_eq!(byte_limited.cascade_rows_removed, 0);
+    assert_eq!(byte_limited.search_relations_removed, 0);
+    assert_eq!(
+        byte_limited.deferred_reason,
+        Some("search_relation_byte_budget")
+    );
+    let row_limited = fixture
+        .database
+        .cleanup_generations(GenerationRetentionRequest::new(
+            GenerationRetentionPolicy::new(0, 10)
+                .and_then(|policy| policy.with_work_limits(1, 8 * 1_024 * 1_024 * 1_024, 1))
+                .unwrap_or_else(|error| panic!("row-limited retention policy failed: {error}")),
+            &lease.fence(),
+            STATEMENT_TIMEOUT,
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("row-limited retention failed: {error}"));
+    assert_eq!(row_limited.removed(), 0);
+    assert_eq!(row_limited.cascade_rows_removed, 1);
+    assert_eq!(row_limited.embeddings_removed, 1);
+    assert_eq!(row_limited.search_relations_removed, 1);
+    assert!(row_limited.search_relation_bytes_removed > 0);
+    assert_eq!(row_limited.retiring_remaining, 1);
     let retention = fixture
         .database
         .cleanup_generations(GenerationRetentionRequest::new(
@@ -640,9 +651,9 @@ async fn assert_semantic_retention(fixture: &Fixture, scenario: &SemanticScenari
         .await
         .unwrap_or_else(|error| panic!("retention failed: {error}"));
     assert_eq!(retention.superseded_removed, 1);
-    assert_eq!(retention.embeddings_removed, 6);
-    assert_eq!(retention.search_relations_removed, 1);
-    assert!(retention.search_relation_bytes_removed > 0);
+    assert_eq!(retention.embeddings_removed, 5);
+    assert_eq!(retention.search_relations_removed, 0);
+    assert_eq!(retention.search_relation_bytes_removed, 0);
     assert!(retention.cascade_rows_removed >= 11);
     fixture
         .database
@@ -948,7 +959,7 @@ async fn migrate(fixture: &Fixture) {
         report.applied_versions,
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+            25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
         ]
     );
     assert_eq!(report.current_version, latest_schema_version());

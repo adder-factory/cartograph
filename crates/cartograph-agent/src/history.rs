@@ -4,12 +4,12 @@ use std::{
     time::Duration,
 };
 
+use cartograph_config::load_project_source_settings;
 use cartograph_db::{
     FileCochangeFact, FileCochangeMetrics, FileHistoryFact, FileHistoryMetrics,
     HistoryRefreshInput, HistoryRefreshMetadata, HistoryRefreshReport, HistoryRefreshRequest,
 };
 use cartograph_domain::{NormalizedPath, ProjectId};
-use cartograph_llm::load_project_source_settings;
 use num_traits::ToPrimitive;
 use thiserror::Error;
 
