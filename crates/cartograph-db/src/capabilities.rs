@@ -8,7 +8,7 @@ use crate::DatabaseError;
 
 const MINIMUM_POSTGRES_VERSION_NUM: i32 = 180_004;
 const NEXT_POSTGRES_MAJOR_VERSION_NUM: i32 = 190_000;
-pub(crate) const SUPPORTED_PG_SEARCH_VERSION: &str = "0.25.6";
+pub(crate) const SUPPORTED_PG_SEARCH_VERSION: &str = "0.25.7";
 pub(crate) const MANAGED_PGVECTOR_VERSION: &str = "0.8.4";
 const MINIMUM_PGVECTOR_VERSION: [u32; 3] = [0, 8, 4];
 const DEFAULT_CAPABILITY_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -243,7 +243,7 @@ fn build_report(facts: ProbeFacts) -> CapabilityReport {
             id: "pg-search-extension",
             passed: pg_search_version_supported,
             message: extension_message("pg_search", pg_search_version.as_deref()),
-            remediation: "Install the Cartograph-supported pg_search 0.25.6 build, add it to shared_preload_libraries, restart PostgreSQL, and create or update the extension to 0.25.6.",
+            remediation: "Install the Cartograph-supported pg_search 0.25.7 build, add it to shared_preload_libraries, restart PostgreSQL, and create or update the extension to 0.25.7.",
         }),
         check(CheckInput {
             id: "pgvector-extension",
@@ -269,7 +269,7 @@ fn build_report(facts: ProbeFacts) -> CapabilityReport {
             } else {
                 "ParadeDB index access method is unavailable".to_owned()
             },
-            remediation: "Verify that pg_search 0.25.6 is installed, preloaded, and exposes the paradedb access method.",
+            remediation: "Verify that pg_search 0.25.7 is installed, preloaded, and exposes the paradedb access method.",
         }),
         check(CheckInput {
             id: "source-code-tokenizer",
@@ -367,11 +367,11 @@ mod tests {
     }
 
     #[test]
-    fn paradedb_0_25_3_managed_capabilities_are_supported() {
+    fn pinned_managed_image_capabilities_are_supported() {
         let mut facts = ready_facts();
         facts
             .extensions
-            .insert("pg_search".to_owned(), "0.25.6".to_owned());
+            .insert("pg_search".to_owned(), "0.25.7".to_owned());
         facts
             .extensions
             .insert("vector".to_owned(), "0.8.4".to_owned());
@@ -456,18 +456,21 @@ mod tests {
 
     #[test]
     fn unsupported_pg_search_version_is_rejected() {
-        let mut facts = ready_facts();
-        facts
-            .extensions
-            .insert("pg_search".to_owned(), "0.24.3".to_owned());
+        for version in ["0.24.3", "0.25.6", "0.25.8"] {
+            let mut facts = ready_facts();
+            facts
+                .extensions
+                .insert("pg_search".to_owned(), version.to_owned());
 
-        let report = build_report(facts);
-        let extension_check = report
-            .checks
-            .iter()
-            .find(|check| check.id == "pg-search-extension");
+            let report = build_report(facts);
+            let extension_check = report
+                .checks
+                .iter()
+                .find(|check| check.id == "pg-search-extension");
 
-        assert!(matches!(extension_check, Some(check) if check.status == CheckStatus::Fail));
+            assert!(!report.ready);
+            assert!(matches!(extension_check, Some(check) if check.status == CheckStatus::Fail));
+        }
     }
 
     #[test]
