@@ -1247,9 +1247,13 @@ mod tests {
     const LIVE_DIGEST: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
     const HEADROOM_VOLUME_BYTES: u64 = 512 * 1024 * 1024;
     const HEADROOM_FILL_PATH: &str = "/var/lib/postgresql/cartograph-upgrade-headroom-fixture";
-    const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
+    const LEGACY_MANAGED_DATABASE_IMAGE: &str = concat!(
         "paradedb/paradedb:0.25.3@sha256:",
         "82d0c8bb0263c4320cb321591dd6831ecdd04b4b27328ef658358a9a8c383ac5"
+    );
+    const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
+        "paradedb/paradedb:0.25.6@sha256:",
+        "c5b04eba22497fa25de12265692e9578e309c2e2001d023ce6d08a17226c200a"
     );
 
     struct LiveDockerCleanup {
@@ -1866,6 +1870,16 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts a real ParadeDB container and forces pinned-image upgrade rollback"]
     async fn managed_upgrade_resumes_after_interruption_between_rename_and_candidate() {
+        assert_interrupted_upgrade_resumes(LEGACY_MANAGED_DATABASE_IMAGE, "0.25.3").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "starts the previous release's real ParadeDB image and resumes interrupted upgrade"]
+    async fn managed_upgrade_from_previous_release_resumes_after_interrupted_rename() {
+        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.6").await;
+    }
+
+    async fn assert_interrupted_upgrade_resumes(previous_image: &str, previous_version: &str) {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("could not create upgrade project: {error}"));
         let database = live_database(directory.path());
@@ -1874,10 +1888,10 @@ mod tests {
             database.identity.project_hash
         );
         let _cleanup = live_cleanup(&database, Some(old_image.clone()));
-        assert_docker_success(&["image", "pull", PREVIOUS_MANAGED_DATABASE_IMAGE]);
-        assert_docker_success(&["image", "tag", PREVIOUS_MANAGED_DATABASE_IMAGE, &old_image]);
+        assert_docker_success(&["image", "pull", previous_image]);
+        assert_docker_success(&["image", "tag", previous_image, &old_image]);
         install_old_image_container(&database, &old_image).await;
-        install_previous_image_data_fixture(&database).await;
+        install_previous_image_data_fixture(&database, previous_version).await;
         let pre_upgrade_backup = directory.path().join("pre-upgrade.dump");
         let backup = database
             .archives()
@@ -1925,6 +1939,19 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts a real ParadeDB container and forces pinned-image upgrade rollback"]
     async fn managed_upgrade_recovers_before_and_after_extension_catalog_mutation() {
+        assert_catalog_mutation_upgrade_recovers(LEGACY_MANAGED_DATABASE_IMAGE, "0.25.3").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "starts the previous release's real ParadeDB image and exercises upgrade recovery"]
+    async fn managed_upgrade_from_previous_release_recovers_around_extension_catalog_mutation() {
+        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.6").await;
+    }
+
+    async fn assert_catalog_mutation_upgrade_recovers(
+        previous_image: &str,
+        previous_version: &str,
+    ) {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("could not create upgrade project: {error}"));
         let database = live_database(directory.path());
@@ -1933,10 +1960,10 @@ mod tests {
             database.identity.project_hash
         );
         let _cleanup = live_cleanup(&database, Some(old_image.clone()));
-        assert_docker_success(&["image", "pull", PREVIOUS_MANAGED_DATABASE_IMAGE]);
-        assert_docker_success(&["image", "tag", PREVIOUS_MANAGED_DATABASE_IMAGE, &old_image]);
+        assert_docker_success(&["image", "pull", previous_image]);
+        assert_docker_success(&["image", "tag", previous_image, &old_image]);
         install_old_image_container(&database, &old_image).await;
-        install_previous_image_data_fixture(&database).await;
+        install_previous_image_data_fixture(&database, previous_version).await;
         install_malformed_upgrade_schema(&database).await;
         let pre_upgrade_backup = directory.path().join("pre-upgrade.dump");
         let backup = database
@@ -1945,7 +1972,13 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("could not back up previous image: {error}"));
         assert!(backup.bytes > ARCHIVE_MAGIC_BYTES);
-        assert_upgrade_failure_restores_old(&database, directory.path(), &old_image).await;
+        assert_upgrade_failure_restores_old(
+            &database,
+            directory.path(),
+            &old_image,
+            previous_version,
+        )
+        .await;
         assert_post_extension_failure_retains_new(&database, &old_image).await;
         assert_pinned_upgrade_succeeds(&database).await;
     }
@@ -1995,9 +2028,16 @@ mod tests {
         wait_for_owned_health(database, false).await;
     }
 
-    async fn install_previous_image_data_fixture(database: &ManagedDatabase) {
+    async fn install_previous_image_data_fixture(
+        database: &ManagedDatabase,
+        previous_version: &str,
+    ) {
         execute_test_sql(database, "CREATE EXTENSION IF NOT EXISTS vector").await;
         execute_test_sql(database, "CREATE EXTENSION IF NOT EXISTS pg_search").await;
+        assert_eq!(
+            read_extension_version(database, "pg_search").await,
+            previous_version
+        );
         execute_test_sql(
             database,
             format!(r#"CREATE SCHEMA "{UPGRADE_FIXTURE_SCHEMA}""#),
@@ -2069,6 +2109,7 @@ mod tests {
         database: &ManagedDatabase,
         directory: &Path,
         old_image: &str,
+        previous_version: &str,
     ) {
         let zero_timeout = live_database_with_port(directory, database.port)
             .with_startup_timeout(std::time::Duration::ZERO);
@@ -2094,7 +2135,7 @@ mod tests {
         assert_eq!(rolled_back.image, old_image);
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.3"
+            previous_version
         );
         assert_eq!(
             read_upgrade_marker(database).await,
@@ -2155,7 +2196,7 @@ mod tests {
         );
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.6"
+            "0.25.7"
         );
         let connection = open_test_database(database).await;
         let capabilities = connection
@@ -2207,6 +2248,19 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("could not inspect completed rollback slot: {error}"));
         assert!(rollback.is_none());
+        assert_eq!(
+            read_upgrade_marker(database).await,
+            "retained-across-upgrade"
+        );
+        assert_upgrade_search_hit(database).await;
+
+        let repeated = database
+            .maintenance()
+            .upgrade(confirmation(database, ManagedDestructiveOperation::Upgrade))
+            .await
+            .unwrap_or_else(|error| panic!("repeated pinned-image upgrade failed: {error}"));
+        assert!(!repeated.upgraded);
+        assert!(repeated.capabilities.ready);
         assert_eq!(
             read_upgrade_marker(database).await,
             "retained-across-upgrade"

@@ -4,9 +4,9 @@
 [Grammar provenance](GRAMMAR-ASSETS.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-09-08 (`v2.1.28`).
+Last release audit: 2026-09-10 (`v2.1.29`).
 
-Cartograph v2.1.28 production-admits all 73 v1.1.33 language modes and all 163 v1
+Cartograph v2.1.29 production-admits all 73 v1.1.33 language modes and all 163 v1
 extensions, plus additive Python `.pyi`, native TOML, and 52 dedicated textual
 game-scripting modes, the WGSL and Metal shader modes added in v2.1.12, and
 Slang and WESL added in v2.1.15, plus Ada/SPARK and VHDL added in v2.1.27: 132

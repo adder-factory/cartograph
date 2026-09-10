@@ -1302,7 +1302,7 @@ mod tests {
                 "CREATE EXTENSION IF NOT EXISTS vector;",
                 "ALTER EXTENSION vector UPDATE TO '0.8.4';",
                 "CREATE EXTENSION IF NOT EXISTS pg_search;",
-                "ALTER EXTENSION pg_search UPDATE TO '0.25.6';",
+                "ALTER EXTENSION pg_search UPDATE TO '0.25.7';",
                 "CREATE EXTENSION IF NOT EXISTS pgstattuple;",
             ]
         );

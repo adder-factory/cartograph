@@ -42,7 +42,7 @@ async fn live_database_satisfies_every_v2_capability() {
         failed.join("; ")
     );
     assert!((180_004..190_000).contains(&report.postgres_version_num));
-    assert_eq!(report.pg_search_version.as_deref(), Some("0.25.6"));
+    assert_eq!(report.pg_search_version.as_deref(), Some("0.25.7"));
     assert_eq!(report.pgvector_version.as_deref(), Some("0.8.4"));
     assert_eq!(report.checks.len(), 6);
 }
