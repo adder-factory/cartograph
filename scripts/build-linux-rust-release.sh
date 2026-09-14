@@ -27,8 +27,8 @@ case "$TARGET:$ASSET_TARGET" in
     ;;
 esac
 
-if [[ ! "$BUILD_IMAGE" =~ ^rust:1\.98\.0-trixie@sha256:[0-9a-f]{64}$ ]]; then
-  echo "Linux release build image must pin rust:1.98.0-trixie by digest" >&2
+if [[ ! "$BUILD_IMAGE" =~ ^rust:1\.98\.1-trixie@sha256:[0-9a-f]{64}$ ]]; then
+  echo "Linux release build image must pin rust:1.98.1-trixie by digest" >&2
   exit 2
 fi
 if [[ ! "$RUNTIME_IMAGE" =~ ^debian:13-slim@sha256:[0-9a-f]{64}$ ]]; then
@@ -64,8 +64,8 @@ docker run --rm --pull never \
       echo "release container architecture mismatch: expected $CARTOGRAPH_RELEASE_MACHINE, got $machine" >&2
       exit 1
     fi
-    # The published 1.98.0 image supplies Debian/build utilities. Install the
-    # exact reviewed compiler independently; a lagging image must not select rustc.
+    # The pinned image supplies Debian/build utilities. Install and verify the
+    # exact reviewed compiler in the writable container-local Rustup directory.
     rustup toolchain install "$CARTOGRAPH_RELEASE_TOOLCHAIN" --profile minimal \
       --component clippy,rustfmt --no-self-update
     if [[ "$(rustc --version)" != "rustc $CARTOGRAPH_RELEASE_TOOLCHAIN "* ]]; then

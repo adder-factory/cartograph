@@ -30,10 +30,10 @@ MCP call is the control evidence.
 ## PostgreSQL capability failure
 
 Cartograph requires PostgreSQL 18.4 or newer within major version 18,
-`pg_search` 0.25.7 with the expected preload state/ParadeDB access method/BM25
+`pg_search` 0.25.9 with the expected preload state/ParadeDB access method/BM25
 tokenizer behavior, and pgvector 0.8.4 or newer. Pgvector 0.8.6 is recommended
-for external PostgreSQL; the managed ParadeDB 0.25.7 image bundles
-`pg_search` 0.25.7 and pgvector 0.8.4.
+for external PostgreSQL; the managed ParadeDB 0.25.9 image bundles
+`pg_search` 0.25.9 and pgvector 0.8.4.
 Upgrade or correct the external service, or use the pinned managed database on
 macOS/Linux. There is no SQLite or plain-FTS
 fallback.

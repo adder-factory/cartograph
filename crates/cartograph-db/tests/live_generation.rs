@@ -93,8 +93,9 @@ const GENERATION_SOURCE_ADMISSION_MIGRATION_VERSION: i64 = 39;
 const ADA_VHDL_NUMERICAL_DIGEST_V15_MIGRATION_VERSION: i64 = 40;
 const RUST_SELF_RECEIVER_DIGEST_V16_MIGRATION_VERSION: i64 = 41;
 const RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION: i64 = 42;
-const LATEST_MIGRATION_VERSION: i64 = RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION;
-const EXPECTED_MIGRATIONS: [i64; 42] = [
+const GRAMMAR_REFRESH_DIGEST_V17_MIGRATION_VERSION: i64 = 43;
+const LATEST_MIGRATION_VERSION: i64 = GRAMMAR_REFRESH_DIGEST_V17_MIGRATION_VERSION;
+const EXPECTED_MIGRATIONS: [i64; 43] = [
     INITIAL_MIGRATION_VERSION,
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
@@ -137,6 +138,7 @@ const EXPECTED_MIGRATIONS: [i64; 42] = [
     ADA_VHDL_NUMERICAL_DIGEST_V15_MIGRATION_VERSION,
     RUST_SELF_RECEIVER_DIGEST_V16_MIGRATION_VERSION,
     RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION,
+    GRAMMAR_REFRESH_DIGEST_V17_MIGRATION_VERSION,
 ];
 const INITIAL_WORKERS: u16 = 4;
 const REPLACEMENT_WORKERS: u16 = 8;
@@ -3786,6 +3788,11 @@ async fn assert_deterministic_cochange_order_migration(pool: &sqlx_postgres::PgP
         .unwrap_or_else(|error| panic!("could not verify cochange-order migration: {error}"));
     assert_eq!(checksum, DETERMINISTIC_COCHANGE_ORDER_MIGRATION_CHECKSUM);
 
+    assert_eq!(
+        schema_migration_checksum(pool, schema, 43).await,
+        "d16123b4cba07e6249e72552c3853cdda61ff1993fbb08d7f767c3cedf6bf956"
+    );
+
     let definition = query(
         r"SELECT pg_get_constraintdef(constraints.oid) AS definition
             FROM pg_catalog.pg_constraint AS constraints
@@ -3874,9 +3881,9 @@ async fn assert_native_index_digest_migrations(pool: &sqlx_postgres::PgPool, sch
     .fetch_one(pool)
     .await
     .and_then(|row| row.try_get::<String, _>("definition"))
-    .unwrap_or_else(|error| panic!("could not inspect digest-v16 constraint: {error}"));
+    .unwrap_or_else(|error| panic!("could not inspect digest-v17 constraint: {error}"));
     assert!(
-        definition.contains("ARRAY[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]"),
+        definition.contains("ARRAY[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]"),
         "{definition}"
     );
 }

@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-09-10 (`v2.1.29`).
+Last implementation review: 2026-09-14 (`v2.1.30`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -77,12 +77,13 @@ same deadline as the HTTP request, and cancellation releases admission. At most
 Before migration or normal work, Cartograph proves:
 
 - PostgreSQL 18.4 or newer within major version 18;
-- `pg_search` 0.25.7, expected preload state, the `paradedb` access method, and
+- `pg_search` 0.25.9, expected preload state, the `paradedb` access method, and
   exact `pdb.source_code` token behavior;
 - pgvector 0.8.4 or newer, with 0.8.6 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
 
-The append-only migration ledger currently owns forty-two versions. Migration 42
+The append-only migration ledger currently owns forty-three versions. Migration 43
+admits generation digest V17 for the refreshed ArkTS and OCaml grammars. Migration 42
 adds resumable generation retirement and bounded maintenance telemetry. Migration
 41 admits generation digest V16 for nominal Rust self-receiver ownership, including
 private parent methods called across split implementation files. Migration 40
@@ -294,7 +295,7 @@ batch-local validation uses the same field contract, global conflicts and edge
 multiplicity are reduced under database constraints, and each canonical
 partition group proves its file/symbol/span cross-relations before its raw
 evidence is removed. The durable completed phase makes a redundant final
-generation-wide relation scan unnecessary. The V16 digest is streamed as exact
+generation-wide relation scan unnecessary. The V17 digest is streamed as exact
 canonical row bytes in the memory reducer's table/key order. Centrality uses
 the same pre-dedup calls/reference graph and is patched onto fenced raw symbols
 before sealing. Exact batch replay and the canonical cursor make an interrupted
