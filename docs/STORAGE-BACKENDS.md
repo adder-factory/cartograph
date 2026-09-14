@@ -4,9 +4,9 @@
 [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
 Cartograph v2 has one storage engine: PostgreSQL 18.4 or newer within major
-version 18 with ParadeDB `pg_search` 0.25.7 and pgvector 0.8.4 or newer.
+version 18 with ParadeDB `pg_search` 0.25.9 and pgvector 0.8.4 or newer.
 Pgvector 0.8.6 is recommended for external PostgreSQL; the managed upstream
-ParadeDB 0.25.7 image bundles `pg_search` 0.25.7 and pgvector 0.8.4. SQLite is
+ParadeDB 0.25.9 image bundles `pg_search` 0.25.9 and pgvector 0.8.4. SQLite is
 not a backend, fallback, migration target, importer, feature, or test utility.
 
 ## Choose database ownership
@@ -90,8 +90,8 @@ that migration has not yet proved.
 The upgrade starts the exact digest against the retained volume, reconciles
 pgvector and then `pg_search` transactionally before calling extension-defined
 functions, and requires capability plus Cartograph migration proof before it
-discards the old container. The ParadeDB 0.25.7 image upgrades `pg_search` to
-0.25.7 and retains the legacy `bm25` access method, so existing
+discards the old container. The ParadeDB 0.25.9 image upgrades `pg_search` to
+0.25.9 and retains the legacy `bm25` access method, so existing
 derived indexes remain valid and queryable; Cartograph
 creates replacement/new generation indexes with the current `paradedb` access
 method and accepts both catalog names during this upgrade boundary.
@@ -120,7 +120,7 @@ disabled there until private credential ACL behavior can be proved equivalent.
 ## External database
 
 The database administrator installs PostgreSQL 18.4 or newer within major
-version 18, `pg_search` 0.25.7, and pgvector 0.8.4 or newer (0.8.6
+version 18, `pg_search` 0.25.9, and pgvector 0.8.4 or newer (0.8.6
 recommended), and creates pgvector before `pg_search`. Supply secrets only
 through the process environment:
 
@@ -137,7 +137,7 @@ update both catalogs before running `cartograph doctor`:
 
 ```sql
 ALTER EXTENSION vector UPDATE TO '0.8.6';
-ALTER EXTENSION pg_search UPDATE TO '0.25.7';
+ALTER EXTENSION pg_search UPDATE TO '0.25.9';
 ```
 
 Optional bounded pool controls:
@@ -190,7 +190,7 @@ document relation uses an indexed exact duplicate-identity probe, so large
 text fields are compared only when two raw rows claim the same document ID.
 This changes no conflict semantics and avoids materializing unique document
 text into a `DISTINCT` aggregate. The
-canonical V16 digest streams exact canonical row bytes from PostgreSQL in the
+canonical V17 digest streams exact canonical row bytes from PostgreSQL in the
 same table/key order as the memory reducer. The final ready transaction checks
 the lease/state, the durable `canonicalized` phase that only validated groups
 can reach, digest capability, and canonical counts, builds the generation

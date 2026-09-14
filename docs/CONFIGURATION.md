@@ -153,7 +153,7 @@ digest-fenced; exact replay is idempotent, while a different retry fails
 closed. PostgreSQL reduces six relations through 64 deterministic UUID
 partitions each, commits four contiguous partitions at a time, proves
 cross-relations within those transactions, can use its own temporary storage
-for grouping/sorting, and streams exact V16 row bytes from final canonical
+for grouping/sorting, and streams exact V17 row bytes from final canonical
 rows. The final ready transaction rechecks the fence, completed-validation
 phase (`canonicalized`), counts, and digest capability before it deletes spill
 state. Only the later short publication transaction changes the current pointer.

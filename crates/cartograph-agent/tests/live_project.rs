@@ -1030,7 +1030,7 @@ async fn assert_incremental_contract_upgrade(
            WHERE project_id = CAST($2 AS uuid) AND state = 'current'"#
     );
     let downgraded = query(AssertSqlSafe(downgrade_generation))
-        .bind(GenerationDigestVersion::V12.database_value())
+        .bind(GenerationDigestVersion::V16.database_value())
         .bind(first.project_id.as_str())
         .execute(&pool)
         .await
@@ -1080,6 +1080,14 @@ async fn assert_incremental_contract_upgrade(
             .and_then(|snapshot| snapshot.current.as_ref()),
         Some(current) if current.digest_version == GenerationDigestVersion::CURRENT
     ));
+    assert_eq!(first.source_revision, upgraded.source_revision);
+    assert_ne!(first.generation_id, upgraded.generation_id);
+    let unchanged = runtime
+        .index(options)
+        .await
+        .unwrap_or_else(|error| panic!("upgraded-contract no-op failed: {error}"));
+    assert!(!unchanged.published);
+    assert_eq!(unchanged.generation_id, upgraded.generation_id);
 }
 
 async fn assert_incremental_corruption_recovery(

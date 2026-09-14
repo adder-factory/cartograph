@@ -87,7 +87,9 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V16 fences nominal Rust self-receiver ownership: syntax-proven
+contract. Contract V17 fences the refreshed ArkTS 0.3 and OCaml 0.26 grammar
+semantics, forcing an unchanged V16 project to publish new facts.
+Contract V16 fences nominal Rust self-receiver ownership: syntax-proven
 receiver types resolve through lexical and import paths, and unresolved or
 ambiguous self calls never fall back to unrelated project-wide methods.
 Contract V15 fences Ada/VHDL unit resolution and guarded numerical

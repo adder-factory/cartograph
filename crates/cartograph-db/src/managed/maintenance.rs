@@ -1251,9 +1251,14 @@ mod tests {
         "paradedb/paradedb:0.25.3@sha256:",
         "82d0c8bb0263c4320cb321591dd6831ecdd04b4b27328ef658358a9a8c383ac5"
     );
-    const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
+    const INTERMEDIATE_MANAGED_DATABASE_IMAGE: &str = concat!(
         "paradedb/paradedb:0.25.6@sha256:",
         "c5b04eba22497fa25de12265692e9578e309c2e2001d023ce6d08a17226c200a"
+    );
+
+    const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
+        "paradedb/paradedb:0.25.7@sha256:",
+        "e4e80f2408e556e84b62d18cda7f6bdd690f2939e109e1b132b49e934193f4ed"
     );
 
     struct LiveDockerCleanup {
@@ -1876,7 +1881,13 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts the previous release's real ParadeDB image and resumes interrupted upgrade"]
     async fn managed_upgrade_from_previous_release_resumes_after_interrupted_rename() {
-        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.6").await;
+        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.7").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker and an isolated managed PostgreSQL database"]
+    async fn managed_upgrade_from_intermediate_release_resumes_after_interrupted_rename() {
+        assert_interrupted_upgrade_resumes(INTERMEDIATE_MANAGED_DATABASE_IMAGE, "0.25.6").await;
     }
 
     async fn assert_interrupted_upgrade_resumes(previous_image: &str, previous_version: &str) {
@@ -1945,7 +1956,15 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts the previous release's real ParadeDB image and exercises upgrade recovery"]
     async fn managed_upgrade_from_previous_release_recovers_around_extension_catalog_mutation() {
-        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.6").await;
+        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.7").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker and an isolated managed PostgreSQL database"]
+    async fn managed_upgrade_from_intermediate_release_recovers_around_extension_catalog_mutation()
+    {
+        assert_catalog_mutation_upgrade_recovers(INTERMEDIATE_MANAGED_DATABASE_IMAGE, "0.25.6")
+            .await;
     }
 
     async fn assert_catalog_mutation_upgrade_recovers(
@@ -2196,7 +2215,7 @@ mod tests {
         );
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.7"
+            "0.25.9"
         );
         let connection = open_test_database(database).await;
         let capabilities = connection

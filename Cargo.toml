@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.1.29"
+version = "2.1.30"
 edition = "2024"
 rust-version = "1.98.1"
 authors = ["Adder Factory"]
@@ -79,7 +79,7 @@ cartograph-mcp = { path = "crates/cartograph-mcp" }
 cartograph-scip = { path = "crates/cartograph-scip" }
 cartograph-search = { path = "crates/cartograph-search" }
 cartograph-test-support = { path = "crates/cartograph-test-support" }
-clap = { version = "4.6.6", default-features = false, features = [
+clap = { version = "4.6.7", default-features = false, features = [
   "derive",
   "error-context",
   "help",
@@ -99,7 +99,7 @@ globset = "0.4.20"
 reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 regex = "1.13.1"
 regex-syntax = "0.8.11"
-rustls = { version = "=0.23.44", default-features = false, features = ["ring"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring"] }
 secrecy = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -121,11 +121,11 @@ tokio = { version = "1.53.1", features = [
   "sync",
   "time",
 ] }
-toml_edit = "=0.25.13"
+toml_edit = "=0.25.15"
 tree-sitter = "=0.27.0"
 tree-sitter-abap-sqry = "=31.0.0"
 tree-sitter-ada = "=0.1.0"
-tree-sitter-arkts = "=0.2.0"
+tree-sitter-arkts = "=0.3.0"
 tree-sitter-astro-next = "=0.1.1"
 tree-sitter-cuda = "=0.21.1"
 tree-sitter-embedded-template = "=0.25.0"
@@ -133,7 +133,7 @@ tree-sitter-go = "=0.25.0"
 unicode-ident = "=1.0.24"
 tree-sitter-javascript = "=0.25.0"
 tree-sitter-luau = "=1.2.0"
-tree-sitter-ocaml = "=0.25.0"
+tree-sitter-ocaml = "=0.26.0"
 tree-sitter-pascal = "=0.10.2"
 tree-sitter-prisma-io = "=1.6.0"
 tree-sitter-python = "=0.25.0"

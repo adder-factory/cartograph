@@ -60,9 +60,9 @@ const EXPECTED_SOURCE_DIGEST: &str =
     "b23964be1dfad94c41d158358db1f60187729c399ed623d107c6b4cc0f46d6d1";
 const EXPECTED_FIXTURE_FINGERPRINT: &str =
     "2c02e8357bee04c11d89f383c316077b8eb2228bd4262d2404cb1535885083d9";
-// V16 changes only this fixture's digest domain, not its source, facts, or ranking.
+// V17 changes only this fixture's digest domain, not its source, facts, or ranking.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "061fe1b6eed23c505aee347ef4f9902c4962d1ffa909c8647d47d90ae622e0d6";
+    "5bd12b11b1aea3ef3a89a9338a2126e204787c6f26095a22a89437d17b2e91dc";
 const EXPECTED_BM25_DOCUMENT_ID: &str = "30000000-0000-4000-8000-000000000001";
 const EXPECTED_FILES: i64 = 256;
 const EXPECTED_SYMBOLS: i64 = 256;
