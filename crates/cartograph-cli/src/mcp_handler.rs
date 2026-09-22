@@ -20,13 +20,14 @@ use cartograph_agent::{
     ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
     IndexOptions, IssueHistoryIndexError, IssueHistoryIndexOptions, IssueHistoryIndexRequest,
     LayerAnalysisError, LayerAnalysisReport, LcovLoadOptions, MAXIMUM_UNIX_MILLISECONDS,
-    PipelineFailureReason, PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime,
-    ProjectStatus, RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions,
-    RetrievalRequest, ReviewError, ReviewOptions, ScipExportRequest, ScipImportLimits,
-    ScipImportRequest, SourceCompareError, SourceCompareOptions, SourceContextOptions,
-    SourceContextRequest, SourceSearchError, SourceSearchHit, SourceSearchOptions,
-    SupervisorStatus, SymbolSourceContext, TestEvidenceError, TestEvidenceOptions,
-    TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest, judge_dead_code_candidates,
+    NavigationPolicy, NavigationRequest, PipelineFailureReason, PipelineStage, ProjectCancellation,
+    ProjectError, ProjectRuntime, ProjectStatus, RenamePlanError, RenamePlanOptions,
+    RenamePlanRequest, RetrievalOptions, RetrievalRequest, ReviewError, ReviewOptions,
+    ScipExportRequest, ScipImportLimits, ScipImportRequest, SourceCompareError,
+    SourceCompareOptions, SourceContextOptions, SourceContextRequest, SourceSearchError,
+    SourceSearchHit, SourceSearchOptions, SupervisorStatus, SymbolSourceContext, TestEvidenceError,
+    TestEvidenceOptions, TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest,
+    judge_dead_code_candidates,
 };
 use cartograph_db::{
     AgentArtifactContent, AgentArtifactKind, AgentArtifactQuery, AgentArtifactScope,
@@ -3188,6 +3189,7 @@ fn project_llm_overview(project_root: &std::path::Path) -> Result<Vec<Value>, To
         ProjectLlmTier::Ask,
         ProjectLlmTier::Classify,
         ProjectLlmTier::Reranker,
+        ProjectLlmTier::Decision,
     ] {
         if let Some(config) =
             load_project_llm_tier(project_root, tier).map_err(project_llm_error)?
@@ -5289,6 +5291,7 @@ struct ExploreInput<'input> {
     mode: SearchMode,
     low_tokens: bool,
     allow_stale: bool,
+    navigation: NavigationPolicy,
 }
 
 fn parse_explore_input(arguments: &Map<String, Value>) -> Result<ExploreInput<'_>, ToolError> {
@@ -5302,6 +5305,7 @@ fn parse_explore_input(arguments: &Map<String, Value>) -> Result<ExploreInput<'_
             "since",
             "lowTokens",
             "allowStale",
+            "decision",
         ],
     )?;
     let requested_max_files = optional_integer(
@@ -5310,6 +5314,11 @@ fn parse_explore_input(arguments: &Map<String, Value>) -> Result<ExploreInput<'_
         NumericBounds::new(1, EXPLORE_DEFAULT_MAXIMUM_FILES, EXPLORE_MAXIMUM_FILES),
     )?;
     let low_tokens = optional_bool(arguments, "lowTokens")?.unwrap_or(false);
+    let navigation = match optional_text(arguments, "decision")?.unwrap_or("auto") {
+        "auto" => NavigationPolicy::Auto,
+        "native" => NavigationPolicy::Native,
+        _ => return Err(invalid_arguments()),
+    };
     Ok(ExploreInput {
         query: required_bounded_text(arguments, "query", CONTEXT_QUERY_MAXIMUM_BYTES)?,
         since: optional_bounded_text(arguments, "since", EXPLORE_CURSOR_MAXIMUM_BYTES)?,
@@ -5322,6 +5331,7 @@ fn parse_explore_input(arguments: &Map<String, Value>) -> Result<ExploreInput<'_
         mode: parse_search_mode(optional_text(arguments, "mode")?.unwrap_or("auto"))?,
         low_tokens,
         allow_stale: optional_bool(arguments, "allowStale")?.unwrap_or(false),
+        navigation,
     })
 }
 
@@ -5906,10 +5916,24 @@ impl ContextTools<'_> {
                 freshness,
                 summary: input.summary,
                 max_files: input.max_files,
-                cancellation,
+                cancellation: cancellation.clone(),
             },
         )
         .await?;
+        let navigation = self
+            .runtime
+            .navigate(
+                NavigationRequest::new(&project_id, input.query, &packet)
+                    .map_err(|error| project_error(&error))?
+                    .with_policy(if input.summary {
+                        NavigationPolicy::Summary
+                    } else {
+                        input.navigation
+                    }),
+                cancellation,
+            )
+            .await
+            .map_err(|error| project_error(&error))?;
         fresh_cursor_json_result(
             FreshCursorRequest {
                 handler: self,
@@ -5922,6 +5946,7 @@ impl ContextTools<'_> {
             &json!({
                 "packet": packet,
                 "sourceWindows": sources,
+                "navigation": navigation,
                 "summaryOnly": input.summary,
                 "lowTokens": input.low_tokens,
                 "sourceWindowLimit": input.max_files
@@ -18294,6 +18319,7 @@ fn explore_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, To
         "query": {"type": "string", "minLength": 1, "maxLength": CONTEXT_QUERY_MAXIMUM_BYTES},
         "maxFiles": {"type": "integer", "minimum": 1, "maximum": EXPLORE_MAXIMUM_FILES},
         "summary": {"type": "boolean"},
+        "decision": {"type": "string", "enum": ["auto", "native"], "default": "auto", "description": "auto permits bounded Jev navigation only when decisionLlm is configured. Question, candidate metadata and bounded source are sent to Typesafe. native disables decision-provider calls. Summary requests always stay native."},
         "mode": {"type": "string", "enum": ["auto", "deterministic", "hybrid"]},
         "since": {"type": "string", "minLength": 1, "maxLength": EXPLORE_CURSOR_MAXIMUM_BYTES, "description": "Opaque call id from a prior equivalent exploration; returns only newly observed evidence and source rows."},
         "lowTokens": {"type": "boolean", "default": false},
@@ -18301,7 +18327,7 @@ fn explore_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, To
     });
     read_definition(ReadDefinition {
         name: EXPLORE_TOOL,
-        description: "Run an architecture-survey retrieval policy, graph-expand the strongest evidence, and attach one bounded live-source window per relevant file. summary suppresses source while preserving the relationship packet.",
+        description: "Retrieve a native architecture packet and live source. An explicitly configured Jev decision tier can select up to seven further read, graph, exact-name or outline operations; navigation reports its evidence and stop reason separately. Provider failures preserve native retrieval. summary suppresses source and Jev navigation.",
         schema,
         required: &["query"],
         annotations,

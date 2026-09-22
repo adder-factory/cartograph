@@ -202,6 +202,14 @@ and the bounded local Claude CLI bridge. Embedding and reranker tiers use
 OpenAI-compatible HTTP. Credentials should be resolved from environment
 variables, not stored inline.
 
+For optional Jev retrieval navigation, use
+`cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY` and provide
+that key in the MCP host's environment. `cartograph_explore` then permits
+bounded parallel Jev decisions over the question and source evidence;
+`decision: "native"` bypasses the provider. An absent or unavailable Jev tier
+preserves native retrieval. See [configuration](CONFIGURATION.md#optional-jev-navigation)
+for disclosure, limits and fallback reporting.
+
 It is valid to configure only embeddings and reranking. Intentionally absent
 summarize, ask, local-chat, and classification tiers are reported as skipped by
 `llm smoke` and do not make doctor unhealthy.

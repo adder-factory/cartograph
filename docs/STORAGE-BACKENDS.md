@@ -190,7 +190,7 @@ document relation uses an indexed exact duplicate-identity probe, so large
 text fields are compared only when two raw rows claim the same document ID.
 This changes no conflict semantics and avoids materializing unique document
 text into a `DISTINCT` aggregate. The
-canonical V17 digest streams exact canonical row bytes from PostgreSQL in the
+canonical V18 digest streams exact canonical row bytes from PostgreSQL in the
 same table/key order as the memory reducer. The final ready transaction checks
 the lease/state, the durable `canonicalized` phase that only validated groups
 can reach, digest capability, and canonical counts, builds the generation

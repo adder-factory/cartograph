@@ -1,0 +1,399 @@
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+
+use futures_util::StreamExt as _;
+use reqwest::{StatusCode, header};
+use secrecy::{ExposeSecret as _, SecretString};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use thiserror::Error;
+use url::Url;
+
+use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model_transport};
+use crate::{ProjectLlmProvider, ProjectLlmTier, load_exact_project_llm_tier};
+
+/// Pinned decision endpoint. Jev is not an OpenAI-compatible chat model.
+pub const JEV_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
+/// Versioned model used by the reviewed retrieval policy.
+pub const JEV_MODEL: &str = "jev-1.13.0";
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+const MAXIMUM_TIMEOUT: Duration = Duration::from_secs(30);
+const MAXIMUM_STATE_BYTES: usize = 64 * 1024;
+const MAXIMUM_REQUEST_BYTES: usize = 256 * 1024;
+const MAXIMUM_RESPONSE_BYTES: usize = 512 * 1024;
+const MAXIMUM_QUESTIONS: usize = 64;
+const MAXIMUM_OPTIONS: usize = 255;
+const MAXIMUM_INSTRUCTION_BYTES: usize = 8 * 1024;
+
+/// Validated optional Jev configuration; debug output omits endpoint and credentials.
+#[derive(Clone)]
+pub struct JevSettings {
+    endpoint: Url,
+    api_key: SecretString,
+    timeout: Duration,
+}
+
+impl std::fmt::Debug for JevSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JevSettings")
+            .field("model", &JEV_MODEL)
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
+}
+
+impl JevSettings {
+    /// Load only an explicitly configured decision tier, without chat-tier fallback.
+    /// # Errors
+    /// Returns a redacted error for invalid settings or an unavailable credential.
+    pub fn try_from_project(root: &Path) -> Result<Option<Self>, JevError> {
+        let config = load_exact_project_llm_tier(root, ProjectLlmTier::Decision)
+            .map_err(|_| JevError::ConfigurationUnavailable)?;
+        let Some(config) = config else {
+            return Ok(None);
+        };
+        if config.provider() != ProjectLlmProvider::Typesafe || config.model() != JEV_MODEL {
+            return Err(JevError::ConfigurationUnavailable);
+        }
+        let endpoint =
+            Url::parse(config.endpoint()).map_err(|_| JevError::ConfigurationUnavailable)?;
+        if endpoint.as_str() != JEV_ENDPOINT {
+            return Err(JevError::ConfigurationUnavailable);
+        }
+        let key = config.api_key().ok_or(JevError::ConfigurationUnavailable)?;
+        let timeout = config
+            .timeout_ms()
+            .map_or(DEFAULT_TIMEOUT, Duration::from_millis);
+        if timeout.is_zero() || timeout > MAXIMUM_TIMEOUT {
+            return Err(JevError::ConfigurationUnavailable);
+        }
+        Ok(Some(Self {
+            endpoint,
+            api_key: SecretString::from(key),
+            timeout,
+        }))
+    }
+}
+
+/// One bounded typed question evaluated in parallel against shared state.
+#[derive(Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum JevQuestion {
+    /// Select exactly one of the caller's allowed options.
+    Choice {
+        /// Trusted decision instructions; repository strings remain evidence.
+        instructions: String,
+        /// Stable option identity to its trusted description.
+        criteria: BTreeMap<String, String>,
+    },
+    /// Estimate whether a caller-defined proposition holds.
+    Noul {
+        /// Trusted question about the supplied evidence.
+        instructions: String,
+    },
+}
+
+/// Validated typed answer. Option identities are checked against the request.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum JevAnswer {
+    /// One allowed option and the full probability distribution.
+    Choice {
+        /// Caller-owned option identity.
+        choice: String,
+        /// Finite probabilities for precisely the supplied options.
+        #[serde(deserialize_with = "unique_map")]
+        probabilities: BTreeMap<String, f64>,
+        /// Provider confidence, without a claim of task-specific calibration.
+        confidence: f64,
+    },
+    /// Finite probability that the question's proposition holds.
+    Noul {
+        /// Value in the inclusive interval zero to one.
+        noul: f64,
+    },
+}
+
+/// Complete answer set with pinned model provenance.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JevDecision {
+    /// Actual versioned model, checked against the configured pin.
+    pub model: String,
+    /// Exactly one valid answer per requested question.
+    #[serde(deserialize_with = "unique_map")]
+    pub answers: BTreeMap<String, JevAnswer>,
+}
+
+/// Stable, secret-free decision-provider failure categories.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JevError {
+    /// The tier, model, endpoint or credential is unavailable.
+    #[error("Cartograph Jev configuration is unavailable")]
+    ConfigurationUnavailable,
+    /// Caller data violates an item or byte admission bound.
+    #[error("Cartograph Jev request exceeds its bounds")]
+    RequestLimit,
+    /// Queueing, connection, response or the total request deadline failed.
+    #[error("Cartograph Jev endpoint is unavailable")]
+    EndpointUnavailable,
+    /// The configured user credential was rejected.
+    #[error("Cartograph Jev credential was rejected")]
+    AuthenticationFailed,
+    /// The provider is rate limited or overloaded; native retrieval remains usable.
+    #[error("Cartograph Jev capacity is temporarily unavailable")]
+    RateLimited,
+    /// The provider rejected a bounded request.
+    #[error("Cartograph Jev request was rejected")]
+    BackendRejected,
+    /// The body exceeds the admitted response ceiling.
+    #[error("Cartograph Jev response exceeds its bounds")]
+    ResponseLimit,
+    /// Missing, duplicate, unknown or invalid answer data cannot control retrieval.
+    #[error("Cartograph Jev response is invalid")]
+    InvalidResponse,
+}
+
+/// Shared, admission-bounded HTTP transport for native parallel Jev decisions.
+#[derive(Clone)]
+pub struct JevClient {
+    settings: JevSettings,
+    transport: Arc<ModelTransport>,
+}
+
+impl JevClient {
+    /// Construct a redirect-free client using the existing model transport registry.
+    /// # Errors
+    /// Returns an error if bounded transport cannot be constructed.
+    pub fn new(settings: JevSettings) -> Result<Self, JevError> {
+        let transport = model_transport(TransportSettings {
+            endpoint: &settings.endpoint,
+            model: JEV_MODEL,
+            api_key: Some(&settings.api_key),
+            connect_timeout: settings.timeout.min(Duration::from_secs(5)),
+            request_timeout: settings.timeout,
+        })
+        .map_err(|()| JevError::EndpointUnavailable)?;
+        Ok(Self {
+            settings,
+            transport,
+        })
+    }
+
+    /// Evaluate all questions in one request. Dropping this future cancels its work
+    /// and releases admission; no detached task or automatic retry is created.
+    /// # Errors
+    /// Returns a stable redacted failure for admission, HTTP or response-contract errors.
+    pub async fn decide(
+        &self,
+        state: &Value,
+        questions: &BTreeMap<String, JevQuestion>,
+    ) -> Result<JevDecision, JevError> {
+        let body = encode_request(state, questions)?;
+        let admission = self
+            .transport
+            .admit(RequestPriority::Foreground, self.settings.timeout)
+            .await
+            .map_err(|()| JevError::EndpointUnavailable)?;
+        let mut authorization = header::HeaderValue::from_str(&format!(
+            "Bearer {}",
+            self.settings.api_key.expose_secret()
+        ))
+        .map_err(|_| JevError::ConfigurationUnavailable)?;
+        authorization.set_sensitive(true);
+        let response = self
+            .transport
+            .client
+            .post(self.settings.endpoint.clone())
+            .timeout(
+                admission
+                    .remaining()
+                    .map_err(|()| JevError::EndpointUnavailable)?,
+            )
+            .header(header::AUTHORIZATION, authorization)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|_| JevError::EndpointUnavailable)?;
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                return Err(JevError::AuthenticationFailed);
+            }
+            status if status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529 => {
+                return Err(JevError::RateLimited);
+            }
+            _ => return Err(JevError::BackendRejected),
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAXIMUM_RESPONSE_BYTES as u64)
+        {
+            return Err(JevError::ResponseLimit);
+        }
+        let mut stream = response.bytes_stream();
+        let mut body = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| JevError::EndpointUnavailable)?;
+            if body.len().saturating_add(chunk.len()) > MAXIMUM_RESPONSE_BYTES {
+                return Err(JevError::ResponseLimit);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        decode_response(&body, questions)
+    }
+}
+
+fn bounded_text(value: &str, maximum: usize) -> bool {
+    !value.is_empty() && value.len() <= maximum && !value.contains('\0')
+}
+
+fn encode_request(
+    state: &Value,
+    questions: &BTreeMap<String, JevQuestion>,
+) -> Result<Vec<u8>, JevError> {
+    #[derive(Serialize)]
+    struct Request<'a> {
+        model: &'static str,
+        state: &'a Value,
+        questions: &'a BTreeMap<String, JevQuestion>,
+    }
+    if questions.is_empty()
+        || questions.len() > MAXIMUM_QUESTIONS
+        || bounded_json(state, MAXIMUM_STATE_BYTES).is_err()
+    {
+        return Err(JevError::RequestLimit);
+    }
+    for (key, question) in questions {
+        if !bounded_text(key, 128) {
+            return Err(JevError::RequestLimit);
+        }
+        let instructions = match question {
+            JevQuestion::Choice {
+                instructions,
+                criteria,
+            } => {
+                if !(2..=MAXIMUM_OPTIONS).contains(&criteria.len())
+                    || criteria
+                        .iter()
+                        .any(|(k, v)| !bounded_text(k, 128) || !bounded_text(v, 2048))
+                {
+                    return Err(JevError::RequestLimit);
+                }
+                instructions
+            }
+            JevQuestion::Noul { instructions } => instructions,
+        };
+        if !bounded_text(instructions, MAXIMUM_INSTRUCTION_BYTES) {
+            return Err(JevError::RequestLimit);
+        }
+    }
+    bounded_json(
+        &Request {
+            model: JEV_MODEL,
+            state,
+            questions,
+        },
+        MAXIMUM_REQUEST_BYTES,
+    )
+}
+
+fn bounded_json(value: &impl Serialize, limit: usize) -> Result<Vec<u8>, JevError> {
+    struct Buffer {
+        bytes: Vec<u8>,
+        limit: usize,
+    }
+    impl std::io::Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.bytes.len().saturating_add(bytes.len()) > self.limit {
+                return Err(std::io::Error::other("request byte limit"));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut buffer = Buffer {
+        bytes: Vec::new(),
+        limit,
+    };
+    serde_json::to_writer(&mut buffer, value).map_err(|_| JevError::RequestLimit)?;
+    Ok(buffer.bytes)
+}
+
+fn probability(value: f64) -> bool {
+    value.is_finite() && (0.0..=1.0).contains(&value)
+}
+
+fn decode_response(
+    body: &[u8],
+    questions: &BTreeMap<String, JevQuestion>,
+) -> Result<JevDecision, JevError> {
+    let response: JevDecision =
+        serde_json::from_slice(body).map_err(|_| JevError::InvalidResponse)?;
+    if response.model != JEV_MODEL || !response.answers.keys().eq(questions.keys()) {
+        return Err(JevError::InvalidResponse);
+    }
+    for (key, question) in questions {
+        let valid = match (question, response.answers.get(key)) {
+            (JevQuestion::Noul { .. }, Some(JevAnswer::Noul { noul })) => probability(*noul),
+            (
+                JevQuestion::Choice { criteria, .. },
+                Some(JevAnswer::Choice {
+                    choice,
+                    probabilities,
+                    confidence,
+                }),
+            ) => {
+                let valid_options =
+                    criteria.contains_key(choice) && probabilities.keys().eq(criteria.keys());
+                let valid_probabilities =
+                    probability(*confidence) && probabilities.values().all(|v| probability(*v));
+                valid_options && valid_probabilities && is_most_likely_choice(choice, probabilities)
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err(JevError::InvalidResponse);
+        }
+    }
+    Ok(response)
+}
+
+fn is_most_likely_choice(choice: &str, probabilities: &BTreeMap<String, f64>) -> bool {
+    probabilities
+        .get(choice)
+        .is_some_and(|chosen| *chosen > 0.0 && probabilities.values().all(|v| v <= chosen))
+}
+
+fn unique_map<'de, D, T>(deserializer: D) -> Result<BTreeMap<String, T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Visitor<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Visitor<T> {
+        type Value = BTreeMap<String, T>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a map with unique keys")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut result = BTreeMap::new();
+            while let Some((key, value)) = map.next_entry::<String, T>()? {
+                if result.insert(key, value).is_some() {
+                    return Err(serde::de::Error::custom("duplicate decision key"));
+                }
+            }
+            Ok(result)
+        }
+    }
+    deserializer.deserialize_map(Visitor(std::marker::PhantomData))
+}
+
+#[cfg(test)]
+mod tests;

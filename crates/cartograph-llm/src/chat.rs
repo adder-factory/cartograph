@@ -130,7 +130,10 @@ impl ChatSettings {
         project_root: &Path,
         tier: ProjectLlmTier,
     ) -> Result<Option<Self>, ChatError> {
-        if matches!(tier, ProjectLlmTier::Embedding | ProjectLlmTier::Reranker) {
+        if matches!(
+            tier,
+            ProjectLlmTier::Embedding | ProjectLlmTier::Reranker | ProjectLlmTier::Decision
+        ) {
             return Err(invalid(PROJECT_CONFIG_FIELD));
         }
         if let Some(settings) = Self::try_from_env()? {
@@ -151,6 +154,7 @@ impl ChatSettings {
     /// cannot be converted into bounded chat transport settings.
     pub fn from_project_config(config: &ProjectLlmTierConfig) -> Result<Self, ChatError> {
         let mut settings = match config.provider() {
+            ProjectLlmProvider::Typesafe => return Err(invalid(PROJECT_CONFIG_FIELD)),
             ProjectLlmProvider::OpenAiCompat => {
                 Self::new(config.endpoint(), config.model(), config.api_key())?
             }
@@ -174,7 +178,7 @@ impl ChatSettings {
             config
                 .summary_batch_size()
                 .unwrap_or(match config.provider() {
-                    ProjectLlmProvider::OpenAiCompat => 1,
+                    ProjectLlmProvider::OpenAiCompat | ProjectLlmProvider::Typesafe => 1,
                     ProjectLlmProvider::ClaudeBridge
                     | ProjectLlmProvider::CliBridge
                     | ProjectLlmProvider::AnthropicApi => 3,
@@ -503,6 +507,7 @@ impl OpenAiChatClient {
 
     async fn send(&self, request: ChatTransportRequest<'_>) -> Result<ChatCompletion, ChatError> {
         match self.settings.provider {
+            ProjectLlmProvider::Typesafe => Err(invalid(PROJECT_CONFIG_FIELD)),
             ProjectLlmProvider::OpenAiCompat => self.send_openai(request).await,
             ProjectLlmProvider::AnthropicApi => self.send_anthropic(request).await,
             ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge => {

@@ -5290,6 +5290,12 @@ async fn check_llm_configuration(
             required: false,
             embedding: false,
         },
+        DoctorLlmTier {
+            tier: ProjectLlmTier::Decision,
+            label: "decision",
+            required: false,
+            embedding: false,
+        },
     ];
     let mut loopback = BTreeMap::<String, Vec<&'static str>>::new();
     let mut embedding_configuration = EmbeddingConfigurationState::NotConfigured;
@@ -5346,6 +5352,16 @@ fn check_llm_tier_configuration(
             "A legacy inline LLM credential is configured.",
             "Move the credential to an environment variable and use apiKeyEnv.".to_owned(),
         ));
+    }
+    if tier.tier == ProjectLlmTier::Decision
+        && cartograph_llm::JevSettings::try_from_project(context.project_path).is_err()
+    {
+        context.checks.push(doctor_fail(
+            "llm-decision-config",
+            "The Jev decision tier is invalid or its credential is unavailable; exploration will use native fallback.",
+            "Run `cartograph llm setup --preset jev --api-key-env TYPESAFE_API_KEY` and supply that environment variable to the host.".to_owned(),
+        ));
+        return None;
     }
     check_local_model(tier.label, config.model(), context.checks);
     if endpoint_is_loopback(config.endpoint()) {

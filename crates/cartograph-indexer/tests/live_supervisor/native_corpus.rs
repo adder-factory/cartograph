@@ -34,9 +34,9 @@ const CORPUS_NAME: &str = "cartograph-v1-real-typescript-v1";
 const CORPUS_FINGERPRINT_DOMAIN: &[u8] = b"cartograph-v2-native-real-corpus-v1";
 const EXPECTED_CORPUS_FINGERPRINT: &str =
     "ab91088c482ed36d31759382283342654ce6958be4e601429b8181da531c5fc1";
-// V17 changes the digest domain; corpus bytes, facts, ranking, and memory bounds stay fixed.
+// V18 changes the digest domain; corpus bytes, facts, ranking, and memory bounds stay fixed.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "8a57fa5775c508a3ab6b0b39538c7ef545a3972b600d95fc596a6d6b59e2dbe5";
+    "844bc253ed14f1942ca21d786a42553519e7fcee844f209e8f0cff72856774e5";
 const EXPECTED_BM25_DOCUMENT_IDS: [&str; 5] = [
     "5471dbfc-3ba3-87dd-8861-1ce1dd51ed32",
     "78f1eb97-24b2-8a80-ad44-6dd679456592",

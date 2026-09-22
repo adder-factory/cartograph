@@ -382,8 +382,8 @@ jobs:
           scripts/build-linux-rust-release.sh
           x86_64-unknown-linux-gnu
           linux-x64
-          rust:1.98.1-trixie@sha256:af753e6e729c839de28010e323abc550eceaa9572bdaa765429d4f585e2e43dc
-          debian:13-slim@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f
+          rust:1.98.1-trixie@sha256:f31fa9eaac4e417505e10009786ec0c636558e02dff3fa662cc92c10894ba065
+          debian:13-slim@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c
 
   paradedb:
     name: PostgreSQL 18 + ParadeDB + pgvector (${{ matrix.shard }})
@@ -591,6 +591,12 @@ jobs:
         run: >-
           cargo test --locked --quiet -p cartograph-agent
           --test live_project -- --ignored --nocapture --test-threads=1
+
+      - name: Jev navigation evidence, outage, cancellation and freshness fences
+        if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'
+        run: >-
+          cargo test --locked --quiet -p cartograph-agent --lib
+          navigation::tests::live_navigation -- --ignored --nocapture --test-threads=1
 
       - name: Candidate binary self-indexes this repository
         if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'

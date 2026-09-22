@@ -263,7 +263,8 @@ impl ProjectRuntime {
         if requests.is_empty() {
             return Ok(Vec::new());
         }
-        let before = self.source_context_snapshot().await?;
+        let before =
+            crate::cancellable_project_read(&cancellation, self.source_context_snapshot()).await?;
         let current = before
             .current
             .as_ref()
@@ -273,15 +274,17 @@ impl ProjectRuntime {
             .iter()
             .map(|request| request.symbol_id.clone())
             .collect::<Vec<_>>();
-        let symbols = self
-            .database()
-            .current_symbols_by_ids(CurrentSymbolSetLookup::new(
-                &before.project_id,
-                expected_generation,
-                &ids,
-            ))
-            .await
-            .map_err(|_| ProjectError::SourceContextUnavailable)?;
+        let symbols = crate::cancellable_project_read(&cancellation, async {
+            self.database()
+                .current_symbols_by_ids(CurrentSymbolSetLookup::new(
+                    &before.project_id,
+                    expected_generation,
+                    &ids,
+                ))
+                .await
+                .map_err(|_| ProjectError::SourceContextUnavailable)
+        })
+        .await?;
         let paths = symbols.iter().map(|symbol| symbol.path().clone()).collect();
         let source = self
             .scan_source_batch(
@@ -306,16 +309,18 @@ impl ProjectRuntime {
             else {
                 continue;
             };
-            let file = self
-                .database()
-                .exact_current_file_by_path(CurrentFileLookup::new(
-                    &before.project_id,
-                    expected_generation,
-                    symbol.path(),
-                ))
-                .await
-                .map_err(|_| ProjectError::SourceContextUnavailable)?
-                .ok_or(ProjectError::SourceContextUnavailable)?;
+            let file = crate::cancellable_project_read(&cancellation, async {
+                self.database()
+                    .exact_current_file_by_path(CurrentFileLookup::new(
+                        &before.project_id,
+                        expected_generation,
+                        symbol.path(),
+                    ))
+                    .await
+                    .map_err(|_| ProjectError::SourceContextUnavailable)
+            })
+            .await?
+            .ok_or(ProjectError::SourceContextUnavailable)?;
             contexts.push(build_symbol_source_context(SymbolSourceContextInput {
                 symbol: symbol.clone(),
                 indexed_file: &file,
@@ -324,7 +329,9 @@ impl ProjectRuntime {
                 options: request.options,
             })?);
         }
-        if !self.generation_is_current(&before).await? {
+        if !crate::cancellable_project_read(&cancellation, self.generation_is_current(&before))
+            .await?
+        {
             return Err(ProjectError::SourceContextUnavailable);
         }
         Ok(contexts)

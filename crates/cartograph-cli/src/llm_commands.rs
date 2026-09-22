@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env,
     io::{self, IsTerminal as _, Write as _},
     path::{Path, PathBuf},
@@ -199,6 +200,7 @@ struct TierEnvironmentOverride {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 enum SetupPreset {
+    Jev,
     #[value(name = "install-llama-cpp", alias = "local-llama-cpp")]
     LocalLlamaCpp,
     #[value(name = "install-ollama", alias = "ollama")]
@@ -466,6 +468,7 @@ fn parse_tier_environment_override(raw: &str) -> Result<TierEnvironmentOverride,
         "ask" => ProjectLlmTier::Ask,
         "classify" => ProjectLlmTier::Classify,
         "rerank" | "reranker" => ProjectLlmTier::Reranker,
+        "decision" | "jev" => ProjectLlmTier::Decision,
         _ => return Err("unknown LLM tier in --tier-env".to_owned()),
     };
     if environment.is_empty() {
@@ -581,6 +584,7 @@ pub(super) async fn doctor_fix_missing_tiers(project: &Path) -> Result<Vec<Strin
         | SetupPreset::HybridClaudeBridge
         | SetupPreset::HybridAnthropicApi
         | SetupPreset::Custom
+        | SetupPreset::Jev
         | SetupPreset::Skip => {
             return Err("doctor could not select an automatic LLM repair preset".to_owned());
         }
@@ -663,6 +667,7 @@ fn setup_inputs(
     preset: SetupPreset,
 ) -> Result<(Vec<ProjectLlmTierInput>, Vec<ProjectLlmTier>), String> {
     match preset {
+        SetupPreset::Jev => jev_inputs(arguments),
         SetupPreset::LocalLlamaCpp => {
             reject_custom_fields(arguments)?;
             local_inputs(arguments.minimal)
@@ -683,6 +688,34 @@ fn setup_inputs(
             Ok((Vec::new(), Vec::new()))
         }
     }
+}
+
+fn jev_inputs(
+    arguments: &SetupArguments,
+) -> Result<(Vec<ProjectLlmTierInput>, Vec<ProjectLlmTier>), String> {
+    reject_cli_bridge_fields(arguments)?;
+    if arguments.tier.is_some()
+        || arguments.endpoint.is_some()
+        || arguments.model.is_some()
+        || arguments.minimal
+    {
+        return Err("Jev uses the decision tier and its pinned model/endpoint; configure only --api-key-env or --clear-credentials".to_owned());
+    }
+    if arguments.credentials.clear_credentials {
+        if arguments.credentials.api_key_env.is_some() {
+            return Err("--clear-credentials conflicts with --api-key-env".to_owned());
+        }
+        return Ok((Vec::new(), vec![ProjectLlmTier::Decision]));
+    }
+    let environment = arguments
+        .credentials
+        .api_key_env
+        .as_deref()
+        .unwrap_or("TYPESAFE_API_KEY");
+    Ok((
+        vec![ProjectLlmTierInput::jev(environment).map_err(|error| error.to_string())?],
+        Vec::new(),
+    ))
 }
 
 fn reject_custom_fields(arguments: &SetupArguments) -> Result<(), String> {
@@ -1065,7 +1098,7 @@ fn render_detection(detected: &[DetectedEndpoint], recommended: SetupPreset) {
 async fn run_smoke(arguments: SmokeArguments) -> Result<ExitCode, String> {
     let started = Instant::now();
     let timeout = Duration::from_millis(arguments.timeout_ms);
-    let (embedding, summarize, ask, local, classify, rerank) = tokio::join!(
+    let (embedding, summarize, ask, local, classify, rerank, decision) = tokio::join!(
         smoke_embedding(&arguments.path, timeout),
         smoke_chat(ChatSmokeRequest::new(
             &arguments.path,
@@ -1080,8 +1113,9 @@ async fn run_smoke(arguments: SmokeArguments) -> Result<ExitCode, String> {
             timeout,
         )),
         smoke_rerank(&arguments.path, timeout),
+        smoke_jev(&arguments.path, timeout),
     );
-    let rows = vec![embedding, summarize, ask, local, classify, rerank];
+    let rows = vec![embedding, summarize, ask, local, classify, rerank, decision];
     let overall_status = overall_smoke_status(&rows);
     let report = SmokeReport {
         overall_status,
@@ -1098,6 +1132,44 @@ async fn run_smoke(arguments: SmokeArguments) -> Result<ExitCode, String> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+async fn smoke_jev(project: &Path, timeout: Duration) -> SmokeRow {
+    use cartograph_llm::{JEV_MODEL, JevAnswer, JevClient, JevQuestion, JevSettings};
+    let started = Instant::now();
+    let settings = match JevSettings::try_from_project(project) {
+        Ok(Some(settings)) => settings,
+        Ok(None) => return missing_row("decision", false, started),
+        Err(error) => {
+            return failed_row(SmokeRowInput::new("decision", started, error.to_string()));
+        }
+    };
+    let result = async {
+        let client = JevClient::new(settings).map_err(|error| error.to_string())?;
+        let questions = BTreeMap::from([(
+            "ready".to_owned(),
+            JevQuestion::Noul {
+                instructions: "Is the supplied probe status ready?".to_owned(),
+            },
+        )]);
+        let decision = client
+            .decide(&serde_json::json!({"status":"ready"}), &questions)
+            .await
+            .map_err(|error| error.to_string())?;
+        if !matches!(decision.answers.get("ready"), Some(JevAnswer::Noul { noul }) if *noul >= 0.5)
+        {
+            return Err("Jev did not validate the known probe state".to_owned());
+        }
+        Ok::<_, String>(())
+    };
+    match tokio::time::timeout(timeout, result).await {
+        Ok(Ok(())) => ok_row(
+            SmokeRowInput::new("decision", started, "typed decision returned")
+                .with_configuration(Some(JEV_MODEL.to_owned()), None),
+        ),
+        Ok(Err(error)) => failed_row(SmokeRowInput::new("decision", started, error)),
+        Err(_) => failed_row(SmokeRowInput::new("decision", started, "request timed out")),
+    }
 }
 
 async fn smoke_embedding(project: &Path, timeout: Duration) -> SmokeRow {
@@ -1678,6 +1750,26 @@ mod tests {
             yes: false,
             json: false,
         }
+    }
+
+    #[test]
+    fn jev_setup_changes_only_the_decision_tier_and_rejects_provider_overrides() {
+        let mut arguments = setup_arguments(Path::new("."));
+        let (inputs, cleared) =
+            setup_inputs(&arguments, SetupPreset::Jev).unwrap_or_else(|e| panic!("Jev setup: {e}"));
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].tier(), ProjectLlmTier::Decision);
+        assert!(cleared.is_empty());
+        arguments.credentials.clear_credentials = true;
+        let (inputs, cleared) = setup_inputs(&arguments, SetupPreset::Jev)
+            .unwrap_or_else(|e| panic!("Jev disable: {e}"));
+        assert!(inputs.is_empty());
+        assert_eq!(cleared, [ProjectLlmTier::Decision]);
+        arguments.credentials.api_key_env = Some("MY_JEV_KEY".to_owned());
+        assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
+        arguments.credentials.clear_credentials = false;
+        arguments.endpoint = Some("https://untrusted.example".to_owned());
+        assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
     }
 
     fn install_arguments() -> InstallArguments {

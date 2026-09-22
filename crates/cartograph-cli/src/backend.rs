@@ -489,6 +489,7 @@ fn build_tier_spec(input: &TierSpecInput<'_>) -> Result<Option<(String, BackendS
     };
     validate_passthrough(config.llama_server_args())?;
     let mode_args: &[&str] = match tier {
+        ProjectLlmTier::Decision => return Ok(None),
         ProjectLlmTier::Embedding => &[
             "--embeddings",
             "--batch-size",
@@ -509,6 +510,7 @@ fn build_tier_spec(input: &TierSpecInput<'_>) -> Result<Option<(String, BackendS
         | ProjectLlmTier::Local
         | ProjectLlmTier::Classify
         | ProjectLlmTier::Reranker => 2,
+        ProjectLlmTier::Decision => return Ok(None),
     });
     let mut args = vec![
         "-m".to_owned(),
