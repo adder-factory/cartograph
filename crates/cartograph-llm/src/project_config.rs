@@ -59,6 +59,8 @@ pub enum ProjectLlmTier {
     Classify,
     /// Represents the reranker project LLM tier.
     Reranker,
+    /// Optional Jev decisions for bounded retrieval planning.
+    Decision,
 }
 
 /// Validated provider retained from the v1.1.33 chat configuration contract.
@@ -74,6 +76,8 @@ pub enum ProjectLlmProvider {
     CliBridge,
     /// Represents the anthropic API project LLM provider.
     AnthropicApi,
+    /// Typesafe's typed, parallel Jev decision API.
+    Typesafe,
 }
 
 /// Effective project-wide eager summary budget.
@@ -128,6 +132,7 @@ impl ProjectLlmProvider {
             "claude-bridge" => Some(Self::ClaudeBridge),
             "cli-bridge" => Some(Self::CliBridge),
             "anthropic-api" => Some(Self::AnthropicApi),
+            "typesafe" => Some(Self::Typesafe),
             _ => None,
         }
     }
@@ -138,6 +143,7 @@ impl ProjectLlmProvider {
             Self::ClaudeBridge => "claude-bridge",
             Self::CliBridge => "cli-bridge",
             Self::AnthropicApi => "anthropic-api",
+            Self::Typesafe => "typesafe",
         }
     }
 }
@@ -374,13 +380,14 @@ impl ProjectLlmTier {
             Self::Ask => "askLlm",
             Self::Classify => "classifyLlm",
             Self::Reranker => "rerankerLlm",
+            Self::Decision => "decisionLlm",
         }
     }
 
     const fn fallback(self) -> Option<Self> {
         match self {
             Self::Local | Self::Ask | Self::Classify => Some(Self::Summarize),
-            Self::Embedding | Self::Summarize | Self::Reranker => None,
+            Self::Embedding | Self::Summarize | Self::Reranker | Self::Decision => None,
         }
     }
 }
@@ -648,6 +655,9 @@ impl ProjectLlmTierInput {
         let model = model.into();
         validate_endpoint(&endpoint)?;
         validate_model(&model)?;
+        if tier == ProjectLlmTier::Decision {
+            return Err(ProjectLlmConfigError::InvalidTier);
+        }
         Ok(Self {
             tier,
             provider: ProjectLlmProvider::OpenAiCompat,
@@ -661,6 +671,21 @@ impl ProjectLlmTierInput {
             claude_bin: None,
             cli_bridge: None,
         })
+    }
+
+    /// Configure the optional Jev decision tier using an environment credential.
+    /// # Errors
+    ///
+    /// Returns an error when the environment-variable name is invalid.
+    pub fn jev(api_key_env: impl Into<String>) -> Result<Self, ProjectLlmConfigError> {
+        let mut input = Self::new(
+            ProjectLlmTier::Classify,
+            crate::jev::JEV_ENDPOINT,
+            crate::jev::JEV_MODEL,
+        )?;
+        input.tier = ProjectLlmTier::Decision;
+        input.provider = ProjectLlmProvider::Typesafe;
+        input.with_api_key_env(api_key_env)
     }
 
     /// Returns the claude bridge.
@@ -1057,7 +1082,10 @@ fn validate_cli_response_path(path: &str) -> Result<(), ProjectLlmConfigError> {
 }
 
 fn validate_chat_tier(tier: ProjectLlmTier) -> Result<(), ProjectLlmConfigError> {
-    if matches!(tier, ProjectLlmTier::Embedding | ProjectLlmTier::Reranker) {
+    if matches!(
+        tier,
+        ProjectLlmTier::Embedding | ProjectLlmTier::Reranker | ProjectLlmTier::Decision
+    ) {
         Err(ProjectLlmConfigError::InvalidTier)
     } else {
         Ok(())
@@ -1405,6 +1433,7 @@ where
             .or_else(|| match provider {
                 ProjectLlmProvider::OpenAiCompat => Some("OPENAI_API_KEY".to_owned()),
                 ProjectLlmProvider::AnthropicApi => Some("ANTHROPIC_API_KEY".to_owned()),
+                ProjectLlmProvider::Typesafe => Some("TYPESAFE_API_KEY".to_owned()),
                 ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge => None,
             });
         let status = match environment.as_deref() {
@@ -1484,7 +1513,7 @@ where
     Ok(state.report())
 }
 
-const fn credential_migration_tiers() -> [ProjectLlmTier; 6] {
+const fn credential_migration_tiers() -> [ProjectLlmTier; 7] {
     [
         ProjectLlmTier::Embedding,
         ProjectLlmTier::Summarize,
@@ -1492,6 +1521,7 @@ const fn credential_migration_tiers() -> [ProjectLlmTier; 6] {
         ProjectLlmTier::Ask,
         ProjectLlmTier::Classify,
         ProjectLlmTier::Reranker,
+        ProjectLlmTier::Decision,
     ]
 }
 
@@ -1697,6 +1727,10 @@ fn configured_credential_origin(
             .and_then(Value::as_str)
             .unwrap_or(ANTHROPIC_CLOUD_ENDPOINT),
         ProjectLlmProvider::ClaudeBridge => CLAUDE_BRIDGE_ENDPOINT,
+        ProjectLlmProvider::Typesafe => configured
+            .get("endpoint")
+            .and_then(Value::as_str)
+            .unwrap_or(crate::jev::JEV_ENDPOINT),
         ProjectLlmProvider::CliBridge => CLI_BRIDGE_ENDPOINT,
     };
     credential_origin(provider, endpoint)
@@ -1866,7 +1900,10 @@ fn parse_tier(
         resolution.configured,
         ProjectLlmTier::Embedding | ProjectLlmTier::Reranker
     );
-    if !chat_tier && provider != ProjectLlmProvider::OpenAiCompat {
+    if (resolution.configured == ProjectLlmTier::Decision)
+        != (provider == ProjectLlmProvider::Typesafe)
+        || (!chat_tier && provider != ProjectLlmProvider::OpenAiCompat)
+    {
         return Err(ProjectLlmConfigError::InvalidTier);
     }
     let endpoint = project_tier_endpoint(value, provider)?;
@@ -1917,6 +1954,7 @@ fn parse_tier_credentials(
     let explicit_api_key_env = optional_string_value(value, "apiKeyEnv")?;
     let inline = optional_string_value(value, "apiKey")?;
     let api_key_env = explicit_api_key_env
+        .or_else(|| (provider == ProjectLlmProvider::Typesafe).then_some("TYPESAFE_API_KEY"))
         .or_else(|| (provider == ProjectLlmProvider::AnthropicApi).then_some("ANTHROPIC_API_KEY"))
         .or_else(|| {
             (provider == ProjectLlmProvider::OpenAiCompat && value.get("endpoint").is_none())
@@ -2047,6 +2085,7 @@ fn project_tier_endpoint(
     let endpoint = match provider {
         ProjectLlmProvider::OpenAiCompat => configured.unwrap_or(OPENAI_CLOUD_ENDPOINT),
         ProjectLlmProvider::AnthropicApi => configured.unwrap_or(ANTHROPIC_CLOUD_ENDPOINT),
+        ProjectLlmProvider::Typesafe => configured.unwrap_or(crate::jev::JEV_ENDPOINT),
         ProjectLlmProvider::ClaudeBridge => {
             if configured.is_some() {
                 return Err(ProjectLlmConfigError::InvalidTier);
@@ -2084,6 +2123,7 @@ fn project_tier_model(
         return Ok(model);
     }
     match provider {
+        ProjectLlmProvider::Typesafe => Ok(crate::jev::JEV_MODEL.to_owned()),
         ProjectLlmProvider::OpenAiCompat | ProjectLlmProvider::CliBridge => {
             Err(ProjectLlmConfigError::InvalidTier)
         }

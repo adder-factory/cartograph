@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-09-14 (`v2.1.30`).
+Last implementation review: 2026-09-22 (`v2.1.31`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -31,6 +31,12 @@ lexical, graph, review, freshness, and affected-test workflows require no LLM.
   OpenAI-compatible HTTP, Anthropic Messages API, and the bounded local Claude
   bridge. Ask, generated summaries/roles, and LLM dead-code judging preserve
   evidence/model provenance and explicit failure/fallback states.
+- Optional `decisionLlm` uses Typesafe's pinned Jev decision API. The agent
+  navigation service asks parallel choice/sufficiency questions, executes only
+  allowlisted native retrieval operations, and returns generation-fenced source
+  evidence. Provider failure preserves the native exploration packet; source
+  changes and cancellation remain errors. See the configuration guide for
+  disclosure, bounds and native bypass behavior.
 
 ## Crate ownership
 
@@ -43,8 +49,8 @@ lexical, graph, review, freshness, and affected-test workflows require no LLM.
 | `cartograph-indexer` | Bounded parallel stages, deterministic reduction, supervisor/cancellation/reaping, corpus-aware workers |
 | `cartograph-search` | Exact/BM25/hybrid evidence, typed intent, graph traversal, RRF, affected tests, trust/abstention |
 | `cartograph-scip` | Bounded zero-runtime protobuf codec, exact typed-edge extension, deterministic export, per-file replacement overlay |
-| `cartograph-llm` | Bounded redacted embedding/reranker/chat clients, provider config, model identity, and local backend supervision contracts |
-| `cartograph-agent` | Project runtime, freshness, indexing, structural summary services, embedding sweeps, Git review, source excerpts, working-tree overlay |
+| `cartograph-llm` | Bounded redacted embedding/reranker/chat/decision clients, provider config, model identity, and local backend supervision contracts |
+| `cartograph-agent` | Project runtime, freshness, indexing, structural summaries, embedding sweeps, optional decision-guided navigation, Git review, source excerpts, working-tree overlay |
 | `cartograph-mcp` | Bounded stdio JSON-RPC/MCP protocol, profiles, cancellation, stable errors |
 | `cartograph-cli` | Native command routing, database operations, MCP adapter, project-local agent installation |
 
@@ -82,7 +88,9 @@ Before migration or normal work, Cartograph proves:
 - pgvector 0.8.4 or newer, with 0.8.6 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
 
-The append-only migration ledger currently owns forty-three versions. Migration 43
+The append-only migration ledger currently owns forty-four versions. Migration 44
+admits generation digest V18 for the refreshed CUDA grammar and Unicode identifier
+semantics. Migration 43
 admits generation digest V17 for the refreshed ArkTS and OCaml grammars. Migration 42
 adds resumable generation retirement and bounded maintenance telemetry. Migration
 41 admits generation digest V16 for nominal Rust self-receiver ownership, including
@@ -295,7 +303,7 @@ batch-local validation uses the same field contract, global conflicts and edge
 multiplicity are reduced under database constraints, and each canonical
 partition group proves its file/symbol/span cross-relations before its raw
 evidence is removed. The durable completed phase makes a redundant final
-generation-wide relation scan unnecessary. The V17 digest is streamed as exact
+generation-wide relation scan unnecessary. The V18 digest is streamed as exact
 canonical row bytes in the memory reducer's table/key order. Centrality uses
 the same pre-dedup calls/reference graph and is patched onto fenced raw symbols
 before sealing. Exact batch replay and the canonical cursor make an interrupted

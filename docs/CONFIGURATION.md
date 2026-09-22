@@ -153,7 +153,7 @@ digest-fenced; exact replay is idempotent, while a different retry fails
 closed. PostgreSQL reduces six relations through 64 deterministic UUID
 partitions each, commits four contiguous partitions at a time, proves
 cross-relations within those transactions, can use its own temporary storage
-for grouping/sorting, and streams exact V17 row bytes from final canonical
+for grouping/sorting, and streams exact V18 row bytes from final canonical
 rows. The final ready transaction rechecks the fence, completed-validation
 phase (`canonicalized`), counts, and digest capability before it deletes spill
 state. Only the later short publication transaction changes the current pointer.
@@ -209,6 +209,73 @@ migration target, or pgvector-off mode.
 The project `llm` object controls optional embeddings, reranking, generated
 summaries/roles, ask, and local chat. Structural graph and retrieval features
 remain usable without it.
+
+### Optional Jev navigation
+
+Jev can choose retrieval actions for `cartograph explore` / `cartograph_explore`.
+The calling assistant sends the code question to Cartograph; Cartograph asks
+Jev to select bounded source, callers, callees, exact-name and file-outline
+lookups, executes those lookups locally, and returns the evidence to the
+assistant. Jev does not generate the final answer or replace the code index.
+
+Bring your own Typesafe API key through the environment of the CLI or MCP host:
+
+```sh
+# Supply TYPESAFE_API_KEY through your shell or secret manager first.
+cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY
+cartograph explore 'how is request cancellation handled?'
+cartograph explore 'how is request cancellation handled?' --decision native
+```
+
+Setup writes only an environment-variable reference. It preserves existing
+embedding, reranker and chat settings, and adds this optional tier:
+
+```json
+{
+  "llm": {
+    "decisionLlm": {
+      "provider": "typesafe",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "model": "jev-1.13.0",
+      "apiKeyEnv": "TYPESAFE_API_KEY"
+    }
+  }
+}
+```
+
+Enabling the tier permits sending the exploration question, candidate metadata
+and bounded source excerpts to Typesafe. Each request uses Jev's parallel
+questions against shared state: one chooses the next allowed operation, while
+another assesses source sufficiency. The model and endpoint are pinned; Jev
+uses its typed decision API, not a chat endpoint. The default request timeout
+is five seconds; `timeoutMs` accepts at most 30,000.
+
+Exploration always retains its native packet and source windows. The additional
+`navigation` object records the model, generation, decisions, confidence,
+candidate truncation, source windows and stop reason. Assistance is bounded to
+seven operations, 40 candidate identities, 4 KiB per additional source window
+and a 30-second deadline covering navigation and its freshness checks. On expiry,
+Cartograph cancels and joins navigation-owned work; joining an active filesystem
+read may add cleanup latency. `maxFiles` bounds the original source
+windows; the separate navigation supplement has its own seven-operation bound.
+Missing keys, invalid responses, HTTP failures and rate limits report
+`provider_unavailable` with a redacted `providerError`. Step limit and abstention
+retain evidence already captured. Source or generation changes, or a deadline
+that prevents final freshness verification, abort the request. Model confidence and
+sufficiency are advisory scores, not proof that the question is answered.
+
+Without `decisionLlm`, exploration stays native. `--decision native`, summary
+and low-token exploration also skip Jev. `context`, `find`, `graph`, indexing
+and test selection keep their existing policies. `llm smoke` can verify the
+configured key with a small real request. Disable Jev with:
+
+```sh
+cartograph llm setup . --preset jev --clear-credentials
+```
+
+This removes the decision tier. It does not clear other provider tiers.
+
+### Embedding, reranker and chat tiers
 
 ```json
 {

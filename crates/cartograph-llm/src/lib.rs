@@ -4,6 +4,7 @@ mod chat;
 mod client;
 mod config;
 mod endpoint;
+mod jev;
 mod model;
 mod models;
 mod project_config;
@@ -18,6 +19,9 @@ pub use chat::{
 pub use client::OpenAiEmbeddingClient;
 pub use config::{
     EMBEDDING_API_KEY_ENV, EMBEDDING_ENDPOINT_ENV, EMBEDDING_MODEL_ENV, EmbeddingSettings,
+};
+pub use jev::{
+    JEV_ENDPOINT, JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevQuestion, JevSettings,
 };
 pub use model::{EmbeddingBatch, EmbeddingError, EmbeddingModelIdentity, EmbeddingVector};
 pub use models::{

@@ -1030,7 +1030,7 @@ async fn assert_incremental_contract_upgrade(
            WHERE project_id = CAST($2 AS uuid) AND state = 'current'"#
     );
     let downgraded = query(AssertSqlSafe(downgrade_generation))
-        .bind(GenerationDigestVersion::V16.database_value())
+        .bind(GenerationDigestVersion::V17.database_value())
         .bind(first.project_id.as_str())
         .execute(&pool)
         .await

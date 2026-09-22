@@ -75,6 +75,7 @@ mod history;
 mod imports;
 mod issue_history;
 mod layering;
+mod navigation;
 mod rename;
 mod retrieval;
 mod review;
@@ -130,6 +131,7 @@ pub use issue_history::{
     IssueHistoryIndexError, IssueHistoryIndexOptions, IssueHistoryIndexRequest,
 };
 pub use layering::{LayerAnalysisError, LayerAnalysisReport, LayerViolation};
+pub use navigation::{NavigationPolicy, NavigationReport, NavigationRequest};
 pub use rename::{
     RenamePlan, RenamePlanError, RenamePlanOptions, RenamePlanRequest, RenameReferenceEvidence,
     RenameTextualMention,
@@ -1127,15 +1129,29 @@ async fn finalize_index_completion(
     report
 }
 
+async fn cancellable_project_read<T>(
+    cancellation: &ProjectCancellation,
+    operation: impl Future<Output = Result<T, ProjectError>>,
+) -> Result<T, ProjectError> {
+    tokio::select! {
+        biased;
+        () = cancellation.cancelled() => Err(ProjectError::RequestCancelled),
+        result = operation => result,
+    }
+}
+
 async fn project_status_with_cancellation(
     runtime: &ProjectRuntime,
     cancellation: ProjectCancellation,
 ) -> Result<ProjectStatus, ProjectError> {
-    let before = runtime
-        .database
-        .project_snapshot_by_root(&runtime.root_identity)
-        .await
-        .map_err(|_| ProjectError::StatusFailed)?;
+    let before = cancellable_project_read(&cancellation, async {
+        runtime
+            .database
+            .project_snapshot_by_root(&runtime.root_identity)
+            .await
+            .map_err(|_| ProjectError::StatusFailed)
+    })
+    .await?;
     let run_excludes = before
         .as_ref()
         .and_then(|project| project.current.as_ref())
@@ -1146,11 +1162,14 @@ async fn project_status_with_cancellation(
     if cancellation.is_cancelled() {
         return Err(ProjectError::RequestCancelled);
     }
-    let mut snapshot = runtime
-        .database
-        .project_snapshot_by_root(&runtime.root_identity)
-        .await
-        .map_err(|_| ProjectError::StatusFailed)?;
+    let mut snapshot = cancellable_project_read(&cancellation, async {
+        runtime
+            .database
+            .project_snapshot_by_root(&runtime.root_identity)
+            .await
+            .map_err(|_| ProjectError::StatusFailed)
+    })
+    .await?;
     let stable_basis = same_status_source_basis(before.as_ref(), snapshot.as_ref());
     if !stable_basis {
         let run_excludes = snapshot
@@ -1163,11 +1182,14 @@ async fn project_status_with_cancellation(
         if cancellation.is_cancelled() {
             return Err(ProjectError::RequestCancelled);
         }
-        let observed = runtime
-            .database
-            .project_snapshot_by_root(&runtime.root_identity)
-            .await
-            .map_err(|_| ProjectError::StatusFailed)?;
+        let observed = cancellable_project_read(&cancellation, async {
+            runtime
+                .database
+                .project_snapshot_by_root(&runtime.root_identity)
+                .await
+                .map_err(|_| ProjectError::StatusFailed)
+        })
+        .await?;
         if !same_status_source_basis(snapshot.as_ref(), observed.as_ref()) {
             return Ok(ProjectStatus {
                 snapshot: observed,
@@ -2385,7 +2407,7 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
         return Err(ProjectError::RequestCancelled);
     }
     let worker_cancellation = cancellation.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = run_source_worker(move || {
         // Keep the per-project permit inside the blocking worker. Tokio cannot
         // abort `spawn_blocking` work once it has started, so retaining the
         // permit in the async caller would allow a dropped request to start a
@@ -2406,13 +2428,20 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
             || worker_cancellation.is_cancelled(),
         )
     })
-    .await
-    .map_err(|_| ProjectError::SourceScanFailed)?;
+    .await;
     match result {
         Ok(source) => Ok(source),
         Err(_) if cancellation.is_cancelled() => Err(ProjectError::RequestCancelled),
         Err(error) => Err(error),
     }
+}
+
+async fn run_source_worker<T: Send + 'static>(
+    worker: impl FnOnce() -> Result<T, ProjectError> + Send + 'static,
+) -> Result<T, ProjectError> {
+    tokio::task::spawn_blocking(worker)
+        .await
+        .map_err(|_| ProjectError::SourceScanFailed)?
 }
 
 struct SourceRevision {

@@ -51,7 +51,8 @@ const ADA_VHDL_NUMERICAL_DIGEST_V15_SCHEMA_VERSION: i64 = 40;
 const RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA_VERSION: i64 = 41;
 const RESUMABLE_RETENTION_SCHEMA_VERSION: i64 = 42;
 const GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION: i64 = 43;
-const LATEST_SCHEMA_VERSION: i64 = GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION;
+const CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION: i64 = 44;
+const LATEST_SCHEMA_VERSION: i64 = CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION;
 const MIGRATION_LOCK_NAMESPACE: &str = "cartograph-v2-schema-migration";
 
 /// Latest append-only schema version understood by this native binary.
@@ -1661,7 +1662,16 @@ const GRAMMAR_REFRESH_DIGEST_V17_SCHEMA: Migration = Migration {
                 CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))"#],
 };
 
-const MIGRATIONS: [&Migration; 43] = [
+const CUDA_UNICODE_DIGEST_V18_SCHEMA: Migration = Migration {
+    version: CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION,
+    name: "cuda_unicode_digest_v18",
+    statements: &[r#"ALTER TABLE {schema}."index_generations"
+            DROP CONSTRAINT index_generations_digest_version_check,
+            ADD CONSTRAINT index_generations_digest_version_check
+                CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18))"#],
+};
+
+const MIGRATIONS: [&Migration; 44] = [
     &INITIAL_SCHEMA,
     &OPERATION_LEASES_SCHEMA,
     &COMPLETE_EDGE_KINDS_SCHEMA,
@@ -1705,6 +1715,7 @@ const MIGRATIONS: [&Migration; 43] = [
     &RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA,
     &RESUMABLE_RETENTION_SCHEMA,
     &GRAMMAR_REFRESH_DIGEST_V17_SCHEMA,
+    &CUDA_UNICODE_DIGEST_V18_SCHEMA,
 ];
 
 #[cfg(test)]
@@ -2101,7 +2112,7 @@ mod tests {
 
     const MIGRATION_CHECKSUM_HEX_LENGTH: usize = 64;
     const CHECKSUM_COMPARISON_WINDOW: usize = 2;
-    const EXPECTED_MIGRATION_VERSIONS: [i64; 43] = [
+    const EXPECTED_MIGRATION_VERSIONS: [i64; 44] = [
         INITIAL_SCHEMA_VERSION,
         OPERATION_LEASES_SCHEMA_VERSION,
         COMPLETE_EDGE_KINDS_SCHEMA_VERSION,
@@ -2145,9 +2156,10 @@ mod tests {
         RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA_VERSION,
         RESUMABLE_RETENTION_SCHEMA_VERSION,
         GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION,
+        CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION,
     ];
 
-    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 43] = [
+    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 44] = [
         (
             1,
             "47651685dfea852db86d644f0e777bd479a3926cfce9e7750887a61cfe4ddc8e",
@@ -2320,6 +2332,10 @@ mod tests {
             43,
             "d16123b4cba07e6249e72552c3853cdda61ff1993fbb08d7f767c3cedf6bf956",
         ),
+        (
+            44,
+            "01c25d7fe0efa96c8dc80680b6584609a7e283cf81dd755f0a19a95798f9536d",
+        ),
     ];
 
     #[test]
@@ -2365,7 +2381,7 @@ mod tests {
         );
         assert_eq!(
             LATEST_SCHEMA_VERSION,
-            GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION
+            CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION
         );
     }
 

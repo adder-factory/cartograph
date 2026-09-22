@@ -365,6 +365,26 @@ void launchFill(float *out) {
 }
 
 #[test]
+fn cuda_tile_qualifiers_preserve_declarations_and_call_ownership() {
+    let extracted = extract(
+        "kernels/tile.cu",
+        r"__tile__ void tileHelper(float *out) { out[0] = 1.0f; }
+__tile_global__ void tileKernel(float *out) { tileHelper(out); }
+",
+    );
+    assert_eq!(extracted.language, SourceLanguage::Cuda);
+    assert_symbol(&extracted, SymbolKind::Function, "tileHelper", "tileHelper");
+    assert_symbol(&extracted, SymbolKind::Function, "tileKernel", "tileKernel");
+    assert_reference(
+        &extracted,
+        Some("tileKernel"),
+        "tileHelper",
+        ReferenceKind::Calls,
+    );
+    assert_unique_ids(&extracted);
+}
+
+#[test]
 fn shader_modes_extract_structures_functions_signatures_and_calls() {
     let cases = [
         (
