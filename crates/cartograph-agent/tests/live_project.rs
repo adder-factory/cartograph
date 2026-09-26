@@ -536,7 +536,7 @@ async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention()
             let (runtime, indexed) = task
                 .await
                 .unwrap_or_else(|error| panic!("contending runtime task failed: {error}"));
-            assert_eq!(indexed, Err(ProjectError::IndexLeaseFailed));
+            assert_eq!(indexed, Err(ProjectError::IndexLeaseBusy));
             contenders.push(runtime);
         }
         let counts_sql = format!(

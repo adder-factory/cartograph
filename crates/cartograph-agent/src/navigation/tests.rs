@@ -54,6 +54,7 @@ fn candidate_admission_bounds_bytes_and_deduplicates_identity() {
         symbol_id: symbol(),
         path: "src/a.rs".to_owned(),
         name: "parse".to_owned(),
+        symbol_kind: "function".to_owned(),
         start_line: Some(1),
         end_line: Some(2),
     };
@@ -127,6 +128,58 @@ impl DecisionProvider for Scripted {
 }
 
 struct Pending;
+
+struct NativeEvidenceProbe;
+impl DecisionProvider for NativeEvidenceProbe {
+    fn decide(
+        &self,
+        state: &Value,
+        questions: &BTreeMap<String, JevQuestion>,
+    ) -> impl Future<Output = Result<JevDecision, JevError>> {
+        let sources = state["nativeSourceWindows"]
+            .as_array()
+            .unwrap_or_else(|| panic!("native windows"));
+        assert_eq!(sources.len(), 1);
+        assert!(
+            sources[0]["excerpt"]["text"]
+                .as_str()
+                .unwrap_or_else(|| panic!("native text"))
+                .contains("entry_point")
+        );
+        let Some(JevQuestion::Choice { criteria, .. }) = questions.get("next") else {
+            panic!("choice");
+        };
+        let candidates = state["candidates"]
+            .as_array()
+            .unwrap_or_else(|| panic!("candidates"));
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate["symbolKind"] == "constant")
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate["symbolKind"] == "struct")
+        );
+        for (index, candidate) in candidates.iter().enumerate() {
+            assert!(candidate["startLine"].as_u64().is_some());
+            assert!(candidate["endLine"].as_u64().is_some());
+            if !matches!(
+                candidate["symbolKind"].as_str(),
+                Some("function" | "method")
+            ) {
+                assert!(!criteria.contains_key(&format!("callers_{index}")));
+                assert!(!criteria.contains_key(&format!("callees_{index}")));
+            }
+            if candidate["symbolId"] == sources[0]["symbol"]["symbol_id"] {
+                assert!(!criteria.contains_key(&format!("read_{index}")));
+            }
+        }
+        std::future::ready(Ok(response("finish", criteria)))
+    }
+}
+
 impl DecisionProvider for Pending {
     async fn decide(
         &self,
@@ -215,7 +268,7 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
     let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     std::fs::write(
         root.path().join("lib.rs"),
-        "pub fn entry_point() -> u32 { helper() }\nfn helper() -> u32 { 42 }\n",
+        "pub fn entry_point() -> u32 { helper() }\nfn helper() -> u32 { 42 }\nconst LIMIT: u32 = 7;\nstruct Settings { value: u32 }\n",
     )
     .unwrap_or_else(|e| panic!("source: {e}"));
     let runtime = ProjectRuntime::connect(root.path(), &settings)
@@ -251,6 +304,7 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
     verify_native_and_outage(&runtime, &project, &packet).await;
     verify_stop_conditions(&runtime, &project, &packet).await;
     verify_cancel_and_deadline(&runtime, &project, &packet).await;
+    verify_native_evidence_and_candidate_kinds(&runtime, &project, &packet).await;
     let mut nav = navigator(&runtime, &project, &packet);
     let changed = nav.run_bounded(&ChangedSource { root: root.path() }).await;
     assert!(
@@ -272,6 +326,61 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
         .cleanup()
         .await
         .unwrap_or_else(|e| panic!("cleanup: {e}"));
+}
+
+async fn verify_native_evidence_and_candidate_kinds(
+    runtime: &ProjectRuntime,
+    project: &ProjectId,
+    packet: &ContextPacket,
+) {
+    let root = packet.evidence()[0]
+        .symbol_id()
+        .unwrap_or_else(|| panic!("root symbol"))
+        .clone();
+    let sources = runtime
+        .source_context_batch_with_cancellation(
+            packet
+                .generation()
+                .unwrap_or_else(|| panic!("generation"))
+                .generation_id(),
+            vec![SourceContextRequest::new(
+                root,
+                SourceContextOptions::new(12, 4096)
+                    .unwrap_or_else(|error| panic!("bounds: {error}")),
+            )],
+            ProjectCancellation::new(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("native source: {error}"));
+    let request = ContextRequest::new(
+        project.clone(),
+        "entry_point",
+        ContextRequestOptions::new(IndexFreshness::Current, ContextBudget::default()),
+    )
+    .and_then(|request| {
+        request.with_anchor(cartograph_search::ContextAnchor::ExactPath(
+            NormalizedPath::parse("lib.rs").unwrap_or_else(|error| panic!("path: {error}")),
+        ))
+    })
+    .unwrap_or_else(|error| panic!("outline request: {error}"));
+    let packet = DeterministicRetriever::new(runtime.database.clone())
+        .context_packet(&request)
+        .await
+        .unwrap_or_else(|error| panic!("outline packet: {error}"));
+    let request = NavigationRequest::new(project, "find entry_point implementation", &packet)
+        .unwrap_or_else(|error| panic!("navigation: {error}"))
+        .with_native_sources(&sources)
+        .unwrap_or_else(|error| panic!("native evidence: {error}"));
+    let mut nav = Navigator::new(runtime, request, ProjectCancellation::new());
+    nav.run_bounded(&NativeEvidenceProbe)
+        .await
+        .unwrap_or_else(|error| panic!("seeded navigation: {error}"));
+    assert_eq!(nav.report.stop, NavigationStop::Finished);
+    assert!(
+        nav.report.source_windows.is_empty(),
+        "native evidence must not be returned twice"
+    );
+    assert_eq!(nav.report.native_source_windows, 1);
 }
 
 async fn verify_native_and_outage(
@@ -432,7 +541,9 @@ async fn verify_stop_conditions(
     assert_eq!(result.stop, NavigationStop::ProviderUnavailable);
     assert_eq!(
         result.provider_error,
-        Some(JevError::ConfigurationUnavailable)
+        Some(JevError::CredentialMissing {
+            environment_variable: "CARTOGRAPH_TEST_INTENTIONALLY_MISSING_JEV_KEY".to_owned(),
+        })
     );
 }
 

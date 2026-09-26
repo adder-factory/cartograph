@@ -1463,6 +1463,8 @@ fn traversal_hop(direction: TraversalDirection, arc: GraphArc) -> TraversalHop {
     TraversalHop {
         from_symbol_id: arc.origin(direction).clone(),
         to_symbol_id: arc.adjacent(direction).clone(),
+        edge_source_symbol_id: arc.source,
+        edge_target_symbol_id: arc.target,
         edge_kind: arc.edge_kind,
         confidence: arc.confidence,
         provenance: arc.provenance,
@@ -2233,6 +2235,27 @@ mod tests {
     fn symbol_id(index: u32) -> SymbolId {
         let value = format!("{index:08x}-1111-4111-8111-111111111111");
         SymbolId::parse(&value).unwrap_or_else(|error| panic!("symbol fixture failed: {error}"))
+    }
+
+    #[test]
+    fn incoming_and_outgoing_hops_preserve_the_same_stored_edge_direction() {
+        let arc = GraphArc::fixture(GraphArcFixture {
+            source: symbol_id(1),
+            target: symbol_id(2),
+            edge_kind: "calls",
+            confidence: 1.0,
+            site_count: 1,
+        });
+        let incoming = traversal_hop(TraversalDirection::Incoming, arc.clone());
+        let outgoing = traversal_hop(TraversalDirection::Outgoing, arc);
+        assert_eq!(incoming.from_symbol_id(), &symbol_id(2));
+        assert_eq!(incoming.to_symbol_id(), &symbol_id(1));
+        for hop in [incoming, outgoing] {
+            let value =
+                serde_json::to_value(hop).unwrap_or_else(|error| panic!("serialized hop: {error}"));
+            assert_eq!(value["edge_source_symbol_id"], symbol_id(1).as_str());
+            assert_eq!(value["edge_target_symbol_id"], symbol_id(2).as_str());
+        }
     }
 
     #[test]

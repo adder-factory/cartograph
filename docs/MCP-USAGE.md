@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-09-22 (`v2.1.31`).
+Last release audit: 2026-09-25 (`v2.1.32`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -74,8 +74,14 @@ stdio server is ready, so modern `server/discover`/`tools/list` and the legacy
 `cartograph_status` exposes attempts, publications, no-ops, errors, stable
 stage-specific `lastErrorCode`, failure/retry times, unchanged-revision attempt
 count, retry suppression, cross-revision capacity-failure count, and the exact
-capacity limit/scope/next action. Failed unchanged revisions use bounded
+capacity limit/scope/next action. Persistent failures of unchanged revisions use bounded
 exponential backoff and stop after five automatic attempts until source changes.
+Concurrent edits (`source_changed_during_index` or `parse_source_changed`) and
+another live lease owner (`lease_busy`) schedule recovery after 2–30 seconds.
+They do not exhaust the persistent-failure circuit. A retry timer runs even
+when no new filesystem event arrives; it does not wait for the 30-second
+missed-event reconciliation. Actual lease loss and database errors retain
+their separate failure handling.
 Five generation-capacity failures trip a separate circuit that new source
 revisions cannot bypass; every automatic failure also attempts bounded cleanup
 of terminal failed generations. Adjust the reported capacity setting and run an
@@ -165,6 +171,13 @@ for all 36 wire contracts and their CLI families.
 | `cartograph_review` | Git-ref plus committed/staged/unstaged/untracked review packet |
 | `cartograph_playbook` | Complete agent workflow, tool-routing map, evidence discipline, and anti-patterns |
 | `cartograph_admin` | Start, inspect, or cancel bounded lifecycle, index, semantic, model, and SCIP interchange work |
+
+Graph `via.from_symbol_id` and `via.to_symbol_id` describe traversal order:
+the preceding and discovered symbols. `via.edge_source_symbol_id` and
+`via.edge_target_symbol_id` always describe the stored relation direction.
+For `A calls B`, an incoming traversal from B discovers A while retaining
+edge source A and edge target B. These endpoint fields also appear in Jev
+navigation graph results.
 
 `cartograph_numerical` currently uses the `rust_ast_v1` static analyzer for
 parsed or partial Rust files. `sites` returns exact source spans and bounded

@@ -1135,16 +1135,19 @@ async fn run_smoke(arguments: SmokeArguments) -> Result<ExitCode, String> {
 }
 
 async fn smoke_jev(project: &Path, timeout: Duration) -> SmokeRow {
-    use cartograph_llm::{JEV_MODEL, JevAnswer, JevClient, JevQuestion, JevSettings};
+    use cartograph_llm::{JevAnswer, JevClient, JevQuestion, JevSettings};
     let started = Instant::now();
-    let settings = match JevSettings::try_from_project(project) {
-        Ok(Some(settings)) => settings,
+    let config = match load_exact_project_llm_tier(project, ProjectLlmTier::Decision) {
+        Ok(Some(config)) => config,
         Ok(None) => return missing_row("decision", false, started),
         Err(error) => {
             return failed_row(SmokeRowInput::new("decision", started, error.to_string()));
         }
     };
+    let model = Some(config.model().to_owned());
+    let endpoint = Some(config.endpoint().to_owned());
     let result = async {
+        let settings = JevSettings::from_config(&config).map_err(|error| error.to_string())?;
         let client = JevClient::new(settings).map_err(|error| error.to_string())?;
         let questions = BTreeMap::from([(
             "ready".to_owned(),
@@ -1165,10 +1168,15 @@ async fn smoke_jev(project: &Path, timeout: Duration) -> SmokeRow {
     match tokio::time::timeout(timeout, result).await {
         Ok(Ok(())) => ok_row(
             SmokeRowInput::new("decision", started, "typed decision returned")
-                .with_configuration(Some(JEV_MODEL.to_owned()), None),
+                .with_configuration(model, endpoint),
         ),
-        Ok(Err(error)) => failed_row(SmokeRowInput::new("decision", started, error)),
-        Err(_) => failed_row(SmokeRowInput::new("decision", started, "request timed out")),
+        Ok(Err(error)) => failed_row(
+            SmokeRowInput::new("decision", started, error).with_configuration(model, endpoint),
+        ),
+        Err(_) => failed_row(
+            SmokeRowInput::new("decision", started, "request timed out")
+                .with_configuration(model, endpoint),
+        ),
     }
 }
 
@@ -2080,6 +2088,24 @@ mod tests {
             )),
         ];
         assert_eq!(overall_smoke_status(&rows), OverallSmokeStatus::Ok);
+    }
+
+    #[tokio::test]
+    async fn missing_jev_key_preserves_configuration_in_smoke_diagnostics() {
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("fixture: {error}"));
+        let variable = format!("CARTOGRAPH_SMOKE_MISSING_JEV_{}", std::process::id());
+        assert!(std::env::var_os(&variable).is_none());
+        cartograph_llm::write_project_llm_tiers(
+            root.path(),
+            &[ProjectLlmTierInput::jev(&variable).unwrap_or_else(|error| panic!("tier: {error}"))],
+        )
+        .unwrap_or_else(|error| panic!("config: {error}"));
+        let row = smoke_jev(root.path(), Duration::from_secs(1)).await;
+        assert_eq!(row.status, SmokeStatus::Fail);
+        assert_eq!(row.model.as_deref(), Some(cartograph_llm::JEV_MODEL));
+        assert_eq!(row.endpoint.as_deref(), Some(cartograph_llm::JEV_ENDPOINT));
+        assert!(row.detail.contains(&variable));
+        assert!(row.detail.contains("not set in this process"));
     }
 
     #[tokio::test]

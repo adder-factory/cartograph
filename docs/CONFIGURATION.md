@@ -258,11 +258,21 @@ and a 30-second deadline covering navigation and its freshness checks. On expiry
 Cartograph cancels and joins navigation-owned work; joining an active filesystem
 read may add cleanup latency. `maxFiles` bounds the original source
 windows; the separate navigation supplement has its own seven-operation bound.
+Navigation receives up to 16 KiB of the native windows already returned to the
+caller and reports `nativeSourceWindows` (the included count) and
+`nativeSourcesTruncated`. Complete included windows are not offered for a
+redundant read. Candidates include current-generation kinds and line ranges;
+callers/callees actions are offered only for functions and methods. Native
+windows and additional windows both contribute to the sufficiency question.
 Missing keys, invalid responses, HTTP failures and rate limits report
 `provider_unavailable` with a redacted `providerError`. Step limit and abstention
 retain evidence already captured. Source or generation changes, or a deadline
 that prevents final freshness verification, abort the request. Model confidence and
 sufficiency are advisory scores, not proof that the question is answered.
+An absent key reports `providerError: "credential_missing"`; the safe
+`providerErrorDetail` names the configured environment variable. Smoke output
+retains the configured model and endpoint on failure. Set that variable in the
+MCP server process (or its secret-manager launcher), not only an unrelated shell.
 
 Without `decisionLlm`, exploration stays native. `--decision native`, summary
 and low-token exploration also skip Jev. `context`, `find`, `graph`, indexing
@@ -274,6 +284,12 @@ cartograph llm setup . --preset jev --clear-credentials
 ```
 
 This removes the decision tier. It does not clear other provider tiers.
+
+Low-token exploration reports `low_tokens_requested` and returns a minified
+packet with at most eight evidence items and a 16 KiB evidence budget. It
+retains generation, confidence, abstention, retrieval/fallback/reranker status,
+and explicit omission counts, without repeating the full retrieval candidate
+list or source windows. `summary` remains a separate source-free presentation.
 
 ### Embedding, reranker and chat tiers
 

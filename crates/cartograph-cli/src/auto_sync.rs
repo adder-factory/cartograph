@@ -7,9 +7,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use cartograph_agent::{IndexOptions, ProjectError, ProjectRuntime, ProjectWatchFilter};
 #[cfg(test)]
-use cartograph_agent::{PipelineFailureReason, PipelineStage};
+use cartograph_agent::PipelineStage;
+use cartograph_agent::{
+    IndexOptions, PipelineFailureReason, ProjectError, ProjectRuntime, ProjectWatchFilter,
+};
 use cartograph_domain::ContentDigest;
 use notify::{Config, Event, EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -37,6 +39,7 @@ const CONFIG_RELATIVE_PATH: &str = ".cartograph/config.json";
 const SCIP_OVERLAY_RELATIVE_PATH: &str = ".cartograph/scip/overlay.scip";
 const WATCH_DEBOUNCE_ENV: &str = "CARTOGRAPH_WATCH_DEBOUNCE_MS";
 const INITIAL_RETRY_INTERVAL: Duration = Duration::from_secs(30);
+const TRANSIENT_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const MAXIMUM_RETRY_INTERVAL: Duration = Duration::from_mins(15);
 const MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION: u8 = 5;
 const MAXIMUM_REPEATED_AUTOMATIC_FAILURES: u8 = 5;
@@ -159,7 +162,24 @@ struct AutoSyncFailureStatus {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct AutoSyncFailureState {
     failed_revision: Option<FailedRevision>,
+    persistent_revision_attempts: u8,
     status: AutoSyncFailureStatus,
+}
+
+impl AutoSyncFailureState {
+    fn next_revision_attempts(&self, revision: &FailedRevision, error: &ProjectError) -> (u8, u8) {
+        let (attempts, persistent_attempts) = if self.failed_revision.as_ref() == Some(revision) {
+            (self.status.attempts, self.persistent_revision_attempts)
+        } else {
+            (0, 0)
+        };
+        let persistent_attempts = if recoverable_index_interruption(error) {
+            persistent_attempts
+        } else {
+            persistent_attempts.saturating_add(1)
+        };
+        (attempts.saturating_add(1), persistent_attempts)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -241,17 +261,15 @@ impl AutoSyncState {
         let Ok(mut failure) = self.failure.write() else {
             return;
         };
-        let attempts = if failure.failed_revision.as_ref() == Some(&revision) {
-            failure.status.attempts.saturating_add(1)
-        } else {
-            1
-        };
+        let (attempts, persistent_revision_attempts) =
+            failure.next_revision_attempts(&revision, error);
         let error_code = project_error_code(error);
+        let transient = recoverable_index_interruption(error);
         let (
             repeated_failure_error_code,
             repeated_failure_attempts,
             repeated_failure_retry_suppressed,
-        ) = if matches!(error, ProjectError::StatusFailed) {
+        ) = if transient || matches!(error, ProjectError::StatusFailed) {
             (
                 failure.status.repeated_failure_error_code,
                 failure.status.repeated_failure_attempts,
@@ -280,17 +298,19 @@ impl AutoSyncState {
         let retry_suppressed = capacity_retry_suppressed
             || repeated_failure_retry_suppressed
             || (matches!(&revision, FailedRevision::Known(_))
-                && attempts >= MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION);
-        let next_retry_at = (!retry_suppressed).then(|| {
-            now.saturating_add(
-                retry_interval(attempts)
-                    .as_millis()
-                    .try_into()
-                    .unwrap_or(u64::MAX),
-            )
-        });
+                && persistent_revision_attempts >= MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION);
+        let interval = if transient {
+            TRANSIENT_RETRY_INTERVAL
+                .saturating_mul(2_u32.saturating_pow(u32::from(attempts.saturating_sub(1)).min(4)))
+                .min(INITIAL_RETRY_INTERVAL)
+        } else {
+            retry_interval(persistent_revision_attempts)
+        };
+        let next_retry_at = (!retry_suppressed)
+            .then(|| now.saturating_add(interval.as_millis().try_into().unwrap_or(u64::MAX)));
         *failure = AutoSyncFailureState {
             failed_revision: Some(revision),
+            persistent_revision_attempts,
             status: AutoSyncFailureStatus {
                 last_error_code: Some(error_code),
                 last_failure_at: Some(now),
@@ -304,6 +324,19 @@ impl AutoSyncState {
                 capacity_retry_suppressed,
             },
         };
+    }
+}
+
+fn recoverable_index_interruption(error: &ProjectError) -> bool {
+    match error {
+        ProjectError::IndexLeaseBusy | ProjectError::SourceChangedDuringIndex => true,
+        ProjectError::IndexStageFailedWithReason { reason, .. } => {
+            *reason == PipelineFailureReason::SourceChangedDuringParse
+        }
+        ProjectError::IndexStageFileFailed { failure, .. } => {
+            failure.reason() == PipelineFailureReason::SourceChangedDuringParse
+        }
+        _ => false,
     }
 }
 
@@ -485,6 +518,10 @@ async fn run_auto_sync(input: AutoSyncTask) {
     tokio::pin!(startup_reconciliation);
     let mut startup_reconciliation_pending = startup_reconciliation_enabled;
     loop {
+        let retry_at = state.failure_status().next_retry_at;
+        let retry_delay = retry_at.map_or(RECONCILIATION_INTERVAL, |deadline| {
+            Duration::from_millis(deadline.saturating_sub(unix_millis()))
+        });
         tokio::select! {
             biased;
             changed = cancellation.changed() => {
@@ -504,6 +541,9 @@ async fn run_auto_sync(input: AutoSyncTask) {
             }
             () = &mut startup_reconciliation, if startup_reconciliation_pending => {
                 startup_reconciliation_pending = false;
+                reconcile(&runtime, &state).await;
+            }
+            () = tokio::time::sleep(retry_delay), if retry_at.is_some() => {
                 reconcile(&runtime, &state).await;
             }
             _ = reconciliation.tick() => {
@@ -599,11 +639,14 @@ async fn synchronize(
         Err(error) => {
             let failed_revision = match revision {
                 Some(revision) => Some(revision),
-                None => runtime
-                    .status()
-                    .await
-                    .ok()
-                    .map(|status| status.live_source_revision),
+                None => match runtime.status().await {
+                    Ok(status) if status.fresh => {
+                        state.record_index_success();
+                        return;
+                    }
+                    Ok(status) => Some(status.live_source_revision),
+                    Err(_) => None,
+                },
             };
             if let Some(failed_revision) = failed_revision {
                 state.record_index_failure(failed_revision, &error, unix_millis());
@@ -795,6 +838,115 @@ mod tests {
         assert_eq!(Instant::now().duration_since(started), maximum_latency);
         assert!(!producer.is_finished());
         producer.abort();
+    }
+
+    #[test]
+    fn lease_contention_and_parse_churn_retry_after_more_than_five_interruptions() {
+        for error in [
+            ProjectError::IndexLeaseBusy,
+            ProjectError::IndexStageFailedWithReason {
+                stage: PipelineStage::Parse,
+                reason: PipelineFailureReason::SourceChangedDuringParse,
+            },
+        ] {
+            let state = AutoSyncState::default();
+            let revision = ContentDigest::from_bytes([1; 32]);
+            let mut now = 1_000;
+            for _ in 0..12 {
+                state.record_index_failure(revision.clone(), &error, now);
+                let status = state.failure_status();
+                assert!(!status.retry_suppressed);
+                assert_eq!(status.repeated_failure_attempts, 0);
+                assert!(!state.automatic_attempt_allowed(&revision, now));
+                let next = status
+                    .next_retry_at
+                    .unwrap_or_else(|| panic!("recoverable interruption schedules retry"));
+                assert!((2_000..=30_000).contains(&(next - now)));
+                now = next;
+                assert!(state.automatic_attempt_allowed(&revision, now));
+            }
+        }
+    }
+
+    #[test]
+    fn recoverable_interruptions_preserve_the_persistent_retry_allowance() {
+        let state = AutoSyncState::default();
+        let revision = ContentDigest::from_bytes([1; 32]);
+        let mut now = 1_000;
+        for _ in 0..12 {
+            state.record_index_failure(revision.clone(), &ProjectError::IndexLeaseBusy, now);
+            now = state
+                .failure_status()
+                .next_retry_at
+                .unwrap_or_else(|| panic!("retry"));
+        }
+        for attempt in 1..=MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION {
+            // Different persistent codes exercise the per-revision breaker independently.
+            let failure_stage = if attempt % 2 == 0 {
+                PipelineStage::Copy
+            } else {
+                PipelineStage::Reduce
+            };
+            state.record_index_failure(
+                revision.clone(),
+                &ProjectError::IndexStageFailed {
+                    stage: failure_stage,
+                },
+                now,
+            );
+            let status = state.failure_status();
+            assert_eq!(status.repeated_failure_attempts, 1);
+            assert_eq!(
+                status.retry_suppressed,
+                attempt == MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION
+            );
+            if attempt < MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION {
+                if attempt == 1 {
+                    assert_eq!(status.next_retry_at, Some(now + 30_000));
+                }
+                now = status
+                    .next_retry_at
+                    .unwrap_or_else(|| panic!("persistent retry"));
+                state.record_index_failure(
+                    revision.clone(),
+                    &ProjectError::SourceChangedDuringIndex,
+                    now,
+                );
+                now = state
+                    .failure_status()
+                    .next_retry_at
+                    .unwrap_or_else(|| panic!("transient retry"));
+            }
+        }
+        state.record_index_failure(revision.clone(), &ProjectError::IndexLeaseBusy, now);
+        assert!(state.failure_status().retry_suppressed);
+        assert!(!state.automatic_attempt_allowed(&revision, u64::MAX));
+        assert!(state.automatic_attempt_allowed(&ContentDigest::from_bytes([2; 32]), now));
+    }
+
+    #[test]
+    fn source_churn_does_not_permanently_disable_automatic_sync() {
+        let state = AutoSyncState::default();
+        let mut now = 1_000_u64;
+        for attempt in 1..=12 {
+            let revision = ContentDigest::from_bytes([attempt; 32]);
+            assert!(state.automatic_attempt_allowed(&revision, now));
+            state.record_index_failure(
+                revision.clone(),
+                &ProjectError::SourceChangedDuringIndex,
+                now,
+            );
+            let status = state.failure_status();
+            assert!(
+                !status.retry_suppressed,
+                "ordinary source edits must remain recoverable"
+            );
+            assert_eq!(status.repeated_failure_attempts, 0);
+            now = status
+                .next_retry_at
+                .unwrap_or_else(|| panic!("source churn must schedule recovery"));
+            assert!(state.automatic_attempt_allowed(&revision, now));
+        }
     }
 
     #[test]
@@ -1100,6 +1252,104 @@ mod tests {
         for (error, expected) in error_codes {
             assert_eq!(project_error_code(&error), expected);
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn watcher_recovers_after_a_competing_writer_without_another_edit() {
+        use cartograph_db::{LeaseOwner, LeaseRequest, LeaseTarget};
+        use cartograph_domain::ProjectOperation;
+        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
+            .unwrap_or_else(|error| panic!("test database: {error}"));
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|error| panic!("clock: {error}"))
+            .as_nanos();
+        let schema = format!("cg_watcher_busy_{}_{stamp}", process::id());
+        let guard = cartograph_test_support::TestSchemaGuard::new(&url, &schema)
+            .unwrap_or_else(|error| panic!("guard: {error}"));
+        let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
+            .and_then(|settings| settings.with_schema(&schema))
+            .unwrap_or_else(|error| panic!("settings: {error}"));
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project: {error}"));
+        let source = project.path().join("lib.rs");
+        std::fs::write(&source, "pub fn original() {}\n")
+            .unwrap_or_else(|error| panic!("source: {error}"));
+        let runtime = Arc::new(
+            ProjectRuntime::connect(project.path(), &settings)
+                .await
+                .unwrap_or_else(|error| panic!("runtime: {error}")),
+        );
+        let initial = runtime
+            .index(IndexOptions::automatic())
+            .await
+            .unwrap_or_else(|error| panic!("initial generation: {error}"));
+        let lease = runtime
+            .database()
+            .acquire_lease(LeaseRequest::new(
+                LeaseTarget::new(
+                    initial.project_id.clone(),
+                    ProjectOperation::Migration,
+                    None,
+                ),
+                LeaseOwner::new(process::id(), "watcher-recovery-test"),
+                Duration::from_secs(60),
+            ))
+            .await
+            .unwrap_or_else(|error| panic!("competing lease: {error}"));
+        let watcher = ProjectAutoSync::start(runtime.clone(), false)
+            .unwrap_or_else(|error| panic!("watcher: {error}"));
+        std::fs::write(&source, "pub fn replacement() {}\n")
+            .unwrap_or_else(|error| panic!("edit: {error}"));
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while watcher.status().last_error_code != Some("lease_busy") {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|error| panic!("watcher must report live contention: {error}"));
+        assert!(
+            !runtime
+                .status()
+                .await
+                .unwrap_or_else(|error| panic!("stale status: {error}"))
+                .fresh
+        );
+        runtime
+            .database()
+            .release_lease(&lease)
+            .await
+            .unwrap_or_else(|error| panic!("release competitor: {error}"));
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while watcher.status().publications == 0 {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!("retry timer must recover before the 30 second reconciliation: {error}")
+        });
+        let status = runtime
+            .status()
+            .await
+            .unwrap_or_else(|error| panic!("recovered status: {error}"));
+        assert!(status.fresh);
+        assert_ne!(
+            status
+                .snapshot
+                .unwrap_or_else(|| panic!("snapshot"))
+                .current
+                .unwrap_or_else(|| panic!("current"))
+                .generation_id,
+            initial.generation_id
+        );
+        assert_eq!(watcher.status().last_error_code, None);
+        drop(watcher);
+        drop(runtime);
+        guard
+            .cleanup()
+            .await
+            .unwrap_or_else(|error| panic!("cleanup: {error}"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
