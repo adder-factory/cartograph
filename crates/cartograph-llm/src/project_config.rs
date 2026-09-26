@@ -501,6 +501,7 @@ pub struct ProjectLlmTierConfig {
     model: String,
     ask_model: Option<String>,
     api_key: Option<SecretString>,
+    unavailable_credential_env: Option<String>,
     credential_source: ProjectLlmCredentialSource,
     timeout_ms: Option<u64>,
     concurrency: Option<u16>,
@@ -520,6 +521,10 @@ impl std::fmt::Debug for ProjectLlmTierConfig {
             .field("model", &self.model)
             .field("ask_model", &self.ask_model)
             .field("api_key_configured", &self.api_key.is_some())
+            .field(
+                "unavailable_credential_env",
+                &self.unavailable_credential_env,
+            )
             .field("credential_source", &self.credential_source)
             .field("timeout_ms", &self.timeout_ms)
             .field("concurrency", &self.concurrency)
@@ -563,6 +568,12 @@ impl ProjectLlmTierConfig {
         self.api_key
             .as_ref()
             .map(|value| value.expose_secret().to_owned())
+    }
+
+    /// Validated environment variable name missing from this process, never its value.
+    #[must_use]
+    pub fn unavailable_credential_env(&self) -> Option<&str> {
+        self.unavailable_credential_env.as_deref()
     }
 
     #[must_use]
@@ -1922,6 +1933,7 @@ fn parse_tier(
         model,
         ask_model,
         api_key: credentials.api_key,
+        unavailable_credential_env: credentials.unavailable_environment,
         credential_source: credentials.source,
         timeout_ms: limits.timeout_ms,
         concurrency: limits.concurrency,
@@ -1936,6 +1948,7 @@ fn parse_tier(
 struct TierCredentials {
     api_key: Option<SecretString>,
     source: ProjectLlmCredentialSource,
+    unavailable_environment: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -1945,6 +1958,7 @@ struct CredentialResolution<'input> {
     inline: Option<&'input str>,
     api_key_env: Option<&'input str>,
     missing_default_env_permitted: bool,
+    missing_decision_env_permitted: bool,
 }
 
 fn parse_tier_credentials(
@@ -1973,6 +1987,7 @@ fn parse_tier_credentials(
         return Ok(TierCredentials {
             api_key: None,
             source: ProjectLlmCredentialSource::None,
+            unavailable_environment: None,
         });
     }
     resolve_tier_credentials(CredentialResolution {
@@ -1981,6 +1996,7 @@ fn parse_tier_credentials(
         inline,
         api_key_env,
         missing_default_env_permitted: provider == ProjectLlmProvider::OpenAiCompat,
+        missing_decision_env_permitted: provider == ProjectLlmProvider::Typesafe,
     })
 }
 
@@ -2014,6 +2030,13 @@ fn resolve_tier_credentials(
                     ProjectLlmCredentialSource::Environment,
                 )
             }
+            Err(env::VarError::NotPresent) if resolution.missing_decision_env_permitted => {
+                return Ok(TierCredentials {
+                    api_key: None,
+                    source: ProjectLlmCredentialSource::Environment,
+                    unavailable_environment: Some(name.to_owned()),
+                });
+            }
             Err(env::VarError::NotPresent)
                 if resolution.explicit_api_key_env.is_none()
                     && resolution.value.get("endpoint").is_some()
@@ -2026,7 +2049,11 @@ fn resolve_tier_credentials(
     } else {
         (None, ProjectLlmCredentialSource::None)
     };
-    Ok(TierCredentials { api_key, source })
+    Ok(TierCredentials {
+        api_key,
+        source,
+        unavailable_environment: None,
+    })
 }
 
 struct TierRuntimeLimits {

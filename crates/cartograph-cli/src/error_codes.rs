@@ -224,10 +224,6 @@ const fn reduce_failure_reason_code(reason: PipelineFailureReason) -> &'static s
 /// vocabulary lives here so the CLI and the MCP admin surface cannot drift.
 pub(crate) const fn index_stage_failure_code(error: &ProjectError) -> Option<&'static str> {
     match error {
-        ProjectError::BeginGenerationFailed => Some("generation_start_failed"),
-        ProjectError::SourceScanFailed => Some("source_scan_failed"),
-        ProjectError::SourceChangedDuringIndex => Some("source_changed_during_index"),
-        ProjectError::IndexFailed => Some("index_failed"),
         ProjectError::IndexStageFailed { stage } => Some(pipeline_stage_failure_code(*stage)),
         ProjectError::IndexStageFailedWithReason { stage, reason } => {
             Some(pipeline_failure_reason_code(*stage, *reason))
@@ -235,6 +231,18 @@ pub(crate) const fn index_stage_failure_code(error: &ProjectError) -> Option<&'s
         ProjectError::IndexStageFileFailed { stage, failure } => {
             Some(pipeline_failure_reason_code(*stage, failure.reason()))
         }
+        other => index_lifecycle_failure_code(other),
+    }
+}
+
+/// Failures outside supervised stages: discovery, ownership, publication, and setup.
+const fn index_lifecycle_failure_code(error: &ProjectError) -> Option<&'static str> {
+    match error {
+        ProjectError::BeginGenerationFailed => Some("generation_start_failed"),
+        ProjectError::SourceScanFailed => Some("source_scan_failed"),
+        ProjectError::SourceChangedDuringIndex => Some("source_changed_during_index"),
+        ProjectError::IndexFailed => Some("index_failed"),
+        ProjectError::IndexLeaseBusy => Some("lease_busy"),
         ProjectError::IndexLeaseFailed => Some("lease_failed"),
         ProjectError::IndexPublicationFailed => Some("publication_failed"),
         ProjectError::IndexCleanupFailed => Some("index_cleanup_failed"),
@@ -316,6 +324,7 @@ pub(crate) fn direct_index_failure_json(error: &ProjectError) -> Result<String, 
             | ProjectError::IndexStageFailedWithReason { .. }
             | ProjectError::IndexStageFileFailed { .. }
             | ProjectError::IndexLeaseFailed
+            | ProjectError::IndexLeaseBusy
             | ProjectError::IndexPublicationFailed
     );
     let capacity = is_generation_capacity_failure(error);

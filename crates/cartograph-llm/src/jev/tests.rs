@@ -6,6 +6,28 @@ use std::{
 
 use super::*;
 
+#[test]
+fn missing_credential_reports_only_the_validated_variable_name() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("fixture: {error}"));
+    let variable = format!("CARTOGRAPH_JEV_MISSING_TEST_{}", std::process::id());
+    assert!(std::env::var_os(&variable).is_none());
+    let input = crate::ProjectLlmTierInput::jev(&variable)
+        .unwrap_or_else(|error| panic!("valid tier: {error}"));
+    crate::write_project_llm_tiers(root.path(), &[input])
+        .unwrap_or_else(|error| panic!("write config: {error}"));
+    let Err(error) = JevSettings::try_from_project(root.path()) else {
+        panic!("missing key was accepted");
+    };
+    assert_eq!(
+        serde_json::to_value(&error).unwrap_or_else(|error| panic!("error code: {error}")),
+        "credential_missing"
+    );
+    assert_eq!(
+        error.to_string(),
+        format!("Cartograph Jev environment variable {variable} is not set in this process")
+    );
+}
+
 fn questions() -> BTreeMap<String, JevQuestion> {
     BTreeMap::from([
         (
@@ -214,7 +236,7 @@ async fn rejected_credentials_capacity_and_redirects_are_redacted() {
     ] {
         let (client, server) = fixture(status, "secret-provider-body", "");
         let result = client.decide(&Value::Null, &questions()).await;
-        assert!(matches!(result, Err(error) if error == expected));
+        assert!(matches!(&result, Err(error) if error == &expected));
         assert!(!format!("{result:?}").contains("secret-provider-body"));
         server.join().unwrap_or_else(|_| panic!("fixture server"));
     }
@@ -308,7 +330,8 @@ fn decision_config_is_opt_in_and_never_falls_back_to_chat() {
     crate::write_project_llm_tiers(root.path(), &[input]).unwrap_or_else(|e| panic!("write: {e}"));
     assert!(matches!(
         JevSettings::try_from_project(root.path()),
-        Err(JevError::ConfigurationUnavailable)
+        Err(JevError::CredentialMissing { environment_variable })
+            if environment_variable == "CARTOGRAPH_MISSING_JEV_FIXTURE_KEY"
     ));
     let text = std::fs::read_to_string(root.path().join(".cartograph/config.json"))
         .unwrap_or_else(|e| panic!("read: {e}"));

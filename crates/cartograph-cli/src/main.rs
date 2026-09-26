@@ -3214,7 +3214,7 @@ async fn sync_if_dirty_index(
                     published: report.published,
                 });
             }
-            Err(ProjectError::IndexLeaseFailed) => {}
+            Err(ProjectError::IndexLeaseBusy) => {}
             Err(error) => return Err(error),
         }
 

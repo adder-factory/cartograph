@@ -30,10 +30,10 @@ MCP call is the control evidence.
 ## PostgreSQL capability failure
 
 Cartograph requires PostgreSQL 18.4 or newer within major version 18,
-`pg_search` 0.25.9 with the expected preload state/ParadeDB access method/BM25
+`pg_search` 0.25.10 with the expected preload state/ParadeDB access method/BM25
 tokenizer behavior, and pgvector 0.8.4 or newer. Pgvector 0.8.6 is recommended
-for external PostgreSQL; the managed ParadeDB 0.25.9 image bundles
-`pg_search` 0.25.9 and pgvector 0.8.4.
+for external PostgreSQL; the managed ParadeDB 0.25.10 image bundles
+`pg_search` 0.25.10 and pgvector 0.8.4.
 Upgrade or correct the external service, or use the pinned managed database on
 macOS/Linux. There is no SQLite or plain-FTS
 fallback.
@@ -123,6 +123,14 @@ publication, Cartograph retries reconciliation twice and then returns
 `source_changed_during_index`; it never reports success for a generation that
 the final scan already knows is stale. Unsupported editor metadata such as
 `.editorconfig` does not enter the source revision.
+
+When automatic sync races ongoing edits or another writer owns the project
+lease, `autoSync.lastErrorCode` identifies the interruption and `nextRetryAt`
+reports a bounded recovery retry. These interruptions do not permanently
+suppress the watcher after five attempts. Leave the live writer running;
+automatic sync catches up after the source settles or the lease is released.
+Persistent parse/publication failures and generation-capacity limits still
+stop repeated failing work and require inspecting the reported error.
 
 Before that no-op decision, index/sync also terminalizes every unleased
 `staging` generation for the project under a bounded project lock. A staging

@@ -9,7 +9,9 @@ use thiserror::Error;
 use url::Url;
 
 use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model_transport};
-use crate::{ProjectLlmProvider, ProjectLlmTier, load_exact_project_llm_tier};
+use crate::{
+    ProjectLlmProvider, ProjectLlmTier, ProjectLlmTierConfig, load_exact_project_llm_tier,
+};
 
 /// Pinned decision endpoint. Jev is not an OpenAI-compatible chat model.
 pub const JEV_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
@@ -51,6 +53,13 @@ impl JevSettings {
         let Some(config) = config else {
             return Ok(None);
         };
+        Self::from_config(&config).map(Some)
+    }
+
+    /// Validate a loaded decision tier, retaining a missing credential's variable name.
+    /// # Errors
+    /// Rejects an unsupported model/endpoint, missing credential, or invalid timeout.
+    pub fn from_config(config: &ProjectLlmTierConfig) -> Result<Self, JevError> {
         if config.provider() != ProjectLlmProvider::Typesafe || config.model() != JEV_MODEL {
             return Err(JevError::ConfigurationUnavailable);
         }
@@ -59,18 +68,26 @@ impl JevSettings {
         if endpoint.as_str() != JEV_ENDPOINT {
             return Err(JevError::ConfigurationUnavailable);
         }
-        let key = config.api_key().ok_or(JevError::ConfigurationUnavailable)?;
+        let key = config.api_key().ok_or_else(|| {
+            config
+                .unavailable_credential_env()
+                .map_or(JevError::ConfigurationUnavailable, |name| {
+                    JevError::CredentialMissing {
+                        environment_variable: name.to_owned(),
+                    }
+                })
+        })?;
         let timeout = config
             .timeout_ms()
             .map_or(DEFAULT_TIMEOUT, Duration::from_millis);
         if timeout.is_zero() || timeout > MAXIMUM_TIMEOUT {
             return Err(JevError::ConfigurationUnavailable);
         }
-        Ok(Some(Self {
+        Ok(Self {
             endpoint,
             api_key: SecretString::from(key),
             timeout,
-        }))
+        })
     }
 }
 
@@ -124,12 +141,19 @@ pub struct JevDecision {
 }
 
 /// Stable, secret-free decision-provider failure categories.
-#[derive(Clone, Copy, Debug, Error, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum JevError {
     /// The tier, model, endpoint or credential is unavailable.
     #[error("Cartograph Jev configuration is unavailable")]
     ConfigurationUnavailable,
+    /// A validated credential reference is absent from this process.
+    #[error(
+        "Cartograph Jev environment variable {environment_variable} is not set in this process"
+    )]
+    CredentialMissing {
+        /// Configuration variable name, never credential contents.
+        environment_variable: String,
+    },
     /// Caller data violates an item or byte admission bound.
     #[error("Cartograph Jev request exceeds its bounds")]
     RequestLimit,
@@ -151,6 +175,22 @@ pub enum JevError {
     /// Missing, duplicate, unknown or invalid answer data cannot control retrieval.
     #[error("Cartograph Jev response is invalid")]
     InvalidResponse,
+}
+
+impl Serialize for JevError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match self {
+            Self::ConfigurationUnavailable => "configuration_unavailable",
+            Self::CredentialMissing { .. } => "credential_missing",
+            Self::RequestLimit => "request_limit",
+            Self::EndpointUnavailable => "endpoint_unavailable",
+            Self::AuthenticationFailed => "authentication_failed",
+            Self::RateLimited => "rate_limited",
+            Self::BackendRejected => "backend_rejected",
+            Self::ResponseLimit => "response_limit",
+            Self::InvalidResponse => "invalid_response",
+        })
+    }
 }
 
 /// Shared, admission-bounded HTTP transport for native parallel Jev decisions.

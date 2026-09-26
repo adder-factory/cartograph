@@ -2256,6 +2256,10 @@ impl PreparedIndexPublication {
             }) => {
                 return Err(progress_stalled_project_error(supervisor_status.stage()));
             }
+            Err(SupervisorError::Lease {
+                operation: "acquire",
+                source: LeaseError::Busy,
+            }) => return Err(ProjectError::IndexLeaseBusy),
             Err(SupervisorError::Lease { .. } | SupervisorError::OwnershipLost { .. }) => {
                 return Err(ProjectError::IndexLeaseFailed);
             }
@@ -3272,6 +3276,11 @@ pub enum ProjectError {
         /// Validated project-relative path plus an allowlisted failure reason.
         failure: PipelineFileFailure,
     },
+    /// Another live operation owns the lease; retry after it finishes.
+    #[error(
+        "Cartograph index is waiting for another project operation; the previous generation remains visible"
+    )]
+    IndexLeaseBusy,
     /// The index operation could not acquire or retain its exact lease.
     #[error(
         "Cartograph index operation failed during the lease stage; the previous generation remains visible"

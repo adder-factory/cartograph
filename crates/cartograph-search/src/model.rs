@@ -1263,6 +1263,8 @@ impl ExactPathResult {
 pub struct TraversalHop {
     pub(crate) from_symbol_id: SymbolId,
     pub(crate) to_symbol_id: SymbolId,
+    pub(crate) edge_source_symbol_id: SymbolId,
+    pub(crate) edge_target_symbol_id: SymbolId,
     pub(crate) edge_kind: String,
     pub(crate) confidence: f32,
     pub(crate) provenance: String,
@@ -1270,6 +1272,18 @@ pub struct TraversalHop {
 }
 
 impl TraversalHop {
+    /// Stored edge source, independent of traversal direction.
+    #[must_use]
+    pub const fn edge_source_symbol_id(&self) -> &SymbolId {
+        &self.edge_source_symbol_id
+    }
+
+    /// Stored edge target, independent of traversal direction.
+    #[must_use]
+    pub const fn edge_target_symbol_id(&self) -> &SymbolId {
+        &self.edge_target_symbol_id
+    }
+
     /// Symbol at the preceding depth.
     #[must_use]
     pub const fn from_symbol_id(&self) -> &SymbolId {

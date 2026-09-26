@@ -2938,6 +2938,7 @@ const fn project_error_class(error: &ProjectError) -> ProjectErrorClass {
         | ProjectError::IndexStageFailedWithReason { .. }
         | ProjectError::IndexStageFileFailed { .. }
         | ProjectError::IndexLeaseFailed
+        | ProjectError::IndexLeaseBusy
         | ProjectError::IndexPublicationFailed
         | ProjectError::IndexCleanupFailed => ProjectErrorClass::Index,
         ProjectError::SchemaMigrationBlocked { .. } | ProjectError::SchemaVersionAhead { .. } => {
@@ -2980,7 +2981,9 @@ const fn admin_job_index_failure(error: &ProjectError) -> AdminJobFailure {
         ProjectError::IndexStageFileFailed { stage, failure } => {
             admin_job_reason_failure(*stage, failure.reason())
         }
-        ProjectError::IndexLeaseFailed => AdminJobFailure::LeaseFailed,
+        ProjectError::IndexLeaseFailed | ProjectError::IndexLeaseBusy => {
+            AdminJobFailure::LeaseFailed
+        }
         ProjectError::IndexPublicationFailed => AdminJobFailure::PublicationFailed,
         ProjectError::IndexCleanupFailed => AdminJobFailure::CleanupFailed,
         _ => AdminJobFailure::OperationFailed,
@@ -5327,7 +5330,7 @@ fn parse_explore_input(arguments: &Map<String, Value>) -> Result<ExploreInput<'_
         } else {
             requested_max_files
         },
-        summary: low_tokens || optional_bool(arguments, "summary")?.unwrap_or(false),
+        summary: optional_bool(arguments, "summary")?.unwrap_or(false),
         mode: parse_search_mode(optional_text(arguments, "mode")?.unwrap_or("auto"))?,
         low_tokens,
         allow_stale: optional_bool(arguments, "allowStale")?.unwrap_or(false),
@@ -5350,13 +5353,13 @@ async fn explore_source_windows(
     if input.summary || input.freshness != IndexFreshness::Current {
         return Ok(Vec::new());
     }
-    let mut sources = Vec::new();
+    let mut requests = Vec::new();
     let mut paths = BTreeSet::new();
     let options =
         SourceContextOptions::new(EXPLORE_SOURCE_CONTEXT_LINES, EXPLORE_SOURCE_MAXIMUM_BYTES)
             .map_err(|_| invalid_arguments())?;
     for evidence in packet.evidence() {
-        if sources.len() >= usize::from(input.max_files) || input.cancellation.is_cancelled() {
+        if requests.len() >= usize::from(input.max_files) || input.cancellation.is_cancelled() {
             break;
         }
         let Some(symbol_id) = evidence.symbol_id() else {
@@ -5365,20 +5368,64 @@ async fn explore_source_windows(
         if !paths.insert(evidence.path().to_owned()) {
             continue;
         }
-        match handler
-            .runtime
-            .source_context_with_cancellation(
-                SourceContextRequest::new(symbol_id.clone(), options),
-                input.cancellation.clone(),
-            )
-            .await
-        {
-            Ok(source) => sources.push(source),
-            Err(ProjectError::SymbolNotFound) => {}
-            Err(error) => return Err(project_error(&error)),
-        }
+        requests.push(SourceContextRequest::new(symbol_id.clone(), options));
     }
-    Ok(sources)
+    let Some(generation) = packet.generation() else {
+        return Ok(Vec::new());
+    };
+    handler
+        .runtime
+        .source_context_batch_with_cancellation(
+            generation.generation_id(),
+            requests,
+            input.cancellation,
+        )
+        .await
+        .map_err(|error| project_error(&error))
+}
+
+fn compact_explore_packet(packet: &ContextPacket) -> Result<Value, ToolError> {
+    let retrieval = packet.retrieval();
+    let mut evidence = Vec::new();
+    let mut bytes = 0_usize;
+    for item in packet.evidence().iter().take(CONTEXT_PREVIEW_LIMIT) {
+        let mut row = compact_context_evidence(item, false);
+        if let Some(object) = row.as_object_mut() {
+            object.remove("components");
+        }
+        let size = serde_json::to_vec(&row)
+            .map_err(|_| ToolError::internal())?
+            .len();
+        if bytes.saturating_add(size) > 16 * 1024 {
+            continue;
+        }
+        bytes += size;
+        evidence.push(row);
+    }
+    Ok(json!({
+        "generation": packet.generation(),
+        "intent": packet.intent(),
+        "confidence": packet.confidence(),
+        "abstention": packet.abstention(),
+        "graphDirection": packet.graph_direction(),
+        "retrieval": {
+            "requestedMode": retrieval.requested_mode(),
+            "execution": retrieval.execution(),
+            "semanticReadiness": retrieval.semantic_readiness(),
+            "fallback": retrieval.fallback(),
+            "abstention": retrieval.abstention(),
+            "rerank": retrieval.rerank_report(),
+            "truncated": retrieval.truncated(),
+        },
+        "omittedEvidence": packet.evidence().len().saturating_sub(evidence.len()),
+        "truncated": packet.truncated() || evidence.len() < packet.evidence().len(),
+        "evidence": evidence,
+        "workingTree": {
+            "status": packet.working_tree_overlay().status(),
+            "filesOmitted": packet.working_tree_overlay().files().len(),
+            "truncated": packet.working_tree_overlay().truncated() || !packet.working_tree_overlay().files().is_empty(),
+        },
+    }))
 }
 
 struct VerifyInput<'input> {
@@ -5914,7 +5961,7 @@ impl ContextTools<'_> {
             &packet,
             ExploreSourceInput {
                 freshness,
-                summary: input.summary,
+                summary: input.summary || input.low_tokens,
                 max_files: input.max_files,
                 cancellation: cancellation.clone(),
             },
@@ -5925,7 +5972,11 @@ impl ContextTools<'_> {
             .navigate(
                 NavigationRequest::new(&project_id, input.query, &packet)
                     .map_err(|error| project_error(&error))?
-                    .with_policy(if input.summary {
+                    .with_native_sources(&sources)
+                    .map_err(|error| project_error(&error))?
+                    .with_policy(if input.low_tokens {
+                        NavigationPolicy::LowTokens
+                    } else if input.summary {
                         NavigationPolicy::Summary
                     } else {
                         input.navigation
@@ -5934,6 +5985,11 @@ impl ContextTools<'_> {
             )
             .await
             .map_err(|error| project_error(&error))?;
+        let packet = if input.low_tokens {
+            compact_explore_packet(&packet)?
+        } else {
+            serde_json::to_value(&packet).map_err(|_| ToolError::internal())?
+        };
         fresh_cursor_json_result(
             FreshCursorRequest {
                 handler: self,
@@ -18327,7 +18383,7 @@ fn explore_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, To
     });
     read_definition(ReadDefinition {
         name: EXPLORE_TOOL,
-        description: "Retrieve a native architecture packet and live source. An explicitly configured Jev decision tier can select up to seven further read, graph, exact-name or outline operations; navigation reports its evidence and stop reason separately. Provider failures preserve native retrieval. summary suppresses source and Jev navigation.",
+        description: "Retrieve a native architecture packet and live source. An explicitly configured Jev decision tier can select up to seven further read, graph, exact-name or outline operations; navigation reports its evidence and stop reason separately. Provider failures preserve native retrieval. summary suppresses source and Jev navigation. lowTokens returns at most eight compact evidence rows within a 16 KiB evidence budget, with explicit omissions and no source or Jev navigation.",
         schema,
         required: &["query"],
         annotations,
@@ -18813,7 +18869,7 @@ fn graph_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, Tool
     });
     read_definition(ReadDefinition {
         name: GRAPH_TOOL,
-        description: "Resolve names or UUIDs (including bounded batches), then traverse callers, callees, both directions, reverse impact, shortest paths, or model-scoped semantic neighbors. Exact edge/site/confidence provenance, PageRank ordering, optional sampled betweenness on node inspection, roles, tests, compact projection, and every truncation bound remain explicit.",
+        description: "Resolve names or UUIDs (including bounded batches), then traverse callers, callees, both directions, reverse impact, shortest paths, or model-scoped semantic neighbors. via.from/to are traversal order; via.edge_source_symbol_id/edge_target_symbol_id retain stored edge direction. Exact edge/site/confidence provenance, PageRank ordering, optional sampled betweenness on node inspection, roles, tests, compact projection, and every truncation bound remain explicit.",
         schema,
         required: &[],
         annotations,
@@ -20075,11 +20131,14 @@ async fn fresh_cursor_json_result(
             value: &mut evidence,
         })
         .await;
-    json_result(&json!({
-        "freshness": freshness,
-        "evidence": evidence,
-        "cursor": cursor,
-    }))
+    json_result_with_compaction(
+        &json!({
+            "freshness": freshness,
+            "evidence": evidence,
+            "cursor": cursor,
+        }),
+        arguments.get("lowTokens") == Some(&Value::Bool(true)),
+    )
 }
 
 fn sql_query_compaction(arguments: &Map<String, Value>) -> Result<bool, ToolError> {
@@ -29474,6 +29533,7 @@ pub fn target(value: u32) -> u32 {
         )
         .await;
         execute_live_tool(handler, DIGEST_TOOL, json!({})).await;
+        verify_compact_explore(handler).await;
         execute_live_tool(handler, CHANGED_SINCE_TOOL, json!({})).await;
         execute_live_tool(
             handler,
@@ -29487,6 +29547,31 @@ pub fn target(value: u32) -> u32 {
             json!({"symbol": "root", "limit": 5, "perCommitPeers": 5}),
         )
         .await;
+    }
+
+    async fn verify_compact_explore(handler: &CartographMcpHandler) {
+        let compact = execute_live_tool(handler, EXPLORE_TOOL,
+            json!({"query": "order request flow", "mode": "deterministic", "lowTokens": true, "maxFiles": 1})).await;
+        let evidence = &compact["structuredContent"]["evidence"];
+        assert_eq!(evidence["navigation"]["stop"], "low_tokens_requested");
+        assert_eq!(evidence["summaryOnly"], false);
+        assert!(
+            evidence["sourceWindows"]
+                .as_array()
+                .unwrap_or_else(|| panic!("source windows"))
+                .is_empty()
+        );
+        assert!(evidence["packet"]["retrieval"].get("items").is_none());
+        assert!(
+            evidence["packet"]["evidence"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty() && items.len() <= 8)
+        );
+        assert!(
+            compact["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.len() < 24 * 1024)
+        );
     }
 
     async fn verify_agent_find_surfaces(handler: &CartographMcpHandler) {
