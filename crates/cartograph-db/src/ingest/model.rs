@@ -309,6 +309,19 @@ pub struct CanonicalGenerationFacts {
 }
 
 impl CanonicalGenerationFacts {
+    /// Exact canonical row counts persisted with the ready generation.
+    pub(crate) fn fact_counts(&self) -> crate::NativeGenerationSpillFactCounts {
+        let count = |rows: usize| u64::try_from(rows).unwrap_or(u64::MAX);
+        crate::NativeGenerationSpillFactCounts {
+            files: count(self.tables.files.len()),
+            symbols: count(self.tables.symbols.len()),
+            edges: count(self.tables.edges.len()),
+            references: count(self.tables.references.len()),
+            numerical_sites: count(self.tables.numerical_sites.len()),
+            documents: count(self.tables.documents.len()),
+        }
+    }
+
     /// Canonical logical digest covering every persisted field.
     #[must_use]
     pub const fn digest(&self) -> &ContentDigest {

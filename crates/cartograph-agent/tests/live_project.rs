@@ -248,6 +248,7 @@ async fn auto_storage_streams_many_crate_workspaces_before_memory_resolve_capaci
             u64::try_from(CARGO_MANIFESTS * 2)
                 .unwrap_or_else(|_| panic!("fixture file count overflowed"))
         );
+        assert_generation_counts_are_persisted(&settings, &schema, &report.generation_id).await;
         runtime.close().await;
     }
 
@@ -3270,6 +3271,41 @@ async fn refresh_history(runtime: &ProjectRuntime, indexed: &IndexReport) {
     assert_eq!(report["truncated"], false);
 }
 
+/// An explicit index at an unchanged HEAD reuses the stored churn/co-change
+/// refresh; a new commit, or different refresh inputs, rescans.
+async fn assert_history_reuse_follows_head(runtime: &ProjectRuntime, root: &Path) {
+    let history = |report: &IndexReport| {
+        serde_json::to_value(report)
+            .unwrap_or_else(|error| panic!("history reuse serialization failed: {error}"))
+            ["history"]["report"]
+            .clone()
+    };
+    let index = || async {
+        runtime
+            .index(IndexOptions::default())
+            .await
+            .unwrap_or_else(|error| panic!("history reuse index failed: {error}"))
+    };
+    // The explicit refresh used a smaller commit bound, so the default bound rescans.
+    let rescanned = history(&index().await);
+    assert_eq!(rescanned["reused"], false);
+    assert_eq!(rescanned["commitsScanned"], 3);
+    let reused = history(&index().await);
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["commitsScanned"], 3);
+    assert_eq!(reused["filesWritten"], rescanned["filesWritten"]);
+    std::fs::write(
+        root.join("src/history_reuse.ts"),
+        "export function historyReuse() { return 1; }\n",
+    )
+    .unwrap_or_else(|error| panic!("history reuse write failed: {error}"));
+    git(root, &["add", "src/history_reuse.ts"]);
+    git(root, &["commit", "-m", "add a history reuse file"]);
+    let advanced = history(&index().await);
+    assert_eq!(advanced["reused"], false);
+    assert_eq!(advanced["commitsScanned"], 4);
+}
+
 async fn assert_history_rows(runtime: &ProjectRuntime, indexed: &IndexReport) -> NormalizedPath {
     let anchor = NormalizedPath::parse(HISTORY_ANCHOR_PATH)
         .unwrap_or_else(|error| panic!("history anchor path failed: {error}"));
@@ -3422,10 +3458,12 @@ async fn git_history_refresh_persists_churn_and_symmetric_cochange_confidence() 
             .index(IndexOptions::default())
             .await
             .unwrap_or_else(|error| panic!("history fixture index failed: {error}"));
+        assert_generation_counts_are_persisted(&settings, &schema, &indexed.generation_id).await;
         refresh_history(&runtime, &indexed).await;
         let anchor = assert_history_rows(&runtime, &indexed).await;
         assert_history_hotspots(&runtime, &indexed).await;
         assert_grouped_history_peers(&runtime, &indexed).await;
+        assert_history_reuse_follows_head(&runtime, project.path()).await;
         assert_history_can_be_disabled(&runtime, &indexed, &anchor, project.path()).await;
         runtime.close().await;
     }
@@ -4593,6 +4631,56 @@ fn unique_schema(database_url: &str) -> GuardedSchema {
         name,
         _cleanup: cleanup,
     }
+}
+
+/// Ready generations record exact fact counts and source bytes, so snapshots
+/// never need to count the fact tables.
+async fn assert_generation_counts_are_persisted(
+    settings: &DatabaseSettings,
+    schema: &str,
+    generation: &cartograph_domain::GenerationId,
+) {
+    let pool = cartograph_db::connect(settings)
+        .await
+        .unwrap_or_else(|error| panic!("count verification pool failed: {error}"));
+    let counted = |table: &str| {
+        format!(
+            r#"(SELECT count(*) FROM "{schema}"."{table}" WHERE generation_id = $1::uuid)::bigint"#
+        )
+    };
+    let statement = format!(
+        r#"SELECT fact_files, fact_symbols, fact_edges, fact_references,
+                fact_numerical_sites, fact_documents, fact_source_bytes,
+                {}, {}, {}, {}, {}, {},
+                (SELECT COALESCE(sum(byte_size), 0) FROM "{schema}"."files"
+                    WHERE generation_id = $1::uuid)::bigint
+            FROM "{schema}"."index_generations" WHERE generation_id = $1::uuid"#,
+        counted("files"),
+        counted("symbols"),
+        counted("edges"),
+        counted("references"),
+        counted("numerical_sites"),
+        counted("search_documents"),
+    );
+    let row = query(AssertSqlSafe(statement))
+        .bind(generation.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("count verification failed: {error}"));
+    for column in 0..7 {
+        let stored = row
+            .try_get::<Option<i64>, _>(column)
+            .unwrap_or_else(|error| panic!("stored count {column}: {error}"));
+        let actual = row
+            .try_get::<i64, _>(column + 7)
+            .unwrap_or_else(|error| panic!("actual count {column}: {error}"));
+        assert_eq!(
+            stored,
+            Some(actual),
+            "persisted fact column {column} is exact"
+        );
+    }
+    pool.close().await;
 }
 
 fn live_project_fixture(

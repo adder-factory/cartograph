@@ -19,7 +19,7 @@ use std::{
     process,
     sync::{
         Arc, OnceLock, RwLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -846,6 +846,8 @@ pub struct ProjectRuntime {
     database: CartographDatabase,
     source_scan_permits: Arc<Semaphore>,
     source_scan_observations: Arc<AtomicU64>,
+    /// Set once this runtime attempted to backfill legacy generation counts.
+    fact_count_backfill_attempted: Arc<AtomicBool>,
 }
 
 struct AbortTaskOnDrop {
@@ -1008,6 +1010,17 @@ async fn run_core_index_attempt(
         profile.preparation_millis = preparation_millis;
     }
     if unchanged {
+        // Generations published before counts were persisted gain them once
+        // per process; failure only leaves status on its counting fallback.
+        if !runtime
+            .fact_count_backfill_attempted
+            .swap(true, Ordering::Relaxed)
+        {
+            let _backfilled = runtime
+                .database
+                .backfill_generation_fact_counts(&report.project_id, &report.generation_id)
+                .await;
+        }
         report.retention = runtime
             .maintain_generation_retention(&report.project_id, &report.parse_cache_contract_digest)
             .await;
@@ -1052,14 +1065,15 @@ async fn prepare_optional_history(
     }
     let started = Instant::now();
     let result = runtime
-        .prepare_git_history(HistoryIndexOptions::default(), cancellation)
-        .await
-        .map(|history| {
-            history.with_channels(
+        .prepare_git_history_reusing(
+            HistoryIndexOptions::default(),
+            (
                 policy.history_channels.churn,
                 policy.history_channels.co_change,
-            )
-        });
+            ),
+            cancellation,
+        )
+        .await;
     Some(TimedHistoryPreparation {
         result,
         elapsed_millis: monotonic_millis(started.elapsed()),
@@ -1565,6 +1579,7 @@ impl ProjectRuntime {
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
             source_scan_observations: Arc::new(AtomicU64::new(0)),
+            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1598,6 +1613,7 @@ impl ProjectRuntime {
             database: CartographDatabase::new(pool, settings.schema().clone()),
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
             source_scan_observations: Arc::new(AtomicU64::new(0)),
+            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1629,6 +1645,7 @@ impl ProjectRuntime {
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
             source_scan_observations: Arc::new(AtomicU64::new(0)),
+            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
 

@@ -103,7 +103,17 @@ manifest/no-op fence instead of performing a second full status manifest scan
 first. Automatic structural indexing is capped at four native workers and skips
 the independent Git churn, co-change, and issue-history refreshes. An explicit
 `cartograph index` retains the normal corpus-aware worker ceiling and refreshes
-those auxiliary Git channels. Periodic missed-event reconciliation still uses a
+those auxiliary Git channels. When HEAD, shallowness, the number of reachable
+commits within the bound, the commit bound, the enabled channels and the mining
+version all match the last stored refresh, churn and co-change
+evidence is reused without rescanning Git or rewriting its rows, and the index
+report marks the history `reused: true`. `cartograph history refresh` always
+rescans.
+
+Ready generations record their exact fact counts and source bytes, so status,
+freshness and storage summaries read them instead of counting every fact table
+on each call. Generations published before schema 45 fall back to counting
+until the next unchanged index records their counts once. Periodic missed-event reconciliation still uses a
 complete status scan as its correctness boundary.
 
 An unchanged source revision that fails automatic indexing is not retried in a
