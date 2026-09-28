@@ -106,7 +106,21 @@ pub enum JevQuestion {
     Noul {
         /// Trusted question about the supplied evidence.
         instructions: String,
+        /// Optional trusted descriptions of what a yes and a no mean.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        criteria: Option<NoulCriteria>,
     },
+}
+
+/// Descriptions that pin the boundary between a yes and a no answer.
+#[derive(Clone, Serialize)]
+pub struct NoulCriteria {
+    /// What a yes means.
+    #[serde(rename = "true")]
+    pub holds: String,
+    /// What a no means.
+    #[serde(rename = "false")]
+    pub fails: String,
 }
 
 /// Validated typed answer. Option identities are checked against the request.
@@ -322,7 +336,17 @@ fn encode_request(
                 }
                 instructions
             }
-            JevQuestion::Noul { instructions } => instructions,
+            JevQuestion::Noul {
+                instructions,
+                criteria,
+            } => {
+                if criteria.as_ref().is_some_and(|criteria| {
+                    !bounded_text(&criteria.holds, 2048) || !bounded_text(&criteria.fails, 2048)
+                }) {
+                    return Err(JevError::RequestLimit);
+                }
+                instructions
+            }
         };
         if !bounded_text(instructions, MAXIMUM_INSTRUCTION_BYTES) {
             return Err(JevError::RequestLimit);

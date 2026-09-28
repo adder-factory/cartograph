@@ -76,8 +76,9 @@ stage-specific `lastErrorCode`, failure/retry times, unchanged-revision attempt
 count, retry suppression, cross-revision capacity-failure count, and the exact
 capacity limit/scope/next action. Persistent failures of unchanged revisions use bounded
 exponential backoff and stop after five automatic attempts until source changes.
-Concurrent edits (`source_changed_during_index` or `parse_source_changed`) and
-another live lease owner (`lease_busy`) schedule recovery after 2–30 seconds.
+Concurrent edits (`source_changed_during_index` or `parse_source_changed`),
+another live lease owner (`lease_busy`), and an undrained failed-generation
+backlog (`retention_backlog`) schedule recovery after 2–30 seconds.
 They do not exhaust the persistent-failure circuit. A retry timer runs even
 when no new filesystem event arrives; it does not wait for the 30-second
 missed-event reconciliation. Actual lease loss and database errors retain

@@ -119,3 +119,129 @@ async fn seed_old_contracts(
         .bind(project.as_str()).execute(&pool).await.unwrap_or_else(|error| panic!("cache backlog failed: {error}"));
     pool.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn automatic_index_drains_failed_generations_before_reserving_another() {
+    let (schema, settings, project) = live_project_fixture("4");
+    let source = write_incremental_fixture(project.path());
+    let runtime = ProjectRuntime::connect(project.path(), &settings)
+        .await
+        .unwrap_or_else(|error| panic!("backlog runtime failed: {error}"));
+    let first = initial_incremental_index(
+        &runtime,
+        IndexOptions::default().with_history_refresh(false),
+    )
+    .await;
+    let pool = cartograph_db::connect(&settings)
+        .await
+        .unwrap_or_else(|error| panic!("backlog test pool failed: {error}"));
+    // One more than an automatic cleanup may delete, plus one over the limit.
+    stage_generations(&runtime, &first.project_id, 34).await;
+    let fail_staged = || async {
+        query(AssertSqlSafe(format!(
+            r#"UPDATE "{schema}".index_generations SET state = 'failed'
+            WHERE project_id = $1::uuid AND state = 'staging'"#
+        )))
+        .bind(first.project_id.as_str())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("backlog terminalization failed: {error}"));
+    };
+    fail_staged().await;
+    std::fs::write(
+        source.join("service.ts"),
+        "export function calculateTotal(value: number): number { return value + 2; }\n",
+    )
+    .unwrap_or_else(|error| panic!("backlog edit failed: {error}"));
+    let reserved = || async {
+        query(AssertSqlSafe(format!(
+            r#"SELECT count(*)::bigint FROM "{schema}".index_generations
+            WHERE project_id = $1::uuid AND state IN ('staging', 'ready')"#
+        )))
+        .bind(first.project_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .and_then(|row| row.try_get::<i64, _>(0))
+        .unwrap_or_else(|error| panic!("reserved generation count failed: {error}"))
+    };
+
+    // Cleanup progresses but cannot finish in one bounded attempt, so the
+    // automatic attempt defers instead of reserving another generation.
+    let deferred = runtime.index(IndexOptions::automatic()).await;
+    assert!(
+        matches!(deferred, Err(ProjectError::IndexRetentionBacklog)),
+        "automatic indexing reserved a generation over a draining backlog: {deferred:?}"
+    );
+    assert_eq!(reserved().await, 0);
+    let backlog = runtime
+        .database()
+        .terminal_generation_backlog(&first.project_id)
+        .await
+        .unwrap_or_else(|error| panic!("backlog count failed: {error}"));
+    assert_eq!(backlog, 2);
+
+    let recovered = runtime
+        .index(IndexOptions::automatic())
+        .await
+        .unwrap_or_else(|error| panic!("drained automatic index failed: {error}"));
+    assert!(recovered.published);
+    assert_eq!(
+        runtime
+            .database()
+            .terminal_generation_backlog(&first.project_id)
+            .await
+            .unwrap_or_else(|error| panic!("drained backlog count failed: {error}")),
+        0
+    );
+
+    // A backlog that cannot drain (another operation holds the project) must
+    // not freeze automatic indexing behind a retryable deferral.
+    stage_generations(&runtime, &first.project_id, 3).await;
+    fail_staged().await;
+    std::fs::write(
+        source.join("service.ts"),
+        "export function calculateTotal(value: number): number { return value + 3; }\n",
+    )
+    .unwrap_or_else(|error| panic!("second backlog edit failed: {error}"));
+    let competitor = runtime
+        .database()
+        .acquire_lease(LeaseRequest::new(
+            LeaseTarget::new(first.project_id.clone(), ProjectOperation::Migration, None),
+            LeaseOwner::new(process::id(), "backlog-competitor"),
+            Duration::from_mins(1),
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("backlog competitor lease failed: {error}"));
+    let blocked = runtime.index(IndexOptions::automatic()).await;
+    assert!(
+        !matches!(blocked, Err(ProjectError::IndexRetentionBacklog)),
+        "a backlog that made no cleanup progress deferred automatic indexing"
+    );
+    runtime
+        .database()
+        .release_lease(&competitor)
+        .await
+        .unwrap_or_else(|error| panic!("backlog competitor release failed: {error}"));
+    pool.close().await;
+    runtime.close().await;
+    drop_schema(&settings, &schema).await;
+}
+
+async fn stage_generations(
+    runtime: &ProjectRuntime,
+    project_id: &cartograph_domain::ProjectId,
+    count: usize,
+) {
+    for index in 0..count {
+        runtime
+            .database()
+            .begin_generation(NewGeneration::new(
+                project_id.clone(),
+                format!("failed-{index}"),
+                1,
+            ))
+            .await
+            .unwrap_or_else(|error| panic!("backlog generation failed: {error}"));
+    }
+}

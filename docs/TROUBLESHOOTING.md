@@ -321,6 +321,29 @@ remaining byte budget. Inspect `db usage` and the backup before using an audited
 `--maximum-search-relation-bytes` override (hard maximum 64 GiB). A large old
 relation does not prevent cleanup of later relations within budget.
 
+Retention drains each relation of a generation in key order and resumes after
+the last deleted key, so a large failed generation is deleted in one linear
+index walk instead of re-scanning the rows earlier batches removed. The final
+generation row runs every cascading foreign-key check; on a heavily bloated
+schema those checks can exceed their short bound, which is also clamped to the
+time left in the drain transaction. That row is then left `retiring` without
+rolling back the rows already drained, the report says
+`deferred_reason: "parent_delete_deferred"`, and a later prune or autovacuum
+lets it finish. An explicit prune vacuums the fact tables only when it removed
+enough rows and runs with immediate maintenance; automatic retention delegates
+to autovacuum. A repeated `batch-deadline` on a very large, bloated schema
+usually means dead tuples from a previous invocation are unvacuumed: `VACUUM`
+the fact tables, rerun the prune, then compact indexes online.
+
+Automatic indexing drains failed and retiring generations before it reserves a
+new one. While that bounded cleanup is still removing generations but more than
+one remains, the attempt is deferred with `retention_backlog`, the previous
+generation stays visible, and the watcher retries after 2–30 seconds, so
+repeated automatic failures cannot outpace cleanup. When cleanup makes no
+progress (another operation holds the project, a search-relation budget or
+catalog check blocks it), the attempt proceeds rather than freezing automatic
+indexing; inspect `retentionMaintenance` in `db usage` and run a bounded prune.
+
 Automatic indexing can report `cache_only` when generation cleanup failed but
 parse-cache eviction committed. `db usage` exposes the persisted latest phase
 outcomes and consecutive failure count through `retentionMaintenance`, including

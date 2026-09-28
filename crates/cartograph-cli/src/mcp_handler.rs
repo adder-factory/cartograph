@@ -2939,6 +2939,7 @@ const fn project_error_class(error: &ProjectError) -> ProjectErrorClass {
         | ProjectError::IndexStageFileFailed { .. }
         | ProjectError::IndexLeaseFailed
         | ProjectError::IndexLeaseBusy
+        | ProjectError::IndexRetentionBacklog
         | ProjectError::IndexPublicationFailed
         | ProjectError::IndexCleanupFailed => ProjectErrorClass::Index,
         ProjectError::SchemaMigrationBlocked { .. } | ProjectError::SchemaVersionAhead { .. } => {
@@ -2985,7 +2986,9 @@ const fn admin_job_index_failure(error: &ProjectError) -> AdminJobFailure {
             AdminJobFailure::LeaseFailed
         }
         ProjectError::IndexPublicationFailed => AdminJobFailure::PublicationFailed,
-        ProjectError::IndexCleanupFailed => AdminJobFailure::CleanupFailed,
+        ProjectError::IndexCleanupFailed | ProjectError::IndexRetentionBacklog => {
+            AdminJobFailure::CleanupFailed
+        }
         _ => AdminJobFailure::OperationFailed,
     }
 }
@@ -4816,6 +4819,9 @@ struct ContextRetrievalInput<'input> {
     project_id: &'input ProjectId,
     query: &'input str,
     mode: SearchMode,
+    /// False when the caller ranks candidates itself and the cross-encoder
+    /// would only add latency.
+    rerank: bool,
     candidate_limit: u16,
     freshness: IndexFreshness,
     budget: ContextBudget,
@@ -4836,6 +4842,11 @@ async fn retrieve_context_packet(
 ) -> Result<ContextPacket, ToolError> {
     let options = RetrievalOptions::new(input.mode, input.candidate_limit)
         .map_err(|_| invalid_arguments())?;
+    let options = if input.rerank {
+        options
+    } else {
+        options.without_rerank()
+    };
     let prepared = handler
         .runtime
         .prepare_retrieval_with_cancellation(
@@ -4971,6 +4982,7 @@ async fn prepare_code_ask_evidence(
             project_id: &project_id,
             query: input.question,
             mode: input.mode,
+            rerank: true,
             candidate_limit: input.retrieve_k,
             freshness,
             budget,
@@ -5794,6 +5806,7 @@ impl ContextTools<'_> {
                 project_id: build.project_id,
                 query: build.parsed.task,
                 mode: build.parsed.mode,
+                rerank: true,
                 candidate_limit: budget.candidate_limit(),
                 freshness: build.freshness,
                 budget,
@@ -5931,12 +5944,22 @@ impl ContextTools<'_> {
             current_project_for_evidence(self, cancellation.clone(), input.allow_stale).await?;
         let intent = TaskIntent::ArchitectureSurvey;
         let budget = ContextBudget::for_intent(intent);
+        let policy = if input.low_tokens {
+            NavigationPolicy::LowTokens
+        } else if input.summary {
+            NavigationPolicy::Summary
+        } else {
+            input.navigation
+        };
         let packet = retrieve_context_packet(
             self,
             ContextRetrievalInput {
                 project_id: &project_id,
                 query: input.query,
                 mode: input.mode,
+                // Decision navigation judges and reads candidates itself; the
+                // local cross-encoder would only add its latency before it.
+                rerank: !self.runtime.decision_navigation_configured(policy),
                 candidate_limit: budget.candidate_limit(),
                 freshness,
                 budget,
@@ -5974,13 +5997,7 @@ impl ContextTools<'_> {
                     .map_err(|error| project_error(&error))?
                     .with_native_sources(&sources)
                     .map_err(|error| project_error(&error))?
-                    .with_policy(if input.low_tokens {
-                        NavigationPolicy::LowTokens
-                    } else if input.summary {
-                        NavigationPolicy::Summary
-                    } else {
-                        input.navigation
-                    }),
+                    .with_policy(policy),
                 cancellation,
             )
             .await

@@ -244,15 +244,31 @@ embedding, reranker and chat settings, and adds this optional tier:
 ```
 
 Enabling the tier permits sending the exploration question, candidate metadata
-and bounded source excerpts to Typesafe. Each request uses Jev's parallel
-questions against shared state: one chooses the next allowed operation, while
-another assesses source sufficiency. The model and endpoint are pinned; Jev
-uses its typed decision API, not a chat endpoint. The default request timeout
-is five seconds; `timeoutMs` accepts at most 30,000.
+(name, kind, bounded signature, path and lines) and bounded source excerpts to
+Typesafe. Each request asks Jev's parallel questions against shared state: one
+chooses the next allowed operation, one assesses source sufficiency, and one
+judges each unread candidate's relevance (up to 24 per round). Candidates judged
+relevant (probability at least 0.5) are read together, up to four per round, in
+the same round as the chosen operation, and navigation finishes as soon as
+sufficiency reaches 0.85 with source present. Most explorations therefore need
+one or two provider round trips. The model and endpoint are pinned; Jev uses its
+typed decision API, not a chat endpoint. The default request timeout is five
+seconds; `timeoutMs` accepts at most 30,000.
+
+When navigation will consult a usable decision tier, exploration skips the local
+cross-encoder reranker: Jev judges and reads the candidates itself, and the
+packet reports reranking as not requested. If the provider then fails, the
+packet keeps its unreranked vector order and navigation reports
+`provider_unavailable`. `--decision native`, summary and low-token exploration
+keep the configured reranker. Navigation discloses evidence captured under the
+exploration request's own freshness check; its closing source check rejects the
+result if files changed while it ran. Provider state is kept under 60 KiB by
+first omitting signatures and then older additional source windows.
 
 Exploration always retains its native packet and source windows. The additional
-`navigation` object records the model, generation, decisions, confidence,
-candidate truncation, source windows and stop reason. Assistance is bounded to
+`navigation` object records the model, generation, decisions (each with its
+provider `round`), confidence, candidate truncation, source windows and stop
+reason. Candidates carry the latest advisory `relevance` probability once judged. Assistance is bounded to
 seven operations, 40 candidate identities, 4 KiB per additional source window
 and a 30-second deadline covering navigation and its freshness checks. On expiry,
 Cartograph cancels and joins navigation-owned work; joining an active filesystem

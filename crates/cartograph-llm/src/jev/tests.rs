@@ -44,6 +44,7 @@ fn questions() -> BTreeMap<String, JevQuestion> {
             "sufficient".to_owned(),
             JevQuestion::Noul {
                 instructions: "Is the available source sufficient?".to_owned(),
+                criteria: None,
             },
         ),
     ])
@@ -365,4 +366,49 @@ async fn jev_live_parallel_decision() {
     assert!(
         matches!(result.answers.get("sufficient"), Some(JevAnswer::Noul { noul }) if *noul < 0.5)
     );
+}
+
+#[test]
+fn noul_criteria_serialize_with_api_names_and_share_criterion_bounds() {
+    let criteria = |holds: String| {
+        BTreeMap::from([(
+            "relevant".to_owned(),
+            JevQuestion::Noul {
+                instructions: "Does the candidate implement the behavior?".to_owned(),
+                criteria: Some(NoulCriteria {
+                    holds,
+                    fails: "Only shares vocabulary with the task.".to_owned(),
+                }),
+            },
+        )])
+    };
+    let encoded = encode_request(
+        &serde_json::json!({"task": "x"}),
+        &criteria("Its body decides the behavior.".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("bounded criteria: {error}"));
+    let request: Value =
+        serde_json::from_slice(&encoded).unwrap_or_else(|error| panic!("request json: {error}"));
+    assert_eq!(
+        request["questions"]["relevant"]["criteria"],
+        serde_json::json!({"true": "Its body decides the behavior.", "false": "Only shares vocabulary with the task."})
+    );
+    for invalid in [String::new(), "x".repeat(2049), "nul\0".to_owned()] {
+        assert_eq!(
+            encode_request(&serde_json::json!({"task": "x"}), &criteria(invalid)),
+            Err(JevError::RequestLimit)
+        );
+    }
+    let without = BTreeMap::from([(
+        "sufficient".to_owned(),
+        JevQuestion::Noul {
+            instructions: "Is it sufficient?".to_owned(),
+            criteria: None,
+        },
+    )]);
+    let encoded = encode_request(&serde_json::json!({"task": "x"}), &without)
+        .unwrap_or_else(|error| panic!("criteria-free noul: {error}"));
+    let request: Value =
+        serde_json::from_slice(&encoded).unwrap_or_else(|error| panic!("request json: {error}"));
+    assert!(request["questions"]["sufficient"].get("criteria").is_none());
 }

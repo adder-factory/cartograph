@@ -1153,6 +1153,7 @@ async fn smoke_jev(project: &Path, timeout: Duration) -> SmokeRow {
             "ready".to_owned(),
             JevQuestion::Noul {
                 instructions: "Is the supplied probe status ready?".to_owned(),
+                criteria: None,
             },
         )]);
         let decision = client

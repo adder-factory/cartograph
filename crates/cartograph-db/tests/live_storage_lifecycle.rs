@@ -92,6 +92,8 @@ async fn storage_lifecycle_is_bounded_observable_and_online() {
 
     retention_progress::assert_retention_progress(&database, &pool, &schema).await;
     retention_progress::assert_search_budget_progress(&database, &pool, &schema).await;
+    retention_progress::assert_keyset_drain_across_transactions(&database, &pool, &schema).await;
+    retention_progress::assert_slow_parent_delete_is_deferred(&database, &pool, &schema).await;
     retention_bounds::assert_pool_deadline(&database, &pool, &schema).await;
     retention_bounds::assert_ddl_budget_progress(&database, &pool, &schema).await;
     drop(database);

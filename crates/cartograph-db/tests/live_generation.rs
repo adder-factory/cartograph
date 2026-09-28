@@ -2569,6 +2569,23 @@ async fn publish_initial_generation(
         ),
     )
     .await;
+    // Field provenance is probed inside the BM25 index for the returned rows
+    // only; the name and code match while the natural text does not.
+    let hits = database
+        .search_current_code(SearchQuery::new(
+            CurrentGenerationLookup::new(project, current.generation_id()),
+            "http response",
+            SEARCH_LIMIT,
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("component search failed: {error}"));
+    assert_eq!(
+        hits[0].components(),
+        [
+            cartograph_db::SearchComponent::QualifiedName,
+            cartograph_db::SearchComponent::Code
+        ]
+    );
     current
 }
 

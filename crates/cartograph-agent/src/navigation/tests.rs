@@ -40,7 +40,7 @@ fn offered_actions_cannot_repeat_or_use_unobserved_provider_paths() {
     );
     assert_eq!(actions.offered.len(), 1);
     let decision = response("../../secret", &BTreeMap::new());
-    assert!(selected_step(&actions.offered, &decision).is_none());
+    assert!(selected_step(&actions.offered, &decision, 0).is_none());
     assert_eq!(
         query_identifiers("find calculate_total and crate::parse while ignoring normal prose"),
         ["calculate_total", "crate::parse"]
@@ -55,9 +55,12 @@ fn candidate_admission_bounds_bytes_and_deduplicates_identity() {
         path: "src/a.rs".to_owned(),
         name: "parse".to_owned(),
         symbol_kind: "function".to_owned(),
+        signature: bounded_signature(&"é".repeat(200)),
         start_line: Some(1),
         end_line: Some(2),
+        relevance: None,
     };
+    assert!(candidate.signature.len() <= SIGNATURE_TEXT_LIMIT);
     let mut excessive = candidate.clone();
     excessive.name = "n".repeat(513);
     admit_candidate(&mut report, excessive);
@@ -98,10 +101,15 @@ impl DecisionProvider for Scripted {
         state: &Value,
         questions: &BTreeMap<String, JevQuestion>,
     ) -> impl Future<Output = Result<JevDecision, JevError>> {
-        assert_eq!(
-            questions.len(),
-            2,
-            "both independent decisions share one request"
+        assert!(
+            questions.contains_key("next") && questions.contains_key("sufficient"),
+            "every independent decision shares one request"
+        );
+        assert!(
+            questions
+                .keys()
+                .all(|key| key == "next" || key == "sufficient" || key.starts_with("relevant_")),
+            "only bounded relevance questions accompany the round decisions"
         );
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
         if call == 1 && self.error_after_read {
@@ -240,6 +248,88 @@ impl DecisionProvider for ChangedSource<'_> {
     }
 }
 
+/// Judges every candidate relevant in the first round and declares the read
+/// source sufficient in the second, so one fan-out round replaces several
+/// sequential read decisions.
+struct FanOut {
+    calls: AtomicUsize,
+    judged: AtomicUsize,
+}
+impl DecisionProvider for FanOut {
+    fn decide(
+        &self,
+        state: &Value,
+        questions: &BTreeMap<String, JevQuestion>,
+    ) -> impl Future<Output = Result<JevDecision, JevError>> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let Some(JevQuestion::Choice { criteria, .. }) = questions.get("next") else {
+            panic!("choice question missing");
+        };
+        let relevance = questions
+            .keys()
+            .filter(|key| key.starts_with("relevant_"))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut decision = response("finish", criteria);
+        if call == 0 {
+            let candidates = state["candidates"]
+                .as_array()
+                .map_or(0, Vec::len)
+                .min(MAXIMUM_RELEVANCE_QUESTIONS);
+            assert!(candidates > 0);
+            assert_eq!(
+                relevance.len(),
+                candidates,
+                "every unread candidate is judged"
+            );
+            self.judged.store(candidates, Ordering::SeqCst);
+            for key in relevance {
+                decision.answers.insert(key, JevAnswer::Noul { noul: 0.9 });
+            }
+        } else {
+            assert_eq!(
+                state["sourceWindows"].as_array().map_or(0, Vec::len),
+                self.judged
+                    .load(Ordering::SeqCst)
+                    .min(MAXIMUM_READS_PER_ROUND),
+                "the second round sees every source read in the first"
+            );
+            decision
+                .answers
+                .insert("sufficient".to_owned(), JevAnswer::Noul { noul: 0.95 });
+            for key in relevance {
+                decision.answers.insert(key, JevAnswer::Noul { noul: 0.1 });
+            }
+        }
+        std::future::ready(Ok(decision))
+    }
+}
+
+/// Declares the native source sufficient while still naming a read, which must
+/// not execute once sufficiency clears the stop threshold.
+struct AlreadySufficient;
+impl DecisionProvider for AlreadySufficient {
+    fn decide(
+        &self,
+        _: &Value,
+        questions: &BTreeMap<String, JevQuestion>,
+    ) -> impl Future<Output = Result<JevDecision, JevError>> {
+        let Some(JevQuestion::Choice { criteria, .. }) = questions.get("next") else {
+            panic!("choice question missing");
+        };
+        let read = criteria
+            .keys()
+            .find(|key| key.starts_with("read_"))
+            .unwrap_or_else(|| panic!("fixture offers a read"))
+            .clone();
+        let mut decision = response(&read, criteria);
+        decision
+            .answers
+            .insert("sufficient".to_owned(), JevAnswer::Noul { noul: 0.9 });
+        std::future::ready(Ok(decision))
+    }
+}
+
 fn navigator<'a>(
     runtime: &'a ProjectRuntime,
     project: &'a ProjectId,
@@ -302,6 +392,7 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
         .await
         .unwrap_or_else(|e| panic!("packet: {e}"));
     verify_native_and_outage(&runtime, &project, &packet).await;
+    verify_fan_out_round(&runtime, &project, &packet).await;
     verify_stop_conditions(&runtime, &project, &packet).await;
     verify_cancel_and_deadline(&runtime, &project, &packet).await;
     verify_native_evidence_and_candidate_kinds(&runtime, &project, &packet).await;
@@ -326,6 +417,45 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
         .cleanup()
         .await
         .unwrap_or_else(|e| panic!("cleanup: {e}"));
+}
+
+async fn verify_fan_out_round(
+    runtime: &ProjectRuntime,
+    project: &ProjectId,
+    packet: &ContextPacket,
+) {
+    let provider = FanOut {
+        calls: AtomicUsize::new(0),
+        judged: AtomicUsize::new(0),
+    };
+    let mut nav = navigator(runtime, project, packet);
+    nav.run_bounded(&provider)
+        .await
+        .unwrap_or_else(|e| panic!("fan-out navigation: {e}"));
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(nav.report.stop, NavigationStop::Finished);
+    let reads = nav
+        .report
+        .decisions
+        .iter()
+        .filter(|step| matches!(step.action, Action::Read { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reads.len(),
+        provider
+            .judged
+            .load(Ordering::SeqCst)
+            .min(MAXIMUM_READS_PER_ROUND)
+    );
+    assert!(reads.iter().all(|step| step.round == 0 && step.completed));
+    assert_eq!(nav.report.source_windows.len(), reads.len());
+    assert_eq!(nav.operations, reads.len());
+    assert!(
+        nav.report
+            .candidates
+            .iter()
+            .all(|candidate| candidate.relevance.is_some())
+    );
 }
 
 async fn verify_native_evidence_and_candidate_kinds(
@@ -371,6 +501,28 @@ async fn verify_native_evidence_and_candidate_kinds(
         .unwrap_or_else(|error| panic!("navigation: {error}"))
         .with_native_sources(&sources)
         .unwrap_or_else(|error| panic!("native evidence: {error}"));
+    let mut sufficient = Navigator::new(
+        runtime,
+        NavigationRequest::new(project, "find entry_point implementation", &packet)
+            .and_then(|request| request.with_native_sources(&sources))
+            .unwrap_or_else(|error| panic!("sufficient request: {error}")),
+        ProjectCancellation::new(),
+    );
+    sufficient
+        .run_bounded(&AlreadySufficient)
+        .await
+        .unwrap_or_else(|error| panic!("sufficient navigation: {error}"));
+    assert_eq!(sufficient.report.stop, NavigationStop::Finished);
+    assert_eq!(sufficient.operations, 0);
+    assert!(
+        sufficient
+            .report
+            .decisions
+            .iter()
+            .all(|step| matches!(step.action, Action::Finish) && step.completed),
+        "an unexecuted chosen operation must not be reported"
+    );
+    assert!(sufficient.report.source_windows.is_empty());
     let mut nav = Navigator::new(runtime, request, ProjectCancellation::new());
     nav.run_bounded(&NativeEvidenceProbe)
         .await

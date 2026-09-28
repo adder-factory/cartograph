@@ -291,6 +291,32 @@ impl CartographDatabase {
         Ok(Some(snapshot))
     }
 
+    /// Count failed and partially retired generations still awaiting cleanup.
+    /// Uses only the generation state index, so automatic indexing can check
+    /// its retention backlog immediately before reserving a new generation.
+    /// # Errors
+    ///
+    /// Returns an error if the count cannot be queried or is negative.
+    pub async fn terminal_generation_backlog(
+        &self,
+        project_id: &ProjectId,
+    ) -> Result<u64, StorageError> {
+        let schema = crate::database::quoted_schema(&self.schema);
+        let statement = format!(
+            r#"SELECT count(*)::bigint FROM {schema}."index_generations"
+                WHERE project_id = $1::uuid AND state IN ('failed', 'retiring')"#
+        );
+        let row = query(AssertSqlSafe(statement))
+            .bind(project_id.as_str())
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| database_error("terminal-generation-backlog"))?;
+        let count = row
+            .try_get::<i64, _>(0)
+            .map_err(|_| database_error("terminal-generation-backlog"))?;
+        u64::try_from(count).map_err(|_| database_error("terminal-generation-backlog"))
+    }
+
     /// Count all retained generation states and estimate their dominant physical bytes.
     /// # Errors
     ///

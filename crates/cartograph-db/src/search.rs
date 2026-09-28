@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use cartograph_domain::{DocumentId, FileId, GenerationId, ProjectId, SymbolId, SymbolKind};
 use serde::Serialize;
@@ -6,10 +6,7 @@ use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
 
 use crate::{
     CartographDatabase, CurrentGenerationLookup, StorageError,
-    database::{
-        parse_stored_generation_id, read_stored_bool as read_bool, read_stored_string,
-        stored_value_error,
-    },
+    database::{parse_stored_generation_id, read_stored_string, stored_value_error},
     search_relation::require_generation_search_relation,
 };
 
@@ -23,10 +20,7 @@ const HIT_DOCUMENT_KIND_COLUMN: usize = 6;
 const HIT_QUALIFIED_NAME_COLUMN: usize = 7;
 const HIT_SYMBOL_KIND_COLUMN: usize = 8;
 const HIT_SCORE_COLUMN: usize = 9;
-const HIT_QUALIFIED_NAME_MATCH_COLUMN: usize = 10;
-const HIT_CODE_MATCH_COLUMN: usize = 11;
-const HIT_NATURAL_TEXT_MATCH_COLUMN: usize = 12;
-const SEARCH_COMPONENT_CAPACITY: usize = 3;
+const HIT_ROW_ID_COLUMN: usize = 10;
 
 #[derive(Clone, Copy)]
 enum SearchFlavor {
@@ -273,37 +267,34 @@ impl CartographDatabase {
             ),
         )
         .await?;
-        let (matches, qualified_name_match, code_match, natural_text_match, operation) =
+        let (matches, fixed_components, operation): (String, Option<&[SearchComponent]>, _) =
             match flavor {
                 SearchFlavor::All => (
                     "(documents.qualified_name ||| $2 OR documents.code ||| $2 OR documents.natural_text ||| $2)".to_owned(),
-                    "documents.qualified_name ||| $2".to_owned(),
-                    "documents.code ||| $2".to_owned(),
-                    "documents.natural_text ||| $2".to_owned(),
+                    None,
                     "bm25-search",
                 ),
                 SearchFlavor::Name => (
                     "documents.symbol_id IS NOT NULL AND documents.qualified_name ||| $2".to_owned(),
-                    "true".to_owned(),
-                    "false".to_owned(),
-                    "false".to_owned(),
+                    Some(&[SearchComponent::QualifiedName]),
                     "name-search",
                 ),
                 SearchFlavor::Intent => (
                     "documents.natural_text ||| $2".to_owned(),
-                    "false".to_owned(),
-                    "false".to_owned(),
-                    "true".to_owned(),
+                    Some(&[SearchComponent::NaturalText]),
                     "intent-search",
                 ),
                 SearchFlavor::FuzzyName(distance) => (
                     format!("documents.symbol_id IS NOT NULL AND documents.qualified_name ||| $2::pdb.fuzzy({distance})"),
-                    "true".to_owned(),
-                    "false".to_owned(),
-                    "false".to_owned(),
+                    Some(&[SearchComponent::QualifiedName]),
                     "fuzzy-name-search",
                 ),
             };
+        let table = relation.qualified_table(&self.schema);
+        // Field-match flags are deliberately not select-list `|||` expressions:
+        // ParadeDB cannot evaluate a match outside its index scan and falls back
+        // to a sequential per-row evaluation that is hundreds of times slower
+        // than the top-K search itself. They are probed for the returned rows only.
         let sql = format!(
             r#"SELECT
                     documents.document_id::text,
@@ -322,29 +313,124 @@ impl CartographDatabase {
                           AND symbols.symbol_id = documents.symbol_id
                     ) AS symbol_kind,
                     pdb.score(documents.id)::double precision,
-                    {qualified_name_match},
-                    {code_match},
-                    {natural_text_match}
-                FROM {} AS documents
+                    documents.id
+                FROM {table} AS documents
                 WHERE documents.project_id = CAST($1 AS uuid)
                   AND documents.generation_id = CAST($4 AS uuid)
                   AND {matches}
                 ORDER BY pdb.score(documents.id) DESC, documents.id ASC
                 LIMIT $3"#,
             crate::database::quoted_schema(&self.schema),
-            relation.qualified_table(&self.schema)
         );
         let rows = query(AssertSqlSafe(sql))
             .bind(input.project_id.as_str())
-            .bind(input.query)
+            .bind(&input.query)
             .bind(i64::from(input.limit))
             .bind(input.expected_generation_id.as_str())
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| StorageError::DatabaseOperation { operation })?;
+        let probed = match fixed_components {
+            Some(_) => None,
+            None => Some(
+                probe_field_matches(&mut transaction, &table, &input, &rows)
+                    .await
+                    .map_err(|()| StorageError::DatabaseOperation { operation })?,
+            ),
+        };
         crate::retrieval::commit_bounded_read(transaction, operation).await?;
-        rows.iter().map(decode_hit).collect()
+        rows.iter()
+            .map(|row| {
+                let components = match (fixed_components, &probed) {
+                    (Some(fixed), _) => fixed.to_vec(),
+                    (None, Some(probed)) => probed.components(read_row_id(row)?),
+                    (None, None) => Vec::new(),
+                };
+                decode_hit(row, components)
+            })
+            .collect()
     }
+}
+
+/// Exact per-field match sets for the admitted rows of one all-field search.
+struct FieldMatches {
+    qualified_name: HashSet<i64>,
+    code: HashSet<i64>,
+    natural_text: HashSet<i64>,
+}
+
+impl FieldMatches {
+    fn components(&self, row_id: i64) -> Vec<SearchComponent> {
+        [
+            (&self.qualified_name, SearchComponent::QualifiedName),
+            (&self.code, SearchComponent::Code),
+            (&self.natural_text, SearchComponent::NaturalText),
+        ]
+        .into_iter()
+        .filter(|(rows, _)| rows.contains(&row_id))
+        .map(|(_, component)| component)
+        .collect()
+    }
+}
+
+/// Re-evaluate each field's match predicate inside the BM25 index, restricted
+/// to the returned rows by an identity term set, within the same snapshot.
+async fn probe_field_matches(
+    transaction: &mut sqlx_postgres::PgConnection,
+    table: &str,
+    input: &SearchQuery,
+    rows: &[sqlx_postgres::PgRow],
+) -> Result<FieldMatches, ()> {
+    if rows.is_empty() {
+        return Ok(FieldMatches {
+            qualified_name: HashSet::new(),
+            code: HashSet::new(),
+            natural_text: HashSet::new(),
+        });
+    }
+    let ids = rows
+        .iter()
+        .map(read_row_id)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ())?;
+    let probe = |field: &str| {
+        format!(
+            "ARRAY(SELECT probe.id FROM {table} AS probe
+                WHERE probe.project_id = CAST($1 AS uuid)
+                  AND probe.generation_id = CAST($3 AS uuid)
+                  AND probe.id = ANY($4::bigint[])
+                  AND probe.{field} ||| $2)"
+        )
+    };
+    let sql = format!(
+        "SELECT {}, {}, {}",
+        probe("qualified_name"),
+        probe("code"),
+        probe("natural_text")
+    );
+    let row = query(AssertSqlSafe(sql))
+        .bind(input.project_id.as_str())
+        .bind(&input.query)
+        .bind(input.expected_generation_id.as_str())
+        .bind(&ids)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| ())?;
+    let set = |index: usize| {
+        row.try_get::<Vec<i64>, _>(index)
+            .map(|ids| ids.into_iter().collect::<HashSet<_>>())
+            .map_err(|_| ())
+    };
+    Ok(FieldMatches {
+        qualified_name: set(0)?,
+        code: set(1)?,
+        natural_text: set(2)?,
+    })
+}
+
+fn read_row_id(row: &sqlx_postgres::PgRow) -> Result<i64, StorageError> {
+    row.try_get::<i64, _>(HIT_ROW_ID_COLUMN)
+        .map_err(|_| corrupt("search_row_id"))
 }
 
 fn validate_query(input: &SearchQuery) -> Result<(), StorageError> {
@@ -357,7 +443,10 @@ fn validate_query(input: &SearchQuery) -> Result<(), StorageError> {
     Ok(())
 }
 
-fn decode_hit(row: &sqlx_postgres::PgRow) -> Result<SearchHit, StorageError> {
+fn decode_hit(
+    row: &sqlx_postgres::PgRow,
+    components: Vec<SearchComponent>,
+) -> Result<SearchHit, StorageError> {
     let document_id = parse_document_id(row, 0)?;
     let generation_id = parse_stored_generation_id(row, 1)?;
     let file_id = parse_optional_file_id(row, 2)?;
@@ -376,16 +465,6 @@ fn decode_hit(row: &sqlx_postgres::PgRow) -> Result<SearchHit, StorageError> {
         .map_err(|_| corrupt("score"))?;
     if !score.is_finite() || score < 0.0 {
         return Err(corrupt("score"));
-    }
-    let mut components = Vec::with_capacity(SEARCH_COMPONENT_CAPACITY);
-    if read_bool(row, HIT_QUALIFIED_NAME_MATCH_COLUMN, "qualified_name_match")? {
-        components.push(SearchComponent::QualifiedName);
-    }
-    if read_bool(row, HIT_CODE_MATCH_COLUMN, "code_match")? {
-        components.push(SearchComponent::Code);
-    }
-    if read_bool(row, HIT_NATURAL_TEXT_MATCH_COLUMN, "natural_text_match")? {
-        components.push(SearchComponent::NaturalText);
     }
     if components.is_empty() {
         return Err(corrupt("search_components"));

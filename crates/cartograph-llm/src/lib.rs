@@ -22,6 +22,7 @@ pub use config::{
 };
 pub use jev::{
     JEV_ENDPOINT, JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevQuestion, JevSettings,
+    NoulCriteria,
 };
 pub use model::{EmbeddingBatch, EmbeddingError, EmbeddingModelIdentity, EmbeddingVector};
 pub use models::{
