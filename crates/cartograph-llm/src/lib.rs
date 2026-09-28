@@ -21,8 +21,8 @@ pub use config::{
     EMBEDDING_API_KEY_ENV, EMBEDDING_ENDPOINT_ENV, EMBEDDING_MODEL_ENV, EmbeddingSettings,
 };
 pub use jev::{
-    JEV_ENDPOINT, JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevQuestion, JevSettings,
-    NoulCriteria,
+    JEV_ENDPOINT, JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevFeature, JevQuestion,
+    JevSettings, NoulCriteria, jev_feature_enabled,
 };
 pub use model::{EmbeddingBatch, EmbeddingError, EmbeddingModelIdentity, EmbeddingVector};
 pub use models::{

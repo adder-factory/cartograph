@@ -87,6 +87,10 @@ pub(super) struct SetupArguments {
     response_path: Option<String>,
     #[command(flatten)]
     credentials: SetupCredentialArguments,
+    /// Jev preset only: Cartograph features allowed to consult Jev
+    /// (`explore` sends bounded source; `context` sends only candidate metadata).
+    #[arg(long, value_enum, value_delimiter = ',')]
+    jev_features: Option<Vec<JevFeatureArgument>>,
     /// Omit the 7B ask tier and reranker from local presets.
     #[arg(long)]
     minimal: bool,
@@ -666,6 +670,9 @@ fn setup_inputs(
     arguments: &SetupArguments,
     preset: SetupPreset,
 ) -> Result<(Vec<ProjectLlmTierInput>, Vec<ProjectLlmTier>), String> {
+    if arguments.jev_features.is_some() && preset != SetupPreset::Jev {
+        return Err("--jev-features applies only to --preset jev".to_owned());
+    }
     match preset {
         SetupPreset::Jev => jev_inputs(arguments),
         SetupPreset::LocalLlamaCpp => {
@@ -690,6 +697,24 @@ fn setup_inputs(
     }
 }
 
+/// Cartograph surfaces the Jev decision tier may serve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub(super) enum JevFeatureArgument {
+    /// Decision-guided exploration.
+    Explore,
+    /// Metadata-only context ranking.
+    Context,
+}
+
+impl JevFeatureArgument {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Explore => "explore",
+            Self::Context => "context",
+        }
+    }
+}
+
 fn jev_inputs(
     arguments: &SetupArguments,
 ) -> Result<(Vec<ProjectLlmTierInput>, Vec<ProjectLlmTier>), String> {
@@ -702,8 +727,10 @@ fn jev_inputs(
         return Err("Jev uses the decision tier and its pinned model/endpoint; configure only --api-key-env or --clear-credentials".to_owned());
     }
     if arguments.credentials.clear_credentials {
-        if arguments.credentials.api_key_env.is_some() {
-            return Err("--clear-credentials conflicts with --api-key-env".to_owned());
+        if arguments.credentials.api_key_env.is_some() || arguments.jev_features.is_some() {
+            return Err(
+                "--clear-credentials conflicts with --api-key-env and --jev-features".to_owned(),
+            );
         }
         return Ok((Vec::new(), vec![ProjectLlmTier::Decision]));
     }
@@ -712,10 +739,19 @@ fn jev_inputs(
         .api_key_env
         .as_deref()
         .unwrap_or("TYPESAFE_API_KEY");
-    Ok((
-        vec![ProjectLlmTierInput::jev(environment).map_err(|error| error.to_string())?],
-        Vec::new(),
-    ))
+    let mut input = ProjectLlmTierInput::jev(environment).map_err(|error| error.to_string())?;
+    if let Some(features) = &arguments.jev_features {
+        let mut names = features
+            .iter()
+            .map(|feature| feature.as_str().to_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        input = input
+            .with_decision_features(names)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok((vec![input], Vec::new()))
 }
 
 fn reject_custom_fields(arguments: &SetupArguments) -> Result<(), String> {
@@ -1755,6 +1791,7 @@ mod tests {
                 api_key_env: None,
                 clear_credentials: false,
             },
+            jev_features: None,
             minimal: false,
             yes: false,
             json: false,
@@ -1778,6 +1815,33 @@ mod tests {
         assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
         arguments.credentials.clear_credentials = false;
         arguments.endpoint = Some("https://untrusted.example".to_owned());
+        assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
+    }
+
+    #[test]
+    fn jev_features_are_written_deduplicated_and_rejected_for_other_presets() {
+        let root = tempfile::tempdir().unwrap_or_else(|e| panic!("fixture: {e}"));
+        let mut arguments = setup_arguments(root.path());
+        arguments.jev_features = Some(vec![
+            JevFeatureArgument::Context,
+            JevFeatureArgument::Explore,
+            JevFeatureArgument::Context,
+        ]);
+        let (inputs, _) = setup_inputs(&arguments, SetupPreset::Jev)
+            .unwrap_or_else(|e| panic!("Jev features: {e}"));
+        cartograph_llm::write_project_llm_tiers(root.path(), &inputs)
+            .unwrap_or_else(|e| panic!("write: {e}"));
+        let written: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.path().join(".cartograph/config.json"))
+                .unwrap_or_else(|e| panic!("read: {e}")),
+        )
+        .unwrap_or_else(|e| panic!("json: {e}"));
+        assert_eq!(
+            written["llm"]["decisionLlm"]["features"],
+            serde_json::json!(["context", "explore"])
+        );
+        assert!(setup_inputs(&arguments, SetupPreset::Ollama).is_err());
+        arguments.credentials.clear_credentials = true;
         assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
     }
 
@@ -1856,6 +1920,7 @@ mod tests {
                 api_key_env: None,
                 clear_credentials: false,
             },
+            jev_features: None,
             minimal: false,
             yes: false,
             json: false,

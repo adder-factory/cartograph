@@ -333,6 +333,8 @@ discarding the other four.
 cartograph llm migrate-credentials [PROJECT] [--tier-env TIER=ENV]
   [--apply --confirm migrate-inline-credentials]
 cartograph llm setup custom [--api-key-env ENV | --clear-credentials]
+cartograph llm setup [PROJECT] --preset jev [--api-key-env ENV]
+  [--jev-features explore,context] | [--clear-credentials]
 cartograph llm setup [PROJECT] --preset cli-bridge --tier <chat|local|ask|classify>
   --command EXECUTABLE [--arg ARG]... --input <stdin|arg>
   [--prompt-template TEMPLATE] --response-format <raw|json-path|claude>
@@ -346,7 +348,10 @@ migration requires an exact environment-value match, serializes Cartograph
 writers with a private lock, and aborts if the config bytes changed after the
 proof was made. Custom setup clears retained credentials automatically when the
 provider/endpoint origin changes; `--clear-credentials` is the explicit
-same-origin removal path and conflicts with `--api-key-env`. Backend cleanup
+same-origin removal path and conflicts with `--api-key-env`. `--jev-features`
+applies only to the Jev preset and writes the decision tier's `features` list;
+without it an existing list is preserved and a new tier permits exploration
+only. Backend cleanup
 considers only generated-name rotated logs and
 invalid current-version PID state; it preserves current logs, valid or active
 processes, and state written by an unsupported newer/older format. Cleanup JSON

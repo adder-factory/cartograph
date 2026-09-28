@@ -84,7 +84,7 @@ use cartograph_mcp::{
 use cartograph_search::{
     AffectedTest, AffectedTestsResult, BidirectionalTraversalResult, CONTEXT_ANCHOR_MAXIMUM_BYTES,
     CONTEXT_QUERY_MAXIMUM_BYTES, CentralityComparator, ContextAnchor, ContextBudget,
-    ContextBudgetInput, ContextPacket, ContextRequest, ContextRequestOptions,
+    ContextBudgetInput, ContextPacket, ContextRequest, ContextRequestOptions, DecisionRankState,
     DeterministicRetriever, EntryPointBucket, EntryPointsQuery, EvidenceItem, ExactPathQuery,
     ExactTextQuery, FusedSearchItem, FuzzyNameRequest, GraphPathRequest, GraphPathRequestInput,
     HybridSearchPacket, IndexFreshness, LexicalQuery, ParsedQualifiedQuery, QualifiedSort,
@@ -5800,22 +5800,51 @@ impl ContextTools<'_> {
     ) -> Result<(TaskIntent, ContextPacket), ToolError> {
         let intent = TaskIntent::classify(build.parsed.task);
         let budget = context_budget(intent, build.parsed.maximum_nodes)?;
-        let packet = retrieve_context_packet(
-            self,
-            ContextRetrievalInput {
-                project_id: build.project_id,
-                query: build.parsed.task,
-                mode: build.parsed.mode,
-                rerank: true,
-                candidate_limit: budget.candidate_limit(),
-                freshness: build.freshness,
-                budget,
-                intent,
-                cancellation: build.cancellation.clone(),
-                anchor_arguments: Some(build.arguments),
-            },
-        )
-        .await?;
+        // An opted-in decision tier ranks retrieval candidates after fusion;
+        // the local cross-encoder would only add its latency before it.
+        let decision_rank = build.parsed.mode != SearchMode::Deterministic
+            && self.runtime.decision_context_rank_configured();
+        let retrieve = |rerank: bool| {
+            retrieve_context_packet(
+                self,
+                ContextRetrievalInput {
+                    project_id: build.project_id,
+                    query: build.parsed.task,
+                    mode: build.parsed.mode,
+                    rerank,
+                    candidate_limit: budget.candidate_limit(),
+                    freshness: build.freshness,
+                    budget,
+                    intent,
+                    cancellation: build.cancellation.clone(),
+                    anchor_arguments: Some(build.arguments),
+                },
+            )
+        };
+        let packet = retrieve(!decision_rank).await?;
+        if build.parsed.mode == SearchMode::Deterministic {
+            return Ok((intent, packet));
+        }
+        let packet = self
+            .runtime
+            .decision_rank_context(build.parsed.task, packet, build.cancellation)
+            .await
+            .map_err(|error| project_error(&error))?;
+        let rank = packet.decision_rank().cloned();
+        if decision_rank
+            && rank
+                .as_ref()
+                .is_some_and(|rank| rank.state() == DecisionRankState::ProviderUnavailable)
+        {
+            // A provider outage must not leave the packet worse than the
+            // configured default: rebuild with the local cross-encoder and keep
+            // the provider outcome as provenance.
+            let mut fallback = retrieve(true).await?;
+            if let Some(rank) = rank {
+                fallback = fallback.with_decision_rank(rank);
+            }
+            return Ok((intent, fallback));
+        }
         Ok((intent, packet))
     }
 
@@ -21815,6 +21844,7 @@ fn context_plan_result(evidence: ContextEvidence<'_, '_>) -> Result<ToolResult, 
             "abstention": evidence.packet.abstention(),
             "generation": evidence.packet.generation(),
             "editCandidates": evidence.packet.edit_candidates(),
+            "decisionRank": evidence.packet.decision_rank(),
             "evidence": evidence_preview,
             "affectedTests": test_preview,
             "sourceWindows": evidence.source_windows,
@@ -21855,6 +21885,7 @@ fn compact_context_plan(evidence: ContextEvidence<'_, '_>) -> Result<Value, Tool
         "abstention": packet.abstention(),
         "generation": packet.generation(),
         "editCandidates": packet.edit_candidates(),
+        "decisionRank": packet.decision_rank(),
         "evidence": evidence_preview,
         "affectedTests": test_preview,
         "explain": evidence.parsed.presentation.explain,
@@ -21917,8 +21948,13 @@ fn add_compact_context_location(projection: &mut Value, item: &EvidenceItem) {
 }
 
 fn add_compact_context_ranking(projection: &mut Value, item: &EvidenceItem, explain: bool) {
+    // `rank` stays the retrieval fusion rank; decision ranking reorders the list
+    // and reports its advisory probability separately.
     if let Some(rank) = item.fused_rank() {
         projection["rank"] = json!(rank);
+    }
+    if let Some(relevance) = item.decision_relevance() {
+        projection["relevance"] = json!(relevance);
     }
     if !item.bm25_components().is_empty() {
         projection["components"] = json!(item.bm25_components());

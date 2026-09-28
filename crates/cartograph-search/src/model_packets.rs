@@ -310,6 +310,8 @@ pub enum EditCandidateBasis {
     ExactAnchor,
     /// The file had the strongest distinct task-term concentration in retrieval evidence.
     TaskTerms,
+    /// A decision provider judged the file's retrieval candidates most relevant.
+    DecisionRelevance,
 }
 
 /// One bounded primary file candidate for a coding change.
@@ -423,6 +425,60 @@ pub(crate) struct ContextPacketDetails {
     pub(crate) affected_tests: Vec<AffectedTest>,
     pub(crate) working_tree_overlay: WorkingTreeOverlay,
     pub(crate) truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) decision_rank: Option<DecisionRankEvidence>,
+}
+
+/// Outcome of optional decision-provider ranking of retrieval evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionRankState {
+    /// Retrieval candidates were judged and reordered.
+    Applied,
+    /// Fewer than two retrieval candidates existed; order is unchanged.
+    NoCandidates,
+    /// The provider failed; native order is retained.
+    ProviderUnavailable,
+}
+
+/// Provenance for decision-provider ranking; probabilities are advisory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DecisionRankEvidence {
+    model: String,
+    state: DecisionRankState,
+    judged: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_error: Option<String>,
+}
+
+impl DecisionRankEvidence {
+    /// Record one ranking outcome with a stable redacted provider error code.
+    #[must_use]
+    pub fn new(
+        model: impl Into<String>,
+        state: DecisionRankState,
+        judged: usize,
+        provider_error: Option<String>,
+    ) -> Self {
+        Self {
+            model: model.into(),
+            state,
+            judged,
+            provider_error,
+        }
+    }
+
+    /// Ranking outcome.
+    #[must_use]
+    pub const fn state(&self) -> DecisionRankState {
+        self.state
+    }
+
+    /// Number of retrieval candidates submitted for judgment.
+    #[must_use]
+    pub const fn judged(&self) -> usize {
+        self.judged
+    }
 }
 
 /// Hard bounds for one compare-to-ref evidence packet.
@@ -813,6 +869,89 @@ impl ContextPacket {
     #[must_use]
     pub const fn graph_direction(&self) -> Option<ContextGraphDirection> {
         self.details.graph_direction
+    }
+
+    /// Positions of retrieval-only candidates with a symbol identity, in packet
+    /// order and bounded by `limit`. Exact anchors and graph expansion are
+    /// never eligible for decision ranking.
+    #[must_use]
+    pub fn retrieval_evidence_indices(&self, limit: usize) -> Vec<usize> {
+        self.details
+            .evidence
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.symbol_id().is_some() && item.is_retrieval_candidate())
+            .map(|(index, _)| index)
+            .take(limit)
+            .collect()
+    }
+
+    /// Reorder judged retrieval candidates by descending advisory relevance
+    /// (ties keep packet order) within the positions they already occupy, and
+    /// record each probability. Every other item keeps its position. Unless an
+    /// exact anchor selected them, primary edit candidates become the files of
+    /// the most relevant judged items in that order.
+    /// # Errors
+    ///
+    /// Rejects duplicate, out-of-range or ineligible positions and
+    /// probabilities outside zero to one.
+    pub fn with_decision_relevance(
+        mut self,
+        task: &str,
+        judged: &[(usize, f64)],
+    ) -> Result<Self, RetrievalError> {
+        let invalid = || RetrievalError::InvalidInput {
+            field: "decision_relevance",
+        };
+        let mut positions = judged.iter().map(|(index, _)| *index).collect::<Vec<_>>();
+        positions.sort_unstable();
+        if positions.windows(2).any(|pair| pair[0] == pair[1])
+            || judged.iter().any(|(index, relevance)| {
+                !relevance.is_finite()
+                    || !(0.0..=1.0).contains(relevance)
+                    || self
+                        .details
+                        .evidence
+                        .get(*index)
+                        .is_none_or(|item| !item.is_retrieval_candidate())
+            })
+        {
+            return Err(invalid());
+        }
+        let mut ranked = judged.to_vec();
+        ranked.sort_by(|left, right| right.1.total_cmp(&left.1).then(left.0.cmp(&right.0)));
+        let items = ranked
+            .iter()
+            .map(|(index, relevance)| {
+                let mut item = self.details.evidence[*index].clone();
+                item.set_decision_relevance(*relevance);
+                item
+            })
+            .collect::<Vec<_>>();
+        for (position, item) in positions.into_iter().zip(items) {
+            self.details.evidence[position] = item;
+        }
+        if let Some(candidates) = crate::packet::decision_edit_candidates(
+            task,
+            &self.details.evidence,
+            &self.details.edit_candidates,
+        ) {
+            self.details.edit_candidates = candidates;
+        }
+        Ok(self)
+    }
+
+    /// Attach decision-ranking provenance.
+    #[must_use]
+    pub fn with_decision_rank(mut self, rank: DecisionRankEvidence) -> Self {
+        self.details.decision_rank = Some(rank);
+        self
+    }
+
+    /// Decision-ranking provenance, when ranking was attempted.
+    #[must_use]
+    pub const fn decision_rank(&self) -> Option<&DecisionRankEvidence> {
+        self.details.decision_rank.as_ref()
     }
 
     /// Attach caller-verified changed-source evidence to an immutable packet.

@@ -291,8 +291,45 @@ retains the configured model and endpoint on failure. Set that variable in the
 MCP server process (or its secret-manager launcher), not only an unrelated shell.
 
 Without `decisionLlm`, exploration stays native. `--decision native`, summary
-and low-token exploration also skip Jev. `context`, `find`, `graph`, indexing
-and test selection keep their existing policies. `llm smoke` can verify the
+and low-token exploration also skip Jev.
+
+The tier's optional `features` list selects which surfaces may consult Jev.
+Without it, only exploration does. Add `context` to let `context` rank its
+retrieval candidates:
+
+```sh
+cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY \
+  --jev-features explore,context
+```
+
+```json
+"decisionLlm": {
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "features": ["explore", "context"]
+}
+```
+
+Context ranking sends the task text (up to 1,024 bytes, which can include
+anything pasted into the task) and, for up to 24 BM25/semantic candidates, their
+qualified name, document kind, path and line range; it never sends indexed
+source. One request judges every candidate's relevance in parallel.
+Candidates are reordered by that advisory probability within the positions
+retrieval candidates already occupied, so exact anchors and graph expansion keep
+their places, and each judged item reports `decision_relevance`. The packet's
+`decision_rank` block records the model, outcome (`applied`, `no_candidates`
+or `provider_unavailable` with a redacted `provider_error`) and judged count.
+Unless an exact anchor selected them, primary edit candidates become the files of
+the relevant judged items (probability at least 0.5) in ranked order, with basis
+`decision_relevance`. Compact and plan projections report `decisionRank` and a
+per-item `relevance`; their `rank` remains the retrieval fusion rank. When
+context ranking is enabled the local cross-encoder is skipped. If the provider
+then fails, the packet is rebuilt through the configured reranker and keeps the
+`provider_unavailable` outcome, so an outage adds at most the request timeout
+(`timeoutMs`, five seconds by default) to the default ranking. `mode: deterministic` never consults Jev. An empty
+`features` list disables every surface while keeping the tier configured.
+`find`, `graph`, indexing and test selection keep their existing policies. `llm smoke` can verify the
 configured key with a small real request. Disable Jev with:
 
 ```sh

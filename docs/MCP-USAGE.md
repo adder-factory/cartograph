@@ -246,6 +246,15 @@ lookup, implementation trace, change planning, test selection, error diagnosis,
 architecture survey, and documentation lookup. Intent selects bounded candidate,
 graph, evidence, and affected-test policy and is returned in the packet.
 
+When the project's Jev decision tier lists the `context` feature, the packet's
+BM25/semantic candidates are reordered by one metadata-only relevance request
+(no source is sent). Anchors and graph expansion keep their positions; judged
+items carry an advisory `decision_relevance`, primary edit candidates follow the
+relevant judged files (basis `decision_relevance`), and `decision_rank` reports
+the model, outcome and judged count in every output format. A provider failure
+rebuilds the packet through the configured reranker.
+`mode: deterministic` never consults the provider.
+
 When the durable generation is stale, supported changed/untracked files may
 contribute a separate live working-tree overlay. Overlay items include path,
 Git change kind, exact content digest, line-bounded excerpt, matched terms, and

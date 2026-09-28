@@ -66,6 +66,7 @@ use tokio::task::JoinHandle;
 mod compare;
 mod coverage;
 mod dead_code;
+mod decision_rerank;
 mod dependencies;
 mod diff_review;
 mod drift;

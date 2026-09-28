@@ -8,7 +8,8 @@ use std::{
 use cartograph_db::{CurrentSymbolRecord, CurrentSymbolSetLookup};
 use cartograph_domain::{GenerationId, NormalizedPath, ProjectId, SymbolId};
 use cartograph_llm::{
-    JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevQuestion, JevSettings, NoulCriteria,
+    JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevFeature, JevQuestion, JevSettings,
+    NoulCriteria, jev_feature_enabled,
 };
 use cartograph_search::{
     ContextPacket, DeterministicRetriever, ExactPathQuery, ExactTextQuery, TraversalBudget,
@@ -234,7 +235,7 @@ impl NavigationReport {
     }
 }
 
-trait DecisionProvider {
+pub(crate) trait DecisionProvider {
     async fn decide(
         &self,
         state: &Value,
@@ -260,7 +261,10 @@ impl ProjectRuntime {
     #[must_use]
     pub fn decision_navigation_configured(&self, policy: NavigationPolicy) -> bool {
         policy == NavigationPolicy::Auto
-            && matches!(JevSettings::try_from_project(&self.root), Ok(Some(_)))
+            && matches!(
+                JevSettings::try_from_project(&self.root),
+                Ok(Some(settings)) if settings.allows(JevFeature::Explore)
+            )
     }
 
     /// Let an optional Jev provider select bounded reads from native evidence.
@@ -290,6 +294,9 @@ impl ProjectRuntime {
             return Ok(NavigationReport::new(stop, generation));
         }
         let mut report = NavigationReport::new(NavigationStop::NotConfigured, generation);
+        if !jev_feature_enabled(&self.root, JevFeature::Explore) {
+            return Ok(report);
+        }
         let client = match JevSettings::try_from_project(&self.root)
             .and_then(|settings| settings.map(JevClient::new).transpose())
         {

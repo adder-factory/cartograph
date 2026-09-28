@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 
 use futures_util::StreamExt as _;
 use reqwest::{StatusCode, header};
@@ -26,12 +31,65 @@ const MAXIMUM_QUESTIONS: usize = 64;
 const MAXIMUM_OPTIONS: usize = 255;
 const MAXIMUM_INSTRUCTION_BYTES: usize = 8 * 1024;
 
+/// Cartograph surfaces that may disclose data to the decision provider. A
+/// decision tier without a `features` list permits exploration only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum JevFeature {
+    /// Exploration navigation: question, candidate metadata and bounded source.
+    Explore,
+    /// Context ranking: question and candidate metadata, never source.
+    Context,
+}
+
+impl JevFeature {
+    /// Stable configuration name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Explore => "explore",
+            Self::Context => "context",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "explore" => Some(Self::Explore),
+            "context" => Some(Self::Context),
+            _ => None,
+        }
+    }
+}
+
+/// Features permitted by one decision tier; unknown names are ignored.
+fn configured_features(config: &ProjectLlmTierConfig) -> BTreeSet<JevFeature> {
+    config.decision_features().map_or_else(
+        || BTreeSet::from([JevFeature::Explore]),
+        |names| {
+            names
+                .iter()
+                .filter_map(|name| JevFeature::parse(name))
+                .collect()
+        },
+    )
+}
+
+/// Whether the project's decision tier permits `feature`, independent of
+/// whether its credential is currently available.
+#[must_use]
+pub fn jev_feature_enabled(root: &Path, feature: JevFeature) -> bool {
+    matches!(
+        load_exact_project_llm_tier(root, ProjectLlmTier::Decision),
+        Ok(Some(config)) if configured_features(&config).contains(&feature)
+    )
+}
+
 /// Validated optional Jev configuration; debug output omits endpoint and credentials.
 #[derive(Clone)]
 pub struct JevSettings {
     endpoint: Url,
     api_key: SecretString,
     timeout: Duration,
+    features: BTreeSet<JevFeature>,
 }
 
 impl std::fmt::Debug for JevSettings {
@@ -39,6 +97,7 @@ impl std::fmt::Debug for JevSettings {
         f.debug_struct("JevSettings")
             .field("model", &JEV_MODEL)
             .field("timeout", &self.timeout)
+            .field("features", &self.features)
             .finish_non_exhaustive()
     }
 }
@@ -87,7 +146,14 @@ impl JevSettings {
             endpoint,
             api_key: SecretString::from(key),
             timeout,
+            features: configured_features(config),
         })
+    }
+
+    /// Whether this tier permits `feature` to consult the provider.
+    #[must_use]
+    pub fn allows(&self, feature: JevFeature) -> bool {
+        self.features.contains(&feature)
     }
 }
 
