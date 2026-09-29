@@ -272,7 +272,9 @@ external PostgreSQL. Restore, upgrade, derived-index rebuild, remove, v1 import,
 and prune require explicit operation-specific confirmation. `db usage` is
 read-only: it verifies the exact current append-only migration ledger and fails
 with migration guidance instead of creating or upgrading a schema. `db compact`
-is a dry run unless `--apply --confirm compact-online-indexes` is supplied.
+is a dry run unless `--apply --confirm compact-online-indexes` is supplied; with
+`pgstattuple` installed it selects only B-trees whose measured reclaim reaches
+`--minimum-reclaimable-bytes` (default 64 MiB), and otherwise falls back to size.
 `db compact --heap` is a separate reclaimable-heap/TOAST plan; apply requires
 `--confirm compact-heap-relations`, no live operation leases, and accepts the
 `ACCESS EXCLUSIVE` lock taken by one bounded `VACUUM FULL` at a time. Managed

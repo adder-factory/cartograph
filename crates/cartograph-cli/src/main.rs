@@ -1202,13 +1202,16 @@ struct DatabaseCompactArguments {
     /// Maximum heap relations rewritten one at a time.
     #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u16).range(1..=32))]
     maximum_relations: u16,
-    /// Maximum aggregate bytes admitted into one resumable plan.
+    /// Maximum aggregate bytes admitted into one resumable plan. Must be at
+    /// least --minimum-reclaimable-bytes.
     #[arg(long, default_value_t = 16 * GIBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
     maximum_candidate_bytes: u64,
     /// Ignore B-tree indexes smaller than this allocation.
     #[arg(long, default_value_t = 8 * MEBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
     minimum_index_bytes: u64,
-    /// Ignore heap relations with less estimated reclaimable allocation.
+    /// Ignore indexes and heap relations with less estimated reclaimable
+    /// allocation. Index estimates need `pgstattuple`; without it, index
+    /// candidates are chosen by size alone.
     #[arg(long, default_value_t = 64 * MEBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
     minimum_reclaimable_bytes: u64,
     /// Hard PostgreSQL deadline for each index rebuild or heap rewrite.
@@ -4066,6 +4069,7 @@ fn database_compaction_policy(
             maximum_indexes: arguments.maximum_indexes,
             maximum_candidate_bytes: arguments.maximum_candidate_bytes,
             minimum_index_bytes: arguments.minimum_index_bytes,
+            minimum_reclaimable_bytes: arguments.minimum_reclaimable_bytes,
             statement_timeout: Duration::from_secs(arguments.timeout_seconds),
         })
         .map(DatabaseCompactionPolicy::Online)

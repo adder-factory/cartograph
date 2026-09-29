@@ -104,8 +104,7 @@ async fn storage_lifecycle_is_bounded_observable_and_online() {
     pool.close().await;
 }
 
-async fn assert_heap_storage_compaction(
-    database: &CartographDatabase,
+async fn create_heap_bloat_fixture(
     pool: &sqlx_postgres::PgPool,
     schema: &str,
     project: &ProjectId,
@@ -130,11 +129,22 @@ async fn assert_heap_storage_compaction(
                 FROM generate_series(1, 8192) AS chunk
             ) AS generated"#
     );
-    query(AssertSqlSafe(insert))
+    query(AssertSqlSafe(insert.clone()))
         .bind(project.as_str())
         .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("heap bloat fixture insert failed: {error}"));
+    // Live rows written after the deleted ones keep VACUUM from truncating the
+    // freed pages, which a rewrite then returns.
+    query(AssertSqlSafe(
+        insert
+            .replace("'heap-fixture/'", "'heap-keeper/'")
+            .replace("generate_series(1, 24)", "generate_series(101, 102)"),
+    ))
+    .bind(project.as_str())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("heap keeper fixture insert failed: {error}"));
     query(AssertSqlSafe(format!(
         r#"DELETE FROM "{schema}"."native_parse_cache"
             WHERE normalized_path LIKE 'heap-fixture/%'"#
@@ -148,11 +158,20 @@ async fn assert_heap_storage_compaction(
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("heap bloat fixture vacuum failed: {error}"));
+}
+
+async fn assert_heap_storage_compaction(
+    database: &CartographDatabase,
+    pool: &sqlx_postgres::PgPool,
+    schema: &str,
+    project: &ProjectId,
+) {
+    create_heap_bloat_fixture(pool, schema, project).await;
 
     let policy = HeapCompactionPolicy::new(HeapCompactionPolicyInput {
         maximum_relations: 8,
         maximum_candidate_bytes: 64 * 1024 * 1024,
-        minimum_reclaimable_bytes: 1,
+        minimum_reclaimable_bytes: 256 * 1024,
         statement_timeout: Duration::from_mins(1),
     })
     .unwrap_or_else(|error| panic!("heap compaction policy failed: {error}"));
@@ -165,7 +184,15 @@ async fn assert_heap_storage_compaction(
         .iter()
         .find(|candidate| candidate.table == "native_parse_cache")
         .unwrap_or_else(|| panic!("native parse cache heap candidate was missing"));
-    assert!(cache.estimated_reclaimable_bytes > 0);
+    // 24 deleted 128 KiB values sit in TOAST pages before the live ones.
+    assert!(
+        cache.estimated_reclaimable_bytes >= 2 * 1024 * 1024,
+        "{cache:?}"
+    );
+    assert!(
+        cache.estimated_rewritten_bytes < cache.heap_bytes,
+        "{cache:?}"
+    );
     assert!(plan.requires_access_exclusive);
 
     let active_lease = database
@@ -207,6 +234,17 @@ async fn assert_heap_storage_compaction(
         .unwrap_or_else(|| panic!("native parse cache heap result was missing"));
     assert!(cache.bytes_after <= cache.bytes_before);
     assert!(cache.reclaimed_bytes > 0);
+    let replanned = database
+        .heap_compaction_plan(policy)
+        .await
+        .unwrap_or_else(|error| panic!("heap compaction re-plan failed: {error}"));
+    assert!(
+        replanned
+            .candidates
+            .iter()
+            .all(|candidate| candidate.table != "native_parse_cache"),
+        "a freshly rewritten heap was selected again: {replanned:?}"
+    );
 }
 
 async fn assert_generation_retention_fences(
@@ -358,18 +396,99 @@ async fn assert_parse_cache_and_ready_retention(
     assert_ne!(first_ready, second_ready);
 }
 
+/// A packed index at a low fill factor is not bloat, while an index whose rows
+/// were all deleted is almost entirely reclaimable.
+async fn assert_measured_selection_respects_fillfactor_and_emptied_indexes(
+    database: &CartographDatabase,
+    pool: &sqlx_postgres::PgPool,
+    schema: &str,
+) {
+    for statement in [
+        format!(r#"CREATE TABLE "{schema}"."storage_measure_fixture" (id bigint NOT NULL)"#),
+        format!(
+            r#"INSERT INTO "{schema}"."storage_measure_fixture" (id)
+                SELECT value FROM generate_series(1, 300000) AS value"#
+        ),
+        format!(
+            r#"CREATE INDEX storage_measure_sparse_idx
+                ON "{schema}"."storage_measure_fixture" (id) WITH (fillfactor = 50)"#
+        ),
+        format!(r#"CREATE TABLE "{schema}"."storage_emptied_fixture" (id bigint NOT NULL)"#),
+        format!(
+            r#"INSERT INTO "{schema}"."storage_emptied_fixture" (id)
+                SELECT value FROM generate_series(1, 300000) AS value"#
+        ),
+        format!(r#"CREATE INDEX storage_emptied_idx ON "{schema}"."storage_emptied_fixture" (id)"#),
+        format!(r#"DELETE FROM "{schema}"."storage_emptied_fixture""#),
+        format!(r#"VACUUM "{schema}"."storage_emptied_fixture""#),
+    ] {
+        query(AssertSqlSafe(statement))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("measurement fixture failed: {error}"));
+    }
+    let policy_input = StorageCompactionPolicyInput {
+        maximum_indexes: 16,
+        maximum_candidate_bytes: 128 * 1024 * 1024,
+        minimum_index_bytes: 1024 * 1024,
+        minimum_reclaimable_bytes: 1024 * 1024,
+        statement_timeout: STATEMENT_TIMEOUT,
+    };
+    let policy = StorageCompactionPolicy::new(policy_input)
+        .unwrap_or_else(|error| panic!("measurement policy failed: {error}"));
+    let plan = database
+        .storage_compaction_plan(policy)
+        .await
+        .unwrap_or_else(|error| panic!("measurement plan failed: {error}"));
+    assert!(
+        plan.candidates
+            .iter()
+            .all(|candidate| candidate.index != "storage_measure_sparse_idx"),
+        "an index packed at its own fill factor was treated as bloat: {plan:?}"
+    );
+    let emptied = plan
+        .candidates
+        .iter()
+        .find(|candidate| candidate.index == "storage_emptied_idx")
+        .unwrap_or_else(|| panic!("emptied index was not planned: {plan:?}"));
+    assert!(
+        emptied
+            .estimated_reclaimable_bytes
+            .is_some_and(|bytes| bytes >= emptied.bytes / 2),
+        "{emptied:?}"
+    );
+    // Measuring reads every eligible index, so it runs under the policy deadline.
+    let hurried = StorageCompactionPolicy::new(StorageCompactionPolicyInput {
+        statement_timeout: Duration::from_millis(1),
+        ..policy_input
+    })
+    .unwrap_or_else(|error| panic!("hurried measurement policy failed: {error}"));
+    assert_eq!(
+        database.storage_compaction_plan(hurried).await,
+        Err(cartograph_db::StorageCompactionError::MeasurementTimedOut)
+    );
+    query(AssertSqlSafe(format!(
+        r#"DROP TABLE "{schema}"."storage_measure_fixture", "{schema}"."storage_emptied_fixture""#
+    )))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("measurement fixture cleanup failed: {error}"));
+}
+
 async fn assert_online_storage_compaction(
     database: &CartographDatabase,
     database_url: &str,
     pool: &sqlx_postgres::PgPool,
     schema: &str,
 ) {
+    assert_measured_selection_respects_fillfactor_and_emptied_indexes(database, pool, schema).await;
     create_compaction_fixture(pool, schema).await;
     create_invalid_artifact_fixture(pool, schema).await;
     let compaction_policy = StorageCompactionPolicy::new(StorageCompactionPolicyInput {
         maximum_indexes: 4,
         maximum_candidate_bytes: 128 * 1024 * 1024,
         minimum_index_bytes: 1024 * 1024,
+        minimum_reclaimable_bytes: 1024 * 1024,
         statement_timeout: STATEMENT_TIMEOUT,
     })
     .unwrap_or_else(|error| panic!("compaction policy failed: {error}"));
@@ -377,10 +496,18 @@ async fn assert_online_storage_compaction(
         .storage_compaction_plan(compaction_policy)
         .await
         .unwrap_or_else(|error| panic!("compaction plan failed: {error}"));
+    assert!(plan.reclaim_measured);
+    let fixture = plan
+        .candidates
+        .iter()
+        .find(|candidate| candidate.index == "storage_compaction_fixture_idx")
+        .unwrap_or_else(|| panic!("bloated fixture index was not planned: {plan:?}"));
+    // Half the entries were deleted, so about half the index is reclaimable.
     assert!(
-        plan.candidates
-            .iter()
-            .any(|candidate| candidate.index == "storage_compaction_fixture_idx")
+        fixture
+            .estimated_reclaimable_bytes
+            .is_some_and(|bytes| bytes >= fixture.bytes / 4 && bytes < fixture.bytes),
+        "{fixture:?}"
     );
     assert!(plan.required_headroom_bytes > plan.candidate_bytes);
     assert_eq!(plan.invalid_artifact_total, 65);
@@ -397,6 +524,17 @@ async fn assert_online_storage_compaction(
             .any(|candidate| candidate.index == "storage_compaction_fixture_idx")
     );
     assert!(compacted.stop_reason.is_none());
+    let replanned = database
+        .storage_compaction_plan(compaction_policy)
+        .await
+        .unwrap_or_else(|error| panic!("compaction re-plan failed: {error}"));
+    assert!(
+        replanned
+            .candidates
+            .iter()
+            .all(|candidate| candidate.index != "storage_compaction_fixture_idx"),
+        "a freshly rebuilt index was selected again: {replanned:?}"
+    );
     assert_compaction_cancellation_closes_session(database_url, pool, schema).await;
 }
 
@@ -1027,12 +1165,16 @@ async fn create_compaction_fixture(pool: &sqlx_postgres::PgPool, schema: &str) {
         ),
         format!(
             r#"INSERT INTO "{schema}"."storage_compaction_fixture" (id, payload)
-                SELECT value, repeat('x', 64) FROM generate_series(1, 200000) AS value"#
+                SELECT value, repeat('x', 64) FROM generate_series(1, 1000000) AS value"#
         ),
         format!(
             r#"CREATE INDEX storage_compaction_fixture_idx
                 ON "{schema}"."storage_compaction_fixture" (id)"#
         ),
+        // Half the entries on every leaf become dead, so the index keeps its
+        // allocation at roughly half the density a rebuild would produce.
+        format!(r#"DELETE FROM "{schema}"."storage_compaction_fixture" WHERE id % 2 = 0"#),
+        format!(r#"VACUUM "{schema}"."storage_compaction_fixture""#),
     ] {
         query(AssertSqlSafe(statement))
             .execute(pool)
@@ -1073,10 +1215,22 @@ async fn assert_compaction_cancellation_closes_session(
         .await
         .unwrap_or_else(|error| panic!("isolated compaction connection failed: {error}"));
     let isolated = CartographDatabase::new(isolated_pool.clone(), settings.schema().clone());
+    // The earlier apply rebuilt the fixture compactly; thin it again so the
+    // measured plan has real reclaimable space to act on.
+    for statement in [
+        format!(r#"DELETE FROM "{schema}"."storage_compaction_fixture" WHERE id % 4 = 1"#),
+        format!(r#"VACUUM "{schema}"."storage_compaction_fixture""#),
+    ] {
+        query(AssertSqlSafe(statement))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("cancellation bloat fixture failed: {error}"));
+    }
     let policy = StorageCompactionPolicy::new(StorageCompactionPolicyInput {
         maximum_indexes: 1,
         maximum_candidate_bytes: 128 * 1024 * 1024,
         minimum_index_bytes: 1024 * 1024,
+        minimum_reclaimable_bytes: 1024 * 1024,
         statement_timeout: Duration::from_secs(30),
     })
     .unwrap_or_else(|error| panic!("cancellation compaction policy failed: {error}"));

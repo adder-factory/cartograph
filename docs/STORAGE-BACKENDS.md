@@ -455,6 +455,17 @@ cartograph db compact --project-path . \
   --format json
 ```
 
+The plan measures each B-tree large enough to matter with `pgstatindex` and
+selects only indexes whose estimated reclaim reaches `--minimum-reclaimable-bytes`
+(default 64 MiB), largest reclaim first. The estimate is the leaf pages above the
+density a rebuild packs to (the index fill factor, 90 by default) plus empty and
+deleted pages, so an index that was just rebuilt is not selected again. Each
+candidate reports `estimatedReclaimableBytes`, and the plan reports
+`reclaimMeasured`. Measuring reads every index at or above the threshold, bounded
+by `--timeout-seconds`. Without the `pgstattuple` extension the plan falls back
+to size-only selection and reports `reclaimMeasured: false`. The reclaim threshold
+must not exceed `--maximum-candidate-bytes`.
+
 Apply rebuilds one eligible B-tree at a time with `REINDEX INDEX CONCURRENTLY`
 outside a transaction, under a schema advisory lock and per-index deadline. It
 is bounded by index count and candidate bytes, is resumable after a partial
@@ -480,9 +491,14 @@ cartograph db compact --heap --project-path . \
 ```
 
 The plan uses `pgstattuple_approx` on a fixed allowlist of Cartograph-owned main
-and TOAST heaps. It reports dead, reusable-free, estimated-reclaimable, total,
-headroom, truncation, and `requiresAccessExclusive` evidence per bounded
-relation. New managed databases install `pgstattuple`; an external PostgreSQL
+and TOAST heaps. It reports dead, reusable-free, estimated-rewritten,
+estimated-reclaimable, total, headroom, truncation, and
+`requiresAccessExclusive` evidence per bounded relation. The rewritten estimate
+packs the live tuples at the table fill factor (TOAST at no fewer than four
+chunks per page); reclaim is the allocation beyond it, capped by the measured
+dead and free bytes. Free space a rewrite cannot remove, such as the unused tail
+of a packed page, therefore does not make a freshly rewritten table a candidate
+again. New managed databases install `pgstattuple`; an external PostgreSQL
 operator must install that extension before requesting heap measurement.
 
 Apply is intentionally offline maintenance, not an online repack. It refuses
