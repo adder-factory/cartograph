@@ -295,7 +295,8 @@ and low-token exploration also skip Jev.
 
 The tier's optional `features` list selects which surfaces may consult Jev.
 Without it, only exploration does. Add `context` to let `context` rank its
-retrieval candidates, and `roles` to classify symbol roles (below):
+retrieval candidates, `roles` to classify symbol roles, and `rename` to triage
+rename mentions (below):
 
 ```sh
 cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY \
@@ -353,6 +354,21 @@ never replaces roles that Jev or a chat model already judged, so turning a model
 off keeps its results; a different model re-judges them. On this repository,
 structural rules alone cut unknown roles from 61% to 25% of 24,369 symbols, and
 Jev cut them to 9.5%; 58 of 60 sampled Jev roles were correct on review.
+
+Add `rename` to let `propose_rename` triage its textual mentions. Word-boundary
+mentions outside the graph's exact references are review-only; with `rename`,
+Jev judges whether each returned mention refers to the renamed symbol. Unlike
+the other surfaces, this sends source text: the symbol's qualified name, kind,
+path, line and signature (up to 160 bytes), and for each mention its path,
+line, enclosing symbol and source line (up to 200 bytes), in requests of 24.
+Each mention gains `decisionProbability` and `triage`: `likely_other` at 0.3 or
+below, otherwise `textual_review_required`. Only the negative label is offered:
+on hand-labelled plans, mentions at 0.3 or below were other symbols or generic
+words in 29 of 30 cases, while high probabilities mixed the renamed symbol with
+same-named helpers and string labels. The plan's `decisionTriage` records the
+model, outcome (`applied`, `no_mentions` or `provider_unavailable` with a
+redacted `providerError`) and judged count; a failed request is retried once,
+and on failure mentions keep only their review label.
 
 An empty `features` list disables every surface while keeping the tier
 configured.

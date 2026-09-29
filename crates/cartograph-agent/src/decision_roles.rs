@@ -8,12 +8,16 @@
 use std::collections::BTreeMap;
 
 use cartograph_llm::{
-    JevAnswer, JevClient, JevError, JevFeature, JevQuestion, JevSettings, jev_feature_enabled,
+    JevAnswer, JevClient, JevDecision, JevError, JevFeature, JevQuestion, JevSettings,
+    jev_feature_enabled,
 };
-use futures_util::{StreamExt as _, stream::FuturesOrdered};
 use serde_json::{Value, json};
 
-use crate::{ProjectCancellation, ProjectError, ProjectRuntime, navigation::DecisionProvider};
+use crate::{
+    ProjectCancellation, ProjectError, ProjectRuntime,
+    decision_batch::{BatchRequest, decide_batches, truncated},
+    navigation::DecisionProvider,
+};
 
 /// Model identity stored with Jev role artifacts. The suffix versions the
 /// question design, so changing it re-classifies cached roles.
@@ -22,14 +26,10 @@ pub const JEV_ROLE_MODEL: &str = "jev-1.13.0+roles-v1";
 /// Symbols judged in one request. Answer quality fell sharply for positions
 /// past about thirty in a 64-question request, so batches stay small.
 const ROLE_BATCH: usize = 24;
-/// Concurrent requests for one candidate list.
-const ROLE_CONCURRENCY: usize = 4;
 /// Minimum probability of the chosen role. On this repository, accepted
 /// answers at or above it were about 93% correct by hand review.
 const ACCEPT_PROBABILITY: f64 = 0.6;
 const SIGNATURE_LIMIT: usize = 160;
-/// Pause before retrying a rate-limited batch once.
-const RATE_LIMIT_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Role names and the definitions Jev chooses between.
 const ROLES: [(&str, &str); 7] = [
@@ -158,104 +158,60 @@ pub(crate) async fn judge_with(
     }
 }
 
-/// At most [`ROLE_CONCURRENCY`] batches in flight, verdicts kept in order. A
-/// batch the provider rejects is marked [`RoleVerdict::Rejected`] so later
-/// batches still count, but only beside a batch that was judged: when every
-/// batch is rejected the rejection looks systemic and judging stops instead.
-/// Unavailability stops at that batch and keeps the verdicts before it.
+/// Verdicts in candidate order. A batch the provider rejects is marked
+/// [`RoleVerdict::Rejected`] so later batches still count, but only beside a
+/// batch that was judged: when every batch is rejected the rejection looks
+/// systemic and judging stops instead. Unavailability stops at that batch and
+/// keeps the verdicts before it.
 async fn judge_batches(
     provider: &impl DecisionProvider,
     candidates: &[RoleCandidate],
 ) -> RoleJudgement {
-    let mut batches = candidates.chunks(ROLE_BATCH);
-    let mut in_flight = FuturesOrdered::new();
-    for batch in batches.by_ref().take(ROLE_CONCURRENCY) {
-        in_flight.push_back(judge_batch(provider, batch));
-    }
-    let mut outcomes = Vec::new();
-    let mut stopped = None;
-    while let Some((size, judged)) = in_flight.next().await {
-        match judged {
-            Err(error) if !rejects_the_batch(&error) => {
-                stopped = Some(error);
-                break;
-            }
-            judged => outcomes.push((size, judged)),
-        }
-        if let Some(batch) = batches.next() {
-            in_flight.push_back(judge_batch(provider, batch));
-        }
-    }
+    let outcomes = decide_batches(provider, &RoleRequest, candidates, ROLE_BATCH).await;
     let systemic = outcomes
+        .batches
         .iter()
         .find_map(|(_, judged)| judged.as_ref().err())
-        .filter(|_| outcomes.iter().all(|(_, judged)| judged.is_err()))
+        .filter(|_| outcomes.batches.iter().all(|(_, judged)| judged.is_err()))
         .cloned();
     if let Some(error) = systemic {
         return RoleJudgement {
             verdicts: Vec::new(),
-            stopped: stopped.or(Some(error)),
+            stopped: outcomes.stopped.or(Some(error)),
         };
     }
     let verdicts = outcomes
+        .batches
         .into_iter()
         .flat_map(|(size, judged)| judged.unwrap_or_else(|_| vec![RoleVerdict::Rejected; size]))
         .collect();
-    RoleJudgement { verdicts, stopped }
+    RoleJudgement {
+        verdicts,
+        stopped: outcomes.stopped,
+    }
 }
 
-/// Failures tied to the batch itself; anything else means the provider is
-/// unavailable and judging stops.
-const fn rejects_the_batch(error: &JevError) -> bool {
-    matches!(
-        error,
-        JevError::InvalidResponse
-            | JevError::BackendRejected
-            | JevError::RequestLimit
-            | JevError::ResponseLimit
-    )
-}
+struct RoleRequest;
 
-/// One retry absorbs a transient failure: about one sweep request in a
-/// hundred returned an answer set that failed validation and then passed on
-/// replay. A second failure is reported so a sweep stops instead of looping.
-async fn judge_batch(
-    provider: &impl DecisionProvider,
-    batch: &[RoleCandidate],
-) -> (usize, Result<Vec<RoleVerdict>, JevError>) {
-    let judged = match judge_batch_once(provider, batch).await {
-        Err(
-            error @ (JevError::InvalidResponse
-            | JevError::EndpointUnavailable
-            | JevError::RateLimited),
-        ) => {
-            if error == JevError::RateLimited {
-                tokio::time::sleep(RATE_LIMIT_PAUSE).await;
-            }
-            judge_batch_once(provider, batch).await
-        }
-        judged => judged,
-    };
-    (batch.len(), judged)
-}
+impl BatchRequest<RoleCandidate> for RoleRequest {
+    type Answer = RoleVerdict;
 
-async fn judge_batch_once(
-    provider: &impl DecisionProvider,
-    batch: &[RoleCandidate],
-) -> Result<Vec<RoleVerdict>, JevError> {
-    let decision = provider
-        .decide(&state(batch), &questions(batch.len()))
-        .await?;
-    (0..batch.len())
-        .map(|index| match decision.answers.get(&question_key(index)) {
-            Some(JevAnswer::Choice {
-                choice,
-                probabilities,
-                ..
-            }) => accepted(choice, probabilities),
-            _ => Err(JevError::InvalidResponse),
-        })
-        .collect()
+    fn build(&self, batch: &[RoleCandidate]) -> (Value, BTreeMap<String, JevQuestion>) {
+        (state(batch), questions(batch.len()))
+    }
+
+    fn read(&self, decision: &JevDecision, count: usize) -> Result<Vec<RoleVerdict>, JevError> {
+        (0..count)
+            .map(|index| match decision.answers.get(&question_key(index)) {
+                Some(JevAnswer::Choice {
+                    choice,
+                    probabilities,
+                    ..
+                }) => accepted(choice, probabilities),
+                _ => Err(JevError::InvalidResponse),
+            })
+            .collect()
+    }
 }
 
 /// An abstention is valid; an error is a malformed answer.
@@ -290,17 +246,6 @@ fn state(batch: &[RoleCandidate]) -> Value {
         })
         .collect::<Vec<_>>();
     json!({ "symbols": symbols })
-}
-
-fn truncated(text: &str, limit: usize) -> &str {
-    if text.len() <= limit {
-        return text;
-    }
-    let mut end = limit;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }
 
 fn question_key(index: usize) -> String {

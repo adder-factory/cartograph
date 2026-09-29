@@ -706,6 +706,8 @@ pub(super) enum JevFeatureArgument {
     Context,
     /// Metadata-only symbol role classification.
     Roles,
+    /// Rename-mention triage over mention source lines.
+    Rename,
 }
 
 impl JevFeatureArgument {
@@ -714,6 +716,7 @@ impl JevFeatureArgument {
             Self::Explore => "explore",
             Self::Context => "context",
             Self::Roles => "roles",
+            Self::Rename => "rename",
         }
     }
 }

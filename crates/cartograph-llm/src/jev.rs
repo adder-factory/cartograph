@@ -41,6 +41,8 @@ pub enum JevFeature {
     Context,
     /// Symbol role classification: symbol metadata, never source.
     Roles,
+    /// Rename-mention triage: symbol metadata and each mention's source line.
+    Rename,
 }
 
 impl JevFeature {
@@ -51,6 +53,7 @@ impl JevFeature {
             Self::Explore => "explore",
             Self::Context => "context",
             Self::Roles => "roles",
+            Self::Rename => "rename",
         }
     }
 
@@ -59,6 +62,7 @@ impl JevFeature {
             "explore" => Some(Self::Explore),
             "context" => Some(Self::Context),
             "roles" => Some(Self::Roles),
+            "rename" => Some(Self::Rename),
             _ => None,
         }
     }

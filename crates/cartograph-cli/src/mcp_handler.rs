@@ -11149,10 +11149,15 @@ impl SummaryReviewTools<'_> {
                 project_id,
                 definition: symbol,
                 options: RenamePlanOptions::new(limit, doc_limit).map_err(rename_plan_error)?,
-                cancellation,
+                cancellation: cancellation.clone(),
             })
             .await
             .map_err(rename_plan_error)?;
+        let plan = self
+            .runtime
+            .decision_triage_rename(plan, &cancellation)
+            .await
+            .map_err(|error| project_error(&error))?;
         fresh_json_result(
             freshness,
             &json!({
@@ -19414,7 +19419,7 @@ fn propose_rename_definition(
     });
     read_definition(ReadDefinition {
         name: PROPOSE_RENAME_TOOL,
-        description: "Plan, but never apply, a rename from one unambiguous exact symbol. Returns fresh exact reference spans and source lines, word-boundary doc/comment/string mentions attributed to enclosing symbols, complete pre-limit counts, large-file and truncation disclosures, plus current-name collision warnings.",
+        description: "Plan, but never apply, a rename from one unambiguous exact symbol. Returns fresh exact reference spans and source lines, word-boundary doc/comment/string mentions attributed to enclosing symbols, complete pre-limit counts, large-file and truncation disclosures, plus current-name collision warnings. When the project opted Jev into `rename`, each mention also carries an advisory probability and triage label.",
         schema,
         required: &["symbol", "newName"],
         annotations,
