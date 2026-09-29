@@ -322,7 +322,11 @@ failed.
 
 The deterministic dead-code query applies framework/test/fixture exemptions
 and materializes a PageRank-prioritized `maxCandidates` orphan window before
-outgoing-edge aggregation and source lookup. A genuine statement timeout is
+outgoing-edge aggregation and source lookup. Test code includes Rust `tests`
+module segments and sibling `tests.rs` files. A symbol named as a parameter,
+return or field type counts as used. It is a one-hop orphan check: a cluster
+of symbols that only use each other is not reported, while functions passed
+as values and trait methods reached only through dispatch can still appear. A genuine statement timeout is
 reported as `dead_code_query_timeout` with bounded retry guidance instead of a
 generic tool failure. `digest` runs its five bounded sections concurrently and
 returns each section's `ready`, `timeout`, or `unavailable` status; one failed

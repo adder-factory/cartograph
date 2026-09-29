@@ -3870,6 +3870,73 @@ async fn import_audit_classifies_and_filters_complete_fresh_evidence() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn dead_code_counts_type_usage_and_exempts_rust_test_modules() {
+    let (schema, settings, project) = live_project_fixture("8");
+    std::fs::write(
+        project.path().join("lib.rs"),
+        "struct Budget { limit: u32 }\n\
+         pub fn remaining(budget: Budget) -> u32 { budget.limit }\n\
+         fn forgotten_helper() -> u32 { 7 }\n\
+         #[cfg(test)]\n\
+         mod tests {\n    #[test]\n    fn budget_is_positive() {}\n}\n",
+    )
+    .unwrap_or_else(|error| panic!("dead-code fixture failed: {error}"));
+    {
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("dead-code runtime connect failed: {error}"));
+        let indexed = runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("dead-code fixture index failed: {error}"));
+        let names = |include_tests: bool| {
+            let runtime = &runtime;
+            let project_id = indexed.project_id.clone();
+            async move {
+                runtime
+                    .database()
+                    .query_current_dead_code(
+                        &project_id,
+                        &DeadCodeQuery::new(50)
+                            .unwrap_or_else(|error| panic!("dead-code options failed: {error}"))
+                            .with_include_tests(include_tests),
+                    )
+                    .await
+                    .unwrap_or_else(|error| panic!("dead-code query failed: {error}"))
+                    .iter()
+                    .map(|candidate| candidate.qualified_name().to_owned())
+                    .collect::<Vec<_>>()
+            }
+        };
+        let candidates = names(false).await;
+        assert!(
+            candidates.iter().any(|name| name == "forgotten_helper"),
+            "{candidates:?}"
+        );
+        // A struct named only as a parameter type is used.
+        assert!(
+            !candidates.iter().any(|name| name == "Budget"),
+            "{candidates:?}"
+        );
+        // Test-module members run under the test harness.
+        assert!(
+            !candidates.iter().any(|name| name.starts_with("tests")),
+            "{candidates:?}"
+        );
+        let with_tests = names(true).await;
+        assert!(
+            with_tests
+                .iter()
+                .any(|name| name == "tests::budget_is_positive"),
+            "{with_tests:?}"
+        );
+        runtime.close().await;
+    }
+    drop_schema(&settings, &schema).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn rename_plan_combines_exact_references_and_attributed_textual_mentions() {
     let (schema, settings, project) = live_project_fixture("8");
     let source = write_rename_fixture(project.path());

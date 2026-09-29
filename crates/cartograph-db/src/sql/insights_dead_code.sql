@@ -32,12 +32,20 @@ WITH current AS (
             AND incoming.source_symbol_id <> symbols.symbol_id
             AND incoming.edge_kind IN (
                 'calls', 'references', 'instantiates', 'tests', 'exports',
-                'implements', 'extends', 'overrides', 'decorates'
+                'implements', 'extends', 'overrides', 'decorates',
+                'type_of', 'returns', 'field_access'
             )
       )
       AND ($2::boolean OR NOT (
           files.normalized_path ~* '(^|/)(__tests__|tests?|specs?|scripts?|bench(es|marks?)?|examples?|samples?|demos?)(/|$)'
           OR files.normalized_path ~* '(\.test\.|\.spec\.|_test\.|_spec\.)'
+          OR (
+              files.language = 'rust'
+              AND (
+                  symbols.qualified_name ~ '(^|::)tests(::|$)'
+                  OR files.normalized_path ~ '(^|/)tests\.rs$'
+              )
+          )
       ))
       AND (NOT $3::boolean OR NOT (
           files.normalized_path ~* '(^|/)(fixtures?|test-beds?|__mocks__|mocks?)(/|$)'
