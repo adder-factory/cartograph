@@ -15,7 +15,10 @@ use thiserror::Error;
 const CONFIG_DIRECTORY: &str = ".cartograph";
 const CONFIG_FILE: &str = "config.json";
 const CONFIG_LOCK_FILE: &str = "config.lock";
-const CONFIG_LOCK_WAIT: Duration = Duration::from_millis(250);
+/// Covers a holder's read-modify-write ending in two full fsyncs, which can
+/// take hundreds of milliseconds under disk pressure, while still bounding a
+/// writer stuck behind a lock that is never released.
+const CONFIG_LOCK_WAIT: Duration = Duration::from_secs(2);
 const CONFIG_LOCK_RETRY: Duration = Duration::from_millis(5);
 const MAXIMUM_CONFIG_BYTES: u64 = 1024 * 1024;
 const MAXIMUM_PROJECT_SOURCE_BYTES: usize = 32 * 1024 * 1024;
@@ -1016,6 +1019,28 @@ mod tests {
     }
 
     #[test]
+    fn config_updates_wait_out_a_slow_durable_write() {
+        // A holder's critical section ends with two full fsyncs; under heavy
+        // disk I/O those alone can exceed a few hundred milliseconds.
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let directory = root.path().join(CONFIG_DIRECTORY);
+        fs::create_dir(&directory)
+            .unwrap_or_else(|error| panic!("config directory failed: {error}"));
+        let held = acquire_config_write_lock(&directory)
+            .unwrap_or_else(|error| panic!("fixture lock failed: {error}"));
+        let project = root.path().to_path_buf();
+        let writer = thread::spawn(move || write_project_max_file_size(&project, 8 * 1024 * 1024));
+
+        thread::sleep(Duration::from_millis(600));
+        drop(held);
+
+        writer
+            .join()
+            .unwrap_or_else(|_| panic!("config writer panicked"))
+            .unwrap_or_else(|error| panic!("config writer gave up on a live holder: {error}"));
+    }
+
+    #[test]
     fn config_updates_fail_after_bounded_lock_contention() {
         let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         let directory = root.path().join(CONFIG_DIRECTORY);
@@ -1030,11 +1055,11 @@ mod tests {
 
         assert_eq!(result, Err(ProjectConfigError::ConcurrentModification));
         assert!(
-            elapsed >= Duration::from_millis(100),
-            "config contention failed immediately after {elapsed:?}"
+            elapsed >= CONFIG_LOCK_WAIT,
+            "config contention failed before its wait elapsed: {elapsed:?}"
         );
         assert!(
-            elapsed < Duration::from_secs(2),
+            elapsed < CONFIG_LOCK_WAIT + Duration::from_secs(5),
             "config contention was not bounded: {elapsed:?}"
         );
     }
