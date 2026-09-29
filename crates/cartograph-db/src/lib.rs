@@ -51,7 +51,7 @@ pub use artifacts::{
     NeighborSummarySource, NewAgentArtifact, PendingFileSummary, PendingModelSummaryQuery,
     PendingModuleSummary, PendingNeighborSummary, PendingNeighborSummaryQuery, PendingRoleSymbol,
     PendingStructuralSummary, PendingStructuralSummaryQuery, PendingSummaryRollupQuery,
-    PendingSummarySymbol, StructuralSummaryEdge, StructuralSymbolSummarySaveInput,
+    PendingSummarySymbol, RoleSweepModel, StructuralSummaryEdge, StructuralSymbolSummarySaveInput,
     SummaryCandidatePolicy, SummaryCoverageStats, SummaryRollupItem, SummarySaveInput,
     SymbolRoleSaveInput, SymbolSummarySaveInput,
 };

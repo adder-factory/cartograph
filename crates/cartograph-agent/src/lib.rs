@@ -67,6 +67,7 @@ mod compare;
 mod coverage;
 mod dead_code;
 mod decision_rerank;
+mod decision_roles;
 mod dependencies;
 mod diff_review;
 mod drift;
@@ -103,6 +104,7 @@ pub use dead_code::{
     DeadCodeJudgeError, DeadCodeJudgeOptions, DeadCodeJudgeReport, DeadCodeJudgeRequest,
     DeadCodeJudgement, DeadCodeVerdict, judge_dead_code_candidates,
 };
+pub use decision_roles::{JEV_ROLE_MODEL, JudgedRole, RoleCandidate, RoleJudgement, RoleVerdict};
 pub use dependencies::{
     DependencyAuditError, DependencyAuditReport, DependencyUseEvidence, UndeclaredDependency,
 };

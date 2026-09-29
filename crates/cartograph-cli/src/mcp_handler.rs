@@ -19,15 +19,15 @@ use cartograph_agent::{
     GitLineHistoryRequest, GitLineRange, GitRenameEvidence, HistoryIndexError, HistoryIndexOptions,
     ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
     IndexOptions, IssueHistoryIndexError, IssueHistoryIndexOptions, IssueHistoryIndexRequest,
-    LayerAnalysisError, LayerAnalysisReport, LcovLoadOptions, MAXIMUM_UNIX_MILLISECONDS,
-    NavigationPolicy, NavigationRequest, PipelineFailureReason, PipelineStage, ProjectCancellation,
-    ProjectError, ProjectRuntime, ProjectStatus, RenamePlanError, RenamePlanOptions,
-    RenamePlanRequest, RetrievalOptions, RetrievalRequest, ReviewError, ReviewOptions,
-    ScipExportRequest, ScipImportLimits, ScipImportRequest, SourceCompareError,
-    SourceCompareOptions, SourceContextOptions, SourceContextRequest, SourceSearchError,
-    SourceSearchHit, SourceSearchOptions, SupervisorStatus, SymbolSourceContext, TestEvidenceError,
-    TestEvidenceOptions, TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest,
-    judge_dead_code_candidates,
+    JEV_ROLE_MODEL, LayerAnalysisError, LayerAnalysisReport, LcovLoadOptions,
+    MAXIMUM_UNIX_MILLISECONDS, NavigationPolicy, NavigationRequest, PipelineFailureReason,
+    PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime, ProjectStatus,
+    RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions, RetrievalRequest,
+    ReviewError, ReviewOptions, RoleCandidate, RoleVerdict, ScipExportRequest, ScipImportLimits,
+    ScipImportRequest, SourceCompareError, SourceCompareOptions, SourceContextOptions,
+    SourceContextRequest, SourceSearchError, SourceSearchHit, SourceSearchOptions,
+    SupervisorStatus, SymbolSourceContext, TestEvidenceError, TestEvidenceOptions,
+    TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest, judge_dead_code_candidates,
 };
 use cartograph_db::{
     AgentArtifactContent, AgentArtifactKind, AgentArtifactQuery, AgentArtifactScope,
@@ -35,8 +35,8 @@ use cartograph_db::{
     NeighborSummarySaveRequest, NeighborSummarySource, NewAgentArtifact, PendingFileSummary,
     PendingModelSummaryQuery, PendingModuleSummary, PendingNeighborSummary,
     PendingNeighborSummaryQuery, PendingRoleSymbol, PendingSummaryRollupQuery,
-    PendingSummarySymbol, SummaryCandidatePolicy, SummarySaveInput, SymbolRoleSaveInput,
-    SymbolSummarySaveInput,
+    PendingSummarySymbol, RoleSweepModel, SummaryCandidatePolicy, SummarySaveInput,
+    SymbolRoleSaveInput, SymbolSummarySaveInput,
 };
 use cartograph_db::{
     CurrentGenerationLookup, CurrentGenerationRecord, CurrentSymbolRecord, CurrentSymbolSetLookup,
@@ -70,8 +70,8 @@ use cartograph_domain::{
 use cartograph_llm::{
     ChatError, ChatMessageRequest, ChatSettings, CliBridgeConfig, CliBridgeConfigInput,
     CliBridgeInputMode, CliBridgeResponseFormat, GroundedChatRequest, InstallModelsError,
-    InstallModelsOptions, OpenAiChatClient, ProjectLlmConfigError, ProjectLlmTier,
-    ProjectLlmTierInput, ProjectSourceSettings, ProjectSummaryEagerLimit,
+    InstallModelsOptions, JevFeature, JevSettings, OpenAiChatClient, ProjectLlmConfigError,
+    ProjectLlmTier, ProjectLlmTierInput, ProjectSourceSettings, ProjectSummaryEagerLimit,
     install_recommended_models, load_project_llm_tier, load_project_source_settings,
     load_project_summary_settings, probe_openai_compatible_endpoint, tune_project_llm_tier,
     write_project_llm_configuration, write_project_max_file_size,
@@ -493,7 +493,7 @@ const ROLE_CLASSIFICATION_BATCH_SIZE: usize = 20;
 const ROLE_CLASSIFICATION_MAXIMUM_PAGE_SIZE: u64 = 320;
 const ROLE_CLASSIFICATION_DEFAULT_LIMIT: u64 = 100_000;
 const ROLE_CLASSIFICATION_MAXIMUM_LIMIT: u64 = 1_000_000;
-const STRUCTURAL_ROLE_MODEL: &str = "cartograph-structural-role-v2-1";
+const STRUCTURAL_ROLE_MODEL: &str = "cartograph-structural-role-v2-2";
 const CURSOR_CACHE_MAXIMUM_ENTRIES: usize = 256;
 const CURSOR_CACHE_MAXIMUM_KEYS: usize = 50_000;
 const CURSOR_CACHE_TTL: Duration = Duration::from_mins(15);
@@ -862,7 +862,7 @@ struct PostIndexSummaryPlan {
 }
 
 struct PostIndexClassificationPlan {
-    client: Option<OpenAiChatClient>,
+    classifier: RoleClassifier,
     model: String,
     limit: u64,
     concurrency: u16,
@@ -896,13 +896,66 @@ struct NeighborSweepContext<'context> {
     concurrency: u16,
 }
 
+/// What classifies the symbols the high-confidence structural rules leave open.
+#[derive(Clone)]
+enum RoleClassifier {
+    /// Name, location and export heuristics, then `unknown`.
+    Structural,
+    /// The configured classify chat tier.
+    Chat(Box<OpenAiChatClient>),
+    /// Jev over symbol metadata, when the decision tier opted into `roles`.
+    Jev,
+}
+
+impl RoleClassifier {
+    const fn label(&self) -> &'static str {
+        match self {
+            Self::Structural => "structural",
+            Self::Chat(_) => "llm",
+            Self::Jev => "jev",
+        }
+    }
+}
+
+/// Prefer the classify chat tier, then Jev when opted in, then rules.
+fn role_classifier(project_root: &Path) -> Result<(RoleClassifier, String), ChatError> {
+    if let Some(settings) = ChatSettings::try_from_project(project_root, ProjectLlmTier::Classify)?
+    {
+        let model = settings.model().to_owned();
+        return Ok((
+            RoleClassifier::Chat(Box::new(OpenAiChatClient::new(settings)?)),
+            model,
+        ));
+    }
+    if jev_roles_configured(project_root) {
+        return Ok((RoleClassifier::Jev, JEV_ROLE_MODEL.to_owned()));
+    }
+    Ok((RoleClassifier::Structural, STRUCTURAL_ROLE_MODEL.to_owned()))
+}
+
+fn jev_roles_configured(project_root: &Path) -> bool {
+    matches!(
+        JevSettings::try_from_project(project_root),
+        Ok(Some(settings)) if settings.allows(JevFeature::Roles)
+    )
+}
+
 struct RoleClassificationSweepRequest {
     runtime: Arc<ProjectRuntime>,
-    client: Option<OpenAiChatClient>,
+    classifier: RoleClassifier,
     model: String,
     cancellation: ProjectCancellation,
     limit: u64,
     concurrency: u16,
+}
+
+impl RoleClassificationSweepRequest {
+    fn sweep_model(&self) -> RoleSweepModel<'_> {
+        match self.classifier {
+            RoleClassifier::Structural => RoleSweepModel::Structural(&self.model),
+            RoleClassifier::Chat(_) | RoleClassifier::Jev => RoleSweepModel::Judge(&self.model),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -912,6 +965,10 @@ struct RoleClassificationSweepStats {
     structural_fallback: u64,
     llm: u64,
     backend_requests: u64,
+    jev: u64,
+    jev_abstained: u64,
+    jev_rejected: u64,
+    jev_error: Option<String>,
 }
 
 struct RoleClassificationPage<'context> {
@@ -8222,7 +8279,9 @@ async fn classify_requested_roles(
         }
         symbols.push(resolve_unique_symbol(handler, &context.project_id, requested_name).await?);
     }
-    let roles = handler.classify_roles(&symbols, input.via).await?;
+    let roles = handler
+        .classify_roles(&symbols, input.via, &input.cancellation)
+        .await?;
     let mut classifications = Vec::with_capacity(symbols.len());
     for ((requested_name, symbol), classified) in
         input.requested.into_iter().zip(symbols).zip(roles)
@@ -9165,10 +9224,69 @@ impl InsightTools<'_> {
         )
     }
 
+    /// Jev roles for symbols without a high-confidence structural role, when
+    /// the project opted in. Abstentions and provider failures keep the rules.
+    async fn jev_or_rule_roles(
+        &self,
+        symbols: &[CurrentSymbolRecord],
+        cancellation: &ProjectCancellation,
+    ) -> Result<Vec<ClassifiedRole>, ToolError> {
+        let mut roles = symbols.iter().map(rule_classified_role).collect::<Vec<_>>();
+        if !jev_roles_configured(self.runtime.project_root_for_host_operations()) {
+            return Ok(roles);
+        }
+        let open = symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, symbol)| {
+                structural_role(
+                    &symbol.path().as_str().to_ascii_lowercase(),
+                    &symbol.qualified_name().to_ascii_lowercase(),
+                    symbol.symbol_kind(),
+                )
+                .is_none()
+            })
+            .map(|(index, symbol)| {
+                (
+                    index,
+                    RoleCandidate {
+                        qualified_name: symbol.qualified_name().to_owned(),
+                        kind: symbol.symbol_kind().to_owned(),
+                        path: symbol.path().as_str().to_owned(),
+                        language: symbol.language().to_owned(),
+                        signature: symbol.signature().to_owned(),
+                        exported: symbol.exported(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let candidates = open
+            .iter()
+            .map(|(_, candidate)| candidate.clone())
+            .collect::<Vec<_>>();
+        let judgement = self
+            .runtime
+            .decision_judge_roles(&candidates, cancellation)
+            .await
+            .map_err(|error| project_error(&error))?;
+        for ((index, _), verdict) in open.into_iter().zip(judgement.verdicts) {
+            if let RoleVerdict::Accepted(judged) = verdict {
+                roles[index] = ClassifiedRole {
+                    role: judged.role.to_owned(),
+                    reason: format!("jev_probability_{:.2}", judged.probability),
+                    via: "jev",
+                    model: Some(JEV_ROLE_MODEL.to_owned()),
+                };
+            }
+        }
+        Ok(roles)
+    }
+
     async fn classify_roles(
         &self,
         symbols: &[CurrentSymbolRecord],
         requested_via: &str,
+        cancellation: &ProjectCancellation,
     ) -> Result<Vec<ClassifiedRole>, ToolError> {
         if requested_via == "rule" {
             return Ok(symbols.iter().map(rule_classified_role).collect());
@@ -9180,7 +9298,7 @@ impl InsightTools<'_> {
         .map_err(chat_error)?;
         let Some(settings) = settings else {
             if requested_via == "auto" {
-                return Ok(symbols.iter().map(rule_classified_role).collect());
+                return self.jev_or_rule_roles(symbols, cancellation).await;
             }
             return Err(safe_error(
                 ToolErrorCode::NotReady,
@@ -12747,19 +12865,8 @@ impl AdminLifecycleTools<'_> {
                 SUMMARY_MAXIMUM_CONCURRENCY,
             ),
         )?;
-        let settings = ChatSettings::try_from_project(
-            self.runtime.project_root_for_host_operations(),
-            ProjectLlmTier::Classify,
-        )
-        .map_err(chat_error)?;
-        let (client, model) = match settings {
-            Some(settings) => {
-                let model = settings.model().to_owned();
-                let client = OpenAiChatClient::new(settings).map_err(chat_error)?;
-                (Some(client), model)
-            }
-            None => (None, STRUCTURAL_ROLE_MODEL.to_owned()),
-        };
+        let (classifier, model) =
+            role_classifier(self.runtime.project_root_for_host_operations()).map_err(chat_error)?;
         let cancellation = ProjectCancellation::new();
         let operation_cancellation = cancellation.clone();
         let runtime = self.runtime.clone();
@@ -12771,7 +12878,7 @@ impl AdminLifecycleTools<'_> {
                 operation: async move {
                     run_role_classification_sweep(RoleClassificationSweepRequest {
                         runtime,
-                        client,
+                        classifier,
                         model,
                         cancellation: operation_cancellation,
                         limit,
@@ -13270,27 +13377,13 @@ fn build_post_index_enrichment_plan(
     } else {
         None
     };
-    let classification = Some(
-        ChatSettings::try_from_project(project_root, ProjectLlmTier::Classify)
-            .map_err(chat_error)?
-            .map(|settings| {
-                let model = settings.model().to_owned();
-                let client = OpenAiChatClient::new(settings).map_err(chat_error)?;
-                Ok(PostIndexClassificationPlan {
-                    client: Some(client),
-                    model,
-                    limit: ROLE_CLASSIFICATION_DEFAULT_LIMIT,
-                    concurrency: workers.min(SUMMARY_MAXIMUM_CONCURRENCY),
-                })
-            })
-            .transpose()?
-            .unwrap_or_else(|| PostIndexClassificationPlan {
-                client: None,
-                model: STRUCTURAL_ROLE_MODEL.to_owned(),
-                limit: ROLE_CLASSIFICATION_DEFAULT_LIMIT,
-                concurrency: workers.min(SUMMARY_MAXIMUM_CONCURRENCY),
-            }),
-    );
+    let (classifier, model) = role_classifier(project_root).map_err(chat_error)?;
+    let classification = Some(PostIndexClassificationPlan {
+        classifier,
+        model,
+        limit: ROLE_CLASSIFICATION_DEFAULT_LIMIT,
+        concurrency: workers.min(SUMMARY_MAXIMUM_CONCURRENCY),
+    });
     Ok(PostIndexEnrichmentPlan {
         enabled: true,
         workers,
@@ -14057,7 +14150,7 @@ async fn run_incremental_post_index_enrichment(
     let roles = enrichment_phase_report(
         run_role_classification_sweep(RoleClassificationSweepRequest {
             runtime: request.runtime,
-            client: None,
+            classifier: RoleClassifier::Structural,
             model: STRUCTURAL_ROLE_MODEL.to_owned(),
             cancellation: request.cancellation,
             limit: ROLE_CLASSIFICATION_DEFAULT_LIMIT,
@@ -14276,7 +14369,7 @@ async fn run_classification_enrichment_phase(
     enrichment_phase_report(
         run_role_classification_sweep(RoleClassificationSweepRequest {
             runtime,
-            client: classification.client,
+            classifier: classification.classifier,
             model: classification.model,
             cancellation,
             limit: classification.limit,
@@ -14321,16 +14414,23 @@ async fn run_role_classification_sweep(
             project_id: &snapshot.project_id,
             pending,
         };
-        let llm_pending = persist_structural_role_page(page, &mut progress).await?;
-        persist_llm_role_page(
-            LlmRoleClassificationPage {
-                context: &context,
-                project_id: &snapshot.project_id,
-                pending: llm_pending,
-            },
-            &mut progress,
-        )
-        .await?;
+        let model_pending = persist_structural_role_page(page, &mut progress).await?;
+        let page = LlmRoleClassificationPage {
+            context: &context,
+            project_id: &snapshot.project_id,
+            pending: model_pending,
+        };
+        let continued = match &context.classifier {
+            RoleClassifier::Structural => true,
+            RoleClassifier::Chat(client) => {
+                persist_llm_role_page(page, client, &mut progress).await?;
+                true
+            }
+            RoleClassifier::Jev => persist_jev_role_page(page, &mut progress).await?,
+        };
+        if !continued {
+            break;
+        }
     }
     finish_role_classification_sweep(&context, &snapshot.project_id, progress).await
 }
@@ -14353,7 +14453,7 @@ async fn load_role_classification_page(
     let pending = context
         .runtime
         .database()
-        .pending_symbol_roles(project_id, &context.model, page_limit)
+        .pending_symbol_roles(project_id, context.sweep_model(), page_limit)
         .await
         .map_err(|_| ProjectError::IndexFailed)?;
     Ok(pending)
@@ -14377,13 +14477,14 @@ async fn persist_structural_role_page(
             })
             .await?;
             stats.structural = stats.structural.saturating_add(1);
-        } else if page.context.client.is_none() {
+        } else if matches!(page.context.classifier, RoleClassifier::Structural) {
+            let (role, reason) = pending_heuristic_role(&symbol);
             persist_pending_role(PendingRolePersistence {
                 runtime: &page.context.runtime,
                 project_id: page.project_id,
                 symbol: &symbol,
-                role: "unknown",
-                reason: "insufficient_structural_evidence",
+                role,
+                reason,
                 via: "structural_fallback",
                 model: STRUCTURAL_ROLE_MODEL,
             })
@@ -14396,17 +14497,87 @@ async fn persist_structural_role_page(
     Ok(llm_pending)
 }
 
+/// Judge one page with Jev. Returns `false` when the provider failed, which
+/// ends the sweep with the page still pending instead of re-requesting it.
+async fn persist_jev_role_page(
+    page: LlmRoleClassificationPage<'_>,
+    stats: &mut RoleClassificationSweepStats,
+) -> Result<bool, ProjectError> {
+    if page.pending.is_empty() {
+        return Ok(true);
+    }
+    let candidates = page
+        .pending
+        .iter()
+        .map(|symbol| RoleCandidate {
+            qualified_name: symbol.qualified_name().to_owned(),
+            kind: symbol.symbol_kind().to_owned(),
+            path: symbol.path().to_owned(),
+            language: symbol.language().to_owned(),
+            signature: symbol.signature().to_owned(),
+            exported: symbol.exported(),
+        })
+        .collect::<Vec<_>>();
+    let judgement = page
+        .context
+        .runtime
+        .decision_judge_roles(&candidates, &page.context.cancellation)
+        .await?;
+    // Only the judged prefix is persisted; an outage leaves the rest pending.
+    for (symbol, verdict) in page.pending.iter().zip(&judgement.verdicts) {
+        let (role, reason) = jev_role_outcome(symbol, verdict);
+        match verdict {
+            RoleVerdict::Accepted(_) => stats.jev = stats.jev.saturating_add(1),
+            RoleVerdict::Abstained => stats.jev_abstained = stats.jev_abstained.saturating_add(1),
+            RoleVerdict::Rejected => stats.jev_rejected = stats.jev_rejected.saturating_add(1),
+        }
+        persist_pending_role(PendingRolePersistence {
+            runtime: &page.context.runtime,
+            project_id: page.project_id,
+            symbol,
+            role,
+            reason: &reason,
+            via: "jev",
+            model: JEV_ROLE_MODEL,
+        })
+        .await?;
+    }
+    if let Some(error) = judgement.stopped {
+        stats.jev_error = Some(error.to_string());
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+/// The role a Jev verdict persists: the accepted role, or the heuristic
+/// fallback with the reason Jev did not decide.
+fn jev_role_outcome(symbol: &PendingRoleSymbol, verdict: &RoleVerdict) -> (&'static str, String) {
+    jev_verdict_role(pending_heuristic_role(symbol), verdict)
+}
+
+fn jev_verdict_role(
+    fallback: (&'static str, &'static str),
+    verdict: &RoleVerdict,
+) -> (&'static str, String) {
+    let (role, reason) = fallback;
+    match verdict {
+        RoleVerdict::Accepted(judged) => (
+            judged.role,
+            format!("jev_probability_{:.2}", judged.probability),
+        ),
+        RoleVerdict::Abstained => (role, format!("jev_abstained_{reason}")),
+        RoleVerdict::Rejected => (role, format!("jev_rejected_{reason}")),
+    }
+}
+
 async fn persist_llm_role_page(
     page: LlmRoleClassificationPage<'_>,
+    client: &OpenAiChatClient,
     stats: &mut RoleClassificationSweepStats,
 ) -> Result<(), ProjectError> {
     let mut batches = JoinSet::new();
     for batch in page.pending.chunks(ROLE_CLASSIFICATION_BATCH_SIZE) {
-        let client = page
-            .context
-            .client
-            .clone()
-            .ok_or(ProjectError::IndexFailed)?;
+        let client = client.clone();
         let batch = batch.to_vec();
         batches.spawn(async move { classify_pending_role_batch(client, batch).await });
         stats.backend_requests = stats.backend_requests.saturating_add(1);
@@ -14449,22 +14620,33 @@ async fn finish_role_classification_sweep(
     let remaining = !context
         .runtime
         .database()
-        .pending_symbol_roles(project_id, &context.model, 1)
+        .pending_symbol_roles(project_id, context.sweep_model(), 1)
         .await
         .map_err(|_| ProjectError::IndexFailed)?
         .is_empty();
     Ok(json!({
         "candidates": stats.attempted,
-        "classified": stats.structural.saturating_add(stats.structural_fallback).saturating_add(stats.llm),
+        "classified": stats
+            .structural
+            .saturating_add(stats.structural_fallback)
+            .saturating_add(stats.llm)
+            .saturating_add(stats.jev)
+            .saturating_add(stats.jev_abstained)
+            .saturating_add(stats.jev_rejected),
         "structural": stats.structural,
         "structuralFallback": stats.structural_fallback,
         "llm": stats.llm,
+        "jev": stats.jev,
+        "jevAbstained": stats.jev_abstained,
+        "jevRejected": stats.jev_rejected,
+        "jevError": stats.jev_error,
         "backendRequests": stats.backend_requests,
-        "errors": 0,
+        "errors": u64::from(stats.jev_error.is_some()),
         "limit": context.limit,
         "truncated": remaining,
         "model": context.model,
-        "llmConfigured": context.client.is_some(),
+        "classifier": context.classifier.label(),
+        "llmConfigured": matches!(context.classifier, RoleClassifier::Chat(_)),
         "concurrency": context.concurrency,
         "cachePolicy": "current structural digest plus exact model; high-confidence structural roles survive model changes",
     }))
@@ -19258,7 +19440,7 @@ fn role_definition() -> Result<ToolDefinition, ToolContractError> {
     });
     ToolDefinition::new(ToolDefinitionInput::new(
         ROLE_TOOL,
-        "Classify one or up to 20 exact symbols with deterministic rules, a strict bounded OpenAI-compatible JSON classifier, or explicit automatic fallback. Prompts contain only literal-safe metadata and are treated as untrusted data; classifications persist with generation and provenance.",
+        "Classify one or up to 20 exact symbols with deterministic rules, a strict bounded OpenAI-compatible JSON classifier, or explicit automatic fallback, which uses Jev when the project opted into `roles` and no classify tier is configured. Prompts contain only literal-safe metadata and are treated as untrusted data; classifications persist with generation and provenance.",
         object_schema(schema, &[]),
     ))
     .map(|definition| definition.with_annotations(write_annotations()))
@@ -24163,35 +24345,75 @@ fn classify_symbol_role(symbol: &CurrentSymbolRecord) -> (&'static str, &'static
     let path = symbol.path().as_str().to_ascii_lowercase();
     let name = symbol.qualified_name().to_ascii_lowercase();
     let kind = symbol.symbol_kind();
-    if path_is_test(&path) {
-        return ("test_helper", "test_path");
+    structural_role(&path, &name, kind)
+        .or_else(|| heuristic_role(&path, &name, kind, symbol.exported()))
+        .unwrap_or(("unknown", "insufficient_structural_evidence"))
+}
+
+/// High-confidence roles shared by on-demand classification and the sweep;
+/// `path` and `name` are lowercase.
+fn structural_role(path: &str, name: &str, kind: &str) -> Option<(&'static str, &'static str)> {
+    if path_is_test(path) {
+        return Some(("test_helper", "test_path"));
+    }
+    if name_in_test_module(name) {
+        return Some(("test_helper", "test_module"));
     }
     if kind == "route" {
-        return ("api_endpoint", "typed_route");
+        return Some(("api_endpoint", "typed_route"));
     }
     if matches!(kind, "component" | "resource") {
-        return ("framework_glue", "framework_declaration");
+        return Some(("framework_glue", "framework_declaration"));
     }
-    if symbol_role_is_data_model(kind, &path) {
-        return ("data_model", "data_shape");
+    if symbol_role_is_data_model(kind, path) {
+        return Some(("data_model", "data_shape"));
     }
-    if symbol_role_is_framework_handler(&name) {
-        return ("framework_glue", "handler_shape");
+    None
+}
+
+/// Lower-confidence name, location and export heuristics used when no model
+/// judges a symbol, or when Jev abstains.
+fn heuristic_role(
+    path: &str,
+    name: &str,
+    kind: &str,
+    exported: bool,
+) -> Option<(&'static str, &'static str)> {
+    if symbol_role_is_framework_handler(name) {
+        return Some(("framework_glue", "handler_shape"));
     }
-    if symbol_role_is_utility(&path, &name) {
-        return ("util", "utility_location");
+    if symbol_role_is_utility(path, name) {
+        return Some(("util", "utility_location"));
     }
-    if matches!(kind, "function" | "method") && symbol.exported() {
-        return ("business_logic", "exported_executable");
+    if matches!(kind, "function" | "method") && exported {
+        return Some(("business_logic", "exported_executable"));
     }
-    ("unknown", "insufficient_structural_evidence")
+    None
 }
 
 fn symbol_role_is_data_model(kind: &str, path: &str) -> bool {
-    matches!(kind, "class" | "struct" | "interface" | "enum" | "type")
-        || ["/models/", "/entities/", "/schemas/", "/dto/"]
-            .iter()
-            .any(|marker| path.contains(marker))
+    matches!(
+        kind,
+        "class"
+            | "struct"
+            | "interface"
+            | "enum"
+            | "type"
+            | "type_alias"
+            | "enum_member"
+            | "field"
+            | "property"
+            | "constant"
+    ) || ["/models/", "/entities/", "/schemas/", "/dto/"]
+        .iter()
+        .any(|marker| path.contains(marker))
+}
+
+/// A `tests` module segment, as in Rust's `mod tests` and its members.
+fn name_in_test_module(name: &str) -> bool {
+    name.split("::")
+        .flat_map(|part| part.split('.'))
+        .any(|segment| segment == "tests")
 }
 
 fn symbol_role_is_framework_handler(name: &str) -> bool {
@@ -24210,26 +24432,21 @@ fn symbol_role_is_utility(path: &str, name: &str) -> bool {
 fn classify_pending_role_structurally(
     symbol: &PendingRoleSymbol,
 ) -> Option<(&'static str, &'static str)> {
-    let path = symbol.path().to_ascii_lowercase();
-    if path_is_test(&path) {
-        return Some(("test_helper", "test_path"));
-    }
-    if symbol.symbol_kind() == "route" {
-        return Some(("api_endpoint", "typed_route"));
-    }
-    if matches!(symbol.symbol_kind(), "component" | "resource") {
-        return Some(("framework_glue", "framework_declaration"));
-    }
-    if matches!(
+    structural_role(
+        &symbol.path().to_ascii_lowercase(),
+        &symbol.qualified_name().to_ascii_lowercase(),
         symbol.symbol_kind(),
-        "class" | "struct" | "interface" | "enum" | "type"
-    ) || ["/models/", "/entities/", "/schemas/", "/dto/"]
-        .iter()
-        .any(|marker| path.contains(marker))
-    {
-        return Some(("data_model", "data_shape"));
-    }
-    None
+    )
+}
+
+fn pending_heuristic_role(symbol: &PendingRoleSymbol) -> (&'static str, &'static str) {
+    heuristic_role(
+        &symbol.path().to_ascii_lowercase(),
+        &symbol.qualified_name().to_ascii_lowercase(),
+        symbol.symbol_kind(),
+        symbol.exported(),
+    )
+    .unwrap_or(("unknown", "insufficient_structural_evidence"))
 }
 
 async fn classify_pending_role_batch(
@@ -24307,12 +24524,24 @@ async fn persist_pending_role(input: PendingRolePersistence<'_>) -> Result<(), P
         .map_err(|_| ProjectError::IndexFailed)
 }
 
+/// Structural matches persist as `rule`, which every model keeps. Heuristic
+/// and `unknown` results persist as `structural_fallback`, which a model sweep
+/// may still judge.
 fn rule_classified_role(symbol: &CurrentSymbolRecord) -> ClassifiedRole {
-    let (role, reason) = classify_symbol_role(symbol);
+    let structural = structural_role(
+        &symbol.path().as_str().to_ascii_lowercase(),
+        &symbol.qualified_name().to_ascii_lowercase(),
+        symbol.symbol_kind(),
+    );
+    let (role, reason) = structural.unwrap_or_else(|| classify_symbol_role(symbol));
     ClassifiedRole {
         role: role.to_owned(),
         reason: reason.to_owned(),
-        via: "rule",
+        via: if structural.is_some() {
+            "rule"
+        } else {
+            "structural_fallback"
+        },
         model: Some(STRUCTURAL_ROLE_MODEL.to_owned()),
     }
 }
@@ -24349,14 +24578,18 @@ fn parse_role_response(content: &str, expected: usize) -> Option<Vec<ClassifiedR
     ordered.into_iter().collect()
 }
 
+/// Test directories at any depth, including the project root, and test file
+/// naming conventions, including Rust's sibling `tests.rs` modules.
 fn path_is_test(path: &str) -> bool {
-    path.contains("/test/")
-        || path.contains("/tests/")
-        || path.contains("/__tests__/")
-        || path.contains(".test.")
-        || path.contains(".spec.")
-        || path.ends_with("_test.rs")
-        || path.ends_with("_test.go")
+    let (directories, file) = path.rsplit_once('/').unwrap_or(("", path));
+    directories
+        .split('/')
+        .any(|segment| matches!(segment, "test" | "tests" | "__tests__"))
+        || file.contains(".test.")
+        || file.contains(".spec.")
+        || file.ends_with("_test.rs")
+        || file.ends_with("_test.go")
+        || file == "tests.rs"
 }
 
 fn parse_edge_kind(value: &str) -> Result<EdgeKind, ToolError> {
@@ -28459,7 +28692,7 @@ pub fn target(value: u32) -> u32 {
     async fn verify_structural_role_sweep(runtime: &Arc<ProjectRuntime>) -> (ProjectId, u64) {
         let structural_only = run_role_classification_sweep(RoleClassificationSweepRequest {
             runtime: runtime.clone(),
-            client: None,
+            classifier: RoleClassifier::Structural,
             model: STRUCTURAL_ROLE_MODEL.to_owned(),
             cancellation: ProjectCancellation::new(),
             limit: 100,
@@ -28489,7 +28722,11 @@ pub fn target(value: u32) -> u32 {
         assert!(
             runtime
                 .database()
-                .pending_symbol_roles(&project_id, STRUCTURAL_ROLE_MODEL, 1)
+                .pending_symbol_roles(
+                    &project_id,
+                    RoleSweepModel::Structural(STRUCTURAL_ROLE_MODEL),
+                    1
+                )
                 .await
                 .unwrap_or_else(|error| panic!("structural role cache lookup failed: {error}"))
                 .is_empty()
@@ -28513,7 +28750,7 @@ pub fn target(value: u32) -> u32 {
         .unwrap_or_else(|error| panic!("role chat client failed: {error}"));
         let first = run_role_classification_sweep(RoleClassificationSweepRequest {
             runtime: runtime.clone(),
-            client: Some(client.clone()),
+            classifier: RoleClassifier::Chat(Box::new(client.clone())),
             model: "fixture-role".to_owned(),
             cancellation: ProjectCancellation::new(),
             limit: 100,
@@ -28534,7 +28771,7 @@ pub fn target(value: u32) -> u32 {
         assert!(
             runtime
                 .database()
-                .pending_symbol_roles(project_id, "fixture-role", 1)
+                .pending_symbol_roles(project_id, RoleSweepModel::Judge("fixture-role"), 1)
                 .await
                 .unwrap_or_else(|error| panic!("role pending lookup failed: {error}"))
                 .is_empty()
@@ -28558,7 +28795,7 @@ pub fn target(value: u32) -> u32 {
 
         let cached = run_role_classification_sweep(RoleClassificationSweepRequest {
             runtime: runtime.clone(),
-            client: Some(client),
+            classifier: RoleClassifier::Chat(Box::new(client)),
             model: "fixture-role".to_owned(),
             cancellation: ProjectCancellation::new(),
             limit: 100,
@@ -30309,6 +30546,81 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
         assert!(
             status.success(),
             "git fixture command failed: {arguments:?}"
+        );
+    }
+
+    #[test]
+    fn structural_roles_anchor_tests_and_declarations_before_heuristics() {
+        // A root-level `tests/` directory was missed by the old substring match.
+        assert!(path_is_test("tests/live_project.rs"));
+        assert!(path_is_test("crates/agent/src/navigation/tests.rs"));
+        assert!(path_is_test("web/src/__tests__/app.ts"));
+        assert!(!path_is_test("src/contests/scoring.rs"));
+        assert!(!path_is_test("src/latest/test_data_builder.rs"));
+        assert_eq!(
+            structural_role("src/lib.rs", "tests::fixture_project", "function"),
+            Some(("test_helper", "test_module"))
+        );
+        assert_eq!(
+            structural_role("src/lib.rs", "crate::parser::tests", "module"),
+            Some(("test_helper", "test_module"))
+        );
+        assert_eq!(
+            structural_role("src/lib.rs", "latest_version", "function"),
+            None
+        );
+        for kind in ["enum_member", "type_alias", "field", "constant"] {
+            assert_eq!(
+                structural_role("src/lib.rs", "edgekind::calls", kind),
+                Some(("data_model", "data_shape"))
+            );
+        }
+        // Handler, location and export shapes stay heuristics that a model may override.
+        assert_eq!(
+            structural_role("src/lib.rs", "request_handler", "function"),
+            None
+        );
+        assert_eq!(
+            heuristic_role("src/lib.rs", "request_handler", "function", false),
+            Some(("framework_glue", "handler_shape"))
+        );
+        assert_eq!(
+            heuristic_role("src/lib.rs", "calculate", "function", true),
+            Some(("business_logic", "exported_executable"))
+        );
+        assert_eq!(
+            heuristic_role("src/lib.rs", "calculate", "function", false),
+            None
+        );
+    }
+
+    #[test]
+    fn jev_verdicts_persist_the_accepted_role_or_a_labelled_fallback() {
+        let fallback = ("business_logic", "exported_executable");
+        let accepted = RoleVerdict::Accepted(cartograph_agent::JudgedRole {
+            role: "util",
+            probability: 0.834,
+        });
+        assert_eq!(
+            jev_verdict_role(fallback, &accepted),
+            ("util", "jev_probability_0.83".to_owned())
+        );
+        assert_eq!(
+            jev_verdict_role(fallback, &RoleVerdict::Abstained),
+            (
+                "business_logic",
+                "jev_abstained_exported_executable".to_owned()
+            )
+        );
+        assert_eq!(
+            jev_verdict_role(
+                ("unknown", "insufficient_structural_evidence"),
+                &RoleVerdict::Rejected
+            ),
+            (
+                "unknown",
+                "jev_rejected_insufficient_structural_evidence".to_owned()
+            )
         );
     }
 

@@ -295,7 +295,7 @@ and low-token exploration also skip Jev.
 
 The tier's optional `features` list selects which surfaces may consult Jev.
 Without it, only exploration does. Add `context` to let `context` rank its
-retrieval candidates:
+retrieval candidates, and `roles` to classify symbol roles (below):
 
 ```sh
 cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY \
@@ -327,8 +327,35 @@ per-item `relevance`; their `rank` remains the retrieval fusion rank. When
 context ranking is enabled the local cross-encoder is skipped. If the provider
 then fails, the packet is rebuilt through the configured reranker and keeps the
 `provider_unavailable` outcome, so an outage adds at most the request timeout
-(`timeoutMs`, five seconds by default) to the default ranking. `mode: deterministic` never consults Jev. An empty
-`features` list disables every surface while keeping the tier configured.
+(`timeoutMs`, five seconds by default) to the default ranking. `mode: deterministic` never consults Jev.
+
+Add `roles` to let role classification consult Jev when no `classify` chat
+tier is configured. High-confidence structural rules still decide test code
+(test directories, test file names and `tests` modules), routes, framework
+declarations and data declarations (types, enum members, fields and
+constants). For every other symbol, `admin classify` and post-index enrichment
+send its qualified name, kind, project-relative path, language, declaration
+signature (up to 160 bytes, which can contain literals such as default values)
+and export flag, in requests of 24 symbols. Function bodies and other source are
+never sent. A role is accepted only when Jev gives it at least 0.6 probability;
+otherwise the name, location and export heuristics apply, then `unknown`.
+Accepted roles record `via: jev`, the probability and model
+`jev-1.13.0+roles-v1`; `role` with `via: auto` uses the same path for symbols
+without a structural role.
+
+A failed request is retried once. If the provider still rejects a batch (an
+HTTP 4xx or an invalid answer set) while other batches were judged, its symbols
+keep the heuristic role with a `jev_rejected_` reason and the sweep continues.
+If every batch is rejected, or the provider is unavailable (including HTTP 5xx),
+the sweep keeps what it judged, reports `jevError`, and leaves the rest for the
+next sweep. A rules-only sweep
+never replaces roles that Jev or a chat model already judged, so turning a model
+off keeps its results; a different model re-judges them. On this repository,
+structural rules alone cut unknown roles from 61% to 25% of 24,369 symbols, and
+Jev cut them to 9.5%; 58 of 60 sampled Jev roles were correct on review.
+
+An empty `features` list disables every surface while keeping the tier
+configured.
 `find`, `graph`, indexing and test selection keep their existing policies. `llm smoke` can verify the
 configured key with a small real request. Disable Jev with:
 

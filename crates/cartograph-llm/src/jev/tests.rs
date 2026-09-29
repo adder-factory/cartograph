@@ -235,6 +235,7 @@ async fn rejected_credentials_capacity_and_redirects_are_redacted() {
         ("429 Too Many Requests", JevError::RateLimited),
         ("529 Overloaded", JevError::RateLimited),
         ("422 Invalid", JevError::BackendRejected),
+        ("503 Service Unavailable", JevError::EndpointUnavailable),
     ] {
         let (client, server) = fixture(status, "secret-provider-body", "");
         let result = client.decide(&Value::Null, &questions()).await;

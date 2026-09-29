@@ -39,6 +39,8 @@ pub enum JevFeature {
     Explore,
     /// Context ranking: question and candidate metadata, never source.
     Context,
+    /// Symbol role classification: symbol metadata, never source.
+    Roles,
 }
 
 impl JevFeature {
@@ -48,6 +50,7 @@ impl JevFeature {
         match self {
             Self::Explore => "explore",
             Self::Context => "context",
+            Self::Roles => "roles",
         }
     }
 
@@ -55,6 +58,7 @@ impl JevFeature {
         match name {
             "explore" => Some(Self::Explore),
             "context" => Some(Self::Context),
+            "roles" => Some(Self::Roles),
             _ => None,
         }
     }
@@ -246,7 +250,8 @@ pub enum JevError {
     /// The provider is rate limited or overloaded; native retrieval remains usable.
     #[error("Cartograph Jev capacity is temporarily unavailable")]
     RateLimited,
-    /// The provider rejected a bounded request.
+    /// The provider rejected a bounded request; server errors count as
+    /// [`JevError::EndpointUnavailable`] instead.
     #[error("Cartograph Jev request was rejected")]
     BackendRejected,
     /// The body exceeds the admitted response ceiling.
@@ -343,6 +348,7 @@ impl JevClient {
             status if status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529 => {
                 return Err(JevError::RateLimited);
             }
+            status if status.is_server_error() => return Err(JevError::EndpointUnavailable),
             _ => return Err(JevError::BackendRejected),
         }
         if response

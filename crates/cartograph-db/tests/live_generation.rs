@@ -23,8 +23,8 @@ use cartograph_db::{
     McpToolCallWrite, MigrationError, NewAgentArtifact, NewGeneration, NewMcpMacro, NewMcpSession,
     NewProject, NumericalSiteInput, NumericalSiteQuery, PrepareGenerationError, ProjectLease,
     PublishGenerationError, ReadOnlySqlRequest, ReadyGeneration, RecoverableGeneration,
-    ReferenceInput, SearchDocumentInput, SearchQuery, SourceLineRange, StorageError,
-    SummaryCandidatePolicy, SymbolInput, SymbolRoleSaveInput, SymbolSummarySaveInput,
+    ReferenceInput, RoleSweepModel, SearchDocumentInput, SearchQuery, SourceLineRange,
+    StorageError, SummaryCandidatePolicy, SymbolInput, SymbolRoleSaveInput, SymbolSummarySaveInput,
     validate_generation_facts,
 };
 use cartograph_domain::{
@@ -809,6 +809,64 @@ async fn agent_artifacts_and_summary_digest_fences_are_durable() {
             .await
             .unwrap_or_else(|error| panic!("could not delete durable note: {error}"))
     );
+
+    drop(database);
+    drop_schema(&pool, &schema).await;
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn role_cache_is_scoped_to_the_model_that_wrote_it() {
+    let (database, pool, schema) = open_isolated_database().await;
+    assert_migration_ledger(&database).await;
+    let project = register_project(&database).await;
+    let initial = publish_initial_generation(&database, &project).await;
+    let ready_older = prepare_rollback_retry(&database, &project, initial.generation_id()).await;
+    publish_newer_generation(&database, &project, &ready_older).await;
+    let target = parse_symbol_id(RETRIEVAL_TARGET);
+    let caller = parse_symbol_id(RETRIEVAL_CALLER);
+    let save = async |symbol: &SymbolId, via: &str, model: &str| {
+        database
+            .save_symbol_role(
+                SymbolRoleSaveInput::new(&project, symbol, "business_logic")
+                    .with_metadata(serde_json::json!({"via": via, "model": model})),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("could not save role fixture: {error}"));
+    };
+    let pending = async |sweep: RoleSweepModel<'_>| {
+        database
+            .pending_symbol_roles(&project, sweep, 20)
+            .await
+            .unwrap_or_else(|error| panic!("could not list pending roles: {error}"))
+            .iter()
+            .map(|symbol| symbol.symbol_id().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let structural = RoleSweepModel::Structural("structural-v2");
+    let jev = RoleSweepModel::Judge("jev-roles-v1");
+    let chat = RoleSweepModel::Judge("chat-model");
+    let caller_pending = vec![caller.as_str().to_owned()];
+
+    // A structural rule match is final for every sweep.
+    save(&target, "rule", "structural-v1").await;
+    // A fallback written by an older rule version is re-classified by rules and models.
+    save(&caller, "structural_fallback", "structural-v1").await;
+    assert_eq!(pending(structural).await, caller_pending);
+    assert_eq!(pending(jev).await, caller_pending);
+
+    // A model's own judgment is cached for it, re-judged by another model,
+    // and never downgraded by a rules-only sweep.
+    save(&caller, "jev", "jev-roles-v1").await;
+    assert!(pending(structural).await.is_empty());
+    assert!(pending(jev).await.is_empty());
+    assert_eq!(pending(chat).await, caller_pending);
+
+    // A current rules fallback satisfies rules but still invites a model.
+    save(&caller, "structural_fallback", "structural-v2").await;
+    assert!(pending(structural).await.is_empty());
+    assert_eq!(pending(jev).await, caller_pending);
 
     drop(database);
     drop_schema(&pool, &schema).await;

@@ -336,7 +336,7 @@ cartograph llm migrate-credentials [PROJECT] [--tier-env TIER=ENV]
   [--apply --confirm migrate-inline-credentials]
 cartograph llm setup custom [--api-key-env ENV | --clear-credentials]
 cartograph llm setup [PROJECT] --preset jev [--api-key-env ENV]
-  [--jev-features explore,context] | [--clear-credentials]
+  [--jev-features explore,context,roles] | [--clear-credentials]
 cartograph llm setup [PROJECT] --preset cli-bridge --tier <chat|local|ask|classify>
   --command EXECUTABLE [--arg ARG]... --input <stdin|arg>
   [--prompt-template TEMPLATE] --response-format <raw|json-path|claude>

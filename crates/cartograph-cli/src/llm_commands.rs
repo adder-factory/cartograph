@@ -704,6 +704,8 @@ pub(super) enum JevFeatureArgument {
     Explore,
     /// Metadata-only context ranking.
     Context,
+    /// Metadata-only symbol role classification.
+    Roles,
 }
 
 impl JevFeatureArgument {
@@ -711,6 +713,7 @@ impl JevFeatureArgument {
         match self {
             Self::Explore => "explore",
             Self::Context => "context",
+            Self::Roles => "roles",
         }
     }
 }
