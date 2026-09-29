@@ -71,13 +71,20 @@ export CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS=120000
 - Keep the database pool large enough for the selected operation but below the
   64-connection hard cap. Local agent use normally needs no manual change.
 - Newly created managed databases keep synchronous durability while using a
-  15-minute checkpoint interval, 4 GiB soft `max_wal_size`, and 512 MiB
-  `min_wal_size`. Immutable-generation COPY and BM25 publication can otherwise
-  exhaust PostgreSQL's 1 GiB default repeatedly during rapid editor bursts,
-  forcing overlapping checkpoints and increasing foreground latency. The WAL
-  ceiling is soft and trades bounded local disk plus potentially longer crash
-  recovery for fewer full-page writes and checkpoint flushes; `db usage` and
-  free-space checks remain the operator boundary.
+  15-minute checkpoint interval, 2 GiB soft `max_wal_size`, 256 MiB
+  `min_wal_size`, and `wal_compression=lz4`. Immutable-generation COPY and BM25
+  publication can exhaust PostgreSQL's 1 GiB default repeatedly during rapid
+  editor bursts, forcing overlapping checkpoints and increasing foreground
+  latency, so the ceiling stays above it. It is also each project's
+  steady-state WAL footprint: WAL left after a busy period is kept up to the
+  ceiling, and an idle database does not checkpoint it away. The earlier 4 GiB
+  ceiling left 4.1 GiB of WAL in each recently busy project on a shared Docker
+  disk. On this repository, a forced re-index wrote 440-480 MiB of WAL at 4 GiB
+  and 510-770 MiB at 2 GiB with lz4 (570-920 MiB without it), because more
+  checkpoints fall inside the run. `cartograph doctor` warns when a container
+  predates these settings; `cartograph db upgrade --confirm
+  upgrade-managed-database` recreates it on the same data volume. `db usage`
+  and free-space checks remain the operator boundary.
 - Do not increase timeouts to hide a lost lease, stale fence, blocked database,
   or oversized corpus. Inspect task/lease status and the failing phase first.
 - Semantic HNSW indexes are per model; unused model generations should be

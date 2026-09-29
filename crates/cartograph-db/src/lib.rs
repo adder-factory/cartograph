@@ -134,8 +134,8 @@ pub use managed::{
     ManagedContainerState, ManagedDatabase, ManagedDatabaseArchives, ManagedDatabaseError,
     ManagedDatabaseLifecycle, ManagedDatabaseMaintenance, ManagedDatabaseStatus,
     ManagedDerivedIndexAvailability, ManagedDerivedIndexHealth, ManagedDestructiveConfirmation,
-    ManagedDestructiveOperation, ManagedRemoveReport, ManagedRestoreReport, ManagedStartReport,
-    ManagedUpgradeReport,
+    ManagedDestructiveOperation, ManagedPostgresSettings, ManagedRemoveReport,
+    ManagedRestoreReport, ManagedStartReport, ManagedUpgradeReport,
 };
 pub use migrations::{MigrationError, MigrationReport, latest_schema_version};
 pub use numerical::{

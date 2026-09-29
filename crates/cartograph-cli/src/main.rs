@@ -27,10 +27,10 @@ use cartograph_db::{
     GenerationRetentionPolicy, GenerationRetentionRequest, GenerationStorageSummary,
     GenerationValidationLimits, HeapCompactionPolicy, HeapCompactionPolicyInput, LeaseOwner,
     LeaseRequest, LeaseTarget, ManagedContainerState, ManagedDatabase, ManagedDatabaseStatus,
-    ManagedDestructiveConfirmation, ManagedDestructiveOperation, ManagedStartReport,
-    SemanticReadinessState, StorageCompactionPolicy, StorageCompactionPolicyInput,
-    V1PostgresImportExecution, V1PostgresImportLimits, V1PostgresImportRequest, V1PostgresSource,
-    V1PostgresSourceRevision,
+    ManagedDestructiveConfirmation, ManagedDestructiveOperation, ManagedPostgresSettings,
+    ManagedStartReport, SemanticReadinessState, StorageCompactionPolicy,
+    StorageCompactionPolicyInput, V1PostgresImportExecution, V1PostgresImportLimits,
+    V1PostgresImportRequest, V1PostgresSource, V1PostgresSourceRevision,
 };
 use cartograph_domain::{
     EdgeKind, ModelId, NormalizedPath, ProjectId, ProjectOperation, SourceLanguage, SymbolId,
@@ -4892,6 +4892,20 @@ fn check_managed_database_status(status: &ManagedDatabaseStatus, checks: &mut Ve
                 .to_owned(),
         )
     });
+    checks.push(if status.postgres_settings == ManagedPostgresSettings::Current {
+        doctor_pass(
+            "managed-postgres-settings",
+            "Managed PostgreSQL runs the current server settings.".to_owned(),
+        )
+    } else {
+        doctor_warn(
+            "managed-postgres-settings",
+            "Managed PostgreSQL predates the current server settings, which cap retained WAL at 2 GB and compress it."
+                .to_owned(),
+            "Create a backup, then run `cartograph db upgrade --confirm upgrade-managed-database --project-path <path>`; the data volume is kept."
+                .to_owned(),
+        )
+    });
 }
 
 async fn check_database_capabilities(
@@ -6080,6 +6094,7 @@ mod tests {
                 nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
                 pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
                 resource_limits_match: true,
+                postgres_settings: ManagedPostgresSettings::Current,
             },
             &mut checks,
         );
@@ -6113,6 +6128,7 @@ mod tests {
                 nano_cpus: Some(0),
                 pids_limit: Some(0),
                 resource_limits_match: false,
+                postgres_settings: ManagedPostgresSettings::Outdated,
             },
             &mut checks,
         );
@@ -6144,6 +6160,7 @@ mod tests {
             nano_cpus: Some(0),
             pids_limit: Some(0),
             resource_limits_match: false,
+            postgres_settings: ManagedPostgresSettings::Outdated,
         };
         let error = managed_mcp_preflight_error(&status)
             .unwrap_or_else(|| panic!("incompatible managed database passed MCP preflight"));
@@ -6165,6 +6182,7 @@ mod tests {
             nano_cpus: None,
             pids_limit: None,
             resource_limits_match: false,
+            postgres_settings: ManagedPostgresSettings::Outdated,
         };
         assert!(
             managed_mcp_preflight_error(&missing)
@@ -6182,6 +6200,7 @@ mod tests {
             nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
             pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
             resource_limits_match: true,
+            postgres_settings: ManagedPostgresSettings::Current,
             ..status.clone()
         };
         assert!(
@@ -6200,6 +6219,7 @@ mod tests {
             nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
             pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
             resource_limits_match: true,
+            postgres_settings: ManagedPostgresSettings::Current,
             ..status
         };
         assert!(managed_mcp_preflight_error(&healthy).is_none());

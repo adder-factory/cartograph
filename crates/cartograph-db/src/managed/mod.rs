@@ -7,8 +7,8 @@ use std::{path::Path, time::Duration};
 use cartograph_config::{DatabaseSchema, DatabaseSettings};
 use credentials::{CredentialStore, DatabaseCredentials};
 use docker::{
-    ContainerCreateSpec, ContainerInspection, DockerCli, has_expected_data_mount,
-    initialize_extensions, verify_volume,
+    ContainerCreateSpec, ContainerInspection, DockerCli, has_current_postgres_settings,
+    has_expected_data_mount, initialize_extensions, postgres_command, verify_volume,
 };
 use secrecy::ExposeSecret;
 use serde::Serialize;
@@ -155,6 +155,20 @@ pub struct ManagedDatabaseStatus {
     pub pids_limit: Option<i64>,
     /// Whether every explicit managed resource limit matches the supported policy.
     pub resource_limits_match: bool,
+    /// Whether the container runs the current PostgreSQL server settings.
+    pub postgres_settings: ManagedPostgresSettings,
+}
+
+/// PostgreSQL server settings of the managed container.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedPostgresSettings {
+    /// The container runs the current settings.
+    Current,
+    /// An older container keeps working; `db upgrade` applies the current settings.
+    Outdated,
+    /// No managed container exists.
+    Absent,
 }
 
 /// Result of a successful idempotent managed start.
@@ -536,6 +550,7 @@ impl ManagedDatabaseLifecycle<'_> {
                 identity: &self.database.identity,
                 port: self.database.port,
                 image: MANAGED_DATABASE_IMAGE,
+                command: &postgres_command(),
             })
             .await
         {
@@ -599,6 +614,7 @@ impl ManagedDatabaseLifecycle<'_> {
                 nano_cpus: None,
                 pids_limit: None,
                 resource_limits_match: false,
+                postgres_settings: ManagedPostgresSettings::Absent,
             });
         };
         validate_owned_container(&self.database.identity, &inspection, false)?;
@@ -617,6 +633,11 @@ impl ManagedDatabaseLifecycle<'_> {
             nano_cpus: Some(inspection.nano_cpus),
             pids_limit: Some(inspection.pids_limit),
             resource_limits_match: has_expected_resource_limits(&inspection),
+            postgres_settings: if has_current_postgres_settings(&inspection) {
+                ManagedPostgresSettings::Current
+            } else {
+                ManagedPostgresSettings::Outdated
+            },
         })
     }
 
@@ -1374,6 +1395,7 @@ mod tests {
             nano_cpus: MANAGED_DATABASE_NANO_CPUS,
             pids_limit: MANAGED_DATABASE_PIDS_LIMIT,
             data_mount: None,
+            command: postgres_command(),
         };
 
         assert_eq!(
