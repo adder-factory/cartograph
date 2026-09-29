@@ -381,42 +381,11 @@ fn encode_request(
     if questions.is_empty()
         || questions.len() > MAXIMUM_QUESTIONS
         || bounded_json(state, MAXIMUM_STATE_BYTES).is_err()
+        || !questions
+            .iter()
+            .all(|(key, question)| question_within_bounds(key, question))
     {
         return Err(JevError::RequestLimit);
-    }
-    for (key, question) in questions {
-        if !bounded_text(key, 128) {
-            return Err(JevError::RequestLimit);
-        }
-        let instructions = match question {
-            JevQuestion::Choice {
-                instructions,
-                criteria,
-            } => {
-                if !(2..=MAXIMUM_OPTIONS).contains(&criteria.len())
-                    || criteria
-                        .iter()
-                        .any(|(k, v)| !bounded_text(k, 128) || !bounded_text(v, 2048))
-                {
-                    return Err(JevError::RequestLimit);
-                }
-                instructions
-            }
-            JevQuestion::Noul {
-                instructions,
-                criteria,
-            } => {
-                if criteria.as_ref().is_some_and(|criteria| {
-                    !bounded_text(&criteria.holds, 2048) || !bounded_text(&criteria.fails, 2048)
-                }) {
-                    return Err(JevError::RequestLimit);
-                }
-                instructions
-            }
-        };
-        if !bounded_text(instructions, MAXIMUM_INSTRUCTION_BYTES) {
-            return Err(JevError::RequestLimit);
-        }
     }
     bounded_json(
         &Request {
@@ -426,6 +395,33 @@ fn encode_request(
         },
         MAXIMUM_REQUEST_BYTES,
     )
+}
+
+fn question_within_bounds(key: &str, question: &JevQuestion) -> bool {
+    let (instructions, criteria_bounded) = match question {
+        JevQuestion::Choice {
+            instructions,
+            criteria,
+        } => (
+            instructions,
+            (2..=MAXIMUM_OPTIONS).contains(&criteria.len())
+                && criteria
+                    .iter()
+                    .all(|(k, v)| bounded_text(k, 128) && bounded_text(v, 2048)),
+        ),
+        JevQuestion::Noul {
+            instructions,
+            criteria,
+        } => (
+            instructions,
+            criteria.as_ref().is_none_or(|criteria| {
+                bounded_text(&criteria.holds, 2048) && bounded_text(&criteria.fails, 2048)
+            }),
+        ),
+    };
+    bounded_text(key, 128)
+        && criteria_bounded
+        && bounded_text(instructions, MAXIMUM_INSTRUCTION_BYTES)
 }
 
 fn bounded_json(value: &impl Serialize, limit: usize) -> Result<Vec<u8>, JevError> {

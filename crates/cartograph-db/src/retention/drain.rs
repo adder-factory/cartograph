@@ -453,49 +453,72 @@ impl Progress {
     ) -> Result<(), GenerationRetentionError> {
         let generation_id = &work.candidate.generation_id;
         for table in DELETE_ORDER {
-            let mut state = cursors.state(generation_id, table);
-            if let TableDrain::Keyset(cursor) = &state {
-                let remaining = context.policy.maximum_cascade_rows - self.rows;
-                if remaining == 0 {
-                    break;
+            let remaining = context.policy.maximum_cascade_rows - self.rows;
+            let next = match cursors.state(generation_id, table) {
+                TableDrain::Keyset(_) | TableDrain::Sweep if remaining == 0 => break,
+                TableDrain::Keyset(cursor) => {
+                    self.keyset_step(
+                        connection,
+                        context,
+                        work,
+                        table,
+                        cursor.as_deref(),
+                        remaining,
+                    )
+                    .await?
                 }
-                let batch = keyset_batch(
-                    connection,
-                    context,
-                    work,
-                    table,
-                    cursor.as_deref(),
-                    remaining,
-                )
-                .await?;
-                self.record(table, batch.removed, None)?;
-                state = if batch.removed < remaining {
-                    TableDrain::Done
-                } else {
-                    TableDrain::Keyset(batch.next_cursor)
-                };
-                cursors.set(generation_id, table, state.clone());
-            }
-            if state == TableDrain::Sweep {
-                let remaining = context.policy.maximum_cascade_rows - self.rows;
-                if remaining == 0 {
-                    break;
+                TableDrain::Sweep => {
+                    self.sweep_step(connection, context, work, table, remaining)
+                        .await?
                 }
-                let Some((removed, original_state)) = (if table == "index_generations" {
-                    delete_parent_bounded(connection, context, work, remaining).await?
-                } else {
-                    Some(sweep_batch(connection, context, work, table, remaining).await?)
-                }) else {
-                    cursors.set(generation_id, table, TableDrain::ParentDeferred);
-                    continue;
-                };
-                self.record(table, removed, original_state.as_deref())?;
-                if removed < remaining {
-                    cursors.set(generation_id, table, TableDrain::Done);
-                }
+                TableDrain::Done | TableDrain::ParentDeferred => continue,
+            };
+            if let Some(next) = next {
+                cursors.set(generation_id, table, next);
             }
         }
         Ok(())
+    }
+
+    /// One keyset page of `table`; a short page means the table is drained.
+    async fn keyset_step(
+        &mut self,
+        connection: &mut sqlx_postgres::PgConnection,
+        context: &RetentionContext<'_>,
+        work: &CandidateWork,
+        table: &'static str,
+        cursor: Option<&str>,
+        remaining: u64,
+    ) -> Result<Option<TableDrain>, GenerationRetentionError> {
+        let batch = keyset_batch(connection, context, work, table, cursor, remaining).await?;
+        self.record(table, batch.removed, None)?;
+        Ok(Some(if batch.removed < remaining {
+            TableDrain::Done
+        } else {
+            TableDrain::Keyset(batch.next_cursor)
+        }))
+    }
+
+    /// One bounded sweep of `table`, or the parent row delete. `None` keeps
+    /// the sweep state for the next batch.
+    async fn sweep_step(
+        &mut self,
+        connection: &mut sqlx_postgres::PgConnection,
+        context: &RetentionContext<'_>,
+        work: &CandidateWork,
+        table: &'static str,
+        remaining: u64,
+    ) -> Result<Option<TableDrain>, GenerationRetentionError> {
+        let deleted = if table == "index_generations" {
+            delete_parent_bounded(connection, context, work, remaining).await?
+        } else {
+            Some(sweep_batch(connection, context, work, table, remaining).await?)
+        };
+        let Some((removed, original_state)) = deleted else {
+            return Ok(Some(TableDrain::ParentDeferred));
+        };
+        self.record(table, removed, original_state.as_deref())?;
+        Ok((removed < remaining).then_some(TableDrain::Done))
     }
 
     fn record(

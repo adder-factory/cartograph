@@ -527,87 +527,116 @@ impl<'a> Navigator<'a> {
                 break;
             }
             self.check_generation().await?;
-            let actions = self.actions();
-            let relevance = self.relevance_targets();
-            let state = self.state(round);
-            let prompts = questions(&actions, &relevance);
-            let decision = tokio::select! {
-                biased;
-                () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-                decision = provider.decide(&state, &prompts) => decision,
-            };
-            let decision = match decision {
-                Ok(decision) => decision,
-                Err(error) => {
-                    self.report.stop = NavigationStop::ProviderUnavailable;
-                    self.report.provider_error_detail = Some(error.to_string());
-                    self.report.provider_error = Some(error);
-                    return Ok(());
-                }
-            };
-            let Some(outcome) = round_outcome(&actions, &relevance, &decision, round) else {
-                self.report.stop = NavigationStop::ProviderUnavailable;
-                self.report.provider_error = Some(JevError::InvalidResponse);
+            let Some(outcome) = self.decide(provider, round).await? else {
                 return Ok(());
             };
-            for (index, probability) in &outcome.relevance {
-                if let Some(candidate) = self.report.candidates.get_mut(*index) {
-                    candidate.relevance = Some(*probability);
-                }
-            }
+            self.record_relevance(&outcome);
             if let Some(stop) = self.terminal_stop(&outcome) {
-                let mut step = outcome.next;
-                if stop == NavigationStop::Finished && !matches!(step.action, Action::Finish) {
-                    // A sufficiency stop does not execute the chosen operation;
-                    // record the finish that actually ended navigation instead.
-                    step.action = Action::Finish;
-                    step.completed = true;
-                    step.confidence = step.source_sufficiency;
-                }
-                self.report.decisions.push(step);
-                self.report.stop = stop;
+                self.finish(outcome.next, stop);
                 return Ok(());
             }
-            let planned = self.plan_round(outcome);
-            let reads = planned
-                .iter()
-                .filter_map(|step| match &step.action {
-                    Action::Read { symbol } => Some(symbol.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            let others = planned
-                .iter()
-                .filter(|step| !matches!(step.action, Action::Read { .. }))
-                .map(|step| step.action.clone())
-                .collect::<Vec<_>>();
-            self.report.decisions.extend(planned);
-            let executed = async {
-                if !reads.is_empty() {
-                    self.read_sources(&reads).await?;
-                }
-                for action in &others {
-                    self.execute(action).await?;
-                }
-                Ok::<(), ProjectError>(())
-            }
-            .await;
-            if executed.is_err() {
-                // A failed lookup is recoverable only if source and generation still match.
-                self.check_source().await?;
-                self.report.stop = NavigationStop::RetrievalUnavailable;
+            if !self.execute_round(outcome, round).await? {
                 return Ok(());
-            }
-            self.check_generation().await?;
-            for step in self.report.decisions.iter_mut().rev() {
-                if step.round != round || step.completed {
-                    break;
-                }
-                step.completed = true;
             }
         }
         self.report.stop = NavigationStop::StepLimit;
         Ok(())
+    }
+
+    /// One provider request for `round`. `None` means the provider failed or
+    /// answered malformedly, and the report already records that stop.
+    async fn decide(
+        &mut self,
+        provider: &impl DecisionProvider,
+        round: usize,
+    ) -> Result<Option<RoundOutcome>, ProjectError> {
+        let actions = self.actions();
+        let relevance = self.relevance_targets();
+        let state = self.state(round);
+        let prompts = questions(&actions, &relevance);
+        let decision = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
+            decision = provider.decide(&state, &prompts) => decision,
+        };
+        let decision = match decision {
+            Ok(decision) => decision,
+            Err(error) => {
+                self.report.stop = NavigationStop::ProviderUnavailable;
+                self.report.provider_error_detail = Some(error.to_string());
+                self.report.provider_error = Some(error);
+                return Ok(None);
+            }
+        };
+        let outcome = round_outcome(&actions, &relevance, &decision, round);
+        if outcome.is_none() {
+            self.report.stop = NavigationStop::ProviderUnavailable;
+            self.report.provider_error = Some(JevError::InvalidResponse);
+        }
+        Ok(outcome)
+    }
+
+    fn record_relevance(&mut self, outcome: &RoundOutcome) {
+        for (index, probability) in &outcome.relevance {
+            if let Some(candidate) = self.report.candidates.get_mut(*index) {
+                candidate.relevance = Some(*probability);
+            }
+        }
+    }
+
+    fn finish(&mut self, mut last: NavigationStep, stop: NavigationStop) {
+        if stop == NavigationStop::Finished && !matches!(last.action, Action::Finish) {
+            // A sufficiency stop does not execute the chosen operation;
+            // record the finish that actually ended navigation instead.
+            last.action = Action::Finish;
+            last.completed = true;
+            last.confidence = last.source_sufficiency;
+        }
+        self.report.decisions.push(last);
+        self.report.stop = stop;
+    }
+
+    /// Execute a planned round. `false` means a failed lookup ended
+    /// navigation while source and generation still matched.
+    async fn execute_round(
+        &mut self,
+        outcome: RoundOutcome,
+        round: usize,
+    ) -> Result<bool, ProjectError> {
+        let planned = self.plan_round(outcome);
+        let mut reads = Vec::new();
+        let mut others = Vec::new();
+        for step in &planned {
+            match &step.action {
+                Action::Read { symbol } => reads.push(symbol.clone()),
+                action => others.push(action.clone()),
+            }
+        }
+        self.report.decisions.extend(planned);
+        let executed = async {
+            if !reads.is_empty() {
+                self.read_sources(&reads).await?;
+            }
+            for action in &others {
+                self.execute(action).await?;
+            }
+            Ok::<(), ProjectError>(())
+        }
+        .await;
+        if executed.is_err() {
+            // A failed lookup is recoverable only if source and generation still match.
+            self.check_source().await?;
+            self.report.stop = NavigationStop::RetrievalUnavailable;
+            return Ok(false);
+        }
+        self.check_generation().await?;
+        for step in self.report.decisions.iter_mut().rev() {
+            if step.round != round || step.completed {
+                break;
+            }
+            step.completed = true;
+        }
+        Ok(true)
     }
 
     /// Provider state within the request bound. Signatures are the first

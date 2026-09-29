@@ -598,6 +598,12 @@ jobs:
           cargo test --locked --quiet -p cartograph-agent --lib
           navigation::tests::live_navigation -- --ignored --nocapture --test-threads=1
 
+      - name: Jev context ranking reorders retrieval candidates and keeps order on outage
+        if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'
+        run: >-
+          cargo test --locked --quiet -p cartograph-agent --lib
+          decision_rerank::tests::live_context_ranking -- --ignored --nocapture --test-threads=1
+
       - name: Candidate binary self-indexes this repository
         if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'
         env:

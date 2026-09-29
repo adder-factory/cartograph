@@ -79,6 +79,8 @@ coverage_test -p cartograph-agent --test live_project \
   -- --ignored --nocapture --test-threads=1
 coverage_test -p cartograph-agent --lib navigation::tests::live_navigation \
   -- --ignored --nocapture --test-threads=1
+coverage_test -p cartograph-agent --lib decision_rerank::tests::live_context_ranking \
+  -- --ignored --nocapture --test-threads=1
 coverage_test -p cartograph-cli \
   -- --ignored --nocapture --test-threads=1
 coverage_test -p cartograph-agent --test patch_task_evaluation \
