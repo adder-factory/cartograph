@@ -114,7 +114,7 @@ those auxiliary Git channels. When HEAD, shallowness, the number of reachable
 commits within the bound, the commit bound, the enabled channels and the mining
 version all match the last stored refresh, churn and co-change
 evidence is reused without rescanning Git or rewriting its rows, and the index
-report marks the history `reused: true`. `cartograph history refresh` always
+report marks the history `reused: true`. `cartograph history --mode refresh` always
 rescans.
 
 Ready generations record their exact fact counts and source bytes, so status,
