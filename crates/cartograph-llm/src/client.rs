@@ -1,8 +1,12 @@
 use futures_util::StreamExt as _;
 use reqwest::{StatusCode, header};
-use secrecy::ExposeSecret as _;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
+use crate::credential::{
+    CredentialCommandError, CredentialedRequest, CredentialedRequestError, bearer_header,
+    send_credentialed,
+};
 use crate::{
     EmbeddingBatch, EmbeddingError, EmbeddingModelIdentity, EmbeddingSettings, EmbeddingVector,
 };
@@ -37,7 +41,7 @@ impl OpenAiEmbeddingClient {
         let transport = model_transport(TransportSettings {
             endpoint: settings.endpoint(),
             model: settings.model(),
-            api_key: settings.api_key(),
+            credential: settings.credential(),
             connect_timeout: settings.connect_timeout(),
             request_timeout: settings.request_timeout(),
         })
@@ -100,6 +104,12 @@ impl OpenAiEmbeddingClient {
         priority: RequestPriority,
     ) -> Result<EmbeddingBatch, EmbeddingError> {
         validate_inputs(inputs, &self.settings)?;
+        let current = self
+            .settings
+            .credential()
+            .current()
+            .await
+            .map_err(EmbeddingError::credential_unavailable)?;
         let admission = self
             .transport
             .admit(priority, self.settings.request_timeout())
@@ -110,29 +120,30 @@ impl OpenAiEmbeddingClient {
             input: inputs,
             encoding_format: "float",
         };
-        let mut builder = self
-            .transport
-            .client
-            .post(self.settings.endpoint().clone())
-            .timeout(
-                admission
-                    .remaining()
-                    .map_err(|()| EmbeddingError::EndpointUnavailable)?,
-            )
-            .json(&request);
-        if let Some(api_key) = self.settings.api_key() {
-            let value = format!("Bearer {}", api_key.expose_secret());
-            let value = header::HeaderValue::from_str(&value).map_err(|_| {
-                EmbeddingError::InvalidConfiguration {
-                    field: crate::EMBEDDING_API_KEY_ENV,
+        let response = send_credentialed(CredentialedRequest {
+            credential: self.settings.credential(),
+            current,
+            build: |key: Option<&SecretString>| {
+                let mut builder = self
+                    .transport
+                    .client
+                    .post(self.settings.endpoint().clone())
+                    .timeout(
+                        admission
+                            .remaining()
+                            .map_err(|()| EmbeddingError::EndpointUnavailable)?,
+                    )
+                    .json(&request);
+                if let Some(key) = key {
+                    let value = bearer_header(key).ok_or(EmbeddingError::InvalidConfiguration {
+                        field: crate::EMBEDDING_API_KEY_ENV,
+                    })?;
+                    builder = builder.header(header::AUTHORIZATION, value);
                 }
-            })?;
-            builder = builder.header(header::AUTHORIZATION, value);
-        }
-        let response = builder
-            .send()
-            .await
-            .map_err(|_| EmbeddingError::EndpointUnavailable)?;
+                Ok(builder)
+            },
+        })
+        .await?;
         if response.status() != StatusCode::OK {
             return Err(EmbeddingError::BackendRejected);
         }
@@ -146,6 +157,18 @@ impl OpenAiEmbeddingClient {
         }
         let body = read_bounded_body(response, self.settings.maximum_response_bytes()).await?;
         decode_response(&body, inputs.len(), self.identity.clone())
+    }
+}
+
+impl CredentialedRequestError for EmbeddingError {
+    fn credential_unavailable(error: CredentialCommandError) -> Self {
+        Self::CredentialUnavailable {
+            failure: error.failure(),
+        }
+    }
+
+    fn endpoint_unavailable() -> Self {
+        Self::EndpointUnavailable
     }
 }
 
@@ -362,6 +385,84 @@ mod tests {
         request
             .join()
             .unwrap_or_else(|_| panic!("fixture HTTP server panicked"));
+    }
+
+    /// Project embedding tier at `endpoint` whose credential comes from a
+    /// `/bin/sh` helper with `body`.
+    #[cfg(unix)]
+    fn command_settings(root: &std::path::Path, endpoint: &str, body: &str) -> EmbeddingSettings {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let helper = root.join("embedding-helper");
+        std::fs::write(&helper, format!("#!/bin/sh\n{body}\n"))
+            .unwrap_or_else(|error| panic!("helper write failed: {error}"));
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700))
+            .unwrap_or_else(|error| panic!("helper chmod failed: {error}"));
+        std::fs::create_dir_all(root.join(".cartograph"))
+            .unwrap_or_else(|error| panic!("state directory failed: {error}"));
+        std::fs::write(
+            root.join(".cartograph/config.json"),
+            serde_json::json!({"version": 2, "llm": {"enabled": true, "embeddingLlm": {
+                "provider": "openai-compat", "endpoint": endpoint, "model": "fixture-model",
+                "apiKeyCommand": [helper]}}})
+            .to_string(),
+        )
+        .unwrap_or_else(|error| panic!("config write failed: {error}"));
+        let config = crate::load_exact_project_llm_tier(root, crate::ProjectLlmTier::Embedding)
+            .unwrap_or_else(|error| panic!("tier load failed: {error}"))
+            .unwrap_or_else(|| panic!("tier missing"));
+        EmbeddingSettings::from_project_config(&config)
+            .unwrap_or_else(|error| panic!("settings failed: {error}"))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn embedding_requests_use_the_project_credential_command() {
+        let response_body =
+            serde_json::json!({"data": [{"index": 0, "embedding": FIRST_VECTOR}]}).to_string();
+        let (endpoint, request) = spawn_http_fixture(format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
+            response_body.len()
+        ));
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let settings =
+            command_settings(root.path(), &endpoint, "printf 'embedding-command-key\\n'");
+        assert!(!format!("{settings:?}").contains("embedding-command-key"));
+        OpenAiEmbeddingClient::new(settings)
+            .unwrap_or_else(|error| panic!("client failed: {error}"))
+            .embed(&["first".to_owned()])
+            .await
+            .unwrap_or_else(|error| panic!("embedding failed: {error}"));
+        let request = String::from_utf8(
+            request
+                .join()
+                .unwrap_or_else(|_| panic!("fixture HTTP server panicked")),
+        )
+        .unwrap_or_else(|error| panic!("request was not UTF-8: {error}"));
+        assert!(request.contains("authorization: Bearer embedding-command-key\r\n"));
+
+        let unused = TcpListener::bind("127.0.0.1:0")
+            .unwrap_or_else(|error| panic!("listener failed: {error}"));
+        unused
+            .set_nonblocking(true)
+            .unwrap_or_else(|error| panic!("nonblocking failed: {error}"));
+        let address = unused
+            .local_addr()
+            .unwrap_or_else(|error| panic!("address failed: {error}"));
+        let locked = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let settings = command_settings(locked.path(), &format!("http://{address}"), "exit 2");
+        assert_eq!(
+            OpenAiEmbeddingClient::new(settings)
+                .unwrap_or_else(|error| panic!("client failed: {error}"))
+                .embed(&["first".to_owned()])
+                .await,
+            Err(EmbeddingError::CredentialUnavailable {
+                failure: crate::CredentialCommandFailure::Exited { code: Some(2) },
+            })
+        );
+        assert!(
+            matches!(unused.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
     }
 
     fn spawn_http_fixture(response: String) -> (String, thread::JoinHandle<Vec<u8>>) {

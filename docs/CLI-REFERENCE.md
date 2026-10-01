@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-01 (`v2.1.33`).
+Last release audit: 2026-10-01 (`v2.1.34`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds and confirmation phrases in the installed version. This page
@@ -130,7 +130,7 @@ or database settings.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.33 top-level command advertised
+This inventory contains every non-hidden v2.1.34 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 
@@ -182,6 +182,18 @@ project-local agent configuration. For a non-default managed port, it also pins
 the non-secret loopback port in the portable server arguments. Restart the host
 after a configuration or binary change.
 
+Rewriting an existing `cartograph` entry merges instead of replacing it.
+Cartograph owns only `command`, its own server flags in `args` (`serve`,
+`--mcp`, `--project-path`, `--managed-database-port`), and the target's
+transport keys; `env`, `cwd`, other host-specific keys, and extra server
+arguments such as `--profile` are kept. An entry that launches Cartograph
+through a wrapper (`/usr/bin/env`, `op run --`, `doppler run --`,
+`aws-vault exec`, `direnv exec`, or a custom helper), meaning a non-Cartograph
+`command` whose arguments name a Cartograph executable followed by `serve`, is
+never replaced: installation repins only that embedded executable argument, and
+only when it is an absolute path. A `PATH` name through a wrapper is left as
+written. To replace a wrapper with a direct registration, uninstall first.
+
 The stdio server is dual-era: MCP `2026-07-28` clients use stateless
 `server/discover` and per-request metadata, while existing clients can continue
 using the `2024-11-05` initialize handshake. Profiles and exact disabled tools
@@ -202,10 +214,25 @@ project-owned managed database when applicable, applies safe append-only schema
 migrations, reconciles a complete current generation, runs `doctor`, and uses
 the installed executable to require an exact installed-version/fresh-generation
 status. It then repairs stale owned Codex, Claude, and Cursor registrations in
-local and global locations through the normal installer, preserving unrelated
-configuration and managed-port arguments. Running `--apply` when the binary is
-already current resumes or heals the project and registration steps instead of
-returning early.
+local and global locations, preserving unrelated configuration and managed-port
+arguments. Running `--apply` when the binary is already current resumes or
+heals the project and registration steps instead of returning early.
+
+Each audited registration reports a `commandState`. A direct pin, whose
+`command` is itself a Cartograph executable (file name `cartograph`, or under
+`~/.cartograph-cli/versions/*/bin/` or `current/bin/`), is `path_lookup`,
+`absolute_unchecked`, `current_absolute`, or `stale_absolute`. A wrapper
+registration is `wrapped`, and `wrappedExecutableState` reports its embedded
+executable in the same vocabulary. Any other launcher is `custom_command` and
+is never repaired. Only `stale_absolute` and a `wrapped` entry whose embedded
+executable is `stale_absolute` are repaired. A stale direct pin is reinstalled
+through the normal installer; a stale wrapped entry is repinned in place, so
+its wrapper command, other arguments, `env`, and every other key are unchanged.
+`registrationRepair.changes` lists every attempted entry with `target`,
+`location`, `configPath`, `field` (`command` or `args[N]`), the unchanged
+`wrapper`, `from` and `to` executable paths, and `outcome` (`repinned` or
+`manual`). A `manual` entry carries a `manualStep` naming the exact edit; the
+report never includes wrapper arguments or `env` values.
 
 The command never replaces an incompatible managed container implicitly. It
 keeps the verified binary installed, reports `completed: false`, and emits the
@@ -338,8 +365,10 @@ discarding the other four.
 ```text
 cartograph llm migrate-credentials [PROJECT] [--tier-env TIER=ENV]
   [--apply --confirm migrate-inline-credentials]
-cartograph llm setup custom [--api-key-env ENV | --clear-credentials]
-cartograph llm setup [PROJECT] --preset jev [--api-key-env ENV]
+cartograph llm setup custom [--api-key-env ENV
+  | --api-key-command EXE [--api-key-arg ARG]... | --clear-credentials]
+cartograph llm setup [PROJECT] --preset jev
+  [--api-key-env ENV | --api-key-command EXE [--api-key-arg ARG]...]
   [--jev-features explore,context,roles,rename] | [--clear-credentials]
 cartograph llm setup [PROJECT] --preset cli-bridge --tier <chat|local|ask|classify>
   --command EXECUTABLE [--arg ARG]... --input <stdin|arg>
@@ -354,7 +383,15 @@ migration requires an exact environment-value match, serializes Cartograph
 writers with a private lock, and aborts if the config bytes changed after the
 proof was made. Custom setup clears retained credentials automatically when the
 provider/endpoint origin changes; `--clear-credentials` is the explicit
-same-origin removal path and conflicts with `--api-key-env`. `--jev-features`
+same-origin removal path and conflicts with `--api-key-env` and
+`--api-key-command`. `--api-key-command` stores a credential helper's argv
+(repeat `--api-key-arg` for each argument) instead of a variable name; the
+serving process runs it without a shell on the tier's first use, and the two
+sources are mutually exclusive. Every preset that accepts `--api-key-env`
+accepts it; the MCP `cartograph_admin` `llm-apply` action takes the same argv as
+`apiKeyCommand`. See [credential sources](CONFIGURATION.md#credential-sources).
+`doctor` and `llm smoke` run a configured command and report only whether it
+produced a credential. `--jev-features`
 applies only to the Jev preset and writes the decision tier's `features` list;
 without it an existing list is preserved and a new tier permits exploration
 only. Backend cleanup

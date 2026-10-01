@@ -2,7 +2,7 @@ use std::{env, path::Path, time::Duration};
 
 use futures_util::StreamExt as _;
 use reqwest::{StatusCode, header};
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{
@@ -11,10 +11,14 @@ use tokio::{
 };
 use url::Url;
 
+use crate::credential::{
+    CredentialCommandError, CredentialedRequest, CredentialedRequestError, TierCredential,
+    bearer_header, credential_header, send_credentialed,
+};
 use crate::project_config::{CliResponsePathComponent, parse_cli_response_path};
 use crate::{
-    CliBridgeConfig, CliBridgeInputMode, CliBridgeResponseFormat, ProjectLlmProvider,
-    ProjectLlmTier, ProjectLlmTierConfig, load_project_llm_tier,
+    CliBridgeConfig, CliBridgeInputMode, CliBridgeResponseFormat, CredentialCommandFailure,
+    ProjectLlmProvider, ProjectLlmTier, ProjectLlmTierConfig, load_project_llm_tier,
 };
 
 /// Public constant defining the chat API key environment.
@@ -51,7 +55,7 @@ pub struct ChatSettings {
     provider: ProjectLlmProvider,
     endpoint: Url,
     model: String,
-    api_key: Option<SecretString>,
+    credential: TierCredential,
     cli_bridge: Option<CliBridgeConfig>,
     timeout: Duration,
     maximum_input_bytes: usize,
@@ -67,7 +71,7 @@ impl std::fmt::Debug for ChatSettings {
             .field("provider", &self.provider)
             .field("endpoint", &"<redacted>")
             .field("model", &self.model)
-            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("credential", &self.credential)
             .field("cli_bridge_configured", &self.cli_bridge.is_some())
             .field("timeout", &self.timeout)
             .field("maximum_input_bytes", &self.maximum_input_bytes)
@@ -156,10 +160,12 @@ impl ChatSettings {
         let mut settings = match config.provider() {
             ProjectLlmProvider::Typesafe => return Err(invalid(PROJECT_CONFIG_FIELD)),
             ProjectLlmProvider::OpenAiCompat => {
-                Self::new(config.endpoint(), config.model(), config.api_key())?
+                let mut settings = Self::new(config.endpoint(), config.model(), None)?;
+                settings.credential = config.credential();
+                settings
             }
             ProjectLlmProvider::AnthropicApi => {
-                Self::new_anthropic(config.endpoint(), config.model(), config.api_key())?
+                Self::anthropic(config.endpoint(), config.model(), config.credential())?
             }
             ProjectLlmProvider::ClaudeBridge => {
                 Self::new_claude_bridge(config.model(), config.claude_bin())?
@@ -220,7 +226,7 @@ impl ChatSettings {
             provider: ProjectLlmProvider::OpenAiCompat,
             endpoint,
             model,
-            api_key,
+            credential: TierCredential::from_key(api_key),
             cli_bridge: None,
             timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS),
             maximum_input_bytes: DEFAULT_MAXIMUM_INPUT_BYTES,
@@ -230,19 +236,35 @@ impl ChatSettings {
         })
     }
 
+    #[cfg(test)]
     fn new_anthropic(
         endpoint: &str,
         model: impl Into<String>,
         api_key: Option<String>,
     ) -> Result<Self, ChatError> {
+        Self::anthropic(
+            endpoint,
+            model.into(),
+            TierCredential::Static(required_api_key(api_key)?),
+        )
+    }
+
+    /// Anthropic Messages settings; the API requires a credential source.
+    fn anthropic(
+        endpoint: &str,
+        model: impl Into<String>,
+        credential: TierCredential,
+    ) -> Result<Self, ChatError> {
         let endpoint = normalize_anthropic_endpoint(endpoint)?;
         let model = validated_model(model.into())?;
-        let api_key = required_api_key(api_key)?;
+        if !credential.is_configured() {
+            return Err(ChatError::IncompleteConfiguration);
+        }
         Ok(Self {
             provider: ProjectLlmProvider::AnthropicApi,
             endpoint,
             model,
-            api_key: Some(api_key),
+            credential,
             cli_bridge: None,
             timeout: Duration::from_mins(1),
             maximum_input_bytes: DEFAULT_MAXIMUM_INPUT_BYTES,
@@ -266,7 +288,7 @@ impl ChatSettings {
             provider: ProjectLlmProvider::ClaudeBridge,
             endpoint,
             model,
-            api_key: None,
+            credential: TierCredential::None,
             cli_bridge: Some(cli_bridge),
             timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS),
             maximum_input_bytes: DEFAULT_MAXIMUM_INPUT_BYTES,
@@ -287,7 +309,7 @@ impl ChatSettings {
             provider: ProjectLlmProvider::CliBridge,
             endpoint,
             model,
-            api_key: None,
+            credential: TierCredential::None,
             cli_bridge: Some(bridge.clone()),
             timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS),
             maximum_input_bytes: DEFAULT_MAXIMUM_INPUT_BYTES,
@@ -537,17 +559,25 @@ impl OpenAiChatClient {
             temperature: 0.0,
             max_tokens: request.maximum_output_tokens,
         };
-        let mut builder = self.client.post(self.settings.endpoint.clone()).json(&body);
-        if let Some(api_key) = &self.settings.api_key {
-            let value =
-                header::HeaderValue::from_str(&format!("Bearer {}", api_key.expose_secret()))
-                    .map_err(|_| invalid(CHAT_API_KEY_ENV))?;
-            builder = builder.header(header::AUTHORIZATION, value);
-        }
-        let response = builder
-            .send()
+        let current = self
+            .settings
+            .credential
+            .current()
             .await
-            .map_err(|_| ChatError::EndpointUnavailable)?;
+            .map_err(ChatError::credential_unavailable)?;
+        let response = send_credentialed(CredentialedRequest {
+            credential: &self.settings.credential,
+            current,
+            build: |key: Option<&SecretString>| {
+                let mut builder = self.client.post(self.settings.endpoint.clone()).json(&body);
+                if let Some(key) = key {
+                    let value = bearer_header(key).ok_or_else(|| invalid(CHAT_API_KEY_ENV))?;
+                    builder = builder.header(header::AUTHORIZATION, value);
+                }
+                Ok(builder)
+            },
+        })
+        .await?;
         if response.status() != StatusCode::OK {
             return Err(ChatError::BackendRejected);
         }
@@ -577,22 +607,27 @@ impl OpenAiChatClient {
             temperature: 0.0,
             max_tokens: request.maximum_output_tokens,
         };
-        let api_key = self
+        let current = self
             .settings
-            .api_key
-            .as_ref()
-            .ok_or(ChatError::IncompleteConfiguration)?;
-        let key = header::HeaderValue::from_str(api_key.expose_secret())
-            .map_err(|_| invalid(CHAT_API_KEY_ENV))?;
-        let response = self
-            .client
-            .post(self.settings.endpoint.clone())
-            .header("x-api-key", key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .json(&body)
-            .send()
+            .credential
+            .current()
             .await
-            .map_err(|_| ChatError::EndpointUnavailable)?;
+            .map_err(ChatError::credential_unavailable)?;
+        let response = send_credentialed(CredentialedRequest {
+            credential: &self.settings.credential,
+            current,
+            build: |key: Option<&SecretString>| {
+                let key = key.ok_or(ChatError::IncompleteConfiguration)?;
+                let key = credential_header(key).ok_or_else(|| invalid(CHAT_API_KEY_ENV))?;
+                Ok(self
+                    .client
+                    .post(self.settings.endpoint.clone())
+                    .header("x-api-key", key)
+                    .header("anthropic-version", ANTHROPIC_VERSION)
+                    .json(&body))
+            },
+        })
+        .await?;
         if response.status() != StatusCode::OK {
             return Err(ChatError::BackendRejected);
         }
@@ -918,6 +953,12 @@ pub enum ChatError {
     #[error("Cartograph chat endpoint is unavailable")]
     /// The configured endpoint could not complete the bounded request.
     EndpointUnavailable,
+    #[error("Cartograph chat credential command {failure}")]
+    /// The tier's credential command produced no usable credential.
+    CredentialUnavailable {
+        /// Why the command produced no credential; never its output.
+        failure: CredentialCommandFailure,
+    },
     #[error("Cartograph chat endpoint rejected the request")]
     /// The configured backend rejected the bounded request.
     BackendRejected,
@@ -927,6 +968,18 @@ pub enum ChatError {
     #[error("Cartograph chat endpoint returned an invalid response")]
     /// The backend response violates the expected bounded schema.
     InvalidResponse,
+}
+
+impl CredentialedRequestError for ChatError {
+    fn credential_unavailable(error: CredentialCommandError) -> Self {
+        Self::CredentialUnavailable {
+            failure: error.failure(),
+        }
+    }
+
+    fn endpoint_unavailable() -> Self {
+        Self::EndpointUnavailable
+    }
 }
 
 fn validate_input(request: GroundedChatRequest<'_>, maximum: usize) -> Result<(), ChatError> {
@@ -1147,6 +1200,7 @@ fn trim_owned(mut value: String) -> String {
     value
 }
 
+#[cfg(test)]
 fn required_api_key(value: Option<String>) -> Result<SecretString, ChatError> {
     let value = value.ok_or(ChatError::IncompleteConfiguration)?;
     if value.is_empty()
@@ -1313,6 +1367,19 @@ mod tests {
                 .is_err()
         );
         assert!(ChatSettings::new_anthropic(REMOTE_HTTPS_ENDPOINT, "fixture", None).is_err());
+        let command = crate::CredentialCommand::new(vec!["/opt/helper".to_owned()])
+            .unwrap_or_else(|error| panic!("credential command failed: {error}"));
+        let commanded = ChatSettings::anthropic(
+            REMOTE_HTTPS_ENDPOINT,
+            "fixture",
+            TierCredential::Command(command),
+        )
+        .unwrap_or_else(|error| panic!("a credential command was not accepted: {error}"));
+        assert!(format!("{commanded:?}").contains("argument_count: 0"));
+        assert_eq!(
+            ChatSettings::anthropic(REMOTE_HTTPS_ENDPOINT, "fixture", TierCredential::None).err(),
+            Some(ChatError::IncompleteConfiguration)
+        );
         assert!(ChatSettings::new_claude_bridge("fixture", Some("bad\nbinary")).is_err());
         let bridge = ChatSettings::new_claude_bridge("fixture", Some("claude"))
             .unwrap_or_else(|error| panic!("bridge settings failed: {error}"));

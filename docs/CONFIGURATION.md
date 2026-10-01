@@ -243,6 +243,28 @@ embedding, reranker and chat settings, and adds this optional tier:
 }
 ```
 
+MCP hosts start `cartograph serve --mcp` without your interactive shell's
+environment. Instead of putting the key in the host's `env` block or wrapping the
+server in a secret-manager launcher, you can let the server fetch it with a
+[credential command](#credential-sources):
+
+```sh
+cartograph llm setup . --preset jev \
+  --api-key-command /path/to/secret-helper --api-key-arg get --api-key-arg typesafe-api-key
+```
+
+```json
+"decisionLlm": {
+  "provider": "typesafe",
+  "endpoint": "https://api.typesafe.ai/v1/systemone",
+  "model": "jev-1.13.0",
+  "apiKeyCommand": ["/path/to/secret-helper", "get", "typesafe-api-key"]
+}
+```
+
+The host registration then stays a plain `cartograph serve --mcp`. If the
+helper fails (a locked store, an expired session), only Jev is affected.
+
 Enabling the tier permits sending the exploration question, candidate metadata
 (name, kind, bounded signature, path and lines) and bounded source excerpts to
 Typesafe. Each request asks Jev's parallel questions against shared state: one
@@ -286,9 +308,14 @@ retain evidence already captured. Source or generation changes, or a deadline
 that prevents final freshness verification, abort the request. Model confidence and
 sufficiency are advisory scores, not proof that the question is answered.
 An absent key reports `providerError: "credential_missing"`; the safe
-`providerErrorDetail` names the configured environment variable. Smoke output
-retains the configured model and endpoint on failure. Set that variable in the
-MCP server process (or its secret-manager launcher), not only an unrelated shell.
+`providerErrorDetail` names the configured environment variable. A credential
+command that fails reports `providerError: "credential_unavailable"`, and its
+detail names only the program and exit status. Smoke output retains the
+configured model and endpoint on failure. Set that variable in the MCP server
+process (or its secret-manager launcher), not only an unrelated shell, or use a
+credential command. `cartograph doctor` reports a configured variable that is
+unset in its own shell as a warning, because the server reads its own
+environment; an invalid tier still fails.
 
 Without `decisionLlm`, exploration stays native. `--decision native`, summary
 and low-token exploration also skip Jev.
@@ -465,10 +492,53 @@ Claude argv, stdin prompt bytes, and Claude response decoder.
 
 Embedding and reranker tiers require OpenAI-compatible HTTP. Optional tier
 fields include bounded `timeoutMs`, `concurrency`, `summaryBatchSize`,
-`apiKeyEnv`, legacy `claudeBin`, generic `command`/`args`/`input`/
+`apiKeyEnv` or `apiKeyCommand`, legacy `claudeBin`, generic `command`/`args`/`input`/
 `promptTemplate`/`responseFormat`/`responsePath`, `llamaServerArgs`, and
 `externallyManaged` where applicable. Inline legacy keys are read for
-compatibility but environment lookup is the safe configuration.
+compatibility but an environment reference or credential command is the safe
+configuration.
+
+### Credential sources
+
+A remote tier (`openai-compat`, `anthropic-api` or `typesafe`) takes its
+credential from at most one source. Configuration naming more than one is
+rejected, and the shell-free bridges accept none:
+
+- `apiKeyEnv` names an environment variable read by the process that uses the
+  tier: the MCP server for `cartograph_*` tools, your shell for CLI commands.
+  Without it, Jev reads `TYPESAFE_API_KEY`, `anthropic-api` reads
+  `ANTHROPIC_API_KEY`, and `openai-compat` without an `endpoint` reads
+  `OPENAI_API_KEY`.
+- `apiKeyCommand` is an argv array, for example
+  `["/path/to/secret-helper", "get", "typesafe-api-key"]`. Only the argv is
+  stored. The serving process runs it directly, without a shell, the first
+  time the tier needs a credential, not at startup. The argv has the CLI-bridge
+  bounds: a non-empty program and at most 128 arguments of up to 4 KiB each and
+  32 KiB in total. The command gets no stdin, its stderr is discarded, and it
+  must finish within 10 seconds and print at most 4 KiB. Trailing whitespace is
+  trimmed; the rest must be non-empty, control-free UTF-8. Like a CLI-bridge
+  command, it is trusted project configuration: Cartograph and `doctor` run
+  whatever program `.cartograph/config.json` names, so review that file before
+  using a checkout you do not trust.
+- A legacy inline `apiKey` is still read; move it with
+  `cartograph llm migrate-credentials`.
+
+A resolved command credential is kept only in that process's memory. It is
+never written to configuration, logs, session history or diagnostics. When the
+provider rejects it (HTTP 401 or 403), the command runs once more and the
+request is resent only if the value changed, so a rotated key is picked up
+without a restart. Such a re-run happens at most once every 30 seconds, even
+when each run prints a new value. A failed run reports `credential_unavailable` with the
+program's file name and exit status, never its output, and is remembered for 30
+seconds before a later use runs the command again. A failure affects only that
+tier: Jev falls back to native retrieval exactly as for a missing variable,
+and every other tool keeps working.
+
+Setup preserves the configured source while the provider/endpoint origin is
+unchanged, clears it when the origin changes, and removes it with
+`--clear-credentials`. `cartograph doctor` and `cartograph llm smoke` run a
+configured command with the same bounds and report only whether it produced a
+credential.
 
 A low-load deployment may configure only `embeddingLlm` and `rerankerLlm` and
 set `summarizeLlm`, `askLlm`, `localLlm`, and `classifyLlm` to `null`.

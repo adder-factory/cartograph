@@ -3,12 +3,13 @@ use std::{
     time::Duration,
 };
 
-use secrecy::{ExposeSecret as _, SecretString};
 use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore},
     time::Instant,
 };
 use url::Url;
+
+use crate::credential::TierCredential;
 
 const MAXIMUM_TRANSPORTS: usize = 32;
 const MAXIMUM_ENDPOINTS: usize = 32;
@@ -22,7 +23,7 @@ const USER_AGENT: &str = concat!("cartograph/", env!("CARGO_PKG_VERSION"));
 pub(crate) struct TransportSettings<'a> {
     pub endpoint: &'a Url,
     pub model: &'a str,
-    pub api_key: Option<&'a SecretString>,
+    pub credential: &'a TierCredential,
     pub connect_timeout: Duration,
     pub request_timeout: Duration,
 }
@@ -193,15 +194,11 @@ impl TransportRegistry {
 
 fn transport_key(settings: &TransportSettings<'_>) -> [u8; 32] {
     let mut digest = blake3::Hasher::new_derive_key("cartograph.model-transport.v1");
-    for text in [
-        settings.endpoint.as_str(),
-        settings.model,
-        settings.api_key.map_or("", SecretString::expose_secret),
-    ] {
+    for text in [settings.endpoint.as_str(), settings.model] {
         digest.update(&text.len().to_le_bytes());
         digest.update(text.as_bytes());
     }
-    digest.update(&[u8::from(settings.api_key.is_some())]);
+    settings.credential.hash_identity(&mut digest);
     digest.update(&settings.connect_timeout.as_nanos().to_le_bytes());
     digest.update(&settings.request_timeout.as_nanos().to_le_bytes());
     *digest.finalize().as_bytes()

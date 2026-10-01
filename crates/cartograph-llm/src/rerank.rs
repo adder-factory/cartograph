@@ -2,12 +2,16 @@ use std::{path::Path, time::Duration};
 
 use futures_util::StreamExt as _;
 use reqwest::{StatusCode, header};
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-use crate::{ProjectLlmTier, load_project_llm_tier};
+use crate::credential::{
+    CredentialCommandError, CredentialedRequest, CredentialedRequestError, TierCredential,
+    bearer_header, send_credentialed,
+};
+use crate::{CredentialCommandFailure, ProjectLlmTier, load_project_llm_tier};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_mins(1);
 const MAXIMUM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -23,7 +27,7 @@ use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model
 pub struct RerankSettings {
     endpoint: Url,
     model: String,
-    api_key: Option<SecretString>,
+    credential: TierCredential,
     timeout: Duration,
 }
 
@@ -33,7 +37,7 @@ impl std::fmt::Debug for RerankSettings {
             .debug_struct("RerankSettings")
             .field("endpoint", &"<redacted>")
             .field("model", &self.model)
-            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("credential", &self.credential)
             .field("timeout", &self.timeout)
             .finish()
     }
@@ -63,7 +67,7 @@ impl RerankSettings {
         Ok(Some(Self {
             endpoint,
             model: config.model().to_owned(),
-            api_key: config.api_key().map(SecretString::from),
+            credential: config.credential(),
             timeout,
         }))
     }
@@ -115,7 +119,7 @@ impl OpenAiRerankClient {
         let transport = model_transport(TransportSettings {
             endpoint: &settings.endpoint,
             model: &settings.model,
-            api_key: settings.api_key.as_ref(),
+            credential: &settings.credential,
             connect_timeout: settings.timeout.min(MAXIMUM_CONNECT_TIMEOUT),
             request_timeout: settings.timeout,
         })
@@ -144,6 +148,12 @@ impl OpenAiRerankClient {
         documents: &[String],
     ) -> Result<RerankBatch, RerankError> {
         validate_input(query, documents)?;
+        let current = self
+            .settings
+            .credential
+            .current()
+            .await
+            .map_err(RerankError::credential_unavailable)?;
         let admission = self
             .transport
             .admit(RequestPriority::Foreground, self.settings.timeout)
@@ -155,26 +165,29 @@ impl OpenAiRerankClient {
             documents,
             top_n: documents.len(),
         };
-        let mut builder = self
-            .transport
-            .client
-            .post(self.settings.endpoint.clone())
-            .timeout(
-                admission
-                    .remaining()
-                    .map_err(|()| RerankError::EndpointUnavailable)?,
-            )
-            .json(&request);
-        if let Some(api_key) = &self.settings.api_key {
-            let authorization =
-                header::HeaderValue::from_str(&format!("Bearer {}", api_key.expose_secret()))
-                    .map_err(|_| RerankError::InvalidConfiguration)?;
-            builder = builder.header(header::AUTHORIZATION, authorization);
-        }
-        let response = builder
-            .send()
-            .await
-            .map_err(|_| RerankError::EndpointUnavailable)?;
+        let response = send_credentialed(CredentialedRequest {
+            credential: &self.settings.credential,
+            current,
+            build: |key: Option<&SecretString>| {
+                let mut builder = self
+                    .transport
+                    .client
+                    .post(self.settings.endpoint.clone())
+                    .timeout(
+                        admission
+                            .remaining()
+                            .map_err(|()| RerankError::EndpointUnavailable)?,
+                    )
+                    .json(&request);
+                if let Some(key) = key {
+                    let authorization =
+                        bearer_header(key).ok_or(RerankError::InvalidConfiguration)?;
+                    builder = builder.header(header::AUTHORIZATION, authorization);
+                }
+                Ok(builder)
+            },
+        })
+        .await?;
         if response.status() != StatusCode::OK {
             return Err(RerankError::BackendRejected);
         }
@@ -223,6 +236,12 @@ pub enum RerankError {
     #[error("Cartograph reranker endpoint is unavailable")]
     /// The configured endpoint could not complete the bounded request.
     EndpointUnavailable,
+    #[error("Cartograph reranker credential command {failure}")]
+    /// The tier's credential command produced no usable credential.
+    CredentialUnavailable {
+        /// Why the command produced no credential; never its output.
+        failure: CredentialCommandFailure,
+    },
     #[error("Cartograph reranker endpoint rejected the request")]
     /// The configured backend rejected the bounded request.
     BackendRejected,
@@ -232,6 +251,18 @@ pub enum RerankError {
     #[error("Cartograph reranker endpoint returned an invalid response")]
     /// The backend response violates the expected bounded schema.
     InvalidResponse,
+}
+
+impl CredentialedRequestError for RerankError {
+    fn credential_unavailable(error: CredentialCommandError) -> Self {
+        Self::CredentialUnavailable {
+            failure: error.failure(),
+        }
+    }
+
+    fn endpoint_unavailable() -> Self {
+        Self::EndpointUnavailable
+    }
 }
 
 fn validate_input(query: &str, documents: &[String]) -> Result<(), RerankError> {
@@ -403,7 +434,7 @@ mod tests {
             endpoint: Url::parse(&format!("{endpoint}/v1/rerank"))
                 .unwrap_or_else(|error| panic!("reranker endpoint failed: {error}")),
             model: "fixture-reranker".to_owned(),
-            api_key: Some(SecretString::from("fixture-key")),
+            credential: TierCredential::Static(SecretString::from("fixture-key")),
             timeout: Duration::from_secs(2),
         };
         let client = OpenAiRerankClient::new(settings)
@@ -476,7 +507,7 @@ mod tests {
                 endpoint: Url::parse(&format!("{endpoint}/v1/rerank"))
                     .unwrap_or_else(|error| panic!("reranker endpoint failed: {error}")),
                 model: "fixture-reranker".to_owned(),
-                api_key: None,
+                credential: TierCredential::None,
                 timeout: Duration::from_secs(2),
             };
             let client = OpenAiRerankClient::new(settings)

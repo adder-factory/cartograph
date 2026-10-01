@@ -3,11 +3,11 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Language matrix](../SUPPORT-MATRIX.md) · [Native extraction](EXTRACTION.md)
 
-Last implementation audit: 2026-10-01 (`v2.1.33`).
+Last implementation audit: 2026-10-01 (`v2.1.34`).
 
 Research inventory last reviewed: 2026-08-02 (`v2.1.7`).
 
-Cartograph v2.1.33 recognizes 132 native source-language modes. Seventy-three
+Cartograph v2.1.34 recognizes 132 native source-language modes. Seventy-three
 remain the byte-for-byte v1.1.33 parity floor, TOML remains an additive v2 mode,
 52 dedicated game, modding, and interactive-fiction scripting modes were
 introduced in v2.1.7, WGSL and Metal were added in v2.1.12, and Slang and WESL

@@ -3,7 +3,7 @@
 mod dependency_ownership;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env, process,
     sync::atomic::{AtomicU32, Ordering},
     time::Duration,
@@ -4222,4 +4222,189 @@ async fn tamper_migration_checksum(pool: &sqlx_postgres::PgPool, schema: &str) {
     if let Err(error) = result {
         panic!("failed to prepare ledger-integrity test: {error}");
     }
+}
+
+/// Documents in the paging fixture: two full embedding carry pages of 4,096
+/// documents plus a partial third page.
+const CARRY_DOCUMENTS: usize = 2 * 4_096 + 7;
+/// Re-indexed documents whose source changes: the last document of the first
+/// carry page, the first of the second, and one in the partial final page.
+const CARRY_CHANGED: [usize; 3] = [4_095, 4_096, 2 * 4_096 + 3];
+const CARRY_SOURCE_DIGEST: &str =
+    "8888888888888888888888888888888888888888888888888888888888888888";
+const CARRY_MODEL_FINGERPRINT: &str =
+    "9999999999999999999999999999999999999999999999999999999999999999";
+
+/// A re-index that carries embeddings over several keyset pages keeps every
+/// unchanged document's vector and drops exactly the changed documents, even
+/// where they straddle a page boundary.
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn embedding_carry_spans_pages_and_skips_changed_documents() {
+    let (database, pool, schema) = open_isolated_database().await;
+    assert_migration_ledger(&database).await;
+    let project = register_project(&database).await;
+    let initial = publish_carry_generation(
+        &database,
+        CarryFixture {
+            project: &project,
+            revision: REVISION_ONE,
+            changed: &[],
+        },
+    )
+    .await;
+    let initial_rows = GenerationRows {
+        pool: &pool,
+        schema: &schema,
+        project: &project,
+        generation: initial.generation_id(),
+    };
+    seed_carry_embeddings(&initial_rows).await;
+    assert_eq!(
+        embedded_documents(&initial_rows).await.len(),
+        CARRY_DOCUMENTS
+    );
+
+    let reindexed = publish_carry_generation(
+        &database,
+        CarryFixture {
+            project: &project,
+            revision: REVISION_TWO,
+            changed: &CARRY_CHANGED,
+        },
+    )
+    .await;
+    let carried = embedded_documents(&GenerationRows {
+        pool: &pool,
+        schema: &schema,
+        project: &project,
+        generation: reindexed.generation_id(),
+    })
+    .await;
+    let expected = (0..CARRY_DOCUMENTS)
+        .filter(|index| !CARRY_CHANGED.contains(index))
+        .map(carry_document_id)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(carried, expected);
+
+    drop(database);
+    drop_schema(&pool, &schema).await;
+    pool.close().await;
+}
+
+/// One paging-fixture generation: which documents differ from the base.
+struct CarryFixture<'a> {
+    project: &'a ProjectId,
+    revision: &'a str,
+    changed: &'a [usize],
+}
+
+/// Rows of one published generation in an isolated test schema.
+struct GenerationRows<'a> {
+    pool: &'a sqlx_postgres::PgPool,
+    schema: &'a str,
+    project: &'a ProjectId,
+    generation: &'a GenerationId,
+}
+
+/// Document IDs sort in fixture order, so carry pages follow the index.
+fn carry_document_id(index: usize) -> String {
+    format!("00000000-0000-4000-8000-{index:012x}")
+}
+
+async fn publish_carry_generation(
+    database: &CartographDatabase,
+    fixture: CarryFixture<'_>,
+) -> CurrentGeneration {
+    let staged = begin(
+        database,
+        GenerationFixture {
+            project: fixture.project,
+            revision: fixture.revision,
+            workers: INITIAL_WORKERS,
+        },
+    )
+    .await;
+    let documents = (0..CARRY_DOCUMENTS)
+        .map(|index| {
+            let id = carry_document_id(index);
+            let name = format!("carry::item_{index}");
+            let code = if fixture.changed.contains(&index) {
+                format!("fn item_{index}() {{ changed(); }}")
+            } else {
+                format!("fn item_{index}() {{}}")
+            };
+            document(DocumentFixture {
+                id: &id,
+                path: "src/carry.rs",
+                qualified_name: &name,
+                code: &code,
+            })
+        })
+        .collect();
+    let facts = GenerationFacts {
+        documents,
+        ..GenerationFacts::default()
+    };
+    let ready = prepare_fenced(database, staged, facts)
+        .await
+        .unwrap_or_else(|error| panic!("paging fixture generation failed: {error}"));
+    publish_fenced(database, ready)
+        .await
+        .unwrap_or_else(|error| panic!("paging fixture generation did not publish: {error}"))
+}
+
+/// Give every document of the generation a vector under an active model.
+async fn seed_carry_embeddings(rows: &GenerationRows<'_>) {
+    let schema = rows.schema;
+    let model = format!(
+        r#"INSERT INTO "{schema}"."embedding_models" (
+                model_id, fingerprint, provider, model_name, dimension, normalization
+            ) VALUES (
+                CAST($1 AS uuid), $2, 'integration-test', 'tiny-vector', 3, 'none'
+            )"#,
+    );
+    query(AssertSqlSafe(model))
+        .bind(EVIDENCE_MODEL)
+        .bind(CARRY_MODEL_FINGERPRINT)
+        .execute(rows.pool)
+        .await
+        .unwrap_or_else(|error| panic!("could not seed carry model: {error}"));
+    let embeddings = format!(
+        r#"INSERT INTO "{schema}"."document_embeddings" (
+                project_id, generation_id, document_id, model_id, source_digest, embedding
+            )
+            SELECT project_id, generation_id, document_id, CAST($3 AS uuid), $4,
+                   CAST('[1,2,3]' AS vector)
+            FROM "{schema}"."search_documents"
+            WHERE project_id = CAST($1 AS uuid) AND generation_id = CAST($2 AS uuid)"#,
+    );
+    query(AssertSqlSafe(embeddings))
+        .bind(rows.project.as_str())
+        .bind(rows.generation.as_str())
+        .bind(EVIDENCE_MODEL)
+        .bind(CARRY_SOURCE_DIGEST)
+        .execute(rows.pool)
+        .await
+        .unwrap_or_else(|error| panic!("could not seed carry embeddings: {error}"));
+}
+
+async fn embedded_documents(rows: &GenerationRows<'_>) -> BTreeSet<String> {
+    let schema = rows.schema;
+    let statement = format!(
+        r#"SELECT document_id::text FROM "{schema}"."document_embeddings"
+            WHERE project_id = CAST($1 AS uuid) AND generation_id = CAST($2 AS uuid)"#,
+    );
+    query(AssertSqlSafe(statement))
+        .bind(rows.project.as_str())
+        .bind(rows.generation.as_str())
+        .fetch_all(rows.pool)
+        .await
+        .unwrap_or_else(|error| panic!("could not read carried embeddings: {error}"))
+        .iter()
+        .map(|row| {
+            row.try_get::<String, _>(0)
+                .unwrap_or_else(|error| panic!("could not decode document ID: {error}"))
+        })
+        .collect()
 }

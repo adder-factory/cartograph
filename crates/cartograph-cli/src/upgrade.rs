@@ -19,7 +19,11 @@ use tempfile::{NamedTempFile, TempPath};
 use tokio::io::AsyncReadExt as _;
 use tokio::process::Command;
 
-use crate::host::{DiagnosticLocation, InstallTargetDetection, detect_install_targets};
+use crate::host::{
+    DiagnosticLocation, HostScope, InstallTargetDetection, detect_install_targets,
+    detect_install_targets_in, host_home,
+};
+use crate::install::{self, InstallLocation, InstallRequest, InstallRequestInput, InstallTarget};
 
 const REMOTE: &str = "https://github.com/adder-factory/cartograph.git";
 const RELEASE_BASE: &str = "https://github.com/adder-factory/cartograph/releases/download";
@@ -38,6 +42,15 @@ const MAXIMUM_STATUS_PROBE_BYTES: usize = 8 * 1024 * 1024;
 const LOWER_HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 const HIGH_NIBBLE_SHIFT: u8 = 4;
 const LOW_NIBBLE_MASK: u8 = 0x0f;
+const REGISTRATION_REPAIR_TIMEOUT: Duration = Duration::from_mins(1);
+/// `registrationRepair.changes[].outcome` once the entry launches the selected
+/// executable.
+const REPAIR_REPINNED: &str = "repinned";
+/// `registrationRepair.changes[].outcome` when the entry still needs the
+/// reported `manualStep`.
+const REPAIR_MANUAL: &str = "manual";
+/// `registrationRepair.changes[].field` of a direct pin.
+const COMMAND_FIELD: &str = "command";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,12 +79,47 @@ struct UpgradeOperationState {
     completed: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RegistrationRepair {
     attempted: u16,
     repaired: u16,
     failed: u16,
+    /// One entry per attempted registration, so no rewrite is silent.
+    changes: Vec<RegistrationChange>,
+}
+
+/// What `upgrade --apply` changed, or could not change, in one registration.
+/// Only executable paths and the wrapper command are reported; wrapper
+/// arguments and `env` values never are.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RegistrationChange {
+    target: &'static str,
+    location: &'static str,
+    config_path: &'static str,
+    /// `stale_absolute` for a direct pin, `wrapped` for a wrapper registration.
+    command_state: &'static str,
+    /// `repinned` or `manual`.
+    outcome: &'static str,
+    /// The entry field holding the Cartograph executable: `command` or `args[N]`.
+    field: String,
+    /// The unchanged wrapper `command` of a wrapped registration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wrapper: Option<String>,
+    /// The stale Cartograph executable that was configured.
+    from: String,
+    /// The Cartograph executable the entry now launches (or should launch).
+    to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manual_step: Option<String>,
+}
+
+struct RegistrationRepairInput<'input> {
+    /// Installed executable: it reinstalls direct pins, and its stable
+    /// launcher is the path every repaired entry is pinned to.
+    executable: &'input Path,
+    scope: HostScope<'input>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -200,7 +248,7 @@ struct CompletionInput<'project> {
 struct CompletionGuidance<'report> {
     launcher_warning: Option<&'report str>,
     project_reconciliation: Option<&'report ProjectReconciliation>,
-    registration_repair: RegistrationRepair,
+    registration_repair: &'report RegistrationRepair,
     completed: bool,
     host_configured: bool,
     restart_required: bool,
@@ -237,8 +285,53 @@ pub(super) fn render(report: &UpgradeReport) -> String {
         output.push_str(step);
         output.push('\n');
     }
-    let configured = report
-        .registrations
+    if let Some(repair) = report.registration_repair.as_ref() {
+        render_registration_repair(&mut output, repair);
+    }
+    render_registration_audit(&mut output, &report.registrations);
+    output
+}
+
+fn render_registration_repair(output: &mut String, repair: &RegistrationRepair) {
+    if repair.changes.is_empty() {
+        return;
+    }
+    output.push_str("MCP registration repairs:\n");
+    for change in &repair.changes {
+        for part in [
+            "- ",
+            change.target,
+            " ",
+            change.location,
+            " (",
+            change.config_path,
+            "): ",
+        ] {
+            output.push_str(part);
+        }
+        output.push_str(&registration_change_summary(change));
+        output.push('\n');
+    }
+}
+
+fn registration_change_summary(change: &RegistrationChange) -> String {
+    if let Some(step) = change.manual_step.as_deref() {
+        return format!("manual: {step}");
+    }
+    let preserved = change.wrapper.as_deref().map_or_else(
+        || "; keys Cartograph does not own were preserved".to_owned(),
+        |wrapper| {
+            format!("; wrapper {wrapper}, its other arguments, and every other key were preserved")
+        },
+    );
+    format!(
+        "repinned {} {} -> {}{preserved}",
+        change.field, change.from, change.to
+    )
+}
+
+fn render_registration_audit(output: &mut String, registrations: &[InstallTargetDetection]) {
+    let configured = registrations
         .iter()
         .filter(|registration| registration.cartograph_configured)
         .collect::<Vec<_>>();
@@ -251,6 +344,11 @@ pub(super) fn render(report: &UpgradeReport) -> String {
             output.push_str(registration.location);
             output.push_str(": ");
             output.push_str(registration.command_state);
+            if let Some(state) = registration.wrapped_executable_state {
+                output.push_str(" (wrapped executable: ");
+                output.push_str(state);
+                output.push(')');
+            }
             output.push_str(" (");
             output.push_str(registration.config_path);
             output.push_str(")\n");
@@ -261,7 +359,6 @@ pub(super) fn render(report: &UpgradeReport) -> String {
             }
         }
     }
-    output
 }
 
 pub(super) fn succeeded(report: &UpgradeReport) -> bool {
@@ -541,11 +638,11 @@ async fn complete_upgrade(input: CompletionInput<'_>) -> UpgradeReport {
         .iter()
         .any(|registration| registration.cartograph_configured);
     let restart_required =
-        host_restart_required(binary_applied, registration_repair, host_configured);
+        host_restart_required(binary_applied, &registration_repair, host_configured);
     let next_steps = completion_next_steps(CompletionGuidance {
         launcher_warning: launcher_warning.as_deref(),
         project_reconciliation: project_reconciliation.as_ref(),
-        registration_repair,
+        registration_repair: &registration_repair,
         completed,
         host_configured,
         restart_required,
@@ -573,7 +670,7 @@ async fn complete_upgrade(input: CompletionInput<'_>) -> UpgradeReport {
 
 const fn host_restart_required(
     binary_applied: bool,
-    registration_repair: RegistrationRepair,
+    registration_repair: &RegistrationRepair,
     host_configured: bool,
 ) -> bool {
     host_configured && (binary_applied || registration_repair.repaired > 0)
@@ -589,12 +686,12 @@ fn completion_next_steps(input: CompletionGuidance<'_>) -> Vec<String> {
     add_project_reconciliation_steps(&mut next_steps, input.project_reconciliation);
     if input.registration_repair.failed > 0 {
         next_steps.push(
-            "One or more stale MCP registrations could not be repinned automatically; run only the remaining reported repin commands."
+            "One or more stale MCP registrations could not be repinned automatically; apply only the manual steps reported for them, then restart that MCP host."
                 .to_owned(),
         );
     } else if input.registration_repair.repaired > 0 {
         next_steps.push(format!(
-            "Automatically repinned {} stale MCP registration(s) to the stable current launcher.",
+            "Automatically repinned {} stale MCP registration(s) to the stable current launcher; each change is listed with its old and new executable, and wrapper commands, other arguments, and keys Cartograph does not own were preserved.",
             input.registration_repair.repaired
         ));
     }
@@ -1070,33 +1167,148 @@ fn report_unknown(input: UnknownReportInput<'_>) -> UpgradeReport {
 }
 
 async fn repair_stale_registrations(executable: &Path, project_path: &Path) -> RegistrationRepair {
-    let stale = registration_audit(project_path, Some(executable))
+    let project_root =
+        fs::canonicalize(project_path).unwrap_or_else(|_| project_path.to_path_buf());
+    let home = host_home();
+    repair_registrations(&RegistrationRepairInput {
+        executable,
+        scope: HostScope {
+            project_root: &project_root,
+            home: home.as_deref(),
+            location: DiagnosticLocation::Both,
+        },
+    })
+    .await
+}
+
+/// Repins every registration whose Cartograph executable is a stale absolute
+/// path. A direct pin is reinstalled by the installed executable; a wrapped
+/// registration is repinned in place, so only its embedded executable
+/// argument changes and its wrapper, other arguments, and keys survive.
+async fn repair_registrations(input: &RegistrationRepairInput<'_>) -> RegistrationRepair {
+    let stale = detect_install_targets_in(&input.scope, Some(input.executable))
         .into_iter()
-        .filter(|registration| registration.command_state == "stale_absolute")
+        .filter(InstallTargetDetection::needs_repin)
         .collect::<Vec<_>>();
+    let pinned = install::registration_executable(input.executable)
+        .unwrap_or_else(|| input.executable.to_string_lossy().into_owned());
     let mut report = RegistrationRepair {
         attempted: u16::try_from(stale.len()).unwrap_or(u16::MAX),
         ..RegistrationRepair::default()
     };
-    for registration in stale {
-        let result = tokio::time::timeout(
-            Duration::from_mins(1),
-            Command::new(executable)
-                .args(registration_repair_args(&registration))
-                .arg(project_path)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .status(),
-        )
-        .await;
-        if matches!(result, Ok(Ok(status)) if status.success()) {
+    for registration in &stale {
+        let repinned = if registration.wrapped_executable_state.is_some() {
+            repin_wrapped_registration(input, registration)
+        } else {
+            reinstall_direct_registration(input, registration).await
+        };
+        if repinned {
             report.repaired = report.repaired.saturating_add(1);
         } else {
             report.failed = report.failed.saturating_add(1);
         }
+        report
+            .changes
+            .push(registration_change(registration, &pinned, repinned));
     }
     report
+}
+
+async fn reinstall_direct_registration(
+    input: &RegistrationRepairInput<'_>,
+    registration: &InstallTargetDetection,
+) -> bool {
+    let result = tokio::time::timeout(
+        REGISTRATION_REPAIR_TIMEOUT,
+        Command::new(input.executable)
+            .args(registration_repair_args(registration))
+            .arg(input.scope.project_root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status(),
+    )
+    .await;
+    matches!(result, Ok(Ok(status)) if status.success())
+}
+
+/// Rewrites only the wrapped entry through the installer's merge, which
+/// replaces the embedded absolute executable argument and nothing else.
+fn repin_wrapped_registration(
+    input: &RegistrationRepairInput<'_>,
+    registration: &InstallTargetDetection,
+) -> bool {
+    let Some(target) = InstallTarget::parse(registration.target) else {
+        return false;
+    };
+    let location = if registration.location == "local" {
+        InstallLocation::Local
+    } else {
+        InstallLocation::Global
+    };
+    let request = InstallRequest::new(&InstallRequestInput {
+        project_root: input.scope.project_root,
+        executable: input.executable,
+        target,
+        location,
+        command_override: None,
+        permissions: false,
+    });
+    let request = match input.scope.home {
+        Some(home) => request.and_then(|request| request.with_home(home)),
+        None => request,
+    };
+    request
+        .and_then(|request| install::install_registration(&request))
+        .is_ok_and(|report| report.changed())
+}
+
+fn registration_change(
+    registration: &InstallTargetDetection,
+    pinned: &str,
+    repinned: bool,
+) -> RegistrationChange {
+    let executable = registration.executable.as_ref();
+    let mut change = RegistrationChange {
+        target: registration.target,
+        location: registration.location,
+        config_path: registration.config_path,
+        command_state: registration.command_state,
+        outcome: if repinned {
+            REPAIR_REPINNED
+        } else {
+            REPAIR_MANUAL
+        },
+        field: executable
+            .and_then(|executable| executable.argument_index)
+            .map_or_else(
+                || COMMAND_FIELD.to_owned(),
+                |index| format!("args[{index}]"),
+            ),
+        wrapper: executable.and_then(|executable| executable.wrapper.clone()),
+        from: executable
+            .map(|executable| executable.path.clone())
+            .unwrap_or_default(),
+        to: pinned.to_owned(),
+        manual_step: None,
+    };
+    if !repinned {
+        change.manual_step = Some(manual_repin_step(
+            &change,
+            registration.repin_command.as_deref(),
+        ));
+    }
+    change
+}
+
+fn manual_repin_step(change: &RegistrationChange, repin_command: Option<&str>) -> String {
+    match (change.wrapper.as_deref(), repin_command) {
+        (None, Some(command)) => format!("Run `{command}`, then restart that MCP host."),
+        _ => format!(
+            "Edit {}: in the `cartograph` entry replace {} `{}` with `{}`, keep the command, the other arguments, and every other key unchanged, then restart that MCP host.",
+            change.config_path, change.field, change.from, change.to
+        ),
+    }
 }
 
 fn registration_repair_args(registration: &InstallTargetDetection) -> Vec<String> {
@@ -1130,7 +1342,7 @@ fn registration_audit(
 fn registration_next_steps(registrations: &[InstallTargetDetection]) -> Vec<String> {
     if registrations
         .iter()
-        .any(|registration| registration.command_state == "stale_absolute")
+        .any(InstallTargetDetection::needs_repin)
     {
         vec!["Run each reported repin command, then restart that MCP host.".to_owned()]
     } else if registrations
@@ -1746,12 +1958,34 @@ mod tests {
             cartograph_configured: true,
             config_path: ".codex/config.toml",
             command_state: "stale_absolute",
+            wrapped_executable_state: None,
             managed_database_port: None,
             repin_command: Some(
                 "cartograph install --yes --target codex --location local --project-path <path>"
                     .to_owned(),
             ),
+            executable: None,
         };
+        let wrapped = InstallTargetDetection {
+            target: "cursor",
+            location: "local",
+            config_path: ".cursor/mcp.json",
+            command_state: "wrapped",
+            wrapped_executable_state: Some("stale_absolute"),
+            repin_command: None,
+            ..registration.clone()
+        };
+        assert!(wrapped.needs_repin());
+        assert!(
+            registration_next_steps(std::slice::from_ref(&wrapped))[0]
+                .contains("Run each reported repin command")
+        );
+        let current_wrapper = InstallTargetDetection {
+            wrapped_executable_state: Some("current_absolute"),
+            ..wrapped.clone()
+        };
+        assert!(!current_wrapper.needs_repin());
+        assert!(registration_next_steps(&[current_wrapper])[0].contains("No native update action"));
         let report = UpgradeReport {
             status: "current",
             current_version: "2.1.0".to_owned(),
@@ -1767,11 +2001,12 @@ mod tests {
             next_steps: registration_next_steps(std::slice::from_ref(&registration)),
             registration_repair: None,
             project_reconciliation: None,
-            registrations: vec![registration],
+            registrations: vec![registration, wrapped],
         };
         let rendered = render(&report);
         assert!(rendered.contains("MCP registration audit"));
         assert!(rendered.contains("stale_absolute"));
+        assert!(rendered.contains("cursor local: wrapped (wrapped executable: stale_absolute)"));
         assert!(rendered.contains("Repin: cartograph install"));
         assert!(rendered.contains("restart that MCP host"));
         assert!(registration_next_steps(&[])[0].contains("No configured MCP registrations"));
@@ -1813,11 +2048,12 @@ mod tests {
             attempted: 1,
             repaired: 1,
             failed: 0,
+            changes: Vec::new(),
         };
-        assert!(!host_restart_required(false, unchanged, true));
-        assert!(host_restart_required(true, unchanged, true));
-        assert!(host_restart_required(false, repaired, true));
-        assert!(!host_restart_required(true, unchanged, false));
+        assert!(!host_restart_required(false, &unchanged, true));
+        assert!(host_restart_required(true, &unchanged, true));
+        assert!(host_restart_required(false, &repaired, true));
+        assert!(!host_restart_required(true, &unchanged, false));
     }
 
     #[test]
@@ -1825,7 +2061,7 @@ mod tests {
         let steps = completion_next_steps(CompletionGuidance {
             launcher_warning: None,
             project_reconciliation: None,
-            registration_repair: RegistrationRepair::default(),
+            registration_repair: &RegistrationRepair::default(),
             completed: true,
             host_configured: true,
             restart_required: false,
@@ -2062,8 +2298,10 @@ esac
             cartograph_configured: true,
             config_path: ".codex/config.toml",
             command_state: "stale_absolute",
+            wrapped_executable_state: None,
             managed_database_port: Some(55_435),
             repin_command: None,
+            executable: None,
         };
         assert_eq!(
             registration_repair_args(&registration),
@@ -2081,6 +2319,225 @@ esac
                 "--project-path".to_owned(),
             ]
         );
+    }
+
+    #[cfg(unix)]
+    fn write_fixture(path: &Path, contents: &str) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, contents)
+    }
+
+    #[cfg(unix)]
+    fn read_json(path: &Path) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
+    }
+
+    /// Temporary project and home whose stale registrations a repair run
+    /// inspects; the installed executable only records its invocations.
+    #[cfg(unix)]
+    struct RepairFixture {
+        _directories: [tempfile::TempDir; 2],
+        project_root: PathBuf,
+        home_root: PathBuf,
+        executable: PathBuf,
+        pinned: String,
+        stale: String,
+    }
+
+    #[cfg(unix)]
+    impl RepairFixture {
+        fn new() -> Result<Self, Box<dyn std::error::Error>> {
+            let directories = [tempfile::tempdir()?, tempfile::tempdir()?];
+            let project_root = directories[0].path().canonicalize()?;
+            let home_root = directories[1].path().canonicalize()?;
+            let executable = project_root.join("installed/cartograph");
+            write_fixture(
+                &executable,
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$(dirname \"$0\")/invocations.log\"\n",
+            )?;
+            let mut permissions = fs::metadata(&executable)?.permissions();
+            permissions.set_mode(0o700);
+            fs::set_permissions(&executable, permissions)?;
+            let pinned = executable.canonicalize()?.to_string_lossy().into_owned();
+            let stale = project_root
+                .join(".cartograph-cli/versions/v2.1.30/bin/cartograph")
+                .to_string_lossy()
+                .into_owned();
+            Ok(Self {
+                _directories: directories,
+                project_root,
+                home_root,
+                executable,
+                pinned,
+                stale,
+            })
+        }
+
+        async fn repair(&self) -> RegistrationRepair {
+            repair_registrations(&RegistrationRepairInput {
+                executable: &self.executable,
+                scope: HostScope {
+                    project_root: &self.project_root,
+                    home: Some(&self.home_root),
+                    location: DiagnosticLocation::Both,
+                },
+            })
+            .await
+        }
+
+        fn invocations(&self) -> String {
+            fs::read_to_string(self.project_root.join("installed/invocations.log"))
+                .unwrap_or_default()
+        }
+    }
+
+    #[cfg(unix)]
+    fn reported_change<'report>(
+        report: &'report RegistrationRepair,
+        target: &str,
+        location: &str,
+    ) -> &'report RegistrationChange {
+        report
+            .changes
+            .iter()
+            .find(|change| change.target == target && change.location == location)
+            .unwrap_or_else(|| panic!("no repair reported for {target} {location}"))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn upgrade_repair_repins_wrapped_entries_in_place_and_reinstalls_direct_pins()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = RepairFixture::new()?;
+        let (stale, pinned) = (fixture.stale.as_str(), fixture.pinned.as_str());
+        let root_text = fixture.project_root.to_string_lossy().into_owned();
+        let cursor_entry = serde_json::json!({
+            "command": "/usr/bin/env",
+            "args": [stale, "serve", "--mcp", "--project-path", root_text],
+            "env": {"EXAMPLE_FLAG": "fixture-env-value"},
+            "cwd": root_text
+        });
+        let cursor = fixture.project_root.join(".cursor/mcp.json");
+        write_fixture(
+            &cursor,
+            &serde_json::json!({"mcpServers": {"cartograph": cursor_entry}}).to_string(),
+        )?;
+        write_fixture(
+            &fixture.project_root.join(".codex/config.toml"),
+            &format!(
+                "[mcp_servers.cartograph]\ncommand = \"{stale}\"\nargs = [\"serve\", \"--mcp\", \"--project-path\", \"{root_text}\"]\n"
+            ),
+        )?;
+        let claude_entry = serde_json::json!({
+            "command": "op",
+            "args": ["run", "--", stale, "serve", "--mcp"],
+            "env": {"EXAMPLE_FLAG": "fixture-env-value"}
+        });
+        let claude = fixture.home_root.join(".claude.json");
+        write_fixture(
+            &claude,
+            &serde_json::json!({"mcpServers": {"cartograph": claude_entry}}).to_string(),
+        )?;
+
+        let report = fixture.repair().await;
+
+        assert_eq!(
+            (report.attempted, report.repaired, report.failed),
+            (3, 3, 0)
+        );
+        let mut expected_cursor = cursor_entry;
+        expected_cursor["args"][0] = serde_json::json!(pinned);
+        assert_eq!(
+            read_json(&cursor)?.pointer("/mcpServers/cartograph"),
+            Some(&expected_cursor)
+        );
+        let cursor_change = reported_change(&report, "cursor", "local");
+        assert_eq!(
+            (
+                cursor_change.outcome,
+                cursor_change.command_state,
+                cursor_change.field.as_str(),
+                cursor_change.wrapper.as_deref(),
+            ),
+            ("repinned", "wrapped", "args[0]", Some("/usr/bin/env"))
+        );
+        assert_eq!(
+            (cursor_change.from.as_str(), cursor_change.to.as_str()),
+            (stale, pinned)
+        );
+
+        let mut expected_claude = claude_entry;
+        expected_claude["args"][2] = serde_json::json!(pinned);
+        assert_eq!(
+            read_json(&claude)?.pointer("/mcpServers/cartograph"),
+            Some(&expected_claude)
+        );
+        assert_eq!(
+            reported_change(&report, "claude", "global").field,
+            "args[2]"
+        );
+
+        let codex_change = reported_change(&report, "codex", "local");
+        assert_eq!(
+            (codex_change.outcome, codex_change.field.as_str()),
+            ("repinned", "command")
+        );
+        assert_eq!(codex_change.wrapper, None);
+        assert_eq!(
+            fixture.invocations(),
+            format!(
+                "install --yes --no-permissions --no-hooks --target codex --location local --project-path {root_text}\n"
+            )
+        );
+
+        assert!(!serde_json::to_string(&report)?.contains("fixture-env-value"));
+        let mut rendered = String::new();
+        render_registration_repair(&mut rendered, &report);
+        assert!(rendered.contains(&format!(
+            "cursor local (.cursor/mcp.json): repinned args[0] {stale} -> {pinned}; wrapper /usr/bin/env"
+        )));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn upgrade_repair_reports_a_manual_step_when_a_wrapper_cannot_be_repinned_safely()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::fs::symlink;
+
+        let fixture = RepairFixture::new()?;
+        let elsewhere = tempfile::tempdir()?;
+        let (stale, pinned) = (fixture.stale.as_str(), fixture.pinned.as_str());
+        let wrapped = serde_json::json!({"mcpServers": {"cartograph": {
+            "command": "/usr/bin/env",
+            "args": [stale, "serve", "--mcp"]
+        }}})
+        .to_string();
+        write_fixture(&elsewhere.path().join("mcp.json"), &wrapped)?;
+        symlink(elsewhere.path(), fixture.home_root.join(".cursor"))?;
+
+        let report = fixture.repair().await;
+
+        assert_eq!(
+            (report.attempted, report.repaired, report.failed),
+            (1, 0, 1)
+        );
+        let manual = reported_change(&report, "cursor", "global");
+        assert_eq!(manual.outcome, "manual");
+        let step = manual.manual_step.as_deref().unwrap_or_default();
+        assert!(step.contains("~/.cursor/mcp.json"));
+        assert!(step.contains(&format!("args[0] `{stale}` with `{pinned}`")));
+        assert_eq!(
+            fs::read_to_string(elsewhere.path().join("mcp.json"))?,
+            wrapped
+        );
+        assert!(fixture.invocations().is_empty());
+        let mut rendered = String::new();
+        render_registration_repair(&mut rendered, &report);
+        assert!(rendered.contains("cursor global (~/.cursor/mcp.json): manual: Edit"));
+        Ok(())
     }
 
     #[test]

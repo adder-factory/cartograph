@@ -7,12 +7,16 @@ use std::{
 
 use futures_util::StreamExt as _;
 use reqwest::{StatusCode, header};
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
+use crate::credential::{
+    CredentialCommandError, CredentialedRequest, CredentialedRequestError, TierCredential,
+    bearer_header, send_credentialed,
+};
 use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model_transport};
 use crate::{
     ProjectLlmProvider, ProjectLlmTier, ProjectLlmTierConfig, load_exact_project_llm_tier,
@@ -95,7 +99,7 @@ pub fn jev_feature_enabled(root: &Path, feature: JevFeature) -> bool {
 #[derive(Clone)]
 pub struct JevSettings {
     endpoint: Url,
-    api_key: SecretString,
+    credential: TierCredential,
     timeout: Duration,
     features: BTreeSet<JevFeature>,
 }
@@ -124,8 +128,10 @@ impl JevSettings {
     }
 
     /// Validate a loaded decision tier, retaining a missing credential's variable name.
+    /// A credential command is not run here; requests run it on first use.
     /// # Errors
-    /// Rejects an unsupported model/endpoint, missing credential, or invalid timeout.
+    /// Rejects an unsupported model/endpoint, missing credential, a credential
+    /// command that failed moments ago, or an invalid timeout.
     pub fn from_config(config: &ProjectLlmTierConfig) -> Result<Self, JevError> {
         if config.provider() != ProjectLlmProvider::Typesafe || config.model() != JEV_MODEL {
             return Err(JevError::ConfigurationUnavailable);
@@ -135,15 +141,6 @@ impl JevSettings {
         if endpoint.as_str() != JEV_ENDPOINT {
             return Err(JevError::ConfigurationUnavailable);
         }
-        let key = config.api_key().ok_or_else(|| {
-            config
-                .unavailable_credential_env()
-                .map_or(JevError::ConfigurationUnavailable, |name| {
-                    JevError::CredentialMissing {
-                        environment_variable: name.to_owned(),
-                    }
-                })
-        })?;
         let timeout = config
             .timeout_ms()
             .map_or(DEFAULT_TIMEOUT, Duration::from_millis);
@@ -152,7 +149,7 @@ impl JevSettings {
         }
         Ok(Self {
             endpoint,
-            api_key: SecretString::from(key),
+            credential: decision_credential(config)?,
             timeout,
             features: configured_features(config),
         })
@@ -162,6 +159,27 @@ impl JevSettings {
     #[must_use]
     pub fn allows(&self, feature: JevFeature) -> bool {
         self.features.contains(&feature)
+    }
+}
+
+/// The decision tier's credential. A command that failed within its re-run
+/// interval is reported now, so callers that only ask whether Jev is usable
+/// fall back to native retrieval without waiting on the helper again.
+fn decision_credential(config: &ProjectLlmTierConfig) -> Result<TierCredential, JevError> {
+    if let Some(error) = config
+        .api_key_command()
+        .and_then(crate::CredentialCommand::recent_failure)
+    {
+        return Err(JevError::CredentialUnavailable(error));
+    }
+    match config.credential() {
+        TierCredential::None => Err(config.unavailable_credential_env().map_or(
+            JevError::ConfigurationUnavailable,
+            |name| JevError::CredentialMissing {
+                environment_variable: name.to_owned(),
+            },
+        )),
+        credential => Ok(credential),
     }
 }
 
@@ -242,6 +260,10 @@ pub enum JevError {
         /// Configuration variable name, never credential contents.
         environment_variable: String,
     },
+    /// The configured credential command produced no usable credential. Names
+    /// only the program and the failure category, never the output.
+    #[error("Cartograph Jev {0}")]
+    CredentialUnavailable(CredentialCommandError),
     /// Caller data violates an item or byte admission bound.
     #[error("Cartograph Jev request exceeds its bounds")]
     RequestLimit,
@@ -266,11 +288,22 @@ pub enum JevError {
     InvalidResponse,
 }
 
+impl CredentialedRequestError for JevError {
+    fn credential_unavailable(error: CredentialCommandError) -> Self {
+        Self::CredentialUnavailable(error)
+    }
+
+    fn endpoint_unavailable() -> Self {
+        Self::EndpointUnavailable
+    }
+}
+
 impl Serialize for JevError {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(match self {
             Self::ConfigurationUnavailable => "configuration_unavailable",
             Self::CredentialMissing { .. } => "credential_missing",
+            Self::CredentialUnavailable(_) => "credential_unavailable",
             Self::RequestLimit => "request_limit",
             Self::EndpointUnavailable => "endpoint_unavailable",
             Self::AuthenticationFailed => "authentication_failed",
@@ -297,7 +330,7 @@ impl JevClient {
         let transport = model_transport(TransportSettings {
             endpoint: &settings.endpoint,
             model: JEV_MODEL,
-            api_key: Some(&settings.api_key),
+            credential: &settings.credential,
             connect_timeout: settings.timeout.min(Duration::from_secs(5)),
             request_timeout: settings.timeout,
         })
@@ -309,41 +342,51 @@ impl JevClient {
     }
 
     /// Evaluate all questions in one request. Dropping this future cancels its work
-    /// and releases admission; no detached task or automatic retry is created.
+    /// and releases admission; no detached task is created. A credential command
+    /// runs on first use; when the provider rejects its value, the command runs
+    /// once more and the request is resent only with a changed credential.
     /// # Errors
-    /// Returns a stable redacted failure for admission, HTTP or response-contract errors.
+    /// Returns a stable redacted failure for credential, admission, HTTP or
+    /// response-contract errors.
     pub async fn decide(
         &self,
         state: &Value,
         questions: &BTreeMap<String, JevQuestion>,
     ) -> Result<JevDecision, JevError> {
         let body = encode_request(state, questions)?;
+        let current = self
+            .settings
+            .credential
+            .current()
+            .await
+            .map_err(JevError::CredentialUnavailable)?;
         let admission = self
             .transport
             .admit(RequestPriority::Foreground, self.settings.timeout)
             .await
             .map_err(|()| JevError::EndpointUnavailable)?;
-        let mut authorization = header::HeaderValue::from_str(&format!(
-            "Bearer {}",
-            self.settings.api_key.expose_secret()
-        ))
-        .map_err(|_| JevError::ConfigurationUnavailable)?;
-        authorization.set_sensitive(true);
-        let response = self
-            .transport
-            .client
-            .post(self.settings.endpoint.clone())
-            .timeout(
-                admission
-                    .remaining()
-                    .map_err(|()| JevError::EndpointUnavailable)?,
-            )
-            .header(header::AUTHORIZATION, authorization)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(|_| JevError::EndpointUnavailable)?;
+        let response = send_credentialed(CredentialedRequest {
+            credential: &self.settings.credential,
+            current,
+            build: |key: Option<&SecretString>| {
+                let authorization = key
+                    .and_then(bearer_header)
+                    .ok_or(JevError::ConfigurationUnavailable)?;
+                Ok(self
+                    .transport
+                    .client
+                    .post(self.settings.endpoint.clone())
+                    .timeout(
+                        admission
+                            .remaining()
+                            .map_err(|()| JevError::EndpointUnavailable)?,
+                    )
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(body.clone()))
+            },
+        })
+        .await?;
         match response.status() {
             StatusCode::OK => {}
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
