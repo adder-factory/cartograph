@@ -1961,6 +1961,7 @@ async fn prepare_transaction(
             generation: input.generation,
             content_digest: &content_digest,
             digest_version,
+            progress: input.progress,
         },
     )
     .await?;
@@ -2092,6 +2093,7 @@ async fn finalize_spilled_prepare(
             generation: input.generation,
             content_digest: input.digest.digest(),
             digest_version: GenerationDigestVersion::CURRENT,
+            progress: input.progress,
         },
     )
     .await?;
@@ -2478,23 +2480,16 @@ async fn carry_forward_unchanged_generation_evidence(
     connection: &mut PgConnection,
     input: GenerationEvidenceCarry<'_>,
 ) -> Result<(), StorageError> {
+    carry_forward_embeddings(connection, &input).await?;
     let GenerationEvidenceCarry {
         quoted_schema,
         generation,
         content_digest,
         digest_version,
+        ..
     } = input;
     let project_id = generation.project_id().as_str();
     let generation_id = generation.generation_id().as_str();
-
-    let embeddings = include_str!("sql/generation_carry_embeddings.sql")
-        .replace("{quoted_schema}", quoted_schema);
-    audited_query(embeddings)
-        .bind(project_id)
-        .bind(generation_id)
-        .execute(&mut *connection)
-        .await
-        .map_err(|_| database_error("prepare-carry-embeddings"))?;
 
     let coverage =
         include_str!("sql/generation_carry_coverage.sql").replace("{quoted_schema}", quoted_schema);
@@ -2537,6 +2532,79 @@ struct GenerationEvidenceCarry<'a> {
     generation: &'a StagedGeneration,
     content_digest: &'a ContentDigest,
     digest_version: GenerationDigestVersion,
+    progress: Option<&'a PrepareGenerationProgress>,
+}
+
+/// Next-generation documents examined by one embedding carry statement.
+///
+/// Every carried row also enters the model's HNSW index, about a millisecond
+/// each on a large project, so carrying a fully embedded 330K-document
+/// generation in one statement outlasted the prepare statement timeout and
+/// failed publication on every re-index. A bounded page keeps each statement
+/// to seconds; prepare progress is advanced after every page, so the
+/// supervisor's durable deadline measures stalls rather than corpus size.
+const EMBEDDING_CARRY_BATCH_DOCUMENTS: i64 = 4_096;
+
+/// Carry unchanged documents' embeddings into the staged generation, one
+/// keyset page of its documents at a time, in document-identity order.
+async fn carry_forward_embeddings(
+    connection: &mut PgConnection,
+    input: &GenerationEvidenceCarry<'_>,
+) -> Result<u64, StorageError> {
+    let statement = include_str!("sql/generation_carry_embeddings.sql")
+        .replace("{quoted_schema}", input.quoted_schema);
+    let mut after: Option<String> = None;
+    let mut carried = 0_u64;
+    loop {
+        let row = audited_query(statement.clone())
+            .bind(input.generation.project_id().as_str())
+            .bind(input.generation.generation_id().as_str())
+            .bind(after.as_deref())
+            .bind(EMBEDDING_CARRY_BATCH_DOCUMENTS)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|_| database_error("prepare-carry-embeddings"))?;
+        let page = EmbeddingCarryPage::decode(&row)?;
+        carried = carried.saturating_add(page.carried);
+        advance_prepare_progress(input.progress);
+        if page.scanned < EMBEDDING_CARRY_BATCH_DOCUMENTS {
+            return Ok(carried);
+        }
+        after = page.last_document_id;
+    }
+}
+
+/// One embedding carry page: documents examined, embeddings inserted, and the
+/// identity the next page resumes after.
+struct EmbeddingCarryPage {
+    scanned: i64,
+    carried: u64,
+    last_document_id: Option<String>,
+}
+
+impl EmbeddingCarryPage {
+    fn decode(row: &PgRow) -> Result<Self, StorageError> {
+        let count = |field: &'static str| {
+            row.try_get::<i64, _>(field)
+                .ok()
+                .filter(|value| *value >= 0)
+                .ok_or_else(|| database_error("decode-carry-embeddings"))
+        };
+        let scanned = count("scanned")?;
+        let carried = u64::try_from(count("carried")?)
+            .map_err(|_| database_error("decode-carry-embeddings"))?;
+        let last_document_id = row
+            .try_get::<Option<String>, _>("last_document_id")
+            .map_err(|_| database_error("decode-carry-embeddings"))?;
+        if scanned > 0 && last_document_id.is_none() {
+            return Err(database_error("decode-carry-embeddings"));
+        }
+        Ok(Self {
+            scanned,
+            carried,
+            last_document_id,
+        })
+    }
 }
 
 async fn lock_generation_fence(
