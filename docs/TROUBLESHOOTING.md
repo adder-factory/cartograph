@@ -78,6 +78,14 @@ binary was already installed and the remaining project steps were reconciled.
 If `restartRequired` is true, close and reopen the host once. If the report is
 blocked, inspect `projectReconciliation`, `registrationRepair`, and the bounded
 `nextSteps`; after fixing the named boundary, rerun the same command to resume.
+`registrationRepair.changes` names every registration the run touched, with the
+old and new executable path; an entry with `outcome: manual` carries the exact
+`manualStep` to apply by hand. A registration that launches Cartograph through
+a wrapper such as `op run --`, `doppler run --`, `aws-vault exec`, `direnv exec`,
+or `/usr/bin/env` is reported as `commandState: wrapped` and is never
+re-installed: only its embedded absolute Cartograph path is repinned, so the
+wrapper and the `env` block that supply an `apiKeyEnv` credential survive the
+upgrade.
 An idempotent rerun reports `restartRequired: false` when it changed neither the
 binary nor a host pin; that run-local result does not claim that a process left
 open across an earlier upgrade has been inspected. A database step with

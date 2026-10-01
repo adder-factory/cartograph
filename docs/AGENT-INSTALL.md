@@ -78,8 +78,11 @@ cartograph upgrade --apply --project-path . --json
 
 Require `completed: true`. The operation verifies and smoke-tests the release,
 applies safe schema migrations, reconciles a fresh current generation, runs
-`doctor`, and repairs stale owned host pins. If it reports that the managed
-database must be replaced, perform only the exact backup and confirmed upgrade
+`doctor`, and repairs stale owned host pins. A registration that launches
+Cartograph through a wrapper (`commandState: wrapped`) keeps its wrapper,
+arguments, and `env`; only its embedded absolute Cartograph path is repinned,
+and `registrationRepair.changes` lists every changed entry. If it reports that
+the managed database must be replaced, perform only the exact backup and confirmed upgrade
 steps it prints, then rerun the same command. If the database command fails
 after attempting the extension update, the new image remains the resumable
 candidate and the old image remains stopped; do not start the old container by
@@ -178,6 +181,12 @@ port, add `--managed-database-port <PORT>`; the generated server arguments pin
 that non-secret loopback port for every host format. Use `--no-hooks` to omit
 hook changes. Run `cartograph install-hooks --remove` to remove only
 Cartograph-owned blocks.
+
+Re-running the installer over an existing entry keeps `env`, `cwd`, other
+host-specific keys, and extra server arguments. An entry that wraps Cartograph
+in another launcher (for example a secret manager that supplies an
+`apiKeyEnv` credential) is never replaced; only its absolute Cartograph path is
+repinned.
 
 Restart the host after registration or binary replacement. A shell `status`
 call validates the CLI/database path; it does not prove that an already-running

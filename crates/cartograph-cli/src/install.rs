@@ -1,4 +1,5 @@
 mod jsonc;
+mod registration;
 
 use std::{
     env, fs,
@@ -384,10 +385,17 @@ impl InstallRequest {
             location: input.location,
             command_override: input.command_override,
             permissions: input.permissions,
-        })?;
-        request.home = canonical_directory(input.home, InstallError::HostHome)?;
+        })?
+        .with_home(input.home)?;
         request.use_environment = false;
         Ok(request)
+    }
+
+    /// Resolves host configuration under `home` instead of the process
+    /// environment's home directory.
+    pub(crate) fn with_home(mut self, home: &Path) -> Result<Self, InstallError> {
+        self.home = canonical_directory(home, InstallError::HostHome)?;
+        Ok(self)
     }
 
     pub(crate) fn detected(&self) -> bool {
@@ -402,7 +410,9 @@ impl InstallRequest {
         self
     }
 
-    fn command(&self) -> &str {
+    /// The command written into the registration: the `--command` override,
+    /// or the stable launcher of the absolute native executable.
+    pub(crate) fn command(&self) -> &str {
         self.command_override.as_deref().unwrap_or(&self.executable)
     }
 
@@ -602,6 +612,15 @@ impl InstallRequest {
     }
 }
 
+/// The command `install` registers for `executable` without a `--command`
+/// override: the stable `current/bin` launcher of a versioned native
+/// installation, otherwise the canonical executable itself.
+pub(crate) fn registration_executable(executable: &Path) -> Option<String> {
+    let canonical = executable.canonicalize().ok()?;
+    let registered = stable_registration_executable(&canonical).unwrap_or(canonical);
+    registered.to_str().map(str::to_owned)
+}
+
 fn stable_registration_executable(executable: &Path) -> Option<PathBuf> {
     let file_name = executable.file_name()?;
     let bin = executable.parent()?;
@@ -736,17 +755,29 @@ impl InstallReport {
 }
 
 pub(crate) fn install(request: &InstallRequest) -> Result<InstallReport, InstallError> {
+    let mut report = install_registration(request)?;
+    report.files.extend(install_artifacts(request)?);
+    if request.local() {
+        ensure_project_config_ignored(request, &report.files)?;
+    }
+    Ok(report)
+}
+
+/// Writes only the MCP registration entry, without guidance artifacts.
+///
+/// An existing entry is merged rather than replaced: keys and extra server
+/// arguments Cartograph does not own survive, and a wrapper registration keeps
+/// its command and arguments except for its absolute Cartograph executable.
+pub(crate) fn install_registration(
+    request: &InstallRequest,
+) -> Result<InstallReport, InstallError> {
     if !request.target.supports(request.location) {
         return Err(InstallError::UnsupportedLocation {
             target: request.target.label(),
         });
     }
     let config = request.config_location()?;
-    let mut files = vec![install_config(request, &config)?];
-    files.extend(install_artifacts(request)?);
-    if request.local() {
-        ensure_project_config_ignored(request, &files)?;
-    }
+    let files = vec![install_config(request, &config)?];
     Ok(report(request, files))
 }
 
@@ -925,7 +956,11 @@ fn install_json(
         );
     }
     let servers = object_field(&mut root, wrapper)?;
-    let desired = entry(request)?;
+    let desired = registration::merge_json_entry(
+        servers.get("cartograph"),
+        entry(request)?,
+        request.command(),
+    );
     if servers.get("cartograph") == Some(&desired) {
         return Ok(file_report(&config.path, InstallAction::Unchanged));
     }
@@ -982,13 +1017,13 @@ fn install_jsonc(
     wrapper: &str,
 ) -> Result<InstallFileReport, InstallError> {
     let prior = read_optional_config(&config.path)?;
-    let desired = entry(request)?;
-    if let Some(contents) = prior.as_deref()
-        && jsonc::parse(contents)
-            .and_then(|value| value.pointer(&format!("/{wrapper}/cartograph")).cloned())
-            .as_ref()
-            == Some(&desired)
-    {
+    let existing = prior
+        .as_deref()
+        .and_then(jsonc::parse)
+        .and_then(|value| value.pointer(&format!("/{wrapper}/cartograph")).cloned());
+    let desired =
+        registration::merge_json_entry(existing.as_ref(), entry(request)?, request.command());
+    if existing.as_ref() == Some(&desired) {
         return Ok(file_report(&config.path, InstallAction::Unchanged));
     }
     let rendered = match prior.as_deref() {
@@ -1041,7 +1076,11 @@ fn install_claude(
         .as_object_mut()
         .ok_or(InstallError::InvalidConfig)?;
     let servers = object_field(project, "mcpServers")?;
-    let desired = entry(request)?;
+    let desired = registration::merge_json_entry(
+        servers.get("cartograph"),
+        entry(request)?,
+        request.command(),
+    );
     if servers.get("cartograph") == Some(&desired) {
         return Ok(file_report(&config.path, InstallAction::Unchanged));
     }
@@ -1101,10 +1140,24 @@ fn write_codex_table(
     let servers = document["mcp_servers"]
         .as_table_mut()
         .ok_or(InstallError::InvalidConfig)?;
+    let server_args = request.server_args()?;
+    if let Some(existing) = servers
+        .get_mut("cartograph")
+        .and_then(Item::as_table_like_mut)
+    {
+        registration::merge_codex_server(
+            existing,
+            &registration::DesiredServer {
+                command: request.command(),
+                args: &server_args,
+            },
+        );
+        return Ok(());
+    }
     let mut server = Table::new();
     server["command"] = value(request.command());
     let mut args = Array::new();
-    for argument in request.server_args()? {
+    for argument in server_args {
         args.push(argument);
     }
     server["args"] = Item::Value(toml_edit::Value::Array(args));
@@ -2311,6 +2364,208 @@ mod tests {
         assert_eq!(
             root.pointer("/projects/~1retained/mcpServers/other/command"),
             Some(&Value::String("x".to_owned()))
+        );
+    }
+
+    const PINNED_COMMAND: &str = "/opt/cartograph/bin/cartograph";
+    const STALE_EXECUTABLE: &str = "/old/release/bin/cartograph";
+
+    fn seed(path: &Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|error| panic!("seed dir failed: {error}"));
+        }
+        fs::write(path, contents).unwrap_or_else(|error| panic!("seed failed: {error}"));
+    }
+
+    fn json_at(path: &Path, pointer: &str) -> Value {
+        let root: Value = serde_json::from_str(
+            &fs::read_to_string(path).unwrap_or_else(|error| panic!("read failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("parse failed: {error}"));
+        root.pointer(pointer)
+            .cloned()
+            .unwrap_or_else(|| panic!("{pointer} was missing"))
+    }
+
+    fn registration_action(request: &InstallRequest) -> InstallAction {
+        install(request)
+            .unwrap_or_else(|error| panic!("install failed: {error}"))
+            .files()[0]
+            .action()
+    }
+
+    #[test]
+    fn rewriting_a_wrapped_registration_repins_only_its_absolute_executable() {
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project failed: {error}"));
+        let home = tempfile::tempdir().unwrap_or_else(|error| panic!("home failed: {error}"));
+        let executable = fake_executable(project.path());
+
+        let cursor = project.path().join(".cursor/mcp.json");
+        let wrapped = json!({
+            "command": "/usr/bin/env",
+            "args": ["FIXTURE_MODE=opaque", STALE_EXECUTABLE, "serve", "--mcp", "--profile", "coding"],
+            "env": {"EXAMPLE_FLAG": "1"},
+            "cwd": "/srv/work",
+            "hostSpecific": {"keep": true}
+        });
+        seed(
+            &cursor,
+            &json!({"mcpServers": {"cartograph": wrapped}}).to_string(),
+        );
+        let cursor_request = request(
+            project.path(),
+            home.path(),
+            &executable,
+            InstallTarget::Cursor,
+            InstallLocation::Local,
+        );
+        assert_eq!(registration_action(&cursor_request), InstallAction::Updated);
+        let mut expected = wrapped;
+        expected["args"][1] = json!(PINNED_COMMAND);
+        assert_eq!(json_at(&cursor, "/mcpServers/cartograph"), expected);
+        assert_eq!(
+            registration_action(&cursor_request),
+            InstallAction::Unchanged
+        );
+
+        let codex = project.path().join(".codex/config.toml");
+        let codex_seed = format!(
+            "[mcp_servers.cartograph]\ncommand = \"op\"\nargs = [\"run\", \"--\", \"{STALE_EXECUTABLE}\", \"serve\", \"--mcp\"] # wrapper\nstartup_timeout_sec = 30\n\n[mcp_servers.cartograph.env]\nEXAMPLE_FLAG = \"1\"\n"
+        );
+        seed(&codex, &codex_seed);
+        let codex_request = request(
+            project.path(),
+            home.path(),
+            &executable,
+            InstallTarget::Codex,
+            InstallLocation::Local,
+        );
+        assert_eq!(registration_action(&codex_request), InstallAction::Updated);
+        assert_eq!(
+            fs::read_to_string(&codex).unwrap_or_else(|error| panic!("read failed: {error}")),
+            codex_seed.replace(STALE_EXECUTABLE, PINNED_COMMAND)
+        );
+
+        let claude = home.path().join(".claude.json");
+        let project_key = project
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|error| panic!("project canonicalization failed: {error}"))
+            .to_string_lossy()
+            .into_owned();
+        let path_lookup = json!({"projects": {(project_key): {"mcpServers": {"cartograph": {
+            "command": "direnv",
+            "args": ["exec", ".", "cartograph", "serve", "--mcp"],
+            "env": {"EXAMPLE_FLAG": "1"}
+        }}}}})
+        .to_string();
+        seed(&claude, &path_lookup);
+        let claude_request = request(
+            project.path(),
+            home.path(),
+            &executable,
+            InstallTarget::Claude,
+            InstallLocation::Local,
+        );
+        assert_eq!(
+            registration_action(&claude_request),
+            InstallAction::Unchanged
+        );
+        assert_eq!(
+            fs::read_to_string(&claude).unwrap_or_else(|error| panic!("read failed: {error}")),
+            path_lookup
+        );
+    }
+
+    #[test]
+    fn rewriting_a_direct_registration_keeps_unowned_keys_and_extra_arguments() {
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project failed: {error}"));
+        let home = tempfile::tempdir().unwrap_or_else(|error| panic!("home failed: {error}"));
+        let executable = fake_executable(project.path());
+        let project_root = project
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|error| panic!("project canonicalization failed: {error}"))
+            .to_string_lossy()
+            .into_owned();
+
+        let cursor = project.path().join(".cursor/mcp.json");
+        seed(
+            &cursor,
+            &json!({"mcpServers": {"cartograph": {
+                "command": STALE_EXECUTABLE,
+                "args": ["serve", "--mcp", "--project-path", "/old/project", "--profile", "coding"],
+                "env": {"EXAMPLE_FLAG": "1"},
+                "cwd": "/srv/work",
+                "hostSpecific": true
+            }}})
+            .to_string(),
+        );
+        let cursor_request = request(
+            project.path(),
+            home.path(),
+            &executable,
+            InstallTarget::Cursor,
+            InstallLocation::Local,
+        );
+        assert_eq!(registration_action(&cursor_request), InstallAction::Updated);
+        assert_eq!(
+            json_at(&cursor, "/mcpServers/cartograph"),
+            json!({
+                "type": "stdio",
+                "command": PINNED_COMMAND,
+                "args": ["serve", "--mcp", "--project-path", project_root, "--profile", "coding"],
+                "env": {"EXAMPLE_FLAG": "1"},
+                "cwd": "/srv/work",
+                "hostSpecific": true
+            })
+        );
+        assert_eq!(
+            registration_action(&cursor_request),
+            InstallAction::Unchanged
+        );
+
+        let codex = project.path().join(".codex/config.toml");
+        seed(
+            &codex,
+            &format!(
+                "[mcp_servers.cartograph]\ncommand = \"{STALE_EXECUTABLE}\"\nargs = [\"serve\", \"--mcp\", \"--no-auto-sync\"]\nstartup_timeout_sec = 30\n\n[mcp_servers.cartograph.env]\nEXAMPLE_FLAG = \"1\"\n"
+            ),
+        );
+        let codex_request = request(
+            project.path(),
+            home.path(),
+            &executable,
+            InstallTarget::Codex,
+            InstallLocation::Local,
+        );
+        assert_eq!(registration_action(&codex_request), InstallAction::Updated);
+        let document = fs::read_to_string(&codex)
+            .unwrap_or_else(|error| panic!("read failed: {error}"))
+            .parse::<DocumentMut>()
+            .unwrap_or_else(|error| panic!("parse failed: {error}"));
+        let server = &document["mcp_servers"]["cartograph"];
+        assert_eq!(server["command"].as_str(), Some(PINNED_COMMAND));
+        let args = server["args"].as_array().map(|args| {
+            args.iter()
+                .filter_map(toml_edit::Value::as_str)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            args,
+            Some(vec![
+                "serve",
+                "--mcp",
+                "--project-path",
+                project_root.as_str(),
+                "--no-auto-sync"
+            ])
+        );
+        assert_eq!(server["startup_timeout_sec"].as_integer(), Some(30));
+        assert_eq!(server["env"]["EXAMPLE_FLAG"].as_str(), Some("1"));
+        assert_eq!(
+            registration_action(&codex_request),
+            InstallAction::Unchanged
         );
     }
 
