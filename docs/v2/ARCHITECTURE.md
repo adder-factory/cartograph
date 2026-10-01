@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-09-25 (`v2.1.32`).
+Last implementation review: 2026-10-01 (`v2.1.33`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -88,7 +88,10 @@ Before migration or normal work, Cartograph proves:
 - pgvector 0.8.4 or newer, with 0.8.6 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
 
-The append-only migration ledger currently owns forty-four versions. Migration 44
+The append-only migration ledger currently owns forty-five versions. Migration 45
+records each ready generation's exact fact counts and source bytes, so status and
+freshness stop counting fact tables, and keys Git churn/co-change refreshes by
+their inputs so an unchanged HEAD reuses stored history. Migration 44
 admits generation digest V18 for the refreshed CUDA grammar and Unicode identifier
 semantics. Migration 43
 admits generation digest V17 for the refreshed ArkTS and OCaml grammars. Migration 42
