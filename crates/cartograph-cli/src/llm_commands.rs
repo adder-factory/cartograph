@@ -88,7 +88,10 @@ pub(super) struct SetupArguments {
     #[command(flatten)]
     credentials: SetupCredentialArguments,
     /// Jev preset only: Cartograph features allowed to consult Jev
-    /// (`explore` sends bounded source; `context` sends only candidate metadata).
+    /// (`explore` sends bounded source; `context` sends only candidate metadata;
+    /// `roles` sends symbol metadata with signatures up to 160 bytes; `rename`
+    /// sends each mention's path, line, enclosing symbol and up to 200 bytes of
+    /// its source line).
     #[arg(long, value_enum, value_delimiter = ',')]
     jev_features: Option<Vec<JevFeatureArgument>>,
     /// Omit the 7B ask tier and reranker from local presets.
