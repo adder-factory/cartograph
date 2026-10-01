@@ -1523,19 +1523,8 @@ async fn build_context_packet(
         expected_generation_id: generation.generation_id(),
     };
     collect_anchor_evidence(retriever, generation_input, &mut state).await?;
-    let channels =
-        resolve_context_channels(retriever, generation_input, precomputed_channels).await?;
-    let include_semantic = context_uses_semantic(request);
-    validate_channel_generation(&channels, generation.generation_id(), include_semantic)?;
-    let retrieval = fuse_search(
-        HybridSearchInput::new(
-            request.search_mode(),
-            request.semantic_readiness(),
-            request.budget().candidate_limit(),
-        )?
-        .with_preference(request.intent().retrieval_preference(request.query()))
-        .with_channels(channels),
-    )?;
+    let retrieval =
+        fuse_context_retrieval(retriever, generation_input, precomputed_channels).await?;
     collect_retrieval_evidence(&retrieval, &mut state);
     let direct_tests = if context_selects_tests(request.intent()) {
         collect_direct_tests(retriever, generation_input, &state.evidence).await?
@@ -1592,14 +1581,32 @@ fn empty_context_assembly(
 fn empty_context_retrieval(
     request: &ContextRequest,
 ) -> Result<crate::HybridSearchPacket, RetrievalError> {
-    fuse_search(
-        HybridSearchInput::new(
-            request.search_mode(),
-            request.semantic_readiness(),
-            request.budget().candidate_limit(),
-        )?
-        .with_preference(request.intent().retrieval_preference(request.query())),
-    )
+    fuse_search(context_search_input(request)?)
+}
+
+/// Resolve the request's retrieval channels for the expected generation and
+/// fuse them, failing closed when any policy channel holds a candidate from
+/// another generation.
+async fn fuse_context_retrieval(
+    retriever: &DeterministicRetriever,
+    input: ContextGenerationInput<'_, '_>,
+    precomputed_channels: Option<RetrievalChannels>,
+) -> Result<crate::HybridSearchPacket, RetrievalError> {
+    let channels = resolve_context_channels(retriever, input, precomputed_channels).await?;
+    let include_semantic = context_uses_semantic(input.request);
+    validate_channel_generation(&channels, input.expected_generation_id, include_semantic)?;
+    fuse_search(context_search_input(input.request)?.with_channels(channels))
+}
+
+/// Fusion bounds and intent preference of a context request, before channels
+/// are attached.
+fn context_search_input(request: &ContextRequest) -> Result<HybridSearchInput, RetrievalError> {
+    Ok(HybridSearchInput::new(
+        request.search_mode(),
+        request.semantic_readiness(),
+        request.budget().candidate_limit(),
+    )?
+    .with_preference(request.intent().retrieval_preference(request.query())))
 }
 
 async fn collect_anchor_evidence(

@@ -77,6 +77,7 @@ mod embeddings;
 mod git_intelligence;
 mod history;
 mod imports;
+mod index_admission;
 mod issue_history;
 mod layering;
 mod navigation;
@@ -219,11 +220,6 @@ const AUTOMATIC_RETENTION_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
 const AUTOMATIC_RETENTION_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
 const AUTOMATIC_RETENTION_MAINTENANCE: PostRetentionMaintenancePolicy =
     PostRetentionMaintenancePolicy::DelegateToAutovacuum;
-/// Failed or partially retired generations an automatic attempt may leave
-/// behind before the next automatic attempt must drain them first. Without
-/// this admission bound, repeated automatic failures on a large corpus reserve
-/// complete generations faster than bounded cleanup can delete them.
-const AUTOMATIC_TERMINAL_BACKLOG_LIMIT: u64 = 1;
 const OVERSIZED_SOURCE_DIGEST_DOMAIN: &[u8] = b"cartograph-v2-oversized-source-v1";
 
 pub(crate) fn trim_ascii_bytes(value: &[u8]) -> &[u8] {
@@ -1491,6 +1487,32 @@ const fn retention_made_progress(status: &GenerationRetentionStatus) -> bool {
     }
 }
 
+/// A prior project's terminal-generation backlog, counted and drained through
+/// its runtime for [`index_admission`].
+struct RuntimeTerminalBacklog<'runtime> {
+    runtime: &'runtime ProjectRuntime,
+    project_id: &'runtime ProjectId,
+    /// Bound whose parse-cache contract a drain protects; digested per drain.
+    maximum_ast_depth: usize,
+}
+
+impl index_admission::TerminalBacklog for RuntimeTerminalBacklog<'_> {
+    async fn count(&self) -> Result<u64, ProjectError> {
+        self.runtime
+            .database
+            .terminal_generation_backlog(self.project_id)
+            .await
+            .map_err(|_| ProjectError::StatusFailed)
+    }
+
+    async fn drain(&self) -> bool {
+        let contract = native_parse_cache_contract_digest(self.maximum_ast_depth);
+        let retention =
+            maintain_generation_retention(self.runtime, self.project_id, &contract).await;
+        retention_made_progress(&retention)
+    }
+}
+
 async fn maintain_failed_generation_retention(runtime: &ProjectRuntime, contract: &ContentDigest) {
     let Ok(Some(snapshot)) = runtime
         .database
@@ -1812,40 +1834,23 @@ impl ProjectRuntime {
         })))
     }
 
-    /// Drain terminal generations before an automatic attempt reserves another.
-    /// The attempt is deferred only while bounded cleanup is still making
-    /// progress, so a backlog that cannot clear without operator action (a held
-    /// project, a search-relation budget, a catalog mismatch) never freezes
-    /// automatic indexing; its retention outcome remains visible in storage
-    /// usage. Explicit requests are never deferred.
+    /// Apply the terminal-backlog admission policy in [`index_admission`]
+    /// before an attempt reserves a generation, counting and draining the prior
+    /// project's backlog through this runtime. Only automatic attempts are ever
+    /// deferred, and only while bounded cleanup is still making progress.
     async fn admit_automatic_generation(
         &self,
         source: &PreparedIndexSource,
         options: &IndexOptions,
     ) -> Result<(), ProjectError> {
-        if options.failure_retention != IndexFailureRetention::AutomaticFailures {
-            return Ok(());
-        }
-        let Some(prior) = source.prior.as_ref() else {
-            return Ok(());
-        };
-        let backlog = || async {
-            self.database
-                .terminal_generation_backlog(&prior.project_id)
-                .await
-                .map_err(|_| ProjectError::StatusFailed)
-        };
-        if backlog().await? <= AUTOMATIC_TERMINAL_BACKLOG_LIMIT {
-            return Ok(());
-        }
-        let contract = native_parse_cache_contract_digest(source.index_policy.maximum_ast_depth);
-        let retention = maintain_generation_retention(self, &prior.project_id, &contract).await;
-        if retention_made_progress(&retention)
-            && backlog().await? > AUTOMATIC_TERMINAL_BACKLOG_LIMIT
-        {
-            return Err(ProjectError::IndexRetentionBacklog);
-        }
-        Ok(())
+        let backlog = source.prior.as_ref().map(|prior| RuntimeTerminalBacklog {
+            runtime: self,
+            project_id: &prior.project_id,
+            maximum_ast_depth: source.index_policy.maximum_ast_depth,
+        });
+        index_admission::admit_index_attempt(options.failure_retention, backlog.as_ref())
+            .await?
+            .into_result()
     }
 
     async fn prepare_index_source(

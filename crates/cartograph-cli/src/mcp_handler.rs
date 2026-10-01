@@ -24351,7 +24351,14 @@ fn classify_symbol_role(symbol: &CurrentSymbolRecord) -> (&'static str, &'static
     let name = symbol.qualified_name().to_ascii_lowercase();
     let kind = symbol.symbol_kind();
     structural_role(&path, &name, kind)
-        .or_else(|| heuristic_role(&path, &name, kind, symbol.exported()))
+        .or_else(|| {
+            heuristic_role(HeuristicRoleInput {
+                path: &path,
+                name: &name,
+                kind,
+                exported: symbol.exported(),
+            })
+        })
         .unwrap_or(("unknown", "insufficient_structural_evidence"))
 }
 
@@ -24376,14 +24383,24 @@ fn structural_role(path: &str, name: &str, kind: &str) -> Option<(&'static str, 
     None
 }
 
+/// One symbol's evidence for [`heuristic_role`]; `path` and `name` are lowercase.
+#[derive(Clone, Copy)]
+struct HeuristicRoleInput<'symbol> {
+    path: &'symbol str,
+    name: &'symbol str,
+    kind: &'symbol str,
+    exported: bool,
+}
+
 /// Lower-confidence name, location and export heuristics used when no model
 /// judges a symbol, or when Jev abstains.
-fn heuristic_role(
-    path: &str,
-    name: &str,
-    kind: &str,
-    exported: bool,
-) -> Option<(&'static str, &'static str)> {
+fn heuristic_role(input: HeuristicRoleInput<'_>) -> Option<(&'static str, &'static str)> {
+    let HeuristicRoleInput {
+        path,
+        name,
+        kind,
+        exported,
+    } = input;
     if symbol_role_is_framework_handler(name) {
         return Some(("framework_glue", "handler_shape"));
     }
@@ -24445,12 +24462,12 @@ fn classify_pending_role_structurally(
 }
 
 fn pending_heuristic_role(symbol: &PendingRoleSymbol) -> (&'static str, &'static str) {
-    heuristic_role(
-        &symbol.path().to_ascii_lowercase(),
-        &symbol.qualified_name().to_ascii_lowercase(),
-        symbol.symbol_kind(),
-        symbol.exported(),
-    )
+    heuristic_role(HeuristicRoleInput {
+        path: &symbol.path().to_ascii_lowercase(),
+        name: &symbol.qualified_name().to_ascii_lowercase(),
+        kind: symbol.symbol_kind(),
+        exported: symbol.exported(),
+    })
     .unwrap_or(("unknown", "insufficient_structural_evidence"))
 }
 
@@ -30585,18 +30602,23 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
             structural_role("src/lib.rs", "request_handler", "function"),
             None
         );
+        let function_role = |name, exported| {
+            heuristic_role(HeuristicRoleInput {
+                path: "src/lib.rs",
+                name,
+                kind: "function",
+                exported,
+            })
+        };
         assert_eq!(
-            heuristic_role("src/lib.rs", "request_handler", "function", false),
+            function_role("request_handler", false),
             Some(("framework_glue", "handler_shape"))
         );
         assert_eq!(
-            heuristic_role("src/lib.rs", "calculate", "function", true),
+            function_role("calculate", true),
             Some(("business_logic", "exported_executable"))
         );
-        assert_eq!(
-            heuristic_role("src/lib.rs", "calculate", "function", false),
-            None
-        );
+        assert_eq!(function_role("calculate", false), None);
     }
 
     #[test]
