@@ -135,7 +135,10 @@ impl CredentialCommand {
 
     /// After the provider rejected `rejected`, run the command again unless
     /// another request already replaced that value, and return a credential
-    /// only when it differs from the rejected one.
+    /// only when it differs from the rejected one. At most one such re-run
+    /// happens per [`RERUN_INTERVAL`], whether or not it printed a new value,
+    /// so a helper that prints a fresh value the provider keeps rejecting is
+    /// not run for every request.
     pub(crate) async fn refresh_rejected(
         &self,
         rejected: &SecretString,
@@ -169,7 +172,7 @@ impl CredentialCommand {
         let changed = !same_secret(&fresh, rejected);
         *cached = CachedCredential::Resolved {
             secret: fresh.clone(),
-            rerun_at: (!changed).then(Instant::now),
+            rerun_at: Some(Instant::now()),
         };
         Ok(changed.then_some(fresh))
     }

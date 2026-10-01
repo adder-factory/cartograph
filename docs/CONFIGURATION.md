@@ -516,7 +516,10 @@ rejected, and the shell-free bridges accept none:
   bounds: a non-empty program and at most 128 arguments of up to 4 KiB each and
   32 KiB in total. The command gets no stdin, its stderr is discarded, and it
   must finish within 10 seconds and print at most 4 KiB. Trailing whitespace is
-  trimmed; the rest must be non-empty, control-free UTF-8.
+  trimmed; the rest must be non-empty, control-free UTF-8. Like a CLI-bridge
+  command, it is trusted project configuration: Cartograph and `doctor` run
+  whatever program `.cartograph/config.json` names, so review that file before
+  using a checkout you do not trust.
 - A legacy inline `apiKey` is still read; move it with
   `cartograph llm migrate-credentials`.
 
@@ -524,7 +527,8 @@ A resolved command credential is kept only in that process's memory. It is
 never written to configuration, logs, session history or diagnostics. When the
 provider rejects it (HTTP 401 or 403), the command runs once more and the
 request is resent only if the value changed, so a rotated key is picked up
-without a restart. A failed run reports `credential_unavailable` with the
+without a restart. Such a re-run happens at most once every 30 seconds, even
+when each run prints a new value. A failed run reports `credential_unavailable` with the
 program's file name and exit status, never its output, and is remembered for 30
 seconds before a later use runs the command again. A failure affects only that
 tier: Jev falls back to native retrieval exactly as for a missing variable,

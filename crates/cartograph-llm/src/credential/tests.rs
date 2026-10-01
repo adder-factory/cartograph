@@ -176,6 +176,33 @@ async fn an_unchanged_rejected_value_is_not_rerun_by_every_request() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_new_value_the_provider_keeps_rejecting_is_rerun_once_per_interval() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+    let (command, counter) = counting_helper(root.path(), "rotating");
+    let first = command
+        .resolve()
+        .await
+        .unwrap_or_else(|error| panic!("resolve failed: {error}"));
+    let second = command
+        .refresh_rejected(&first)
+        .await
+        .unwrap_or_else(|error| panic!("refresh failed: {error}"))
+        .unwrap_or_else(|| panic!("a re-run that printed a new value must return it"));
+    assert_eq!(exposed(&second), "rotating-2");
+    for _ in 0..3 {
+        assert!(
+            command
+                .refresh_rejected(&second)
+                .await
+                .unwrap_or_else(|error| panic!("refresh failed: {error}"))
+                .is_none()
+        );
+    }
+    assert_eq!(runs(&counter), 2);
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn failures_name_the_program_and_status_but_never_output_or_stderr() {
     let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
     let exact = MAXIMUM_CREDENTIAL_OUTPUT_BYTES;
