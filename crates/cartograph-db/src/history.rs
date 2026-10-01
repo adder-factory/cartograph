@@ -212,6 +212,19 @@ impl HistoryRefreshRequest {
     }
 }
 
+/// Exact checkout state whose stored history refresh may be reused.
+#[derive(Clone, Copy, Debug)]
+pub struct HistoryReuseQuery<'query> {
+    /// Stable root identity of the registered project checkout.
+    pub root_identity: &'query str,
+    /// Current HEAD commit of the checkout.
+    pub head_commit: &'query str,
+    /// Whether the checkout's history is shallow.
+    pub shallow_history: bool,
+    /// Inputs the stored refresh must have been produced with.
+    pub parameters: HistoryRefreshParameters,
+}
+
 /// Bounded current-file history query.
 pub struct FileHistoryQuery<'query> {
     project_id: &'query ProjectId,
@@ -473,18 +486,22 @@ impl CartographDatabase {
         Ok(report)
     }
 
-    /// Return the stored refresh for this checkout when HEAD, shallowness and
-    /// every refresh input match, marked as reused; `None` requires a refresh.
+    /// Return the stored refresh for the queried checkout when HEAD,
+    /// shallowness and every refresh input match, marked as reused; `None`
+    /// requires a refresh.
     /// # Errors
     ///
     /// Returns an error if the stored record cannot be queried or decoded.
     pub async fn reusable_history_refresh(
         &self,
-        root_identity: &str,
-        head_commit: &str,
-        shallow_history: bool,
-        parameters: HistoryRefreshParameters,
+        reuse: HistoryReuseQuery<'_>,
     ) -> Result<Option<HistoryRefreshReport>, StorageError> {
+        let HistoryReuseQuery {
+            root_identity,
+            head_commit,
+            shallow_history,
+            parameters,
+        } = reuse;
         let schema = quoted_schema(&self.schema);
         let statement = format!(
             r#"SELECT refresh.commits_scanned, refresh.truncated,

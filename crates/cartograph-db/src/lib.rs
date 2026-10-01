@@ -96,6 +96,7 @@ pub use history::{
     FileCochangeFact, FileCochangeMetrics, FileCochangeQuery, FileCochangeRecord, FileHistoryFact,
     FileHistoryMetrics, FileHistoryQuery, FileHistoryRecord, HistoryRefreshInput,
     HistoryRefreshMetadata, HistoryRefreshParameters, HistoryRefreshReport, HistoryRefreshRequest,
+    HistoryReuseQuery,
 };
 pub use ingest::{
     CanonicalGenerationFacts, CanonicalSearchDocument, EdgeInput, FileInput, GenerationFacts,

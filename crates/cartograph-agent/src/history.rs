@@ -248,7 +248,12 @@ impl ProjectRuntime {
         let parameters = self.history_parameters(options, channels).await?;
         if let Ok(Some(report)) = self
             .database()
-            .reusable_history_refresh(&self.root_identity, &head, shallow, parameters)
+            .reusable_history_refresh(cartograph_db::HistoryReuseQuery {
+                root_identity: &self.root_identity,
+                head_commit: &head,
+                shallow_history: shallow,
+                parameters,
+            })
             .await
         {
             return Ok(PreparedHistoryIndex::reused(

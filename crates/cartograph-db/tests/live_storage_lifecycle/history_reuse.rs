@@ -5,6 +5,20 @@ use cartograph_db::{
 
 const ROOT_IDENTITY: &str = "storage/history-reuse";
 
+/// Reuse lookup for the test project's checkout state.
+const fn reuse_query(
+    head_commit: &str,
+    shallow_history: bool,
+    parameters: HistoryRefreshParameters,
+) -> cartograph_db::HistoryReuseQuery<'_> {
+    cartograph_db::HistoryReuseQuery {
+        root_identity: ROOT_IDENTITY,
+        head_commit,
+        shallow_history,
+        parameters,
+    }
+}
+
 /// A stored churn/co-change refresh is reused only for the exact HEAD,
 /// shallowness and inputs that produced it, and never outlives a refresh
 /// without inputs or an explicit clear.
@@ -40,7 +54,7 @@ pub(super) async fn assert_history_reuse_record_lifecycle(database: &CartographD
     };
     let reusable = |head: String, shallow: bool, parameters: HistoryRefreshParameters| async move {
         database
-            .reusable_history_refresh(ROOT_IDENTITY, &head, shallow, parameters)
+            .reusable_history_refresh(reuse_query(&head, shallow, parameters))
             .await
             .unwrap_or_else(|error| panic!("history reuse lookup failed: {error}"))
     };

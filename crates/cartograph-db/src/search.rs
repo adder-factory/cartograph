@@ -248,25 +248,17 @@ impl CartographDatabase {
         flavor: SearchFlavor,
     ) -> Result<Vec<SearchHit>, StorageError> {
         validate_query(&input)?;
+        let generation =
+            CurrentGenerationLookup::new(&input.project_id, &input.expected_generation_id);
         let mut transaction = crate::retrieval::begin_bounded_read(self, statement_timeout).await?;
         crate::retrieval::require_expected_current_generation(
             &mut transaction,
             &self.schema,
-            crate::retrieval::CurrentGenerationLookup::new(
-                &input.project_id,
-                &input.expected_generation_id,
-            ),
+            generation,
         )
         .await?;
-        let relation = require_generation_search_relation(
-            &mut transaction,
-            &self.schema,
-            crate::retrieval::CurrentGenerationLookup::new(
-                &input.project_id,
-                &input.expected_generation_id,
-            ),
-        )
-        .await?;
+        let relation =
+            require_generation_search_relation(&mut transaction, &self.schema, generation).await?;
         let (matches, fixed_components, operation): (String, Option<&[SearchComponent]>, _) =
             match flavor {
                 SearchFlavor::All => (
@@ -333,9 +325,16 @@ impl CartographDatabase {
         let probed = match fixed_components {
             Some(_) => None,
             None => Some(
-                probe_field_matches(&mut transaction, &table, &input, &rows)
-                    .await
-                    .map_err(|()| StorageError::DatabaseOperation { operation })?,
+                probe_field_matches(
+                    &mut transaction,
+                    FieldProbeInput {
+                        table: &table,
+                        search: &input,
+                        rows: &rows,
+                    },
+                )
+                .await
+                .map_err(|()| StorageError::DatabaseOperation { operation })?,
             ),
         };
         crate::retrieval::commit_bounded_read(transaction, operation).await?;
@@ -373,14 +372,24 @@ impl FieldMatches {
     }
 }
 
+/// The returned rows of one all-field search and the relation they came from.
+struct FieldProbeInput<'probe> {
+    table: &'probe str,
+    search: &'probe SearchQuery,
+    rows: &'probe [sqlx_postgres::PgRow],
+}
+
 /// Re-evaluate each field's match predicate inside the BM25 index, restricted
 /// to the returned rows by an identity term set, within the same snapshot.
 async fn probe_field_matches(
     transaction: &mut sqlx_postgres::PgConnection,
-    table: &str,
-    input: &SearchQuery,
-    rows: &[sqlx_postgres::PgRow],
+    input: FieldProbeInput<'_>,
 ) -> Result<FieldMatches, ()> {
+    let FieldProbeInput {
+        table,
+        search,
+        rows,
+    } = input;
     if rows.is_empty() {
         return Ok(FieldMatches {
             qualified_name: HashSet::new(),
@@ -409,9 +418,9 @@ async fn probe_field_matches(
         probe("natural_text")
     );
     let row = query(AssertSqlSafe(sql))
-        .bind(input.project_id.as_str())
-        .bind(&input.query)
-        .bind(input.expected_generation_id.as_str())
+        .bind(search.project_id.as_str())
+        .bind(&search.query)
+        .bind(search.expected_generation_id.as_str())
         .bind(&ids)
         .fetch_one(&mut *transaction)
         .await
