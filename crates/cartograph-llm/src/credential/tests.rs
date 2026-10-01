@@ -1,17 +1,23 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
 use super::*;
+#[cfg(unix)]
+use crate::ProjectLlmCredentialSource;
 use crate::{
-    ProjectLlmCredentialSource, ProjectLlmCredentialWriteAction, ProjectLlmTier,
-    ProjectLlmTierInput, load_project_llm_credential_environment, load_project_llm_tier,
+    ProjectLlmCredentialWriteAction, ProjectLlmTier, ProjectLlmTierInput,
+    load_project_llm_credential_environment, load_project_llm_tier,
     write_project_llm_configuration_with_report,
 };
 
 const CONFIG_PATH: &str = ".cartograph/config.json";
 const REMOTE_ENDPOINT: &str = "https://example.test/v1";
+#[cfg(unix)]
 const SHORT_TIMEOUT: Duration = Duration::from_millis(100);
+#[cfg(unix)]
 const SLOW_HELPER_SECONDS: u64 = 5;
 
 /// Write an executable `/bin/sh` helper and return its path.
@@ -32,6 +38,7 @@ fn command(argv: &[&str]) -> CredentialCommand {
         .unwrap_or_else(|error| panic!("credential command rejected: {error}"))
 }
 
+#[cfg(unix)]
 fn command_at(path: &Path) -> CredentialCommand {
     command(&[path
         .to_str()
@@ -51,10 +58,12 @@ fn counting_helper(root: &Path, prefix: &str) -> (CredentialCommand, PathBuf) {
     (command_at(&path), path.with_extension("runs"))
 }
 
+#[cfg(unix)]
 fn runs(counter: &Path) -> usize {
     std::fs::read_to_string(counter).map_or(0, |text| text.lines().count())
 }
 
+#[cfg(unix)]
 fn exposed(secret: &SecretString) -> &str {
     secret.expose_secret()
 }
