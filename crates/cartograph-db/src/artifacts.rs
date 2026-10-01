@@ -1070,6 +1070,17 @@ impl<'a> FileSummarySaveRequest<'a> {
     }
 }
 
+/// Which role sweep asks for pending symbols, and with what model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoleSweepModel<'a> {
+    /// Rules only. Roles a model already judged are kept, so turning a model
+    /// off never downgrades its paid results.
+    Structural(&'a str),
+    /// A chat or Jev model re-judges every symbol it has not judged itself,
+    /// except structural rule matches.
+    Judge(&'a str),
+}
+
 /// One current symbol without a digest/model-compatible role classification.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2640,10 +2651,14 @@ impl CartographDatabase {
     pub async fn pending_symbol_roles(
         &self,
         project_id: &ProjectId,
-        model: &str,
+        sweep: RoleSweepModel<'_>,
         limit: u16,
     ) -> Result<Vec<PendingRoleSymbol>, StorageError> {
         validate_limit(limit, MAX_ROLE_BATCH)?;
+        let (model, keep_judged) = match sweep {
+            RoleSweepModel::Structural(model) => (model, true),
+            RoleSweepModel::Judge(model) => (model, false),
+        };
         if model.is_empty() || model.len() > 256 || model.contains('\0') {
             return Err(StorageError::InvalidInput { field: "model" });
         }
@@ -2691,13 +2706,10 @@ impl CartographDatabase {
                  AND (
                       roles.metadata->>'via' IN ('structural_rule', 'rule')
                       OR (
-                          roles.metadata->>'via' = 'structural_fallback'
-                          AND $2 = 'cartograph-structural-role-v2-1'
-                      )
-                      OR (
-                          roles.metadata->>'via' = 'llm'
+                          roles.metadata->>'via' IN ('structural_fallback', 'llm', 'jev')
                           AND roles.metadata->>'model' = $2
                       )
+                      OR ($6 AND roles.metadata->>'via' IN ('llm', 'jev'))
                  )
                 WHERE symbols.project_id = CAST($1 AS uuid)
                   AND symbols.symbol_kind NOT IN ('file', 'import', 'parameter')
@@ -2722,6 +2734,7 @@ impl CartographDatabase {
                         .bind(i64::from(limit))
                         .bind(SUMMARY_SIGNATURE_MAXIMUM_CHARACTERS)
                         .bind(ROLE_EVIDENCE_MAXIMUM_CHARACTERS)
+                        .bind(keep_judged)
                 },
             )
             .await?;

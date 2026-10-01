@@ -52,6 +52,7 @@ pub struct RetrievalOptions {
     mode: SearchMode,
     candidate_limit: u16,
     result_limit: u16,
+    rerank: bool,
 }
 
 /// One bounded natural-language retrieval request shared by CLI, MCP, and tests.
@@ -121,7 +122,17 @@ impl RetrievalOptions {
             mode,
             candidate_limit,
             result_limit: candidate_limit,
+            rerank: true,
         })
+    }
+
+    /// Skip the configured cross-encoder for a caller that ranks candidates
+    /// itself, such as decision-guided exploration. The semantic channel keeps
+    /// its vector order and reports reranking as not requested.
+    #[must_use]
+    pub const fn without_rerank(mut self) -> Self {
+        self.rerank = false;
+        self
     }
 
     /// Requested deterministic, hybrid, or automatic execution policy.
@@ -169,6 +180,7 @@ impl Default for RetrievalOptions {
             mode: SearchMode::Auto,
             candidate_limit: DEFAULT_CANDIDATE_LIMIT,
             result_limit: DEFAULT_CANDIDATE_LIMIT,
+            rerank: true,
         }
     }
 }
@@ -235,10 +247,14 @@ impl ProjectRuntime {
             request.options.mode,
             self.project_root_for_host_operations(),
         );
-        let rerank_client = rerank_client_from_project(
-            request.options.mode,
-            self.project_root_for_host_operations(),
-        );
+        let rerank_client = if request.options.rerank {
+            rerank_client_from_project(
+                request.options.mode,
+                self.project_root_for_host_operations(),
+            )
+        } else {
+            RerankClientState::NotRequested
+        };
         self.prepare_retrieval_inner(RetrievalExecutionRequest {
             request,
             semantic_client,

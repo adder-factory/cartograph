@@ -248,6 +248,7 @@ async fn auto_storage_streams_many_crate_workspaces_before_memory_resolve_capaci
             u64::try_from(CARGO_MANIFESTS * 2)
                 .unwrap_or_else(|_| panic!("fixture file count overflowed"))
         );
+        assert_generation_counts_are_persisted(&settings, &schema, &report.generation_id).await;
         runtime.close().await;
     }
 
@@ -3270,6 +3271,41 @@ async fn refresh_history(runtime: &ProjectRuntime, indexed: &IndexReport) {
     assert_eq!(report["truncated"], false);
 }
 
+/// An explicit index at an unchanged HEAD reuses the stored churn/co-change
+/// refresh; a new commit, or different refresh inputs, rescans.
+async fn assert_history_reuse_follows_head(runtime: &ProjectRuntime, root: &Path) {
+    let history = |report: &IndexReport| {
+        serde_json::to_value(report)
+            .unwrap_or_else(|error| panic!("history reuse serialization failed: {error}"))
+            ["history"]["report"]
+            .clone()
+    };
+    let index = || async {
+        runtime
+            .index(IndexOptions::default())
+            .await
+            .unwrap_or_else(|error| panic!("history reuse index failed: {error}"))
+    };
+    // The explicit refresh used a smaller commit bound, so the default bound rescans.
+    let rescanned = history(&index().await);
+    assert_eq!(rescanned["reused"], false);
+    assert_eq!(rescanned["commitsScanned"], 3);
+    let reused = history(&index().await);
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["commitsScanned"], 3);
+    assert_eq!(reused["filesWritten"], rescanned["filesWritten"]);
+    std::fs::write(
+        root.join("src/history_reuse.ts"),
+        "export function historyReuse() { return 1; }\n",
+    )
+    .unwrap_or_else(|error| panic!("history reuse write failed: {error}"));
+    git(root, &["add", "src/history_reuse.ts"]);
+    git(root, &["commit", "-m", "add a history reuse file"]);
+    let advanced = history(&index().await);
+    assert_eq!(advanced["reused"], false);
+    assert_eq!(advanced["commitsScanned"], 4);
+}
+
 async fn assert_history_rows(runtime: &ProjectRuntime, indexed: &IndexReport) -> NormalizedPath {
     let anchor = NormalizedPath::parse(HISTORY_ANCHOR_PATH)
         .unwrap_or_else(|error| panic!("history anchor path failed: {error}"));
@@ -3422,10 +3458,12 @@ async fn git_history_refresh_persists_churn_and_symmetric_cochange_confidence() 
             .index(IndexOptions::default())
             .await
             .unwrap_or_else(|error| panic!("history fixture index failed: {error}"));
+        assert_generation_counts_are_persisted(&settings, &schema, &indexed.generation_id).await;
         refresh_history(&runtime, &indexed).await;
         let anchor = assert_history_rows(&runtime, &indexed).await;
         assert_history_hotspots(&runtime, &indexed).await;
         assert_grouped_history_peers(&runtime, &indexed).await;
+        assert_history_reuse_follows_head(&runtime, project.path()).await;
         assert_history_can_be_disabled(&runtime, &indexed, &anchor, project.path()).await;
         runtime.close().await;
     }
@@ -3825,6 +3863,73 @@ async fn import_audit_classifies_and_filters_complete_fresh_evidence() {
             ))
             .await;
         assert_eq!(stale, Err(ImportAuditError::SourceChanged));
+        runtime.close().await;
+    }
+    drop_schema(&settings, &schema).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn dead_code_counts_type_usage_and_exempts_rust_test_modules() {
+    let (schema, settings, project) = live_project_fixture("8");
+    std::fs::write(
+        project.path().join("lib.rs"),
+        "struct Budget { limit: u32 }\n\
+         pub fn remaining(budget: Budget) -> u32 { budget.limit }\n\
+         fn forgotten_helper() -> u32 { 7 }\n\
+         #[cfg(test)]\n\
+         mod tests {\n    #[test]\n    fn budget_is_positive() {}\n}\n",
+    )
+    .unwrap_or_else(|error| panic!("dead-code fixture failed: {error}"));
+    {
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("dead-code runtime connect failed: {error}"));
+        let indexed = runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("dead-code fixture index failed: {error}"));
+        let names = |include_tests: bool| {
+            let runtime = &runtime;
+            let project_id = indexed.project_id.clone();
+            async move {
+                runtime
+                    .database()
+                    .query_current_dead_code(
+                        &project_id,
+                        &DeadCodeQuery::new(50)
+                            .unwrap_or_else(|error| panic!("dead-code options failed: {error}"))
+                            .with_include_tests(include_tests),
+                    )
+                    .await
+                    .unwrap_or_else(|error| panic!("dead-code query failed: {error}"))
+                    .iter()
+                    .map(|candidate| candidate.qualified_name().to_owned())
+                    .collect::<Vec<_>>()
+            }
+        };
+        let candidates = names(false).await;
+        assert!(
+            candidates.iter().any(|name| name == "forgotten_helper"),
+            "{candidates:?}"
+        );
+        // A struct named only as a parameter type is used.
+        assert!(
+            !candidates.iter().any(|name| name == "Budget"),
+            "{candidates:?}"
+        );
+        // Test-module members run under the test harness.
+        assert!(
+            !candidates.iter().any(|name| name.starts_with("tests")),
+            "{candidates:?}"
+        );
+        let with_tests = names(true).await;
+        assert!(
+            with_tests
+                .iter()
+                .any(|name| name == "tests::budget_is_positive"),
+            "{with_tests:?}"
+        );
         runtime.close().await;
     }
     drop_schema(&settings, &schema).await;
@@ -4593,6 +4698,56 @@ fn unique_schema(database_url: &str) -> GuardedSchema {
         name,
         _cleanup: cleanup,
     }
+}
+
+/// Ready generations record exact fact counts and source bytes, so snapshots
+/// never need to count the fact tables.
+async fn assert_generation_counts_are_persisted(
+    settings: &DatabaseSettings,
+    schema: &str,
+    generation: &cartograph_domain::GenerationId,
+) {
+    let pool = cartograph_db::connect(settings)
+        .await
+        .unwrap_or_else(|error| panic!("count verification pool failed: {error}"));
+    let counted = |table: &str| {
+        format!(
+            r#"(SELECT count(*) FROM "{schema}"."{table}" WHERE generation_id = $1::uuid)::bigint"#
+        )
+    };
+    let statement = format!(
+        r#"SELECT fact_files, fact_symbols, fact_edges, fact_references,
+                fact_numerical_sites, fact_documents, fact_source_bytes,
+                {}, {}, {}, {}, {}, {},
+                (SELECT COALESCE(sum(byte_size), 0) FROM "{schema}"."files"
+                    WHERE generation_id = $1::uuid)::bigint
+            FROM "{schema}"."index_generations" WHERE generation_id = $1::uuid"#,
+        counted("files"),
+        counted("symbols"),
+        counted("edges"),
+        counted("references"),
+        counted("numerical_sites"),
+        counted("search_documents"),
+    );
+    let row = query(AssertSqlSafe(statement))
+        .bind(generation.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("count verification failed: {error}"));
+    for column in 0..7 {
+        let stored = row
+            .try_get::<Option<i64>, _>(column)
+            .unwrap_or_else(|error| panic!("stored count {column}: {error}"));
+        let actual = row
+            .try_get::<i64, _>(column + 7)
+            .unwrap_or_else(|error| panic!("actual count {column}: {error}"));
+        assert_eq!(
+            stored,
+            Some(actual),
+            "persisted fact column {column} is exact"
+        );
+    }
+    pool.close().await;
 }
 
 fn live_project_fixture(

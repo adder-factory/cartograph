@@ -27,10 +27,10 @@ use cartograph_db::{
     GenerationRetentionPolicy, GenerationRetentionRequest, GenerationStorageSummary,
     GenerationValidationLimits, HeapCompactionPolicy, HeapCompactionPolicyInput, LeaseOwner,
     LeaseRequest, LeaseTarget, ManagedContainerState, ManagedDatabase, ManagedDatabaseStatus,
-    ManagedDestructiveConfirmation, ManagedDestructiveOperation, ManagedStartReport,
-    SemanticReadinessState, StorageCompactionPolicy, StorageCompactionPolicyInput,
-    V1PostgresImportExecution, V1PostgresImportLimits, V1PostgresImportRequest, V1PostgresSource,
-    V1PostgresSourceRevision,
+    ManagedDestructiveConfirmation, ManagedDestructiveOperation, ManagedPostgresSettings,
+    ManagedStartReport, SemanticReadinessState, StorageCompactionPolicy,
+    StorageCompactionPolicyInput, V1PostgresImportExecution, V1PostgresImportLimits,
+    V1PostgresImportRequest, V1PostgresSource, V1PostgresSourceRevision,
 };
 use cartograph_domain::{
     EdgeKind, ModelId, NormalizedPath, ProjectId, ProjectOperation, SourceLanguage, SymbolId,
@@ -1202,13 +1202,16 @@ struct DatabaseCompactArguments {
     /// Maximum heap relations rewritten one at a time.
     #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u16).range(1..=32))]
     maximum_relations: u16,
-    /// Maximum aggregate bytes admitted into one resumable plan.
+    /// Maximum aggregate bytes admitted into one resumable plan. Must be at
+    /// least --minimum-reclaimable-bytes.
     #[arg(long, default_value_t = 16 * GIBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
     maximum_candidate_bytes: u64,
     /// Ignore B-tree indexes smaller than this allocation.
     #[arg(long, default_value_t = 8 * MEBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
     minimum_index_bytes: u64,
-    /// Ignore heap relations with less estimated reclaimable allocation.
+    /// Ignore indexes and heap relations with less estimated reclaimable
+    /// allocation. Index estimates need `pgstattuple`; without it, index
+    /// candidates are chosen by size alone.
     #[arg(long, default_value_t = 64 * MEBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
     minimum_reclaimable_bytes: u64,
     /// Hard PostgreSQL deadline for each index rebuild or heap rewrite.
@@ -4066,6 +4069,7 @@ fn database_compaction_policy(
             maximum_indexes: arguments.maximum_indexes,
             maximum_candidate_bytes: arguments.maximum_candidate_bytes,
             minimum_index_bytes: arguments.minimum_index_bytes,
+            minimum_reclaimable_bytes: arguments.minimum_reclaimable_bytes,
             statement_timeout: Duration::from_secs(arguments.timeout_seconds),
         })
         .map(DatabaseCompactionPolicy::Online)
@@ -4885,6 +4889,20 @@ fn check_managed_database_status(status: &ManagedDatabaseStatus, checks: &mut Ve
             "Managed PostgreSQL does not match the supported CPU, memory, and process ceilings."
                 .to_owned(),
             "Create a backup, then run `cartograph db upgrade --confirm upgrade-managed-database --project-path <path>`."
+                .to_owned(),
+        )
+    });
+    checks.push(if status.postgres_settings == ManagedPostgresSettings::Current {
+        doctor_pass(
+            "managed-postgres-settings",
+            "Managed PostgreSQL runs the current server settings.".to_owned(),
+        )
+    } else {
+        doctor_warn(
+            "managed-postgres-settings",
+            "Managed PostgreSQL predates the current server settings, which cap retained WAL at 2 GB and compress it."
+                .to_owned(),
+            "Create a backup, then run `cartograph db upgrade --confirm upgrade-managed-database --project-path <path>`; the data volume is kept."
                 .to_owned(),
         )
     });
@@ -6076,6 +6094,7 @@ mod tests {
                 nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
                 pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
                 resource_limits_match: true,
+                postgres_settings: ManagedPostgresSettings::Current,
             },
             &mut checks,
         );
@@ -6109,6 +6128,7 @@ mod tests {
                 nano_cpus: Some(0),
                 pids_limit: Some(0),
                 resource_limits_match: false,
+                postgres_settings: ManagedPostgresSettings::Outdated,
             },
             &mut checks,
         );
@@ -6140,6 +6160,7 @@ mod tests {
             nano_cpus: Some(0),
             pids_limit: Some(0),
             resource_limits_match: false,
+            postgres_settings: ManagedPostgresSettings::Outdated,
         };
         let error = managed_mcp_preflight_error(&status)
             .unwrap_or_else(|| panic!("incompatible managed database passed MCP preflight"));
@@ -6161,6 +6182,7 @@ mod tests {
             nano_cpus: None,
             pids_limit: None,
             resource_limits_match: false,
+            postgres_settings: ManagedPostgresSettings::Outdated,
         };
         assert!(
             managed_mcp_preflight_error(&missing)
@@ -6178,6 +6200,7 @@ mod tests {
             nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
             pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
             resource_limits_match: true,
+            postgres_settings: ManagedPostgresSettings::Current,
             ..status.clone()
         };
         assert!(
@@ -6196,6 +6219,7 @@ mod tests {
             nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
             pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
             resource_limits_match: true,
+            postgres_settings: ManagedPostgresSettings::Current,
             ..status
         };
         assert!(managed_mcp_preflight_error(&healthy).is_none());

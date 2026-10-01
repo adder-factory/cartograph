@@ -7,7 +7,8 @@ use std::{
 use cartograph_config::load_project_source_settings;
 use cartograph_db::{
     FileCochangeFact, FileCochangeMetrics, FileHistoryFact, FileHistoryMetrics,
-    HistoryRefreshInput, HistoryRefreshMetadata, HistoryRefreshReport, HistoryRefreshRequest,
+    HistoryRefreshInput, HistoryRefreshMetadata, HistoryRefreshParameters, HistoryRefreshReport,
+    HistoryRefreshRequest,
 };
 use cartograph_domain::{NormalizedPath, ProjectId};
 use num_traits::ToPrimitive;
@@ -29,6 +30,9 @@ const CANCELLATION_POLL_FIELDS: usize = 4_096;
 const COMMIT_FIELD_COUNT: usize = 4;
 const COMMIT_AUTHOR_FIELD_OFFSET: usize = 3;
 const RENAMED_NUMSTAT_FIELD_COUNT: usize = 3;
+/// Churn/co-change mining semantics. Bump whenever parsing, bounds or
+/// aggregation change so stored refreshes are never reused across them.
+const HISTORY_ALGORITHM_VERSION: u32 = 1;
 
 /// Bounded full-repository Git mining options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,14 +117,17 @@ impl ProjectRuntime {
                 .map_err(|_| HistoryIndexError::StorageUnavailable)?;
             return Err(HistoryIndexError::DisabledByProjectConfig);
         }
-        let prepared = self
+        let mut prepared = self
             .prepare_git_history(options, cancellation)
             .await?
             .with_channels(churn, co_change);
+        // An explicit refresh always rescans, and records its inputs so the
+        // next index run at the same HEAD can reuse it.
+        prepared.parameters = Some(self.history_parameters(options, (churn, co_change)).await?);
         self.persist_git_history(project_id, prepared).await
     }
 
-    pub(crate) async fn prepare_git_history(
+    async fn prepare_git_history(
         &self,
         options: HistoryIndexOptions,
         cancellation: ProjectCancellation,
@@ -220,6 +227,66 @@ impl ProjectRuntime {
             },
             files,
             cochanges,
+            parameters: None,
+            reused: None,
+        })
+    }
+
+    /// Prepare history for an index run, reusing the stored refresh when HEAD,
+    /// shallowness and every refresh input are unchanged. Git history depends
+    /// only on those inputs, so a reused refresh skips both the bounded
+    /// `git log` scan and the churn/co-change rewrite.
+    pub(crate) async fn prepare_git_history_reusing(
+        &self,
+        options: HistoryIndexOptions,
+        channels: (bool, bool),
+        cancellation: ProjectCancellation,
+    ) -> Result<PreparedHistoryIndex, HistoryIndexError> {
+        let (churn, co_change) = channels;
+        let head = git_head(&self.root).await?;
+        let shallow = git_is_shallow(&self.root).await?;
+        let parameters = self.history_parameters(options, channels).await?;
+        if let Ok(Some(report)) = self
+            .database()
+            .reusable_history_refresh(cartograph_db::HistoryReuseQuery {
+                root_identity: &self.root_identity,
+                head_commit: &head,
+                shallow_history: shallow,
+                parameters,
+            })
+            .await
+        {
+            return Ok(PreparedHistoryIndex::reused(
+                head,
+                HistoryRefreshMetadata {
+                    shallow_history: shallow,
+                    commits_scanned: 0,
+                    truncated: false,
+                    oversized_commits_skipped: 0,
+                },
+                report,
+            ));
+        }
+        let mut prepared = self
+            .prepare_git_history(options, cancellation)
+            .await?
+            .with_channels(churn, co_change);
+        prepared.parameters = Some(parameters);
+        Ok(prepared)
+    }
+
+    async fn history_parameters(
+        &self,
+        options: HistoryIndexOptions,
+        (churn, co_change): (bool, bool),
+    ) -> Result<HistoryRefreshParameters, HistoryIndexError> {
+        let max_commits = u64::from(options.max_commits);
+        Ok(HistoryRefreshParameters {
+            max_commits,
+            commits_available: git_commit_count(&self.root, max_commits.saturating_add(1)).await?,
+            algorithm_version: HISTORY_ALGORITHM_VERSION,
+            churn,
+            co_change,
         })
     }
 
@@ -228,6 +295,10 @@ impl ProjectRuntime {
         project_id: ProjectId,
         prepared: PreparedHistoryIndex,
     ) -> Result<HistoryRefreshReport, HistoryIndexError> {
+        if let Some(report) = prepared.reused {
+            return Ok(report);
+        }
+        let parameters = prepared.parameters;
         let request = HistoryRefreshRequest::new(
             project_id,
             prepared.head,
@@ -238,6 +309,10 @@ impl ProjectRuntime {
             },
         )
         .map_err(|_| HistoryIndexError::RelationLimit)?;
+        let request = match parameters {
+            Some(parameters) => request.with_parameters(parameters),
+            None => request,
+        };
         self.database()
             .replace_file_history(request)
             .await
@@ -250,9 +325,26 @@ pub(crate) struct PreparedHistoryIndex {
     metadata: HistoryRefreshMetadata,
     files: Vec<FileHistoryFact>,
     cochanges: Vec<FileCochangeFact>,
+    parameters: Option<HistoryRefreshParameters>,
+    reused: Option<HistoryRefreshReport>,
 }
 
 impl PreparedHistoryIndex {
+    fn reused(
+        head: String,
+        metadata: HistoryRefreshMetadata,
+        report: HistoryRefreshReport,
+    ) -> Self {
+        Self {
+            head,
+            metadata,
+            files: Vec::new(),
+            cochanges: Vec::new(),
+            parameters: None,
+            reused: Some(report),
+        }
+    }
+
     pub(crate) fn with_channels(mut self, churn: bool, co_change: bool) -> Self {
         if !co_change {
             self.cochanges.clear();
@@ -543,6 +635,25 @@ async fn git_head(root: &Path) -> Result<String, HistoryIndexError> {
     let head = text_field(Some(crate::trim_ascii_bytes(&output.stdout)))?.to_ascii_lowercase();
     valid_commit(&head)
         .then_some(head)
+        .ok_or(HistoryIndexError::GitOutputInvalid)
+}
+
+/// Commits reachable from HEAD, counted up to `limit`. Part of the history
+/// reuse key: deepening a shallow clone keeps HEAD but changes this count.
+async fn git_commit_count(root: &Path, limit: u64) -> Result<u64, HistoryIndexError> {
+    let limit = limit.to_string();
+    let output = run_git(
+        root,
+        &["rev-list", "--count", "--max-count", &limit, "HEAD"],
+    )
+    .await
+    .map_err(map_git_error)?;
+    if !output.success {
+        return Err(HistoryIndexError::NotGitRepository);
+    }
+    std::str::from_utf8(crate::trim_ascii_bytes(&output.stdout))
+        .ok()
+        .and_then(|count| count.parse::<u64>().ok())
         .ok_or(HistoryIndexError::GitOutputInvalid)
 }
 

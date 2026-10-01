@@ -244,15 +244,31 @@ embedding, reranker and chat settings, and adds this optional tier:
 ```
 
 Enabling the tier permits sending the exploration question, candidate metadata
-and bounded source excerpts to Typesafe. Each request uses Jev's parallel
-questions against shared state: one chooses the next allowed operation, while
-another assesses source sufficiency. The model and endpoint are pinned; Jev
-uses its typed decision API, not a chat endpoint. The default request timeout
-is five seconds; `timeoutMs` accepts at most 30,000.
+(name, kind, bounded signature, path and lines) and bounded source excerpts to
+Typesafe. Each request asks Jev's parallel questions against shared state: one
+chooses the next allowed operation, one assesses source sufficiency, and one
+judges each unread candidate's relevance (up to 24 per round). Candidates judged
+relevant (probability at least 0.5) are read together, up to four per round, in
+the same round as the chosen operation, and navigation finishes as soon as
+sufficiency reaches 0.85 with source present. Most explorations therefore need
+one or two provider round trips. The model and endpoint are pinned; Jev uses its
+typed decision API, not a chat endpoint. The default request timeout is five
+seconds; `timeoutMs` accepts at most 30,000.
+
+When navigation will consult a usable decision tier, exploration skips the local
+cross-encoder reranker: Jev judges and reads the candidates itself, and the
+packet reports reranking as not requested. If the provider then fails, the
+packet keeps its unreranked vector order and navigation reports
+`provider_unavailable`. `--decision native`, summary and low-token exploration
+keep the configured reranker. Navigation discloses evidence captured under the
+exploration request's own freshness check; its closing source check rejects the
+result if files changed while it ran. Provider state is kept under 60 KiB by
+first omitting signatures and then older additional source windows.
 
 Exploration always retains its native packet and source windows. The additional
-`navigation` object records the model, generation, decisions, confidence,
-candidate truncation, source windows and stop reason. Assistance is bounded to
+`navigation` object records the model, generation, decisions (each with its
+provider `round`), confidence, candidate truncation, source windows and stop
+reason. Candidates carry the latest advisory `relevance` probability once judged. Assistance is bounded to
 seven operations, 40 candidate identities, 4 KiB per additional source window
 and a 30-second deadline covering navigation and its freshness checks. On expiry,
 Cartograph cancels and joins navigation-owned work; joining an active filesystem
@@ -275,8 +291,88 @@ retains the configured model and endpoint on failure. Set that variable in the
 MCP server process (or its secret-manager launcher), not only an unrelated shell.
 
 Without `decisionLlm`, exploration stays native. `--decision native`, summary
-and low-token exploration also skip Jev. `context`, `find`, `graph`, indexing
-and test selection keep their existing policies. `llm smoke` can verify the
+and low-token exploration also skip Jev.
+
+The tier's optional `features` list selects which surfaces may consult Jev.
+Without it, only exploration does. Add `context` to let `context` rank its
+retrieval candidates, `roles` to classify symbol roles, and `rename` to triage
+rename mentions (below):
+
+```sh
+cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY \
+  --jev-features explore,context
+```
+
+```json
+"decisionLlm": {
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "features": ["explore", "context"]
+}
+```
+
+Context ranking sends the task text (up to 1,024 bytes, which can include
+anything pasted into the task) and, for up to 24 BM25/semantic candidates, their
+qualified name, document kind, path and line range; it never sends indexed
+source. One request judges every candidate's relevance in parallel.
+Candidates are reordered by that advisory probability within the positions
+retrieval candidates already occupied, so exact anchors and graph expansion keep
+their places, and each judged item reports `decision_relevance`. The packet's
+`decision_rank` block records the model, outcome (`applied`, `no_candidates`
+or `provider_unavailable` with a redacted `provider_error`) and judged count.
+Unless an exact anchor selected them, primary edit candidates become the files of
+the relevant judged items (probability at least 0.5) in ranked order, with basis
+`decision_relevance`. Compact and plan projections report `decisionRank` and a
+per-item `relevance`; their `rank` remains the retrieval fusion rank. When
+context ranking is enabled the local cross-encoder is skipped. If the provider
+then fails, the packet is rebuilt through the configured reranker and keeps the
+`provider_unavailable` outcome, so an outage adds at most the request timeout
+(`timeoutMs`, five seconds by default) to the default ranking. `mode: deterministic` never consults Jev.
+
+Add `roles` to let role classification consult Jev when no `classify` chat
+tier is configured. High-confidence structural rules still decide test code
+(test directories, test file names and `tests` modules), routes, framework
+declarations and data declarations (types, enum members, fields and
+constants). For every other symbol, `admin classify` and post-index enrichment
+send its qualified name, kind, project-relative path, language, declaration
+signature (up to 160 bytes, which can contain literals such as default values)
+and export flag, in requests of 24 symbols. Function bodies and other source are
+never sent. A role is accepted only when Jev gives it at least 0.6 probability;
+otherwise the name, location and export heuristics apply, then `unknown`.
+Accepted roles record `via: jev`, the probability and model
+`jev-1.13.0+roles-v1`; `role` with `via: auto` uses the same path for symbols
+without a structural role.
+
+A failed request is retried once. If the provider still rejects a batch (an
+HTTP 4xx or an invalid answer set) while other batches were judged, its symbols
+keep the heuristic role with a `jev_rejected_` reason and the sweep continues.
+If every batch is rejected, or the provider is unavailable (including HTTP 5xx),
+the sweep keeps what it judged, reports `jevError`, and leaves the rest for the
+next sweep. A rules-only sweep
+never replaces roles that Jev or a chat model already judged, so turning a model
+off keeps its results; a different model re-judges them. On this repository,
+structural rules alone cut unknown roles from 61% to 25% of 24,369 symbols, and
+Jev cut them to 9.5%; 58 of 60 sampled Jev roles were correct on review.
+
+Add `rename` to let `propose_rename` triage its textual mentions. Word-boundary
+mentions outside the graph's exact references are review-only; with `rename`,
+Jev judges whether each returned mention refers to the renamed symbol. Unlike
+the other surfaces, this sends source text: the symbol's qualified name, kind,
+path, line and signature (up to 160 bytes), and for each mention its path,
+line, enclosing symbol and source line (up to 200 bytes), in requests of 24.
+Each mention gains `decisionProbability` and `triage`: `likely_other` at 0.3 or
+below, otherwise `textual_review_required`. Only the negative label is offered:
+on hand-labelled plans, mentions at 0.3 or below were other symbols or generic
+words in 29 of 30 cases, while high probabilities mixed the renamed symbol with
+same-named helpers and string labels. The plan's `decisionTriage` records the
+model, outcome (`applied`, `no_mentions` or `provider_unavailable` with a
+redacted `providerError`) and judged count; a failed request is retried once,
+and on failure mentions keep only their review label.
+
+An empty `features` list disables every surface while keeping the tier
+configured.
+`find`, `graph`, indexing and test selection keep their existing policies. `llm smoke` can verify the
 configured key with a small real request. Disable Jev with:
 
 ```sh

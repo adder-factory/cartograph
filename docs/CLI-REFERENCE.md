@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-09-25 (`v2.1.32`).
+Last release audit: 2026-10-01 (`v2.1.33`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds and confirmation phrases in the installed version. This page
@@ -130,7 +130,7 @@ or database settings.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.32 top-level command advertised
+This inventory contains every non-hidden v2.1.33 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 
@@ -272,7 +272,9 @@ external PostgreSQL. Restore, upgrade, derived-index rebuild, remove, v1 import,
 and prune require explicit operation-specific confirmation. `db usage` is
 read-only: it verifies the exact current append-only migration ledger and fails
 with migration guidance instead of creating or upgrading a schema. `db compact`
-is a dry run unless `--apply --confirm compact-online-indexes` is supplied.
+is a dry run unless `--apply --confirm compact-online-indexes` is supplied; with
+`pgstattuple` installed it selects only B-trees whose measured reclaim reaches
+`--minimum-reclaimable-bytes` (default 64 MiB), and otherwise falls back to size.
 `db compact --heap` is a separate reclaimable-heap/TOAST plan; apply requires
 `--confirm compact-heap-relations`, no live operation leases, and accepts the
 `ACCESS EXCLUSIVE` lock taken by one bounded `VACUUM FULL` at a time. Managed
@@ -320,7 +322,11 @@ failed.
 
 The deterministic dead-code query applies framework/test/fixture exemptions
 and materializes a PageRank-prioritized `maxCandidates` orphan window before
-outgoing-edge aggregation and source lookup. A genuine statement timeout is
+outgoing-edge aggregation and source lookup. Test code includes Rust `tests`
+module segments and sibling `tests.rs` files. A symbol named as a parameter,
+return or field type counts as used. It is a one-hop orphan check: a cluster
+of symbols that only use each other is not reported, while functions passed
+as values and trait methods reached only through dispatch can still appear. A genuine statement timeout is
 reported as `dead_code_query_timeout` with bounded retry guidance instead of a
 generic tool failure. `digest` runs its five bounded sections concurrently and
 returns each section's `ready`, `timeout`, or `unavailable` status; one failed
@@ -333,6 +339,8 @@ discarding the other four.
 cartograph llm migrate-credentials [PROJECT] [--tier-env TIER=ENV]
   [--apply --confirm migrate-inline-credentials]
 cartograph llm setup custom [--api-key-env ENV | --clear-credentials]
+cartograph llm setup [PROJECT] --preset jev [--api-key-env ENV]
+  [--jev-features explore,context,roles,rename] | [--clear-credentials]
 cartograph llm setup [PROJECT] --preset cli-bridge --tier <chat|local|ask|classify>
   --command EXECUTABLE [--arg ARG]... --input <stdin|arg>
   [--prompt-template TEMPLATE] --response-format <raw|json-path|claude>
@@ -346,7 +354,10 @@ migration requires an exact environment-value match, serializes Cartograph
 writers with a private lock, and aborts if the config bytes changed after the
 proof was made. Custom setup clears retained credentials automatically when the
 provider/endpoint origin changes; `--clear-credentials` is the explicit
-same-origin removal path and conflicts with `--api-key-env`. Backend cleanup
+same-origin removal path and conflicts with `--api-key-env`. `--jev-features`
+applies only to the Jev preset and writes the decision tier's `features` list;
+without it an existing list is preserved and a new tier permits exploration
+only. Backend cleanup
 considers only generated-name rotated logs and
 invalid current-version PID state; it preserves current logs, valid or active
 processes, and state written by an unsupported newer/older format. Cleanup JSON

@@ -7,8 +7,8 @@ use std::{path::Path, time::Duration};
 use cartograph_config::{DatabaseSchema, DatabaseSettings};
 use credentials::{CredentialStore, DatabaseCredentials};
 use docker::{
-    ContainerCreateSpec, ContainerInspection, DockerCli, has_expected_data_mount,
-    initialize_extensions, verify_volume,
+    ContainerCreateSpec, ContainerInspection, DockerCli, has_current_postgres_settings,
+    has_expected_data_mount, initialize_extensions, postgres_command, verify_volume,
 };
 use secrecy::ExposeSecret;
 use serde::Serialize;
@@ -20,13 +20,13 @@ use crate::{
     probe_capabilities,
 };
 
-/// Exact upstream `ParadeDB` 0.25.10 multi-architecture image accepted by Cartograph v2.
+/// Exact upstream `ParadeDB` 0.25.11 multi-architecture image accepted by Cartograph v2.
 ///
-/// The image deliberately contains the separately validated `pg_search` 0.25.10
+/// The image deliberately contains the separately validated `pg_search` 0.25.11
 /// and pgvector 0.8.4 extension builds.
 pub const MANAGED_DATABASE_IMAGE: &str = concat!(
-    "paradedb/paradedb:0.25.10@sha256:",
-    "188591a0bc317beb2c6d6d3f9ef0cb3e859d09ecc15a71dda5e9a027876686cf"
+    "paradedb/paradedb:0.25.11@sha256:",
+    "a9cbdcfd8a1c349ab21590fd6d6dcbe7da489878df6502922d032dd64c1a7ae7"
 );
 /// Default loopback port for the first managed Cartograph database.
 pub const DEFAULT_MANAGED_DATABASE_PORT: u16 = 55_432;
@@ -155,6 +155,20 @@ pub struct ManagedDatabaseStatus {
     pub pids_limit: Option<i64>,
     /// Whether every explicit managed resource limit matches the supported policy.
     pub resource_limits_match: bool,
+    /// Whether the container runs the current PostgreSQL server settings.
+    pub postgres_settings: ManagedPostgresSettings,
+}
+
+/// PostgreSQL server settings of the managed container.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedPostgresSettings {
+    /// The container runs the current settings.
+    Current,
+    /// An older container keeps working; `db upgrade` applies the current settings.
+    Outdated,
+    /// No managed container exists.
+    Absent,
 }
 
 /// Result of a successful idempotent managed start.
@@ -536,6 +550,7 @@ impl ManagedDatabaseLifecycle<'_> {
                 identity: &self.database.identity,
                 port: self.database.port,
                 image: MANAGED_DATABASE_IMAGE,
+                command: &postgres_command(),
             })
             .await
         {
@@ -599,6 +614,7 @@ impl ManagedDatabaseLifecycle<'_> {
                 nano_cpus: None,
                 pids_limit: None,
                 resource_limits_match: false,
+                postgres_settings: ManagedPostgresSettings::Absent,
             });
         };
         validate_owned_container(&self.database.identity, &inspection, false)?;
@@ -617,6 +633,11 @@ impl ManagedDatabaseLifecycle<'_> {
             nano_cpus: Some(inspection.nano_cpus),
             pids_limit: Some(inspection.pids_limit),
             resource_limits_match: has_expected_resource_limits(&inspection),
+            postgres_settings: if has_current_postgres_settings(&inspection) {
+                ManagedPostgresSettings::Current
+            } else {
+                ManagedPostgresSettings::Outdated
+            },
         })
     }
 
@@ -1274,6 +1295,27 @@ fn container_state(inspection: &ContainerInspection) -> ManagedContainerState {
     }
 }
 
+/// A currently free loopback port for a Docker-published test fixture.
+///
+/// `bind("127.0.0.1:0")` returns an ephemeral port, and every process's
+/// outbound connections draw from that same range, so on a busy host another
+/// socket can take the port between this probe and Docker's bind. Probing
+/// below the Linux (32768+) and macOS/Windows (49152+) ephemeral ranges, from
+/// a per-process starting offset, leaves only explicit listeners to collide.
+#[cfg(test)]
+pub(super) fn unused_test_loopback_port() -> u16 {
+    const FIRST: u32 = 20_000;
+    const SPAN: u32 = 12_000;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.subsec_nanos());
+    let start = (std::process::id() ^ nanos) % SPAN;
+    (0..SPAN)
+        .filter_map(|step| u16::try_from(FIRST + (start + step) % SPAN).ok())
+        .find(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok())
+        .unwrap_or_else(|| panic!("no free loopback test port below the ephemeral range"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1374,6 +1416,7 @@ mod tests {
             nano_cpus: MANAGED_DATABASE_NANO_CPUS,
             pids_limit: MANAGED_DATABASE_PIDS_LIMIT,
             data_mount: None,
+            command: postgres_command(),
         };
 
         assert_eq!(
@@ -1496,7 +1539,7 @@ mod tests {
             Ok(schema) => schema,
             Err(error) => panic!("managed test schema is invalid: {error}"),
         };
-        let live_port = available_loopback_port();
+        let live_port = unused_test_loopback_port();
         let database = match managed_database_with_schema(directory.path(), live_port, schema) {
             Ok(database) => database.with_startup_timeout(TEST_STARTUP_TIMEOUT),
             Err(error) => panic!("could not build manager: {error}"),
@@ -1826,11 +1869,11 @@ mod tests {
             if let Err(error) = std::fs::create_dir(&timeout_root) {
                 panic!("could not create timeout project: {error}");
             }
-            let zero_timeout = match ManagedDatabase::new(&timeout_root, available_loopback_port())
-            {
-                Ok(database) => database.with_startup_timeout(Duration::ZERO),
-                Err(error) => panic!("could not build timeout manager: {error}"),
-            };
+            let zero_timeout =
+                match ManagedDatabase::new(&timeout_root, unused_test_loopback_port()) {
+                    Ok(database) => database.with_startup_timeout(Duration::ZERO),
+                    Err(error) => panic!("could not build timeout manager: {error}"),
+                };
             let _cleanup = DockerCleanup {
                 container_name: zero_timeout.identity.container_name.clone(),
                 volume_name: zero_timeout.identity.volume_name.clone(),
@@ -1857,15 +1900,6 @@ mod tests {
             return;
         }
         panic!("could not reserve an isolated managed timeout port");
-    }
-
-    fn available_loopback_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap_or_else(|error| panic!("could not reserve managed test port: {error}"));
-        listener
-            .local_addr()
-            .unwrap_or_else(|error| panic!("could not inspect managed test port: {error}"))
-            .port()
     }
 
     async fn assert_existing_volume_without_password_is_refused(database: &ManagedDatabase) {

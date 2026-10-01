@@ -19,7 +19,7 @@ use std::{
     process,
     sync::{
         Arc, OnceLock, RwLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -66,6 +66,10 @@ use tokio::task::JoinHandle;
 mod compare;
 mod coverage;
 mod dead_code;
+mod decision_batch;
+mod decision_rename;
+mod decision_rerank;
+mod decision_roles;
 mod dependencies;
 mod diff_review;
 mod drift;
@@ -73,6 +77,7 @@ mod embeddings;
 mod git_intelligence;
 mod history;
 mod imports;
+mod index_admission;
 mod issue_history;
 mod layering;
 mod navigation;
@@ -102,6 +107,8 @@ pub use dead_code::{
     DeadCodeJudgeError, DeadCodeJudgeOptions, DeadCodeJudgeReport, DeadCodeJudgeRequest,
     DeadCodeJudgement, DeadCodeVerdict, judge_dead_code_candidates,
 };
+pub use decision_rename::{RenameTriageEvidence, RenameTriageState};
+pub use decision_roles::{JEV_ROLE_MODEL, JudgedRole, RoleCandidate, RoleJudgement, RoleVerdict};
 pub use dependencies::{
     DependencyAuditError, DependencyAuditReport, DependencyUseEvidence, UndeclaredDependency,
 };
@@ -840,6 +847,8 @@ pub struct ProjectRuntime {
     database: CartographDatabase,
     source_scan_permits: Arc<Semaphore>,
     source_scan_observations: Arc<AtomicU64>,
+    /// Set once this runtime attempted to backfill legacy generation counts.
+    fact_count_backfill_attempted: Arc<AtomicBool>,
 }
 
 struct AbortTaskOnDrop {
@@ -1002,6 +1011,17 @@ async fn run_core_index_attempt(
         profile.preparation_millis = preparation_millis;
     }
     if unchanged {
+        // Generations published before counts were persisted gain them once
+        // per process; failure only leaves status on its counting fallback.
+        if !runtime
+            .fact_count_backfill_attempted
+            .swap(true, Ordering::Relaxed)
+        {
+            let _backfilled = runtime
+                .database
+                .backfill_generation_fact_counts(&report.project_id, &report.generation_id)
+                .await;
+        }
         report.retention = runtime
             .maintain_generation_retention(&report.project_id, &report.parse_cache_contract_digest)
             .await;
@@ -1046,14 +1066,15 @@ async fn prepare_optional_history(
     }
     let started = Instant::now();
     let result = runtime
-        .prepare_git_history(HistoryIndexOptions::default(), cancellation)
-        .await
-        .map(|history| {
-            history.with_channels(
+        .prepare_git_history_reusing(
+            HistoryIndexOptions::default(),
+            (
                 policy.history_channels.churn,
                 policy.history_channels.co_change,
-            )
-        });
+            ),
+            cancellation,
+        )
+        .await;
     Some(TimedHistoryPreparation {
         result,
         elapsed_millis: monotonic_millis(started.elapsed()),
@@ -1452,6 +1473,46 @@ fn generation_retention_outcome(
     }
 }
 
+/// Whether a bounded retention attempt committed any generation cleanup.
+const fn retention_made_progress(status: &GenerationRetentionStatus) -> bool {
+    match status {
+        GenerationRetentionStatus::Completed { report, .. }
+        | GenerationRetentionStatus::CompletedWithWarning { report, .. } => {
+            report.cascade_rows_removed > 0
+                || report.search_relations_removed > 0
+                || report.removed() > 0
+        }
+        GenerationRetentionStatus::CacheOnly { .. }
+        | GenerationRetentionStatus::Deferred { .. } => false,
+    }
+}
+
+/// A prior project's terminal-generation backlog, counted and drained through
+/// its runtime for [`index_admission`].
+struct RuntimeTerminalBacklog<'runtime> {
+    runtime: &'runtime ProjectRuntime,
+    project_id: &'runtime ProjectId,
+    /// Bound whose parse-cache contract a drain protects; digested per drain.
+    maximum_ast_depth: usize,
+}
+
+impl index_admission::TerminalBacklog for RuntimeTerminalBacklog<'_> {
+    async fn count(&self) -> Result<u64, ProjectError> {
+        self.runtime
+            .database
+            .terminal_generation_backlog(self.project_id)
+            .await
+            .map_err(|_| ProjectError::StatusFailed)
+    }
+
+    async fn drain(&self) -> bool {
+        let contract = native_parse_cache_contract_digest(self.maximum_ast_depth);
+        let retention =
+            maintain_generation_retention(self.runtime, self.project_id, &contract).await;
+        retention_made_progress(&retention)
+    }
+}
+
 async fn maintain_failed_generation_retention(runtime: &ProjectRuntime, contract: &ContentDigest) {
     let Ok(Some(snapshot)) = runtime
         .database
@@ -1545,6 +1606,7 @@ impl ProjectRuntime {
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
             source_scan_observations: Arc::new(AtomicU64::new(0)),
+            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1578,6 +1640,7 @@ impl ProjectRuntime {
             database: CartographDatabase::new(pool, settings.schema().clone()),
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
             source_scan_observations: Arc::new(AtomicU64::new(0)),
+            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1609,6 +1672,7 @@ impl ProjectRuntime {
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
             source_scan_observations: Arc::new(AtomicU64::new(0)),
+            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1752,6 +1816,7 @@ impl ProjectRuntime {
         }) {
             return Ok(unchanged);
         }
+        self.admit_automatic_generation(&source, &options).await?;
         let reservation = self.reserve_index_generation(&mut source, &options).await?;
         Ok(IndexPreparation::Pending(Box::new(PendingIndex {
             project_id: reservation.project_id,
@@ -1767,6 +1832,25 @@ impl ProjectRuntime {
             generation_storage: reservation.generation_storage,
             staged: reservation.staged,
         })))
+    }
+
+    /// Apply the terminal-backlog admission policy in [`index_admission`]
+    /// before an attempt reserves a generation, counting and draining the prior
+    /// project's backlog through this runtime. Only automatic attempts are ever
+    /// deferred, and only while bounded cleanup is still making progress.
+    async fn admit_automatic_generation(
+        &self,
+        source: &PreparedIndexSource,
+        options: &IndexOptions,
+    ) -> Result<(), ProjectError> {
+        let backlog = source.prior.as_ref().map(|prior| RuntimeTerminalBacklog {
+            runtime: self,
+            project_id: &prior.project_id,
+            maximum_ast_depth: source.index_policy.maximum_ast_depth,
+        });
+        index_admission::admit_index_attempt(options.failure_retention, backlog.as_ref())
+            .await?
+            .into_result()
     }
 
     async fn prepare_index_source(
@@ -3281,6 +3365,11 @@ pub enum ProjectError {
         "Cartograph index is waiting for another project operation; the previous generation remains visible"
     )]
     IndexLeaseBusy,
+    /// Automatic indexing is deferred until earlier failed generations drain.
+    #[error(
+        "Cartograph deferred automatic indexing until failed generations are cleaned up; the previous generation remains visible"
+    )]
+    IndexRetentionBacklog,
     /// The index operation could not acquire or retain its exact lease.
     #[error(
         "Cartograph index operation failed during the lease stage; the previous generation remains visible"

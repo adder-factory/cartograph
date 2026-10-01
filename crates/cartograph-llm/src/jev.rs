@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 
 use futures_util::StreamExt as _;
 use reqwest::{StatusCode, header};
@@ -26,12 +31,73 @@ const MAXIMUM_QUESTIONS: usize = 64;
 const MAXIMUM_OPTIONS: usize = 255;
 const MAXIMUM_INSTRUCTION_BYTES: usize = 8 * 1024;
 
+/// Cartograph surfaces that may disclose data to the decision provider. A
+/// decision tier without a `features` list permits exploration only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum JevFeature {
+    /// Exploration navigation: question, candidate metadata and bounded source.
+    Explore,
+    /// Context ranking: question and candidate metadata, never source.
+    Context,
+    /// Symbol role classification: symbol metadata, never source.
+    Roles,
+    /// Rename-mention triage: symbol metadata and each mention's source line.
+    Rename,
+}
+
+impl JevFeature {
+    /// Stable configuration name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Explore => "explore",
+            Self::Context => "context",
+            Self::Roles => "roles",
+            Self::Rename => "rename",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "explore" => Some(Self::Explore),
+            "context" => Some(Self::Context),
+            "roles" => Some(Self::Roles),
+            "rename" => Some(Self::Rename),
+            _ => None,
+        }
+    }
+}
+
+/// Features permitted by one decision tier; unknown names are ignored.
+fn configured_features(config: &ProjectLlmTierConfig) -> BTreeSet<JevFeature> {
+    config.decision_features().map_or_else(
+        || BTreeSet::from([JevFeature::Explore]),
+        |names| {
+            names
+                .iter()
+                .filter_map(|name| JevFeature::parse(name))
+                .collect()
+        },
+    )
+}
+
+/// Whether the project's decision tier permits `feature`, independent of
+/// whether its credential is currently available.
+#[must_use]
+pub fn jev_feature_enabled(root: &Path, feature: JevFeature) -> bool {
+    matches!(
+        load_exact_project_llm_tier(root, ProjectLlmTier::Decision),
+        Ok(Some(config)) if configured_features(&config).contains(&feature)
+    )
+}
+
 /// Validated optional Jev configuration; debug output omits endpoint and credentials.
 #[derive(Clone)]
 pub struct JevSettings {
     endpoint: Url,
     api_key: SecretString,
     timeout: Duration,
+    features: BTreeSet<JevFeature>,
 }
 
 impl std::fmt::Debug for JevSettings {
@@ -39,6 +105,7 @@ impl std::fmt::Debug for JevSettings {
         f.debug_struct("JevSettings")
             .field("model", &JEV_MODEL)
             .field("timeout", &self.timeout)
+            .field("features", &self.features)
             .finish_non_exhaustive()
     }
 }
@@ -87,7 +154,14 @@ impl JevSettings {
             endpoint,
             api_key: SecretString::from(key),
             timeout,
+            features: configured_features(config),
         })
+    }
+
+    /// Whether this tier permits `feature` to consult the provider.
+    #[must_use]
+    pub fn allows(&self, feature: JevFeature) -> bool {
+        self.features.contains(&feature)
     }
 }
 
@@ -106,7 +180,21 @@ pub enum JevQuestion {
     Noul {
         /// Trusted question about the supplied evidence.
         instructions: String,
+        /// Optional trusted descriptions of what a yes and a no mean.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        criteria: Option<NoulCriteria>,
     },
+}
+
+/// Descriptions that pin the boundary between a yes and a no answer.
+#[derive(Clone, Serialize)]
+pub struct NoulCriteria {
+    /// What a yes means.
+    #[serde(rename = "true")]
+    pub holds: String,
+    /// What a no means.
+    #[serde(rename = "false")]
+    pub fails: String,
 }
 
 /// Validated typed answer. Option identities are checked against the request.
@@ -166,7 +254,8 @@ pub enum JevError {
     /// The provider is rate limited or overloaded; native retrieval remains usable.
     #[error("Cartograph Jev capacity is temporarily unavailable")]
     RateLimited,
-    /// The provider rejected a bounded request.
+    /// The provider rejected a bounded request; server errors count as
+    /// [`JevError::EndpointUnavailable`] instead.
     #[error("Cartograph Jev request was rejected")]
     BackendRejected,
     /// The body exceeds the admitted response ceiling.
@@ -263,6 +352,7 @@ impl JevClient {
             status if status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529 => {
                 return Err(JevError::RateLimited);
             }
+            status if status.is_server_error() => return Err(JevError::EndpointUnavailable),
             _ => return Err(JevError::BackendRejected),
         }
         if response
@@ -301,32 +391,11 @@ fn encode_request(
     if questions.is_empty()
         || questions.len() > MAXIMUM_QUESTIONS
         || bounded_json(state, MAXIMUM_STATE_BYTES).is_err()
+        || !questions
+            .iter()
+            .all(|(key, question)| question_within_bounds(key, question))
     {
         return Err(JevError::RequestLimit);
-    }
-    for (key, question) in questions {
-        if !bounded_text(key, 128) {
-            return Err(JevError::RequestLimit);
-        }
-        let instructions = match question {
-            JevQuestion::Choice {
-                instructions,
-                criteria,
-            } => {
-                if !(2..=MAXIMUM_OPTIONS).contains(&criteria.len())
-                    || criteria
-                        .iter()
-                        .any(|(k, v)| !bounded_text(k, 128) || !bounded_text(v, 2048))
-                {
-                    return Err(JevError::RequestLimit);
-                }
-                instructions
-            }
-            JevQuestion::Noul { instructions } => instructions,
-        };
-        if !bounded_text(instructions, MAXIMUM_INSTRUCTION_BYTES) {
-            return Err(JevError::RequestLimit);
-        }
     }
     bounded_json(
         &Request {
@@ -336,6 +405,33 @@ fn encode_request(
         },
         MAXIMUM_REQUEST_BYTES,
     )
+}
+
+fn question_within_bounds(key: &str, question: &JevQuestion) -> bool {
+    let (instructions, criteria_bounded) = match question {
+        JevQuestion::Choice {
+            instructions,
+            criteria,
+        } => (
+            instructions,
+            (2..=MAXIMUM_OPTIONS).contains(&criteria.len())
+                && criteria
+                    .iter()
+                    .all(|(k, v)| bounded_text(k, 128) && bounded_text(v, 2048)),
+        ),
+        JevQuestion::Noul {
+            instructions,
+            criteria,
+        } => (
+            instructions,
+            criteria.as_ref().is_none_or(|criteria| {
+                bounded_text(&criteria.holds, 2048) && bounded_text(&criteria.fails, 2048)
+            }),
+        ),
+    };
+    bounded_text(key, 128)
+        && criteria_bounded
+        && bounded_text(instructions, MAXIMUM_INSTRUCTION_BYTES)
 }
 
 fn bounded_json(value: &impl Serialize, limit: usize) -> Result<Vec<u8>, JevError> {

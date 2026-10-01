@@ -80,32 +80,42 @@ pub struct RenameReferenceEvidence {
 }
 
 /// Review-only word-boundary mention outside the declaration/reference rows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameTextualMention {
-    path: String,
-    line: u32,
-    text: String,
+    pub(crate) path: String,
+    pub(crate) line: u32,
+    pub(crate) text: String,
     enclosing_symbol_id: Option<String>,
-    enclosing_qualified_name: Option<String>,
-    enclosing_symbol_kind: Option<String>,
+    pub(crate) enclosing_qualified_name: Option<String>,
+    pub(crate) enclosing_symbol_kind: Option<String>,
     confidence: &'static str,
+    /// Advisory Jev probability that the mention refers to this symbol.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) decision_probability: Option<f64>,
+    /// `likely_other` or `textual_review_required` from
+    /// [`Self::decision_probability`], when Jev judged the mention.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) triage: Option<&'static str>,
 }
 
 /// Complete bounded plan. It never edits source.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamePlan {
-    definition: CurrentSymbolRecord,
+    pub(crate) definition: CurrentSymbolRecord,
     source_revision: ContentDigest,
     exact_reference_count: u64,
     exact_references_truncated: bool,
     exact_references: Vec<RenameReferenceEvidence>,
     textual_mention_count: u64,
     textual_mentions_truncated: bool,
-    textual_mentions: Vec<RenameTextualMention>,
+    pub(crate) textual_mentions: Vec<RenameTextualMention>,
     skipped_large_files: u64,
     edits_applied: bool,
+    /// Outcome of the optional Jev mention triage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) decision_triage: Option<crate::decision_rename::RenameTriageEvidence>,
 }
 
 /// Credential-safe rename planning failures.
@@ -226,6 +236,7 @@ impl ProjectRuntime {
             textual_mentions: mentions,
             skipped_large_files: scan.skipped_large_files,
             edits_applied: false,
+            decision_triage: None,
         })
     }
 }
@@ -549,6 +560,8 @@ async fn attach_enclosing_symbols(
                         enclosing_symbol_kind: enclosing
                             .map(|symbol| symbol.symbol_kind().to_owned()),
                         confidence: "textual_review_required",
+                        decision_probability: None,
+                        triage: None,
                     },
                 ))
             }

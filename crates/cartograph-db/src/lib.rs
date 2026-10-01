@@ -51,7 +51,7 @@ pub use artifacts::{
     NeighborSummarySource, NewAgentArtifact, PendingFileSummary, PendingModelSummaryQuery,
     PendingModuleSummary, PendingNeighborSummary, PendingNeighborSummaryQuery, PendingRoleSymbol,
     PendingStructuralSummary, PendingStructuralSummaryQuery, PendingSummaryRollupQuery,
-    PendingSummarySymbol, StructuralSummaryEdge, StructuralSymbolSummarySaveInput,
+    PendingSummarySymbol, RoleSweepModel, StructuralSummaryEdge, StructuralSymbolSummarySaveInput,
     SummaryCandidatePolicy, SummaryCoverageStats, SummaryRollupItem, SummarySaveInput,
     SymbolRoleSaveInput, SymbolSummarySaveInput,
 };
@@ -95,7 +95,8 @@ pub use generation::{
 pub use history::{
     FileCochangeFact, FileCochangeMetrics, FileCochangeQuery, FileCochangeRecord, FileHistoryFact,
     FileHistoryMetrics, FileHistoryQuery, FileHistoryRecord, HistoryRefreshInput,
-    HistoryRefreshMetadata, HistoryRefreshReport, HistoryRefreshRequest,
+    HistoryRefreshMetadata, HistoryRefreshParameters, HistoryRefreshReport, HistoryRefreshRequest,
+    HistoryReuseQuery,
 };
 pub use ingest::{
     CanonicalGenerationFacts, CanonicalSearchDocument, EdgeInput, FileInput, GenerationFacts,
@@ -134,8 +135,8 @@ pub use managed::{
     ManagedContainerState, ManagedDatabase, ManagedDatabaseArchives, ManagedDatabaseError,
     ManagedDatabaseLifecycle, ManagedDatabaseMaintenance, ManagedDatabaseStatus,
     ManagedDerivedIndexAvailability, ManagedDerivedIndexHealth, ManagedDestructiveConfirmation,
-    ManagedDestructiveOperation, ManagedRemoveReport, ManagedRestoreReport, ManagedStartReport,
-    ManagedUpgradeReport,
+    ManagedDestructiveOperation, ManagedPostgresSettings, ManagedRemoveReport,
+    ManagedRestoreReport, ManagedStartReport, ManagedUpgradeReport,
 };
 pub use migrations::{MigrationError, MigrationReport, latest_schema_version};
 pub use numerical::{

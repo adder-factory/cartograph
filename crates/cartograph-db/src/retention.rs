@@ -489,6 +489,8 @@ struct RetentionContext<'a> {
     policy: GenerationRetentionPolicy,
     fence: &'a LeaseFence,
     quoted_schema: String,
+    /// Monotonic deadline of the enclosing drain transaction, when bounded.
+    batch_deadline: Option<tokio::time::Instant>,
 }
 
 #[derive(Default)]
@@ -528,13 +530,14 @@ struct BoundedCandidateWork {
 
 async fn cleanup_transaction<Observe, Observed>(
     connection: &mut sqlx_postgres::PgConnection,
-    context: &RetentionContext<'_>,
+    scope: drain::DrainScope<'_, '_>,
     observe_catalog: Observe,
 ) -> Result<GenerationRetentionReport, GenerationRetentionError>
 where
     Observe: FnOnce() -> Observed,
     Observed: Future<Output = ()>,
 {
+    let context = scope.context;
     acquire_retention_locks(connection, context).await?;
     require_live_fence(connection, context).await?;
     lock_project(connection, context).await?;
@@ -547,7 +550,7 @@ where
             .await?
             .is_empty();
     let bounded = bound_candidate_work(connection, context, candidates).await?;
-    let progress = drain::delete_rows(connection, context, &bounded.candidates).await?;
+    let progress = drain::delete_rows(connection, scope, &bounded.candidates).await?;
     // Revalidate the complete FK graph while its DDL fence is still held.
     verify_retention_cascade_catalog(connection, context).await?;
     let removed = progress.removed;

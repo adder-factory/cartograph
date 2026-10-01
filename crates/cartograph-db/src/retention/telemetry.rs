@@ -77,6 +77,7 @@ impl CartographDatabase {
             policy: GenerationRetentionPolicy::new(2, 1)?,
             fence,
             quoted_schema: crate::database::quoted_schema(&self.schema),
+            batch_deadline: None,
         };
         acquire_retention_locks(&mut transaction, &context).await?;
         require_live_fence(&mut transaction, &context).await?;

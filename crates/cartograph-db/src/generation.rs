@@ -757,6 +757,8 @@ struct ReadyTransition<'a> {
     fence: &'a LeaseFence,
     content_digest: &'a ContentDigest,
     digest_version: GenerationDigestVersion,
+    /// Exact canonical counts recorded so snapshots need not count fact tables.
+    counts: crate::NativeGenerationSpillFactCounts,
 }
 
 impl GenerationContents {
@@ -1895,6 +1897,7 @@ async fn prepare_transaction(
     let quoted_schema = crate::database::quoted_schema(input.schema);
     let content_digest = input.facts.digest.clone();
     let digest_version = input.facts.digest_version;
+    let fact_counts = input.facts.fact_counts();
     validate_generation_state(
         connection,
         GenerationStateRequirement {
@@ -1972,6 +1975,7 @@ async fn prepare_transaction(
             fence: input.fence,
             content_digest: &content_digest,
             digest_version,
+            counts: fact_counts,
         },
     )
     .await?;
@@ -2116,6 +2120,7 @@ async fn finalize_spilled_prepare(
             fence: input.fence,
             content_digest: input.digest.digest(),
             digest_version: GenerationDigestVersion::CURRENT,
+            counts: input.digest.counts(),
         },
     )
     .await?;
@@ -2158,16 +2163,34 @@ async fn mark_generation_ready(
     let ready_sql = format!(
         r#"UPDATE {quoted_schema}."index_generations"
             SET state = 'ready', content_digest = $3, content_digest_version = $4,
-                ready_at = clock_timestamp()
+                ready_at = clock_timestamp(),
+                fact_files = $5, fact_symbols = $6, fact_edges = $7,
+                fact_references = $8, fact_numerical_sites = $9, fact_documents = $10,
+                fact_source_bytes = COALESCE((
+                    SELECT sum(files.byte_size) FROM {quoted_schema}."files" AS files
+                    WHERE files.project_id = CAST($1 AS uuid)
+                      AND files.generation_id = CAST($2 AS uuid)
+                ), 0)::bigint
             WHERE project_id = CAST($1 AS uuid)
               AND generation_id = CAST($2 AS uuid)
               AND state = 'staging'"#
     );
+    let count = |rows: u64| {
+        i64::try_from(rows).map_err(|_| StorageError::CorruptStoredValue {
+            field: "generation_fact_count",
+        })
+    };
     let result = audited_query(ready_sql)
         .bind(input.generation.project_id().as_str())
         .bind(input.generation.generation_id().as_str())
         .bind(input.content_digest.as_str())
         .bind(input.digest_version.database_value())
+        .bind(count(input.counts.files)?)
+        .bind(count(input.counts.symbols)?)
+        .bind(count(input.counts.edges)?)
+        .bind(count(input.counts.references)?)
+        .bind(count(input.counts.numerical_sites)?)
+        .bind(count(input.counts.documents)?)
         .execute(&mut *connection)
         .await
         .map_err(|_| database_error("mark-generation-ready"))?;

@@ -30,6 +30,8 @@ const DOCUMENT_COUNT_COLUMN: usize = 11;
 const SOURCE_ADMISSION_COLUMN: usize = 12;
 const PROJECT_PURGE_LOCK_NAMESPACE: &str = "cartograph-v2-project-purge";
 const PUBLICATION_LOCK_NAMESPACE: &str = "cartograph-v2-publish";
+/// Bound on counting one legacy generation's facts during a best-effort backfill.
+const BACKFILL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const DIRECT_PROJECT_TABLES: &[&str] = &[
     "index_generations",
     "files",
@@ -46,6 +48,7 @@ const DIRECT_PROJECT_TABLES: &[&str] = &[
     "symbol_coverage",
     "file_history",
     "file_cochanges",
+    "history_refreshes",
     "agent_artifacts",
     "mcp_sessions",
     "mcp_tool_calls",
@@ -251,22 +254,22 @@ impl CartographDatabase {
                     generations.source_revision,
                     generations.content_digest,
                     generations.content_digest_version,
-                    COALESCE((SELECT count(*) FROM {schema}."files" AS rows
+                    COALESCE(generations.fact_files, (SELECT count(*) FROM {schema}."files" AS rows
                         WHERE rows.project_id = projects.project_id
                           AND rows.generation_id = generations.generation_id), 0)::bigint,
-                    COALESCE((SELECT count(*) FROM {schema}."symbols" AS rows
+                    COALESCE(generations.fact_symbols, (SELECT count(*) FROM {schema}."symbols" AS rows
                         WHERE rows.project_id = projects.project_id
                           AND rows.generation_id = generations.generation_id), 0)::bigint,
-                    COALESCE((SELECT count(*) FROM {schema}."edges" AS rows
+                    COALESCE(generations.fact_edges, (SELECT count(*) FROM {schema}."edges" AS rows
                         WHERE rows.project_id = projects.project_id
                           AND rows.generation_id = generations.generation_id), 0)::bigint,
-                    COALESCE((SELECT count(*) FROM {schema}."references" AS rows
+                    COALESCE(generations.fact_references, (SELECT count(*) FROM {schema}."references" AS rows
                         WHERE rows.project_id = projects.project_id
                           AND rows.generation_id = generations.generation_id), 0)::bigint,
-                    COALESCE((SELECT count(*) FROM {schema}."numerical_sites" AS rows
+                    COALESCE(generations.fact_numerical_sites, (SELECT count(*) FROM {schema}."numerical_sites" AS rows
                         WHERE rows.project_id = projects.project_id
                           AND rows.generation_id = generations.generation_id), 0)::bigint,
-                    COALESCE((SELECT count(*) FROM {schema}."search_documents" AS rows
+                    COALESCE(generations.fact_documents, (SELECT count(*) FROM {schema}."search_documents" AS rows
                         WHERE rows.project_id = projects.project_id
                           AND rows.generation_id = generations.generation_id), 0)::bigint,
                     generations.run_excludes
@@ -291,6 +294,90 @@ impl CartographDatabase {
         Ok(Some(snapshot))
     }
 
+    /// Record exact fact counts and source bytes for a settled generation that
+    /// was published before they were persisted. Generations are immutable, so
+    /// the backfill is idempotent; returns whether a row was updated.
+    /// # Errors
+    ///
+    /// Returns an error if the bounded counting update fails.
+    pub async fn backfill_generation_fact_counts(
+        &self,
+        project_id: &ProjectId,
+        generation_id: &GenerationId,
+    ) -> Result<bool, StorageError> {
+        let schema = crate::database::quoted_schema(&self.schema);
+        let counted = |table: &str| {
+            format!(
+                r#"(SELECT count(*) FROM {schema}."{table}" AS rows
+                    WHERE rows.project_id = CAST($1 AS uuid)
+                      AND rows.generation_id = CAST($2 AS uuid))"#
+            )
+        };
+        let statement = format!(
+            r#"UPDATE {schema}."index_generations"
+                SET fact_files = {}, fact_symbols = {}, fact_edges = {},
+                    fact_references = {}, fact_numerical_sites = {}, fact_documents = {},
+                    fact_source_bytes = COALESCE((
+                        SELECT sum(files.byte_size) FROM {schema}."files" AS files
+                        WHERE files.project_id = CAST($1 AS uuid)
+                          AND files.generation_id = CAST($2 AS uuid)
+                    ), 0)::bigint
+                WHERE project_id = CAST($1 AS uuid) AND generation_id = CAST($2 AS uuid)
+                  AND fact_files IS NULL AND state IN ('ready', 'current', 'superseded')"#,
+            counted("files"),
+            counted("symbols"),
+            counted("edges"),
+            counted("references"),
+            counted("numerical_sites"),
+            counted("search_documents"),
+        );
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| database_error("backfill-generation-counts"))?;
+        crate::database::set_local_statement_timeout(&mut transaction, BACKFILL_TIMEOUT)
+            .await
+            .map_err(|()| database_error("backfill-generation-counts"))?;
+        let result = query(AssertSqlSafe(statement))
+            .bind(project_id.as_str())
+            .bind(generation_id.as_str())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| database_error("backfill-generation-counts"))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| database_error("backfill-generation-counts"))?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Count failed and partially retired generations still awaiting cleanup.
+    /// Uses only the generation state index, so automatic indexing can check
+    /// its retention backlog immediately before reserving a new generation.
+    /// # Errors
+    ///
+    /// Returns an error if the count cannot be queried or is negative.
+    pub async fn terminal_generation_backlog(
+        &self,
+        project_id: &ProjectId,
+    ) -> Result<u64, StorageError> {
+        let schema = crate::database::quoted_schema(&self.schema);
+        let statement = format!(
+            r#"SELECT count(*)::bigint FROM {schema}."index_generations"
+                WHERE project_id = $1::uuid AND state IN ('failed', 'retiring')"#
+        );
+        let row = query(AssertSqlSafe(statement))
+            .bind(project_id.as_str())
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| database_error("terminal-generation-backlog"))?;
+        let count = row
+            .try_get::<i64, _>(0)
+            .map_err(|_| database_error("terminal-generation-backlog"))?;
+        u64::try_from(count).map_err(|_| database_error("terminal-generation-backlog"))
+    }
+
     /// Count all retained generation states and estimate their dominant physical bytes.
     /// # Errors
     ///
@@ -311,11 +398,11 @@ impl CartographDatabase {
                     count(*) FILTER (WHERE state = 'retiring')::bigint AS retiring,
                     GREATEST(COALESCE(extract(epoch FROM clock_timestamp() -
                         min(started_at) FILTER (WHERE state IN ('failed', 'superseded', 'retiring')))::bigint, 0), 0) AS oldest_terminal_age_seconds,
-                    COALESCE((
-                        SELECT sum(files.byte_size)::bigint
-                        FROM {schema}."files" AS files
-                        WHERE files.project_id = CAST($1 AS uuid)
-                    ), 0)::bigint AS source_bytes,
+                    COALESCE(sum(COALESCE(CASE WHEN state IN ('ready', 'current', 'superseded') THEN fact_source_bytes END, (
+                        SELECT sum(files.byte_size) FROM {schema}."files" AS files
+                        WHERE files.project_id = index_generations.project_id
+                          AND files.generation_id = index_generations.generation_id
+                    )))::bigint, 0)::bigint AS source_bytes,
                     COALESCE((
                         SELECT sum(pg_total_relation_size(tables.oid))::bigint
                         FROM {schema}."generation_search_relations" AS relations

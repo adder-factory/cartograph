@@ -71,13 +71,20 @@ export CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS=120000
 - Keep the database pool large enough for the selected operation but below the
   64-connection hard cap. Local agent use normally needs no manual change.
 - Newly created managed databases keep synchronous durability while using a
-  15-minute checkpoint interval, 4 GiB soft `max_wal_size`, and 512 MiB
-  `min_wal_size`. Immutable-generation COPY and BM25 publication can otherwise
-  exhaust PostgreSQL's 1 GiB default repeatedly during rapid editor bursts,
-  forcing overlapping checkpoints and increasing foreground latency. The WAL
-  ceiling is soft and trades bounded local disk plus potentially longer crash
-  recovery for fewer full-page writes and checkpoint flushes; `db usage` and
-  free-space checks remain the operator boundary.
+  15-minute checkpoint interval, 2 GiB soft `max_wal_size`, 256 MiB
+  `min_wal_size`, and `wal_compression=lz4`. Immutable-generation COPY and BM25
+  publication can exhaust PostgreSQL's 1 GiB default repeatedly during rapid
+  editor bursts, forcing overlapping checkpoints and increasing foreground
+  latency, so the ceiling stays above it. It is also each project's
+  steady-state WAL footprint: WAL left after a busy period is kept up to the
+  ceiling, and an idle database does not checkpoint it away. The earlier 4 GiB
+  ceiling left 4.1 GiB of WAL in each recently busy project on a shared Docker
+  disk. On this repository, a forced re-index wrote 440-480 MiB of WAL at 4 GiB
+  and 510-770 MiB at 2 GiB with lz4 (570-920 MiB without it), because more
+  checkpoints fall inside the run. `cartograph doctor` warns when a container
+  predates these settings; `cartograph db upgrade --confirm
+  upgrade-managed-database` recreates it on the same data volume. `db usage`
+  and free-space checks remain the operator boundary.
 - Do not increase timeouts to hide a lost lease, stale fence, blocked database,
   or oversized corpus. Inspect task/lease status and the failing phase first.
 - Semantic HNSW indexes are per model; unused model generations should be
@@ -103,7 +110,17 @@ manifest/no-op fence instead of performing a second full status manifest scan
 first. Automatic structural indexing is capped at four native workers and skips
 the independent Git churn, co-change, and issue-history refreshes. An explicit
 `cartograph index` retains the normal corpus-aware worker ceiling and refreshes
-those auxiliary Git channels. Periodic missed-event reconciliation still uses a
+those auxiliary Git channels. When HEAD, shallowness, the number of reachable
+commits within the bound, the commit bound, the enabled channels and the mining
+version all match the last stored refresh, churn and co-change
+evidence is reused without rescanning Git or rewriting its rows, and the index
+report marks the history `reused: true`. `cartograph history --mode refresh` always
+rescans.
+
+Ready generations record their exact fact counts and source bytes, so status,
+freshness and storage summaries read them instead of counting every fact table
+on each call. Generations published before schema 45 fall back to counting
+until the next unchanged index records their counts once. Periodic missed-event reconciliation still uses a
 complete status scan as its correctness boundary.
 
 An unchanged source revision that fails automatic indexing is not retried in a

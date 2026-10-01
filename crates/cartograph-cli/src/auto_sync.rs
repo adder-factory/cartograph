@@ -329,7 +329,9 @@ impl AutoSyncState {
 
 fn recoverable_index_interruption(error: &ProjectError) -> bool {
     match error {
-        ProjectError::IndexLeaseBusy | ProjectError::SourceChangedDuringIndex => true,
+        ProjectError::IndexLeaseBusy
+        | ProjectError::IndexRetentionBacklog
+        | ProjectError::SourceChangedDuringIndex => true,
         ProjectError::IndexStageFailedWithReason { reason, .. } => {
             *reason == PipelineFailureReason::SourceChangedDuringParse
         }
@@ -844,6 +846,7 @@ mod tests {
     fn lease_contention_and_parse_churn_retry_after_more_than_five_interruptions() {
         for error in [
             ProjectError::IndexLeaseBusy,
+            ProjectError::IndexRetentionBacklog,
             ProjectError::IndexStageFailedWithReason {
                 stage: PipelineStage::Parse,
                 reason: PipelineFailureReason::SourceChangedDuringParse,

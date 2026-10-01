@@ -23,8 +23,8 @@ use cartograph_db::{
     McpToolCallWrite, MigrationError, NewAgentArtifact, NewGeneration, NewMcpMacro, NewMcpSession,
     NewProject, NumericalSiteInput, NumericalSiteQuery, PrepareGenerationError, ProjectLease,
     PublishGenerationError, ReadOnlySqlRequest, ReadyGeneration, RecoverableGeneration,
-    ReferenceInput, SearchDocumentInput, SearchQuery, SourceLineRange, StorageError,
-    SummaryCandidatePolicy, SymbolInput, SymbolRoleSaveInput, SymbolSummarySaveInput,
+    ReferenceInput, RoleSweepModel, SearchDocumentInput, SearchQuery, SourceLineRange,
+    StorageError, SummaryCandidatePolicy, SymbolInput, SymbolRoleSaveInput, SymbolSummarySaveInput,
     validate_generation_facts,
 };
 use cartograph_domain::{
@@ -95,8 +95,9 @@ const RUST_SELF_RECEIVER_DIGEST_V16_MIGRATION_VERSION: i64 = 41;
 const RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION: i64 = 42;
 const GRAMMAR_REFRESH_DIGEST_V17_MIGRATION_VERSION: i64 = 43;
 const CUDA_UNICODE_DIGEST_V18_MIGRATION_VERSION: i64 = 44;
-const LATEST_MIGRATION_VERSION: i64 = CUDA_UNICODE_DIGEST_V18_MIGRATION_VERSION;
-const EXPECTED_MIGRATIONS: [i64; 44] = [
+const GENERATION_FACT_COUNTS_MIGRATION_VERSION: i64 = 45;
+const LATEST_MIGRATION_VERSION: i64 = GENERATION_FACT_COUNTS_MIGRATION_VERSION;
+const EXPECTED_MIGRATIONS: [i64; 45] = [
     INITIAL_MIGRATION_VERSION,
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
@@ -141,6 +142,7 @@ const EXPECTED_MIGRATIONS: [i64; 44] = [
     RESUMABLE_GENERATION_RETENTION_MIGRATION_VERSION,
     GRAMMAR_REFRESH_DIGEST_V17_MIGRATION_VERSION,
     CUDA_UNICODE_DIGEST_V18_MIGRATION_VERSION,
+    GENERATION_FACT_COUNTS_MIGRATION_VERSION,
 ];
 const INITIAL_WORKERS: u16 = 4;
 const REPLACEMENT_WORKERS: u16 = 8;
@@ -807,6 +809,64 @@ async fn agent_artifacts_and_summary_digest_fences_are_durable() {
             .await
             .unwrap_or_else(|error| panic!("could not delete durable note: {error}"))
     );
+
+    drop(database);
+    drop_schema(&pool, &schema).await;
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn role_cache_is_scoped_to_the_model_that_wrote_it() {
+    let (database, pool, schema) = open_isolated_database().await;
+    assert_migration_ledger(&database).await;
+    let project = register_project(&database).await;
+    let initial = publish_initial_generation(&database, &project).await;
+    let ready_older = prepare_rollback_retry(&database, &project, initial.generation_id()).await;
+    publish_newer_generation(&database, &project, &ready_older).await;
+    let target = parse_symbol_id(RETRIEVAL_TARGET);
+    let caller = parse_symbol_id(RETRIEVAL_CALLER);
+    let save = async |symbol: &SymbolId, via: &str, model: &str| {
+        database
+            .save_symbol_role(
+                SymbolRoleSaveInput::new(&project, symbol, "business_logic")
+                    .with_metadata(serde_json::json!({"via": via, "model": model})),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("could not save role fixture: {error}"));
+    };
+    let pending = async |sweep: RoleSweepModel<'_>| {
+        database
+            .pending_symbol_roles(&project, sweep, 20)
+            .await
+            .unwrap_or_else(|error| panic!("could not list pending roles: {error}"))
+            .iter()
+            .map(|symbol| symbol.symbol_id().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let structural = RoleSweepModel::Structural("structural-v2");
+    let jev = RoleSweepModel::Judge("jev-roles-v1");
+    let chat = RoleSweepModel::Judge("chat-model");
+    let caller_pending = vec![caller.as_str().to_owned()];
+
+    // A structural rule match is final for every sweep.
+    save(&target, "rule", "structural-v1").await;
+    // A fallback written by an older rule version is re-classified by rules and models.
+    save(&caller, "structural_fallback", "structural-v1").await;
+    assert_eq!(pending(structural).await, caller_pending);
+    assert_eq!(pending(jev).await, caller_pending);
+
+    // A model's own judgment is cached for it, re-judged by another model,
+    // and never downgraded by a rules-only sweep.
+    save(&caller, "jev", "jev-roles-v1").await;
+    assert!(pending(structural).await.is_empty());
+    assert!(pending(jev).await.is_empty());
+    assert_eq!(pending(chat).await, caller_pending);
+
+    // A current rules fallback satisfies rules but still invites a model.
+    save(&caller, "structural_fallback", "structural-v2").await;
+    assert!(pending(structural).await.is_empty());
+    assert_eq!(pending(jev).await, caller_pending);
 
     drop(database);
     drop_schema(&pool, &schema).await;
@@ -2569,6 +2629,23 @@ async fn publish_initial_generation(
         ),
     )
     .await;
+    // Field provenance is probed inside the BM25 index for the returned rows
+    // only; the name and code match while the natural text does not.
+    let hits = database
+        .search_current_code(SearchQuery::new(
+            CurrentGenerationLookup::new(project, current.generation_id()),
+            "http response",
+            SEARCH_LIMIT,
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("component search failed: {error}"));
+    assert_eq!(
+        hits[0].components(),
+        [
+            cartograph_db::SearchComponent::QualifiedName,
+            cartograph_db::SearchComponent::Code
+        ]
+    );
     current
 }
 
@@ -3798,6 +3875,11 @@ async fn assert_deterministic_cochange_order_migration(pool: &sqlx_postgres::PgP
     assert_eq!(
         schema_migration_checksum(pool, schema, 44).await,
         "01c25d7fe0efa96c8dc80680b6584609a7e283cf81dd755f0a19a95798f9536d"
+    );
+
+    assert_eq!(
+        schema_migration_checksum(pool, schema, 45).await,
+        "99746f46572ebbe0238a725e1156e0410c4f5016bb2708a6ab1ff963bf70bdfd"
     );
 
     let definition = query(

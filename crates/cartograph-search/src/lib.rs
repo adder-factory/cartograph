@@ -22,12 +22,12 @@ pub use intent::{ContextGraphDirection, TaskIntent};
 pub use model::{
     AffectedTest, AffectedTestsResult, BidirectionalTraversalResult, CONTEXT_ANCHOR_MAXIMUM_BYTES,
     CONTEXT_QUERY_MAXIMUM_BYTES, ContextAbstention, ContextAnchor, ContextBudget,
-    ContextBudgetInput, ContextPacket, ContextRequest, ContextRequestOptions, EditCandidate,
-    EditCandidateBasis, EditCandidateSet, EntryPointsQuery, EntryPointsResult, EvidenceItem,
-    EvidenceReason, ExactPathQuery, ExactPathResult, ExactTextQuery, FileInventoryQuery,
-    FileInventoryResult, GenerationEvidence, GraphEvidence, GraphPathRequest,
-    GraphPathRequestInput, GraphPathResult, GraphPathStep, IndexFreshness, LexicalQuery,
-    ReferenceEvidence, ReferenceSpanPrecision, RetrievalConfidence, RetrievalError,
+    ContextBudgetInput, ContextPacket, ContextRequest, ContextRequestOptions, DecisionRankEvidence,
+    DecisionRankState, EditCandidate, EditCandidateBasis, EditCandidateSet, EntryPointsQuery,
+    EntryPointsResult, EvidenceItem, EvidenceReason, ExactPathQuery, ExactPathResult,
+    ExactTextQuery, FileInventoryQuery, FileInventoryResult, GenerationEvidence, GraphEvidence,
+    GraphPathRequest, GraphPathRequestInput, GraphPathResult, GraphPathStep, IndexFreshness,
+    LexicalQuery, ReferenceEvidence, ReferenceSpanPrecision, RetrievalConfidence, RetrievalError,
     ReviewAbstention, ReviewBudget, ReviewBudgetInput, ReviewPacket, ReviewRequest,
     ReviewRequestOptions, ReviewTruncation, SimilarRequest, SourceRangeQuery,
     SourceRangeQueryInput, SourceRangeResult, TraversalBudget, TraversalDirection, TraversalHop,
@@ -496,6 +496,94 @@ mod contract_tests {
         assert_eq!(paths, vec!["src/a.ts", "src/b.ts", "src/z.ts"]);
         assert_eq!(packet.confidence(), RetrievalConfidence::High);
         assert_eq!(packet.abstention(), None);
+    }
+
+    #[test]
+    fn decision_relevance_reorders_only_retrieval_candidates_and_validates_input() {
+        let packet = assemble_packet(PacketAssembly {
+            task: "explain the lookup",
+            generation: Some(fixture_generation()),
+            intent: TaskIntent::ArchitectureSurvey,
+            graph_direction: None,
+            freshness: IndexFreshness::Current,
+            retrieval: fixture_retrieval(),
+            evidence: vec![
+                evidence_fixture("src/anchor.ts", "anchor", EvidenceReason::ExactName),
+                ranked_symbol_evidence(
+                    "src/a.ts",
+                    "alpha",
+                    EvidenceReason::Bm25,
+                    1,
+                    "11111111-1111-4111-8111-111111111111",
+                ),
+                ranked_symbol_evidence(
+                    "src/b.ts",
+                    "beta",
+                    EvidenceReason::Bm25,
+                    2,
+                    "22222222-2222-4222-8222-222222222222",
+                ),
+                ranked_symbol_evidence(
+                    "src/c.ts",
+                    "gamma",
+                    EvidenceReason::Semantic,
+                    3,
+                    "33333333-3333-4333-8333-333333333333",
+                ),
+            ],
+            affected_tests: Vec::new(),
+            evidence_limit: PACKET_EVIDENCE_LIMIT,
+            truncated: false,
+        });
+        let names = |packet: &ContextPacket| {
+            packet
+                .evidence()
+                .iter()
+                .map(|item| item.qualified_name().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&packet), ["anchor", "alpha", "beta", "gamma"]);
+        let eligible = packet.retrieval_evidence_indices(24);
+        assert_eq!(eligible, [1, 2, 3]);
+        assert_eq!(packet.retrieval_evidence_indices(2), [1, 2]);
+        let ranked = packet
+            .clone()
+            .with_decision_relevance("explain the lookup", &[(1, 0.1), (2, 0.9), (3, 0.9)])
+            .unwrap_or_else(|error| panic!("valid ranking rejected: {error}"));
+        // The anchor keeps its position; equal probabilities keep packet order.
+        assert_eq!(names(&ranked), ["anchor", "beta", "gamma", "alpha"]);
+        assert_eq!(ranked.evidence()[0].decision_relevance(), None);
+        assert_eq!(ranked.evidence()[3].decision_relevance(), Some(0.1));
+        let edit_paths = ranked
+            .edit_candidates()
+            .candidates()
+            .iter()
+            .map(|candidate| (candidate.path().to_owned(), candidate.basis()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            edit_paths,
+            [
+                ("src/b.ts".to_owned(), EditCandidateBasis::DecisionRelevance),
+                ("src/c.ts".to_owned(), EditCandidateBasis::DecisionRelevance),
+            ],
+            "relevant judged files lead the edit surface; irrelevant ones are omitted"
+        );
+        for invalid in [
+            vec![(1, 0.5), (1, 0.4)],
+            vec![(9, 0.5)],
+            vec![(0, 0.5)],
+            vec![(1, f64::NAN)],
+            vec![(1, 1.5)],
+        ] {
+            assert!(matches!(
+                packet
+                    .clone()
+                    .with_decision_relevance("explain the lookup", &invalid),
+                Err(RetrievalError::InvalidInput {
+                    field: "decision_relevance"
+                })
+            ));
+        }
     }
 
     #[test]

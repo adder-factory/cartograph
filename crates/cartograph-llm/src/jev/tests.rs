@@ -44,6 +44,7 @@ fn questions() -> BTreeMap<String, JevQuestion> {
             "sufficient".to_owned(),
             JevQuestion::Noul {
                 instructions: "Is the available source sufficient?".to_owned(),
+                criteria: None,
             },
         ),
     ])
@@ -192,6 +193,7 @@ fn fixture(status: &str, body: &str, headers: &str) -> (JevClient, thread::JoinH
             .unwrap_or_else(|e| panic!("URL: {e}")),
         api_key: SecretString::from("private-fixture-key".to_owned()),
         timeout: Duration::from_secs(2),
+        features: BTreeSet::from([JevFeature::Explore]),
     };
     assert!(!format!("{settings:?}").contains("private-fixture"));
     (
@@ -233,6 +235,7 @@ async fn rejected_credentials_capacity_and_redirects_are_redacted() {
         ("429 Too Many Requests", JevError::RateLimited),
         ("529 Overloaded", JevError::RateLimited),
         ("422 Invalid", JevError::BackendRejected),
+        ("503 Service Unavailable", JevError::EndpointUnavailable),
     ] {
         let (client, server) = fixture(status, "secret-provider-body", "");
         let result = client.decide(&Value::Null, &questions()).await;
@@ -364,5 +367,82 @@ async fn jev_live_parallel_decision() {
     );
     assert!(
         matches!(result.answers.get("sufficient"), Some(JevAnswer::Noul { noul }) if *noul < 0.5)
+    );
+}
+
+#[test]
+fn noul_criteria_serialize_with_api_names_and_share_criterion_bounds() {
+    let criteria = |holds: String| {
+        BTreeMap::from([(
+            "relevant".to_owned(),
+            JevQuestion::Noul {
+                instructions: "Does the candidate implement the behavior?".to_owned(),
+                criteria: Some(NoulCriteria {
+                    holds,
+                    fails: "Only shares vocabulary with the task.".to_owned(),
+                }),
+            },
+        )])
+    };
+    let encoded = encode_request(
+        &serde_json::json!({"task": "x"}),
+        &criteria("Its body decides the behavior.".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("bounded criteria: {error}"));
+    let request: Value =
+        serde_json::from_slice(&encoded).unwrap_or_else(|error| panic!("request json: {error}"));
+    assert_eq!(
+        request["questions"]["relevant"]["criteria"],
+        serde_json::json!({"true": "Its body decides the behavior.", "false": "Only shares vocabulary with the task."})
+    );
+    for invalid in [String::new(), "x".repeat(2049), "nul\0".to_owned()] {
+        assert_eq!(
+            encode_request(&serde_json::json!({"task": "x"}), &criteria(invalid)),
+            Err(JevError::RequestLimit)
+        );
+    }
+    let without = BTreeMap::from([(
+        "sufficient".to_owned(),
+        JevQuestion::Noul {
+            instructions: "Is it sufficient?".to_owned(),
+            criteria: None,
+        },
+    )]);
+    let encoded = encode_request(&serde_json::json!({"task": "x"}), &without)
+        .unwrap_or_else(|error| panic!("criteria-free noul: {error}"));
+    let request: Value =
+        serde_json::from_slice(&encoded).unwrap_or_else(|error| panic!("request json: {error}"));
+    assert!(request["questions"]["sufficient"].get("criteria").is_none());
+}
+
+#[test]
+fn decision_features_default_to_exploration_and_ignore_unknown_names() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("fixture: {error}"));
+    let variable = format!("CARTOGRAPH_JEV_FEATURE_TEST_{}", std::process::id());
+    let write = |features: Option<Vec<&str>>| {
+        let mut input = crate::ProjectLlmTierInput::jev(&variable)
+            .unwrap_or_else(|error| panic!("tier: {error}"));
+        if let Some(features) = features {
+            input = input
+                .with_decision_features(features.into_iter().map(str::to_owned).collect())
+                .unwrap_or_else(|error| panic!("features: {error}"));
+        }
+        crate::write_project_llm_tiers(root.path(), &[input])
+            .unwrap_or_else(|error| panic!("write config: {error}"));
+    };
+    write(None);
+    assert!(jev_feature_enabled(root.path(), JevFeature::Explore));
+    assert!(!jev_feature_enabled(root.path(), JevFeature::Context));
+    write(Some(vec!["context", "future_surface"]));
+    assert!(!jev_feature_enabled(root.path(), JevFeature::Explore));
+    assert!(jev_feature_enabled(root.path(), JevFeature::Context));
+    write(Some(Vec::new()));
+    assert!(!jev_feature_enabled(root.path(), JevFeature::Explore));
+    assert!(!jev_feature_enabled(root.path(), JevFeature::Context));
+    assert!(
+        crate::ProjectLlmTierInput::jev(&variable)
+            .and_then(|input| input.with_decision_features(vec!["Context".to_owned()]))
+            .is_err(),
+        "feature names are lowercase identifiers"
     );
 }

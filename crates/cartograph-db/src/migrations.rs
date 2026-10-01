@@ -52,7 +52,8 @@ const RUST_SELF_RECEIVER_DIGEST_V16_SCHEMA_VERSION: i64 = 41;
 const RESUMABLE_RETENTION_SCHEMA_VERSION: i64 = 42;
 const GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION: i64 = 43;
 const CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION: i64 = 44;
-const LATEST_SCHEMA_VERSION: i64 = CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION;
+const GENERATION_FACT_COUNTS_SCHEMA_VERSION: i64 = 45;
+const LATEST_SCHEMA_VERSION: i64 = GENERATION_FACT_COUNTS_SCHEMA_VERSION;
 const MIGRATION_LOCK_NAMESPACE: &str = "cartograph-v2-schema-migration";
 
 /// Latest append-only schema version understood by this native binary.
@@ -1671,7 +1672,51 @@ const CUDA_UNICODE_DIGEST_V18_SCHEMA: Migration = Migration {
                 CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18))"#],
 };
 
-const MIGRATIONS: [&Migration; 44] = [
+/// Immutable generations record their exact fact counts and source bytes when
+/// they become ready, so status and freshness reads stop counting every fact
+/// table. Git churn/co-change refreshes record their inputs so an unchanged
+/// HEAD reuses the stored evidence instead of re-deriving it.
+const GENERATION_FACT_COUNTS_SCHEMA: Migration = Migration {
+    version: GENERATION_FACT_COUNTS_SCHEMA_VERSION,
+    name: "generation_fact_counts_and_history_refresh",
+    statements: &[
+        r#"ALTER TABLE {schema}."index_generations"
+            ADD COLUMN fact_files bigint,
+            ADD COLUMN fact_symbols bigint,
+            ADD COLUMN fact_edges bigint,
+            ADD COLUMN fact_references bigint,
+            ADD COLUMN fact_numerical_sites bigint,
+            ADD COLUMN fact_documents bigint,
+            ADD COLUMN fact_source_bytes bigint,
+            ADD CONSTRAINT index_generations_fact_counts_check CHECK (
+                (fact_files IS NULL AND fact_symbols IS NULL AND fact_edges IS NULL
+                    AND fact_references IS NULL AND fact_numerical_sites IS NULL
+                    AND fact_documents IS NULL AND fact_source_bytes IS NULL)
+                OR (fact_files >= 0 AND fact_symbols >= 0 AND fact_edges >= 0
+                    AND fact_references >= 0 AND fact_numerical_sites >= 0
+                    AND fact_documents >= 0 AND fact_source_bytes >= 0)
+            )"#,
+        r#"CREATE TABLE {schema}."history_refreshes" (
+            project_id uuid PRIMARY KEY
+                REFERENCES {schema}."projects"(project_id) ON DELETE CASCADE,
+            head_commit text NOT NULL CHECK (head_commit ~ '^[0-9a-f]{40}([0-9a-f]{24})?$'),
+            max_commits bigint NOT NULL CHECK (max_commits > 0),
+            commits_available bigint NOT NULL CHECK (commits_available >= 0),
+            algorithm_version integer NOT NULL CHECK (algorithm_version > 0),
+            churn boolean NOT NULL,
+            co_change boolean NOT NULL,
+            shallow_history boolean NOT NULL,
+            commits_scanned bigint NOT NULL CHECK (commits_scanned >= 0),
+            truncated boolean NOT NULL,
+            oversized_commits_skipped bigint NOT NULL CHECK (oversized_commits_skipped >= 0),
+            files_written bigint NOT NULL CHECK (files_written >= 0),
+            cochanges_written bigint NOT NULL CHECK (cochanges_written >= 0),
+            refreshed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+        )"#,
+    ],
+};
+
+const MIGRATIONS: [&Migration; 45] = [
     &INITIAL_SCHEMA,
     &OPERATION_LEASES_SCHEMA,
     &COMPLETE_EDGE_KINDS_SCHEMA,
@@ -1716,6 +1761,7 @@ const MIGRATIONS: [&Migration; 44] = [
     &RESUMABLE_RETENTION_SCHEMA,
     &GRAMMAR_REFRESH_DIGEST_V17_SCHEMA,
     &CUDA_UNICODE_DIGEST_V18_SCHEMA,
+    &GENERATION_FACT_COUNTS_SCHEMA,
 ];
 
 #[cfg(test)]
@@ -2112,7 +2158,7 @@ mod tests {
 
     const MIGRATION_CHECKSUM_HEX_LENGTH: usize = 64;
     const CHECKSUM_COMPARISON_WINDOW: usize = 2;
-    const EXPECTED_MIGRATION_VERSIONS: [i64; 44] = [
+    const EXPECTED_MIGRATION_VERSIONS: [i64; 45] = [
         INITIAL_SCHEMA_VERSION,
         OPERATION_LEASES_SCHEMA_VERSION,
         COMPLETE_EDGE_KINDS_SCHEMA_VERSION,
@@ -2157,9 +2203,10 @@ mod tests {
         RESUMABLE_RETENTION_SCHEMA_VERSION,
         GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION,
         CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION,
+        GENERATION_FACT_COUNTS_SCHEMA_VERSION,
     ];
 
-    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 44] = [
+    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 45] = [
         (
             1,
             "47651685dfea852db86d644f0e777bd479a3926cfce9e7750887a61cfe4ddc8e",
@@ -2336,6 +2383,10 @@ mod tests {
             44,
             "01c25d7fe0efa96c8dc80680b6584609a7e283cf81dd755f0a19a95798f9536d",
         ),
+        (
+            45,
+            "99746f46572ebbe0238a725e1156e0410c4f5016bb2708a6ab1ff963bf70bdfd",
+        ),
     ];
 
     #[test]
@@ -2379,10 +2430,7 @@ mod tests {
                 .windows(CHECKSUM_COMPARISON_WINDOW)
                 .all(|pair| pair[0] != pair[1])
         );
-        assert_eq!(
-            LATEST_SCHEMA_VERSION,
-            CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION
-        );
+        assert_eq!(LATEST_SCHEMA_VERSION, GENERATION_FACT_COUNTS_SCHEMA_VERSION);
     }
 
     #[test]

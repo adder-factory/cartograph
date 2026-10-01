@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-09-25 (`v2.1.32`).
+Last release audit: 2026-10-01 (`v2.1.33`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -76,8 +76,9 @@ stage-specific `lastErrorCode`, failure/retry times, unchanged-revision attempt
 count, retry suppression, cross-revision capacity-failure count, and the exact
 capacity limit/scope/next action. Persistent failures of unchanged revisions use bounded
 exponential backoff and stop after five automatic attempts until source changes.
-Concurrent edits (`source_changed_during_index` or `parse_source_changed`) and
-another live lease owner (`lease_busy`) schedule recovery after 2–30 seconds.
+Concurrent edits (`source_changed_during_index` or `parse_source_changed`),
+another live lease owner (`lease_busy`), and an undrained failed-generation
+backlog (`retention_backlog`) schedule recovery after 2–30 seconds.
 They do not exhaust the persistent-failure circuit. A retry timer runs even
 when no new filesystem event arrives; it does not wait for the 30-second
 missed-event reconciliation. Actual lease loss and database errors retain
@@ -244,6 +245,15 @@ continues to fail closed when its name is ambiguous.
 lookup, implementation trace, change planning, test selection, error diagnosis,
 architecture survey, and documentation lookup. Intent selects bounded candidate,
 graph, evidence, and affected-test policy and is returned in the packet.
+
+When the project's Jev decision tier lists the `context` feature, the packet's
+BM25/semantic candidates are reordered by one metadata-only relevance request
+(no source is sent). Anchors and graph expansion keep their positions; judged
+items carry an advisory `decision_relevance`, primary edit candidates follow the
+relevant judged files (basis `decision_relevance`), and `decision_rank` reports
+the model, outcome and judged count in every output format. A provider failure
+rebuilds the packet through the configured reranker.
+`mode: deterministic` never consults the provider.
 
 When the durable generation is stale, supported changed/untracked files may
 contribute a separate live working-tree overlay. Overlay items include path,

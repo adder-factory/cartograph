@@ -4,13 +4,24 @@ use super::{
     RemovedGenerationCounts, RetentionContext, cleanup_transaction, database_error,
     post_retention_maintenance_plan, validate_fence_shape,
 };
+use cartograph_domain::GenerationId;
 use sqlx_core::{acquire::Acquire, query::query, row::Row, sql_str::AssertSqlSafe};
-use std::{future::Future, time::Duration};
+use std::{collections::HashMap, future::Future, time::Duration};
 
 const ROWS_PER_TRANSACTION: u64 = 10_000;
 const GENERATIONS_PER_TRANSACTION: u32 = 32;
 const MAXIMUM_TRANSACTIONS: u64 = 512;
 const TRANSACTION_TIMEOUT: Duration = Duration::from_secs(10);
+/// Deleting the generation row runs every cascading foreign-key check, which
+/// walks the dead child index entries the drain just produced until VACUUM
+/// removes them. A bounded savepoint defers that single row instead of rolling
+/// back the committed child progress with the whole transaction.
+const PARENT_DELETE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Transaction time kept back for cascade verification, preserved counts, the
+/// final fence check, and COMMIT after the parent row is attempted.
+const PARENT_DELETE_RESERVE: Duration = Duration::from_millis(1_500);
+/// A parent attempt shorter than this cannot finish meaningful cascade checks.
+const MINIMUM_PARENT_DELETE_BUDGET: Duration = Duration::from_millis(250);
 
 // Children precede every FK parent. The catalog verifies this order under the
 // same relation locks that exclude FK-changing DDL before any row is deleted.
@@ -44,6 +55,142 @@ const DELETE_ORDER: [&str; 27] = [
     "index_generations",
 ];
 
+/// Unique B-tree key suffix after `(project_id, generation_id)` for each large
+/// generation-scoped relation. A keyset batch resumes strictly after the last
+/// key it deleted, so draining one generation walks its index range once.
+/// Batches selected by `LIMIT` alone restart at the range's first key and must
+/// step over every dead tuple left by earlier committed batches, which makes a
+/// multi-million-row generation quadratic and eventually exceeds the
+/// per-transaction deadline. Tables without a suffix are single-row or small
+/// and use the plain bounded sweep.
+fn keyset_columns(table: &str) -> &'static [&'static str] {
+    KEYSET_COLUMNS
+        .iter()
+        .find_map(|(name, columns)| (*name == table).then_some(*columns))
+        .unwrap_or(&[])
+}
+
+const SPILL_FACT_KEYSET: &[&str] = &["batch_sequence", "row_ordinal"];
+
+const KEYSET_COLUMNS: &[(&str, &[&str])] = &[
+    (
+        "native_generation_spill_rows",
+        &["relation", "batch_sequence", "row_ordinal"],
+    ),
+    ("native_generation_spill_files", SPILL_FACT_KEYSET),
+    ("native_generation_spill_symbols", SPILL_FACT_KEYSET),
+    ("native_generation_spill_edges", SPILL_FACT_KEYSET),
+    ("native_generation_spill_references", SPILL_FACT_KEYSET),
+    ("native_generation_spill_numerical_sites", SPILL_FACT_KEYSET),
+    ("native_generation_spill_documents", SPILL_FACT_KEYSET),
+    (
+        "native_generation_spill_batches",
+        &["relation", "batch_sequence"],
+    ),
+    ("document_embeddings", &["document_id", "model_id"]),
+    ("search_documents", &["document_id"]),
+    (
+        "edges",
+        &[
+            "source_symbol_id",
+            "target_symbol_id",
+            "edge_kind",
+            "provenance",
+        ],
+    ),
+    (
+        "references",
+        &["reference_name", "file_id", "start_byte", "reference_id"],
+    ),
+    ("numerical_sites", &["numerical_site_id"]),
+    ("symbol_coverage", &["source_id", "symbol_id"]),
+    (
+        "symbol_similarity_edges",
+        &["model_id", "source_symbol_id", "target_symbol_id"],
+    ),
+    (
+        "symbol_issues",
+        &[
+            "symbol_id",
+            "issue_number",
+            "commit_sha",
+            "attribution_kind",
+        ],
+    ),
+    ("summary_priority_queue", &["symbol_id"]),
+    ("symbols", &["symbol_id"]),
+    ("structural_findings", &["symbol_id", "finding"]),
+    ("files", &["file_id"]),
+];
+
+/// Per-relation drain progress for one generation.
+///
+/// An exhausted keyset walk is complete: every keyset column is `NOT NULL`,
+/// the key is unique within a generation, and terminal generations admit no
+/// writers. It is deliberately not followed by an unordered sweep, because that
+/// sweep would re-walk every dead tuple the walk just produced and reintroduce
+/// the deadline failure. The final `index_generations` delete still cascades
+/// through the verified foreign-key catalog if an unforeseen row remained.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TableDrain {
+    /// Resume after this JSON-encoded key; `None` starts at the first key.
+    Keyset(Option<String>),
+    /// Small relation without a keyset; delete unordered bounded batches.
+    Sweep,
+    /// Every row of this generation in this relation was deleted.
+    Done,
+    /// The generation row's cascade checks exceeded their bound in this
+    /// invocation; a later invocation retries after dead-tuple maintenance.
+    ParentDeferred,
+}
+
+/// Drain progress retained across the committed transactions of one cleanup
+/// invocation. Rolled-back transactions never publish their updates.
+#[derive(Clone, Debug, Default)]
+pub(super) struct DrainCursors {
+    tables: HashMap<(GenerationId, &'static str), TableDrain>,
+}
+
+impl DrainCursors {
+    fn state(&self, generation_id: &GenerationId, table: &'static str) -> TableDrain {
+        self.tables
+            .get(&(generation_id.clone(), table))
+            .cloned()
+            .unwrap_or_else(|| {
+                if keyset_columns(table).is_empty() {
+                    TableDrain::Sweep
+                } else {
+                    TableDrain::Keyset(None)
+                }
+            })
+    }
+
+    fn set(&mut self, generation_id: &GenerationId, table: &'static str, state: TableDrain) {
+        self.tables.insert((generation_id.clone(), table), state);
+    }
+
+    fn parent_deferred(&self) -> bool {
+        self.tables
+            .values()
+            .any(|state| *state == TableDrain::ParentDeferred)
+    }
+}
+
+/// Statement deadline for one parent-row attempt, clamped so the transaction
+/// keeps time to verify and commit its child progress. `None` defers the row.
+fn parent_delete_budget(remaining: Option<Duration>) -> Option<Duration> {
+    let budget = remaining.map_or(PARENT_DELETE_TIMEOUT, |remaining| {
+        remaining
+            .saturating_sub(PARENT_DELETE_RESERVE)
+            .min(PARENT_DELETE_TIMEOUT)
+    });
+    (budget >= MINIMUM_PARENT_DELETE_BUDGET).then_some(budget)
+}
+
+fn remaining_until(deadline: Option<tokio::time::Instant>) -> Option<Duration> {
+    deadline.map(|deadline| deadline.saturating_duration_since(tokio::time::Instant::now()))
+}
+
 pub(super) async fn cleanup<Observe, Observed>(
     database: &CartographDatabase,
     request: GenerationRetentionRequest<'_>,
@@ -62,20 +209,26 @@ where
         .checked_add(request.statement_timeout)
         .ok_or(GenerationRetentionError::InvalidPolicy)?;
     let mut total: Option<GenerationRetentionReport> = None;
+    let mut cursors = DrainCursors::default();
     let mut observer = Some(observe);
     for _ in 0..MAXIMUM_TRANSACTIONS {
         let remaining = request.statement_timeout.saturating_sub(started.elapsed());
         let Some(policy) = remaining_policy(request, total, remaining) else {
             break;
         };
+        let batch_deadline = deadline.min(tokio::time::Instant::now() + TRANSACTION_TIMEOUT);
         let context = RetentionContext {
             database,
             policy,
             fence: request.fence,
             quoted_schema: crate::database::quoted_schema(&database.schema),
+            batch_deadline: Some(batch_deadline),
         };
-        let batch_deadline = deadline.min(tokio::time::Instant::now() + TRANSACTION_TIMEOUT);
-        let result = one_transaction(&context, batch_deadline, || async {
+        let scope = DrainScope {
+            context: &context,
+            cursors: &mut cursors,
+        };
+        let result = one_transaction(scope, batch_deadline, || async {
             if let Some(observe) = observer.take() {
                 observe().await;
             }
@@ -100,6 +253,9 @@ where
         }
     }
     let mut report = total.ok_or(GenerationRetentionError::InvalidPolicy)?;
+    if report.deferred_reason.is_none() && cursors.parent_deferred() {
+        report.deferred_reason = Some("parent_delete_deferred");
+    }
     if report.deferred_reason.is_none() && work_budget_reached(&report, request, started.elapsed())
     {
         report.deferred_reason = Some("work_budget_reached");
@@ -156,7 +312,7 @@ fn remaining_policy(
 }
 
 async fn one_transaction<Observe, Observed>(
-    context: &RetentionContext<'_>,
+    scope: DrainScope<'_, '_>,
     deadline: tokio::time::Instant,
     observe: Observe,
 ) -> Result<GenerationRetentionReport, GenerationRetentionError>
@@ -164,10 +320,12 @@ where
     Observe: FnOnce() -> Observed,
     Observed: Future<Output = ()>,
 {
+    let DrainScope { context, cursors } = scope;
     let mut connection = tokio::time::timeout_at(deadline, context.database.pool.acquire())
         .await
         .map_err(|_| database_error("acquire-deadline"))?
         .map_err(|_| database_error("acquire"))?;
+    let mut working = cursors.clone();
     let result = tokio::time::timeout_at(deadline, async {
         let mut transaction = connection
             .begin()
@@ -177,7 +335,11 @@ where
         crate::database::set_local_statement_timeout(&mut transaction, remaining)
             .await
             .map_err(|()| GenerationRetentionError::InvalidPolicy)?;
-        match cleanup_transaction(&mut transaction, context, observe).await {
+        let scope = DrainScope {
+            context,
+            cursors: &mut working,
+        };
+        match cleanup_transaction(&mut transaction, scope, observe).await {
             Ok(report) => {
                 transaction
                     .commit()
@@ -196,6 +358,9 @@ where
     })
     .await;
     if let Ok(result) = result {
+        if result.is_ok() {
+            *cursors = working;
+        }
         result
     } else {
         // A timed-out transaction must not be reused by the independent cache
@@ -259,6 +424,31 @@ async fn finish_maintenance(
     }
 }
 
+/// The retention context of one drain transaction and the per-relation drain
+/// cursors it advances.
+pub(super) struct DrainScope<'a, 'context> {
+    pub context: &'a RetentionContext<'context>,
+    pub cursors: &'a mut DrainCursors,
+}
+
+/// One relation of one generation being drained in the current transaction.
+#[derive(Clone, Copy)]
+struct DrainTarget<'a, 'context> {
+    context: &'a RetentionContext<'context>,
+    work: &'a CandidateWork,
+    table: &'static str,
+}
+
+/// One ordered page of a keyset-drained relation.
+#[derive(Clone, Copy)]
+struct KeysetPage<'a, 'context> {
+    target: DrainTarget<'a, 'context>,
+    /// Resume strictly after this JSON-encoded key; `None` starts at the first key.
+    cursor: Option<&'a str>,
+    /// Most rows the page may delete; a shorter page drained the relation.
+    limit: u64,
+}
+
 #[derive(Default)]
 pub(super) struct Progress {
     pub removed: RemovedGenerationCounts,
@@ -269,9 +459,10 @@ pub(super) struct Progress {
 
 pub(super) async fn delete_rows(
     connection: &mut sqlx_postgres::PgConnection,
-    context: &RetentionContext<'_>,
+    mut scope: DrainScope<'_, '_>,
     candidates: &[CandidateWork],
 ) -> Result<Progress, GenerationRetentionError> {
+    let context = scope.context;
     let mut progress = Progress::default();
     for work in candidates {
         if progress.rows >= context.policy.maximum_cascade_rows {
@@ -289,7 +480,9 @@ pub(super) async fn delete_rows(
             progress.relations += 1;
             progress.bytes += work.search_relation_bytes;
         }
-        progress.drain_generation(connection, context, work).await?;
+        progress
+            .drain_generation(connection, &mut scope, work)
+            .await?;
     }
     Ok(progress)
 }
@@ -312,23 +505,215 @@ impl Progress {
     async fn drain_generation(
         &mut self,
         connection: &mut sqlx_postgres::PgConnection,
-        context: &RetentionContext<'_>,
+        scope: &mut DrainScope<'_, '_>,
         work: &CandidateWork,
     ) -> Result<(), GenerationRetentionError> {
+        let context = scope.context;
+        let generation_id = &work.candidate.generation_id;
         for table in DELETE_ORDER {
-            let remaining = context.policy.maximum_cascade_rows - self.rows;
-            if remaining == 0 {
-                break;
-            }
-            // ctid is consumed within this statement only. TidScan avoids a join plan
-            // that scans the entire large target heap to delete a small admitted set.
-            let returning = if table == "index_generations" {
-                "retention_original_state"
-            } else {
-                "NULL::text"
+            let target = DrainTarget {
+                context,
+                work,
+                table,
             };
-            let sql = format!(
-                r#"WITH deleted AS (
+            let remaining = context.policy.maximum_cascade_rows - self.rows;
+            let next = match scope.cursors.state(generation_id, table) {
+                TableDrain::Keyset(_) | TableDrain::Sweep if remaining == 0 => break,
+                TableDrain::Keyset(cursor) => {
+                    let page = KeysetPage {
+                        target,
+                        cursor: cursor.as_deref(),
+                        limit: remaining,
+                    };
+                    self.keyset_step(connection, page).await?
+                }
+                TableDrain::Sweep => self.sweep_step(connection, target, remaining).await?,
+                TableDrain::Done | TableDrain::ParentDeferred => continue,
+            };
+            if let Some(next) = next {
+                scope.cursors.set(generation_id, table, next);
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete one keyset `page`; a short page means its relation is drained.
+    async fn keyset_step(
+        &mut self,
+        connection: &mut sqlx_postgres::PgConnection,
+        page: KeysetPage<'_, '_>,
+    ) -> Result<Option<TableDrain>, GenerationRetentionError> {
+        let batch = keyset_batch(connection, page).await?;
+        self.record(page.target.table, batch.removed, None)?;
+        Ok(Some(if batch.removed < page.limit {
+            TableDrain::Done
+        } else {
+            TableDrain::Keyset(batch.next_cursor)
+        }))
+    }
+
+    /// One bounded sweep of `table`, or the parent row delete. `None` keeps
+    /// the sweep state for the next batch.
+    async fn sweep_step(
+        &mut self,
+        connection: &mut sqlx_postgres::PgConnection,
+        target: DrainTarget<'_, '_>,
+        remaining: u64,
+    ) -> Result<Option<TableDrain>, GenerationRetentionError> {
+        let deleted = if target.table == "index_generations" {
+            delete_parent_bounded(connection, target, remaining).await?
+        } else {
+            Some(sweep_batch(connection, target, remaining).await?)
+        };
+        let Some((removed, original_state)) = deleted else {
+            return Ok(Some(TableDrain::ParentDeferred));
+        };
+        self.record(target.table, removed, original_state.as_deref())?;
+        Ok((removed < remaining).then_some(TableDrain::Done))
+    }
+
+    fn record(
+        &mut self,
+        table: &str,
+        removed: u64,
+        original_state: Option<&str>,
+    ) -> Result<(), GenerationRetentionError> {
+        self.rows += removed;
+        if table == "document_embeddings" {
+            self.removed.embeddings += removed;
+        }
+        if table == "index_generations" && removed > 0 {
+            match original_state {
+                Some("staging") => self.removed.staging += removed,
+                Some("ready") => self.removed.ready += removed,
+                Some("superseded") => self.removed.superseded += removed,
+                Some("failed") => self.removed.failed += removed,
+                _ => return Err(database_error("invalid-retirement-state")),
+            }
+        }
+        Ok(())
+    }
+}
+
+struct KeysetBatch {
+    removed: u64,
+    next_cursor: Option<String>,
+}
+
+/// Delete the next ordered batch of one generation's rows strictly after the
+/// previous batch's last key. Cursor columns are decoded through the relation's
+/// own row type, so every comparison keeps the exact column type and collation
+/// used by the backing B-tree.
+async fn keyset_batch(
+    connection: &mut sqlx_postgres::PgConnection,
+    page: KeysetPage<'_, '_>,
+) -> Result<KeysetBatch, GenerationRetentionError> {
+    let KeysetPage {
+        target: DrainTarget {
+            context,
+            work,
+            table,
+        },
+        cursor,
+        limit,
+    } = page;
+    let columns = keyset_columns(table);
+    let schema = &context.quoted_schema;
+    let quoted: Vec<String> = columns
+        .iter()
+        .map(|column| format!(r#""{column}""#))
+        .collect();
+    let ordered = quoted.join(", ");
+    let descending = quoted
+        .iter()
+        .map(|column| format!("{column} DESC"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let encoded = columns
+        .iter()
+        .zip(&quoted)
+        .map(|(name, column)| format!("'{name}', {column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // Each cursor value is an uncorrelated scalar subquery, which PostgreSQL
+    // evaluates once as an init-plan parameter. The row comparison then stays
+    // an index qualification and the ordered scan starts after the cursor.
+    let resume = if cursor.is_some() {
+        let bounds = quoted
+            .iter()
+            .map(|column| {
+                format!(
+                    r#"(SELECT (jsonb_populate_record(NULL::{schema}."{table}", $4::jsonb)).{column})"#
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("AND ({ordered}) > ({bounds})")
+    } else {
+        "AND $4::jsonb IS NULL".to_owned()
+    };
+    let sql = format!(
+        r#"WITH batch AS MATERIALIZED (
+            SELECT ctid AS drain_ctid, {ordered} FROM {schema}."{table}"
+            WHERE project_id = $1::uuid AND generation_id = $2::uuid {resume}
+            ORDER BY {ordered} LIMIT $3
+        ), deleted AS (
+            DELETE FROM {schema}."{table}"
+            WHERE project_id = $1::uuid AND generation_id = $2::uuid
+              AND ctid = ANY(ARRAY(SELECT drain_ctid FROM batch))
+            RETURNING 1
+        ) SELECT (SELECT count(*) FROM deleted)::bigint AS removed,
+              (SELECT jsonb_build_object({encoded})::text FROM batch
+                  ORDER BY {descending} LIMIT 1) AS next_cursor"#
+    );
+    let row = query(AssertSqlSafe(sql))
+        .bind(context.fence.target().project_id().as_str())
+        .bind(work.candidate.generation_id.as_str())
+        .bind(i64::try_from(limit).map_err(|_| GenerationRetentionError::InvalidPolicy)?)
+        .bind(cursor)
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| database_error("drain-generation-rows"))?;
+    Ok(KeysetBatch {
+        removed: super::read_named_count(&row, "removed")?,
+        next_cursor: row
+            .try_get::<Option<String>, _>("next_cursor")
+            .map_err(|_| database_error("decode-drain-cursor"))?,
+    })
+}
+
+/// Delete an unordered bounded batch from a small relation without a keyset.
+async fn sweep_batch(
+    connection: &mut sqlx_postgres::PgConnection,
+    target: DrainTarget<'_, '_>,
+    limit: u64,
+) -> Result<(u64, Option<String>), GenerationRetentionError> {
+    sweep_statement(connection, target, limit)
+        .await?
+        .map_err(|_| database_error("drain-generation-rows"))
+}
+
+/// Execute one unordered bounded delete, returning the driver error separately
+/// so the parent-row path can distinguish its own deadline from real failures.
+async fn sweep_statement(
+    connection: &mut sqlx_postgres::PgConnection,
+    target: DrainTarget<'_, '_>,
+    limit: u64,
+) -> Result<Result<(u64, Option<String>), sqlx_core::Error>, GenerationRetentionError> {
+    let DrainTarget {
+        context,
+        work,
+        table,
+    } = target;
+    // ctid is consumed within this statement only. TidScan avoids a join plan
+    // that scans the entire large target heap to delete a small admitted set.
+    let returning = if table == "index_generations" {
+        "retention_original_state"
+    } else {
+        "NULL::text"
+    };
+    let sql = format!(
+        r#"WITH deleted AS (
             DELETE FROM {schema}."{table}"
             WHERE project_id = $1::uuid AND generation_id = $2::uuid
               AND ctid = ANY(ARRAY(SELECT ctid FROM {schema}."{table}"
@@ -336,37 +721,84 @@ impl Progress {
             RETURNING {returning} AS original_state
         ) SELECT count(*)::bigint AS removed,
               min(original_state) AS original_state FROM deleted"#,
-                schema = context.quoted_schema
-            );
-            let row = query(AssertSqlSafe(sql))
-                .bind(context.fence.target().project_id().as_str())
-                .bind(work.candidate.generation_id.as_str())
-                .bind(
-                    i64::try_from(remaining)
-                        .map_err(|_| GenerationRetentionError::InvalidPolicy)?,
-                )
-                .fetch_one(&mut *connection)
+        schema = context.quoted_schema
+    );
+    let row = match query(AssertSqlSafe(sql))
+        .bind(context.fence.target().project_id().as_str())
+        .bind(work.candidate.generation_id.as_str())
+        .bind(i64::try_from(limit).map_err(|_| GenerationRetentionError::InvalidPolicy)?)
+        .fetch_one(&mut *connection)
+        .await
+    {
+        Ok(row) => row,
+        Err(error) => return Ok(Err(error)),
+    };
+    let removed = super::read_named_count(&row, "removed")?;
+    let original_state = if table == "index_generations" && removed > 0 {
+        Some(
+            row.try_get::<String, _>("original_state")
+                .map_err(|_| database_error("decode-retirement-state"))?,
+        )
+    } else {
+        None
+    };
+    Ok(Ok((removed, original_state)))
+}
+
+/// Delete the generation row, which `target` names as `index_generations`,
+/// inside a savepoint with its own short deadline, clamped to the enclosing
+/// transaction's remaining time. `None` means the row was deferred: either too
+/// little time remained to attempt it, or only the cascade checks' statement
+/// deadline expired and the savepoint rolled back so child rows deleted earlier
+/// in this transaction still commit. Every other failure aborts the
+/// transaction as before.
+async fn delete_parent_bounded(
+    connection: &mut sqlx_postgres::PgConnection,
+    target: DrainTarget<'_, '_>,
+    limit: u64,
+) -> Result<Option<(u64, Option<String>)>, GenerationRetentionError> {
+    const QUERY_CANCELED: &str = "57014";
+    let context = target.context;
+    let Some(budget) = parent_delete_budget(remaining_until(context.batch_deadline)) else {
+        return Ok(None);
+    };
+    query("SAVEPOINT cartograph_retention_parent")
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| database_error("parent-savepoint"))?;
+    crate::database::set_local_statement_timeout(connection, budget)
+        .await
+        .map_err(|()| GenerationRetentionError::InvalidPolicy)?;
+    match sweep_statement(connection, target, limit).await? {
+        Ok(result) => {
+            query("RELEASE SAVEPOINT cartograph_retention_parent")
+                .execute(&mut *connection)
                 .await
-                .map_err(|_| database_error("drain-generation-rows"))?;
-            let removed = super::read_named_count(&row, "removed")?;
-            self.rows += removed;
-            if table == "document_embeddings" {
-                self.removed.embeddings += removed;
-            }
-            if table == "index_generations" && removed > 0 {
-                let state = row
-                    .try_get::<String, _>("original_state")
-                    .map_err(|_| database_error("decode-retirement-state"))?;
-                match state.as_str() {
-                    "staging" => self.removed.staging += removed,
-                    "ready" => self.removed.ready += removed,
-                    "superseded" => self.removed.superseded += removed,
-                    "failed" => self.removed.failed += removed,
-                    _ => return Err(database_error("invalid-retirement-state")),
-                }
-            }
+                .map_err(|_| database_error("parent-savepoint"))?;
+            // Released savepoints keep their setting; restore the time that is
+            // actually left rather than the transaction's original budget.
+            let remaining = remaining_until(context.batch_deadline)
+                .unwrap_or(PARENT_DELETE_TIMEOUT)
+                .max(Duration::from_millis(1));
+            crate::database::set_local_statement_timeout(connection, remaining)
+                .await
+                .map_err(|()| database_error("restore-parent-deadline"))?;
+            Ok(Some(result))
         }
-        Ok(())
+        Err(error)
+            if error
+                .as_database_error()
+                .and_then(sqlx_core::error::DatabaseError::code)
+                .is_some_and(|code| code == QUERY_CANCELED) =>
+        {
+            // Rolling back to the savepoint also restores the transaction deadline.
+            query("ROLLBACK TO SAVEPOINT cartograph_retention_parent")
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| database_error("parent-savepoint"))?;
+            Ok(None)
+        }
+        Err(_) => Err(database_error("drain-generation-rows")),
     }
 }
 
@@ -410,5 +842,29 @@ pub(super) async fn verify_delete_order(
         Ok(())
     } else {
         Err(database_error("cascade-catalog-mismatch"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parent_budget_keeps_commit_time_and_defers_when_the_batch_is_nearly_spent() {
+        assert_eq!(parent_delete_budget(None), Some(PARENT_DELETE_TIMEOUT));
+        assert_eq!(
+            parent_delete_budget(Some(Duration::from_secs(10))),
+            Some(PARENT_DELETE_TIMEOUT)
+        );
+        assert_eq!(
+            parent_delete_budget(Some(Duration::from_millis(2_500))),
+            Some(Duration::from_millis(1_000))
+        );
+        assert_eq!(
+            parent_delete_budget(Some(Duration::from_millis(1_749))),
+            None,
+            "an attempt that would leave under the commit reserve is deferred"
+        );
+        assert_eq!(parent_delete_budget(Some(Duration::ZERO)), None);
     }
 }

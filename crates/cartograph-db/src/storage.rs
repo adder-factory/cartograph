@@ -592,11 +592,11 @@ async fn load_generation_storage(
                     count(*) FILTER (WHERE state = 'retiring')::bigint AS retiring,
                     GREATEST(COALESCE(extract(epoch FROM clock_timestamp() -
                         min(started_at) FILTER (WHERE state IN ('failed', 'superseded', 'retiring')))::bigint, 0), 0) AS oldest_terminal_age_seconds,
-                COALESCE((
-                    SELECT sum(files.byte_size)::bigint
-                    FROM {schema}."files" AS files
-                    WHERE files.project_id = $1::uuid
-                ), 0)::bigint AS source_bytes,
+                COALESCE(sum(COALESCE(CASE WHEN state IN ('ready', 'current', 'superseded') THEN fact_source_bytes END, (
+                    SELECT sum(files.byte_size) FROM {schema}."files" AS files
+                    WHERE files.project_id = index_generations.project_id
+                      AND files.generation_id = index_generations.generation_id
+                )))::bigint, 0)::bigint AS source_bytes,
                 COALESCE((
                     SELECT sum(pg_total_relation_size(tables.oid))::bigint
                     FROM {schema}."generation_search_relations" AS relations

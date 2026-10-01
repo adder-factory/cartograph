@@ -11,6 +11,7 @@ release. Published binaries, signed tags, checksums, and provenance remain on
 
 ## Versioned notes
 
+- [v2.1.33](releases/v2.1.33.md)
 - [v2.1.32](releases/v2.1.32.md)
 - [v2.1.31](releases/v2.1.31.md)
 - [v2.1.30](releases/v2.1.30.md)

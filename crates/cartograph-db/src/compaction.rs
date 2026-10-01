@@ -22,6 +22,8 @@ const MAXIMUM_HEAP_COMPACTION_RELATIONS: u16 = 32;
 const AUTOMATIC_HEAP_COMPACTION_RELATIONS: u16 = 8;
 const AUTOMATIC_MINIMUM_RECLAIMABLE_BYTES: u64 = 64 * 1024 * 1024;
 const HEAP_HEADROOM_ALLOWANCE_BYTES: u64 = 64 * 1024 * 1024;
+/// PostgreSQL's B-tree build fill factor for leaf pages when an index sets none.
+const BTREE_DEFAULT_FILLFACTOR: f64 = 90.0;
 const HEAP_COMPACTION_TABLES: &[&str] = &[
     "agent_artifacts",
     "document_embeddings",
@@ -61,6 +63,10 @@ pub struct StorageCompactionCandidate {
     pub table: String,
     /// Allocated byte size.
     pub bytes: u64,
+    /// Bytes a rebuild is expected to return: leaf pages above the density a
+    /// rebuild packs to, plus empty and deleted pages. `None` when
+    /// `pgstattuple` is unavailable and selection fell back to size alone.
+    pub estimated_reclaimable_bytes: Option<u64>,
 }
 
 /// Invalid concurrent-reindex artifact that requires operator review. Cartograph
@@ -87,6 +93,7 @@ pub struct StorageCompactionPolicy {
     maximum_indexes: u16,
     maximum_candidate_bytes: u64,
     minimum_index_bytes: u64,
+    minimum_reclaimable_bytes: u64,
     statement_timeout: Duration,
 }
 
@@ -99,6 +106,8 @@ pub struct StorageCompactionPolicyInput {
     pub maximum_candidate_bytes: u64,
     /// Number of bytes used by the minimum index.
     pub minimum_index_bytes: u64,
+    /// Minimum estimated reclaimable bytes for one measured index.
+    pub minimum_reclaimable_bytes: u64,
     /// Statement timeout for this record.
     pub statement_timeout: Duration,
 }
@@ -108,8 +117,9 @@ impl StorageCompactionPolicy {
     ///
     /// # Errors
     ///
-    /// Returns an error if index-count, candidate-byte, minimum-size, or
-    /// statement-timeout bounds are zero, inconsistent, or above their maxima.
+    /// Returns an error if index-count, candidate-byte, minimum-size,
+    /// minimum-reclaim, or statement-timeout bounds are zero, inconsistent, or
+    /// above their maxima.
     pub fn new(input: StorageCompactionPolicyInput) -> Result<Self, StorageCompactionError> {
         if input.maximum_indexes == 0 || input.maximum_indexes > MAXIMUM_COMPACTION_INDEXES {
             return Err(StorageCompactionError::InvalidPolicy);
@@ -124,6 +134,11 @@ impl StorageCompactionPolicy {
         {
             return Err(StorageCompactionError::InvalidPolicy);
         }
+        if input.minimum_reclaimable_bytes == 0
+            || input.minimum_reclaimable_bytes > input.maximum_candidate_bytes
+        {
+            return Err(StorageCompactionError::InvalidPolicy);
+        }
         if input.statement_timeout.is_zero() || input.statement_timeout > MAXIMUM_STATEMENT_TIMEOUT
         {
             return Err(StorageCompactionError::InvalidPolicy);
@@ -132,6 +147,7 @@ impl StorageCompactionPolicy {
             maximum_indexes: input.maximum_indexes,
             maximum_candidate_bytes: input.maximum_candidate_bytes,
             minimum_index_bytes: input.minimum_index_bytes,
+            minimum_reclaimable_bytes: input.minimum_reclaimable_bytes,
             statement_timeout: input.statement_timeout,
         })
     }
@@ -143,6 +159,7 @@ impl StorageCompactionPolicy {
             maximum_indexes: AUTOMATIC_MAXIMUM_INDEXES,
             maximum_candidate_bytes: AUTOMATIC_MAXIMUM_CANDIDATE_BYTES,
             minimum_index_bytes: AUTOMATIC_MINIMUM_INDEX_BYTES,
+            minimum_reclaimable_bytes: AUTOMATIC_MINIMUM_RECLAIMABLE_BYTES,
             statement_timeout: AUTOMATIC_STATEMENT_TIMEOUT,
         }
     }
@@ -168,6 +185,11 @@ pub struct StorageCompactionPlan {
     pub invalid_artifacts_truncated: bool,
     /// Number of bytes used by the candidate.
     pub candidate_bytes: u64,
+    /// Aggregate estimated reclaimable bytes, when measured.
+    pub estimated_reclaimable_bytes: Option<u64>,
+    /// Whether leaf density was measured with `pgstattuple`. Without it,
+    /// candidates are selected by size alone and may already be compact.
+    pub reclaim_measured: bool,
     /// Number of bytes used by the required headroom.
     pub required_headroom_bytes: u64,
     /// Whether additional matching rows were omitted.
@@ -188,7 +210,10 @@ pub struct HeapCompactionCandidate {
     pub dead_tuple_bytes: u64,
     /// Approximate reusable free bytes within the heap.
     pub free_bytes: u64,
-    /// Conservative heap bytes potentially returned by a rewrite.
+    /// Estimated heap and TOAST bytes after a rewrite packs the live tuples.
+    pub estimated_rewritten_bytes: u64,
+    /// Heap bytes a rewrite is expected to return: current pages beyond the
+    /// packed estimate, capped by the measured dead and free bytes.
     pub estimated_reclaimable_bytes: u64,
 }
 
@@ -368,6 +393,14 @@ pub enum StorageCompactionError {
     #[error("Cartograph heap compaction is blocked by active project operations")]
     /// A live operation lease protects relations from exclusive maintenance.
     LiveOperations,
+    #[error("Cartograph compaction measurement exceeded its deadline; raise --timeout-seconds")]
+    /// Measuring index or heap reclaim did not finish within the policy deadline.
+    MeasurementTimedOut,
+    #[error(
+        "Cartograph compaction measurement is not permitted; grant pg_stat_scan_tables to the database role"
+    )]
+    /// The database role cannot execute the `pgstattuple` measurement functions.
+    MeasurementNotPermitted,
     #[error("Cartograph PostgreSQL compaction failed during {operation}")]
     /// PostgreSQL could not complete the named operation.
     DatabaseOperation {
@@ -784,14 +817,13 @@ fn sum_candidate_bytes(
     })
 }
 
-async fn load_plan(
-    database: &CartographDatabase,
-    policy: StorageCompactionPolicy,
-) -> Result<StorageCompactionPlan, StorageCompactionError> {
-    let statement = r"SELECT indexes.relname AS index_name,
+/// Valid, ready, non-exclusion B-trees in the Cartograph schema; `$1` is the
+/// schema and `$2` the minimum allocation.
+const ELIGIBLE_INDEXES: &str = r"SELECT indexes.oid AS index_oid,
+               indexes.relname AS index_name,
                tables.relname AS table_name,
                pg_relation_size(indexes.oid)::bigint AS bytes,
-               count(*) OVER ()::bigint AS total_candidates
+               indexes.reloptions
         FROM pg_catalog.pg_index AS catalog
         INNER JOIN pg_catalog.pg_class AS indexes
             ON indexes.oid = catalog.indexrelid
@@ -805,23 +837,25 @@ async fn load_plan(
             ON constraints.conindid = indexes.oid
            AND constraints.contype = 'x'
         WHERE namespaces.nspname = $1
+          AND indexes.relkind = 'i'
           AND methods.amname = 'btree'
           AND catalog.indisvalid
           AND catalog.indisready
           AND constraints.oid IS NULL
-          AND pg_relation_size(indexes.oid) >= $2
-        ORDER BY bytes DESC, indexes.relname
-        LIMIT $3";
-    let rows = query(statement)
-        .bind(database.schema.as_str())
-        .bind(
-            i64::try_from(policy.minimum_index_bytes)
-                .map_err(|_| StorageCompactionError::InvalidPolicy)?,
-        )
-        .bind(i64::from(policy.maximum_indexes) + 1)
-        .fetch_all(&database.pool)
-        .await
-        .map_err(|_| database_error("plan-candidates"))?;
+          AND pg_relation_size(indexes.oid) >= $2";
+
+async fn load_plan(
+    database: &CartographDatabase,
+    policy: StorageCompactionPolicy,
+) -> Result<StorageCompactionPlan, StorageCompactionError> {
+    let extension_schema = optional_pgstattuple_schema(database).await?;
+    let reclaim_measured = extension_schema.is_some();
+    let rows = match extension_schema {
+        Some(extension_schema) => {
+            load_measured_index_rows(database, policy, &extension_schema).await?
+        }
+        None => load_sized_index_rows(database, policy).await?,
+    };
     let total_candidates = rows
         .first()
         .map(|row| read_nonnegative(row, "total_candidates"))
@@ -829,12 +863,16 @@ async fn load_plan(
         .unwrap_or(0);
     let mut candidates = Vec::new();
     let mut candidate_bytes = 0_u64;
+    let mut estimated_reclaimable_bytes = 0_u64;
     let mut truncated = total_candidates > u64::from(policy.maximum_indexes);
     for row in rows.into_iter().take(usize::from(policy.maximum_indexes)) {
         let candidate = StorageCompactionCandidate {
             index: read_identifier(&row, "index_name")?,
             table: read_identifier(&row, "table_name")?,
             bytes: read_nonnegative(&row, "bytes")?,
+            estimated_reclaimable_bytes: reclaim_measured
+                .then(|| read_nonnegative(&row, "estimated_reclaimable_bytes"))
+                .transpose()?,
         };
         let admitted = candidate_bytes
             .checked_add(candidate.bytes)
@@ -844,6 +882,9 @@ async fn load_plan(
             continue;
         }
         candidate_bytes = admitted;
+        estimated_reclaimable_bytes = estimated_reclaimable_bytes
+            .checked_add(candidate.estimated_reclaimable_bytes.unwrap_or(0))
+            .ok_or_else(|| corrupt("estimated_reclaimable_bytes"))?;
         candidates.push(candidate);
     }
     let largest = candidates
@@ -866,9 +907,106 @@ async fn load_plan(
         invalid_artifact_total: invalid_artifacts.total,
         invalid_artifacts_truncated: invalid_artifacts.truncated,
         candidate_bytes,
+        estimated_reclaimable_bytes: reclaim_measured.then_some(estimated_reclaimable_bytes),
+        reclaim_measured,
         required_headroom_bytes,
         truncated,
     })
+}
+
+/// Size-only selection for PostgreSQL without `pgstattuple`.
+async fn load_sized_index_rows(
+    database: &CartographDatabase,
+    policy: StorageCompactionPolicy,
+) -> Result<Vec<sqlx_postgres::PgRow>, StorageCompactionError> {
+    let statement = format!(
+        r"WITH eligible AS ({ELIGIBLE_INDEXES})
+        SELECT index_name, table_name, bytes, count(*) OVER ()::bigint AS total_candidates
+        FROM eligible
+        ORDER BY bytes DESC, index_name
+        LIMIT $3"
+    );
+    query(AssertSqlSafe(statement))
+        .bind(database.schema.as_str())
+        .bind(bytes_parameter(policy.minimum_index_bytes)?)
+        .bind(i64::from(policy.maximum_indexes) + 1)
+        .fetch_all(&database.pool)
+        .await
+        .map_err(|_| database_error("plan-candidates"))
+}
+
+/// Measure every index that could meet the reclaim threshold with
+/// `pgstatindex`, which reads the whole index, under the policy's deadline.
+/// A rebuild packs leaf pages to the index fill factor and drops empty and
+/// deleted pages; internal pages are ignored, so the estimate is conservative.
+async fn load_measured_index_rows(
+    database: &CartographDatabase,
+    policy: StorageCompactionPolicy,
+    extension_schema: &str,
+) -> Result<Vec<sqlx_postgres::PgRow>, StorageCompactionError> {
+    let extension_schema = quote_valid_identifier(extension_schema)?;
+    let statement = format!(
+        r#"WITH eligible AS ({ELIGIBLE_INDEXES}),
+        measured AS (
+            SELECT eligible.index_name,
+                   eligible.table_name,
+                   eligible.bytes,
+                   (CASE WHEN statistics.leaf_pages = 0
+                              OR statistics.avg_leaf_density = 'NaN'::float8
+                         THEN 0
+                         ELSE GREATEST(statistics.leaf_pages - ceil(
+                                  statistics.leaf_pages * statistics.avg_leaf_density
+                                  / COALESCE((
+                                        SELECT options.option_value::float8
+                                        FROM pg_catalog.pg_options_to_table(eligible.reloptions)
+                                            AS options
+                                        WHERE options.option_name = 'fillfactor'
+                                    ), $5))::bigint, 0)
+                    END + statistics.empty_pages + statistics.deleted_pages)
+                   * current_setting('block_size')::bigint AS estimated_reclaimable_bytes
+            FROM eligible
+            CROSS JOIN LATERAL {extension_schema}."pgstatindex"(eligible.index_oid::regclass)
+                AS statistics
+        )
+        SELECT index_name, table_name, bytes, estimated_reclaimable_bytes,
+               count(*) OVER ()::bigint AS total_candidates
+        FROM measured
+        WHERE estimated_reclaimable_bytes >= $4
+        ORDER BY estimated_reclaimable_bytes DESC, index_name
+        LIMIT $3"#
+    );
+    let mut transaction = database
+        .pool
+        .begin()
+        .await
+        .map_err(|_| database_error("plan-begin"))?;
+    crate::database::set_local_statement_timeout(&mut transaction, policy.statement_timeout)
+        .await
+        .map_err(|()| StorageCompactionError::InvalidPolicy)?;
+    // An index smaller than the reclaim threshold can never meet it, so it is
+    // not read at all.
+    let rows = query(AssertSqlSafe(statement))
+        .bind(database.schema.as_str())
+        .bind(bytes_parameter(
+            policy
+                .minimum_index_bytes
+                .max(policy.minimum_reclaimable_bytes),
+        )?)
+        .bind(i64::from(policy.maximum_indexes) + 1)
+        .bind(bytes_parameter(policy.minimum_reclaimable_bytes)?)
+        .bind(BTREE_DEFAULT_FILLFACTOR)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|error| measurement_error(&error, "plan-measure-candidates"))?;
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| database_error("plan-rollback"))?;
+    Ok(rows)
+}
+
+fn bytes_parameter(bytes: u64) -> Result<i64, StorageCompactionError> {
+    i64::try_from(bytes).map_err(|_| StorageCompactionError::InvalidPolicy)
 }
 
 async fn load_invalid_artifacts(
@@ -963,17 +1101,26 @@ async fn load_heap_plan(
     assemble_heap_plan(rows, policy)
 }
 
-async fn load_heap_candidate_rows(
-    database: &CartographDatabase,
-    policy: HeapCompactionPolicy,
-) -> Result<Vec<sqlx_postgres::PgRow>, StorageCompactionError> {
-    let extension_schema = pgstattuple_schema(database).await?;
-    let extension_schema = quote_valid_identifier(&extension_schema)?;
-    let statement = format!(
+/// Measured heap and TOAST reclaim for the allowlisted tables. `$1` is the
+/// schema, `$2` the allowlist, `$3` the reclaim threshold and `$4` the limit.
+///
+/// A rewrite packs live tuples at the table fill factor, so its size is the
+/// live tuple count over the tuples that fit on one page (average tuple plus
+/// line pointer and alignment, capped at PostgreSQL's per-page tuple limit).
+/// TOAST always fits at least four chunks per page, which the approximate
+/// average length understates. Free space inside that packed layout is not
+/// reclaimable.
+fn heap_plan_statement(extension_schema: &str) -> String {
+    format!(
         r#"WITH parents AS (
                SELECT classes.oid AS parent_oid,
                       classes.reltoastrelid AS toast_oid,
-                      classes.relname AS table_name
+                      classes.relname AS table_name,
+                      COALESCE((
+                          SELECT options.option_value::float8
+                          FROM pg_catalog.pg_options_to_table(classes.reloptions) AS options
+                          WHERE options.option_name = 'fillfactor'
+                      ), 100) AS fillfactor
                FROM pg_catalog.pg_class AS classes
                INNER JOIN pg_catalog.pg_namespace AS namespaces
                    ON namespaces.oid = classes.relnamespace
@@ -981,28 +1128,57 @@ async fn load_heap_candidate_rows(
                  AND classes.relkind = 'r'
                  AND classes.relname = ANY($2::text[])
            ), forks AS (
-               SELECT parent_oid, parent_oid AS fork_oid FROM parents
+               SELECT parent_oid, parent_oid AS fork_oid, fillfactor, 1 AS minimum_per_page
+               FROM parents
                UNION ALL
-               SELECT parent_oid, toast_oid AS fork_oid
+               SELECT parent_oid, toast_oid AS fork_oid, 100 AS fillfactor, 4 AS minimum_per_page
                FROM parents WHERE toast_oid <> 0
-           ), fork_statistics AS (
+           ), fork_measurements AS (
                SELECT forks.parent_oid,
-                      sum(pg_relation_size(forks.fork_oid))::bigint AS heap_bytes,
-                      sum(statistics.dead_tuple_len)::bigint AS dead_tuple_bytes,
-                      sum(statistics.approx_free_space)::bigint AS free_bytes
+                      pg_relation_size(forks.fork_oid)::bigint AS fork_bytes,
+                      statistics.dead_tuple_len::bigint AS dead_tuple_bytes,
+                      statistics.approx_free_space::bigint AS free_bytes,
+                      statistics.approx_tuple_count::float8 AS tuple_count,
+                      statistics.approx_tuple_len::float8 AS tuple_bytes,
+                      forks.fillfactor,
+                      forks.minimum_per_page,
+                      current_setting('block_size')::float8 AS block_bytes
                FROM forks
                CROSS JOIN LATERAL {extension_schema}."pgstattuple_approx"(forks.fork_oid)
                    AS statistics
-               GROUP BY forks.parent_oid
+           ), fork_estimates AS (
+               SELECT parent_oid,
+                      fork_bytes,
+                      dead_tuple_bytes,
+                      free_bytes,
+                      LEAST(fork_bytes, CASE WHEN tuple_count = 0 THEN 0
+                          ELSE (ceil(tuple_count / LEAST(
+                                   floor((block_bytes - 24) / 28),
+                                   GREATEST(minimum_per_page, floor(
+                                       (block_bytes - 24 - block_bytes * (100 - fillfactor) / 100)
+                                       / (tuple_bytes / tuple_count + 8)))
+                               )) * block_bytes)::bigint
+                      END) AS rewritten_bytes
+               FROM fork_measurements
+           ), fork_statistics AS (
+               SELECT parent_oid,
+                      sum(fork_bytes)::bigint AS heap_bytes,
+                      sum(dead_tuple_bytes)::bigint AS dead_tuple_bytes,
+                      sum(free_bytes)::bigint AS free_bytes,
+                      sum(rewritten_bytes)::bigint AS rewritten_bytes,
+                      sum(LEAST(fork_bytes - rewritten_bytes,
+                                dead_tuple_bytes + free_bytes))::bigint
+                          AS estimated_reclaimable_bytes
+               FROM fork_estimates
+               GROUP BY parent_oid
            ), measured AS (
                SELECT parents.table_name,
                       fork_statistics.heap_bytes,
                       pg_total_relation_size(parents.parent_oid)::bigint AS total_bytes,
                       fork_statistics.dead_tuple_bytes,
                       fork_statistics.free_bytes,
-                      (fork_statistics.dead_tuple_bytes
-                          + fork_statistics.free_bytes)::bigint
-                          AS estimated_reclaimable_bytes
+                      fork_statistics.rewritten_bytes,
+                      fork_statistics.estimated_reclaimable_bytes
                FROM parents
                INNER JOIN fork_statistics
                    ON fork_statistics.parent_oid = parents.parent_oid
@@ -1012,13 +1188,22 @@ async fn load_heap_candidate_rows(
                   measured.total_bytes,
                   measured.dead_tuple_bytes,
                   measured.free_bytes,
+                  measured.rewritten_bytes,
                   measured.estimated_reclaimable_bytes,
                   count(*) OVER ()::bigint AS total_candidates
            FROM measured
            WHERE measured.estimated_reclaimable_bytes >= $3
            ORDER BY measured.estimated_reclaimable_bytes DESC, measured.table_name
            LIMIT $4"#
-    );
+    )
+}
+
+async fn load_heap_candidate_rows(
+    database: &CartographDatabase,
+    policy: HeapCompactionPolicy,
+) -> Result<Vec<sqlx_postgres::PgRow>, StorageCompactionError> {
+    let extension_schema = pgstattuple_schema(database).await?;
+    let statement = heap_plan_statement(&quote_valid_identifier(&extension_schema)?);
     let allowlist = HEAP_COMPACTION_TABLES
         .iter()
         .map(|table| (*table).to_owned())
@@ -1033,7 +1218,7 @@ async fn load_heap_candidate_rows(
         .bind(i64::from(policy.maximum_relations) + 1)
         .fetch_all(&database.pool)
         .await
-        .map_err(|_| database_error("heap-plan"))
+        .map_err(|error| measurement_error(&error, "heap-plan"))
 }
 
 fn assemble_heap_plan(
@@ -1056,6 +1241,7 @@ fn assemble_heap_plan(
             total_bytes: read_nonnegative(&row, "total_bytes")?,
             dead_tuple_bytes: read_nonnegative(&row, "dead_tuple_bytes")?,
             free_bytes: read_nonnegative(&row, "free_bytes")?,
+            estimated_rewritten_bytes: read_nonnegative(&row, "rewritten_bytes")?,
             estimated_reclaimable_bytes: read_nonnegative(&row, "estimated_reclaimable_bytes")?,
         };
         if !heap_table_allowed(&candidate.table) {
@@ -1098,6 +1284,14 @@ fn assemble_heap_plan(
 async fn pgstattuple_schema(
     database: &CartographDatabase,
 ) -> Result<String, StorageCompactionError> {
+    optional_pgstattuple_schema(database)
+        .await?
+        .ok_or(StorageCompactionError::HeapMeasurementUnavailable)
+}
+
+async fn optional_pgstattuple_schema(
+    database: &CartographDatabase,
+) -> Result<Option<String>, StorageCompactionError> {
     let row = query(
         r"SELECT namespaces.nspname
            FROM pg_catalog.pg_extension AS extensions
@@ -1107,9 +1301,8 @@ async fn pgstattuple_schema(
     )
     .fetch_optional(&database.pool)
     .await
-    .map_err(|_| database_error("heap-extension"))?
-    .ok_or(StorageCompactionError::HeapMeasurementUnavailable)?;
-    read_identifier(&row, "nspname")
+    .map_err(|_| database_error("pgstattuple-extension"))?;
+    row.map(|row| read_identifier(&row, "nspname")).transpose()
 }
 
 fn quote_valid_identifier(value: &str) -> Result<String, StorageCompactionError> {
@@ -1192,6 +1385,7 @@ fn validate_policy(policy: StorageCompactionPolicy) -> Result<(), StorageCompact
         maximum_indexes: policy.maximum_indexes,
         maximum_candidate_bytes: policy.maximum_candidate_bytes,
         minimum_index_bytes: policy.minimum_index_bytes,
+        minimum_reclaimable_bytes: policy.minimum_reclaimable_bytes,
         statement_timeout: policy.statement_timeout,
     })
     .map(|_| ())
@@ -1225,6 +1419,20 @@ fn read_nonnegative(
         .ok_or_else(|| corrupt(field))
 }
 
+/// Separate the two measurement failures an operator can act on from other
+/// database errors: the policy deadline and a missing statistics grant.
+fn measurement_error(error: &sqlx_core::Error, operation: &'static str) -> StorageCompactionError {
+    match error
+        .as_database_error()
+        .and_then(sqlx_core::error::DatabaseError::code)
+        .as_deref()
+    {
+        Some("57014") => StorageCompactionError::MeasurementTimedOut,
+        Some("42501") => StorageCompactionError::MeasurementNotPermitted,
+        _ => database_error(operation),
+    }
+}
+
 const fn database_error(operation: &'static str) -> StorageCompactionError {
     StorageCompactionError::DatabaseOperation { operation }
 }
@@ -1244,6 +1452,7 @@ mod tests {
                 maximum_indexes: 0,
                 maximum_candidate_bytes: 1,
                 minimum_index_bytes: 1,
+                minimum_reclaimable_bytes: 1,
                 statement_timeout: Duration::from_secs(1),
             })
             .is_err()
@@ -1253,10 +1462,23 @@ mod tests {
                 maximum_indexes: 1,
                 maximum_candidate_bytes: 2,
                 minimum_index_bytes: 1,
+                minimum_reclaimable_bytes: 1,
                 statement_timeout: Duration::from_secs(1),
             })
             .is_err()
         );
+        let bounded = |minimum_reclaimable_bytes| {
+            StorageCompactionPolicy::new(StorageCompactionPolicyInput {
+                maximum_indexes: 1,
+                maximum_candidate_bytes: 2 * MINIMUM_INDEX_BYTES,
+                minimum_index_bytes: MINIMUM_INDEX_BYTES,
+                minimum_reclaimable_bytes,
+                statement_timeout: Duration::from_secs(1),
+            })
+        };
+        assert!(bounded(1).is_ok());
+        assert!(bounded(0).is_err());
+        assert!(bounded(2 * MINIMUM_INDEX_BYTES + 1).is_err());
         assert!(valid_identifier("references_exact_name_site_idx"));
         assert!(!valid_identifier("public.references_idx"));
         assert!(!valid_identifier("unsafe\"identifier"));

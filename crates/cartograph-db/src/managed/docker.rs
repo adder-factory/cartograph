@@ -29,9 +29,6 @@ const ROLLBACK_STOP_POLICY: StopPolicy = StopPolicy {
 const DATABASE_USER: &str = "cartograph";
 const DATABASE_NAME: &str = "cartograph";
 const MAINTENANCE_DATABASE_NAME: &str = "postgres";
-// The application pool is capped at 64 per process. Leave regular-backend
-// headroom for a concurrent MCP/CLI process and PostgreSQL's reserved slots.
-const MANAGED_DATABASE_MAX_CONNECTIONS: u16 = 96;
 const CONTAINER_PASSWORD_PATH: &str = "/tmp/cartograph-postgres-password";
 const DATABASE_DATA_PATH: &str = "/var/lib/postgresql";
 const INSPECT_TEMPLATE: &str = concat!(
@@ -48,7 +45,8 @@ const INSPECT_TEMPLATE: &str = concat!(
     "{{.HostConfig.MemoryReservation}}\t",
     "{{.HostConfig.NanoCpus}}\t",
     "{{with .HostConfig.PidsLimit}}{{.}}{{else}}0{{end}}\t",
-    "{{json .Mounts}}"
+    "{{json .Mounts}}\t",
+    "{{json .Config.Cmd}}"
 );
 const VOLUME_INSPECT_TEMPLATE: &str = concat!(
     "{{index .Labels \"io.cartograph.managed\"}}\t",
@@ -90,6 +88,8 @@ pub(super) struct ContainerInspection {
     pub(super) nano_cpus: u64,
     pub(super) pids_limit: i64,
     pub(super) data_mount: Option<ContainerMountInspection>,
+    /// Container command, including the PostgreSQL server settings.
+    pub(super) command: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -108,6 +108,80 @@ pub(super) struct ContainerCreateSpec<'a> {
     pub(super) identity: &'a ManagedResourceIdentity,
     pub(super) port: u16,
     pub(super) image: &'a str,
+    /// Container command; production passes [`postgres_command`].
+    pub(super) command: &'a [String],
+}
+
+/// PostgreSQL server settings on the managed container's command line.
+///
+/// WAL left after a busy period tracks `max_wal_size`, and an idle database
+/// does not checkpoint it away, so the cap is also each project's steady-state
+/// WAL footprint. 2 GB halves the earlier 4 GB ceiling; lz4 compression offsets
+/// the extra full-page images a smaller cap causes (15-25% less WAL once
+/// checkpoints fall inside an index run).
+const POSTGRES_SETTINGS: [&str; 13] = [
+    "shared_buffers=256MB",
+    "effective_cache_size=1GB",
+    "maintenance_work_mem=128MB",
+    "autovacuum_work_mem=64MB",
+    "work_mem=4MB",
+    "checkpoint_timeout=15min",
+    "max_wal_size=2GB",
+    "min_wal_size=256MB",
+    "wal_compression=lz4",
+    // The application pool is capped at 64 per process. Leave regular-backend
+    // headroom for a concurrent MCP/CLI process and PostgreSQL's reserved slots.
+    "max_connections=96",
+    "max_worker_processes=16",
+    "max_parallel_workers=4",
+    "max_parallel_maintenance_workers=2",
+];
+
+/// The command a supported managed container runs.
+pub(super) fn postgres_command() -> Vec<String> {
+    std::iter::once("postgres".to_owned())
+        .chain(
+            POSTGRES_SETTINGS
+                .iter()
+                .flat_map(|setting| ["-c".to_owned(), (*setting).to_owned()]),
+        )
+        .collect()
+}
+
+/// The command v2.1.32 created containers with, before the WAL change.
+#[cfg(test)]
+pub(super) const LEGACY_POSTGRES_COMMAND: [&str; 25] = [
+    "postgres",
+    "-c",
+    "shared_buffers=256MB",
+    "-c",
+    "effective_cache_size=1GB",
+    "-c",
+    "maintenance_work_mem=128MB",
+    "-c",
+    "autovacuum_work_mem=64MB",
+    "-c",
+    "work_mem=4MB",
+    "-c",
+    "checkpoint_timeout=15min",
+    "-c",
+    "max_wal_size=4GB",
+    "-c",
+    "min_wal_size=512MB",
+    "-c",
+    "max_connections=96",
+    "-c",
+    "max_worker_processes=16",
+    "-c",
+    "max_parallel_workers=4",
+    "-c",
+    "max_parallel_maintenance_workers=2",
+];
+
+/// Whether the container runs the current PostgreSQL settings. Older
+/// containers keep working; `db upgrade` recreates them with these settings.
+pub(super) fn has_current_postgres_settings(inspection: &ContainerInspection) -> bool {
+    inspection.command == postgres_command()
 }
 
 struct CommandOutput {
@@ -1045,33 +1119,9 @@ fn create_container_arguments(spec: &ContainerCreateSpec<'_>) -> Vec<OsString> {
         "--restart".to_owned(),
         "unless-stopped".to_owned(),
         spec.image.to_owned(),
-        "postgres".to_owned(),
-        "-c".to_owned(),
-        "shared_buffers=256MB".to_owned(),
-        "-c".to_owned(),
-        "effective_cache_size=1GB".to_owned(),
-        "-c".to_owned(),
-        "maintenance_work_mem=128MB".to_owned(),
-        "-c".to_owned(),
-        "autovacuum_work_mem=64MB".to_owned(),
-        "-c".to_owned(),
-        "work_mem=4MB".to_owned(),
-        "-c".to_owned(),
-        "checkpoint_timeout=15min".to_owned(),
-        "-c".to_owned(),
-        "max_wal_size=4GB".to_owned(),
-        "-c".to_owned(),
-        "min_wal_size=512MB".to_owned(),
-        "-c".to_owned(),
-        format!("max_connections={MANAGED_DATABASE_MAX_CONNECTIONS}"),
-        "-c".to_owned(),
-        "max_worker_processes=16".to_owned(),
-        "-c".to_owned(),
-        "max_parallel_workers=4".to_owned(),
-        "-c".to_owned(),
-        "max_parallel_maintenance_workers=2".to_owned(),
     ]
     .into_iter()
+    .chain(spec.command.iter().cloned())
     .map(OsString::from)
     .collect()
 }
@@ -1105,10 +1155,16 @@ fn parse_container_inspection(value: &str) -> Result<ContainerInspection, Manage
         nano_cpus,
         pids_limit,
         mounts,
+        command,
     ] = fields.as_slice()
     else {
         return Err(ManagedDatabaseError::DockerResponse);
     };
+    // Docker prints `null` for a container created without a command; that
+    // simply is not the current command.
+    let command: Vec<String> = serde_json::from_str::<Option<Vec<String>>>(command)
+        .map_err(|_| ManagedDatabaseError::DockerResponse)?
+        .unwrap_or_default();
     let mounts: Vec<ContainerMountInspection> =
         serde_json::from_str(mounts).map_err(|_| ManagedDatabaseError::DockerResponse)?;
     let shared_memory_bytes = shared_memory_bytes
@@ -1147,6 +1203,7 @@ fn parse_container_inspection(value: &str) -> Result<ContainerInspection, Manage
         nano_cpus,
         pids_limit,
         data_mount,
+        command,
     })
 }
 
@@ -1206,10 +1263,12 @@ mod tests {
     #[test]
     fn create_arguments_publish_only_loopback_and_keep_secret_out_of_process_args() {
         let identity = identity();
+        let command = postgres_command();
         let args = create_container_arguments(&ContainerCreateSpec {
             identity: &identity,
             port: 55_432,
             image: "paradedb/example@sha256:digest",
+            command: &command,
         });
         let rendered: Vec<_> = args.iter().map(|arg| arg.to_string_lossy()).collect();
 
@@ -1254,8 +1313,9 @@ mod tests {
             "autovacuum_work_mem=64MB",
             "work_mem=4MB",
             "checkpoint_timeout=15min",
-            "max_wal_size=4GB",
-            "min_wal_size=512MB",
+            "max_wal_size=2GB",
+            "min_wal_size=256MB",
+            "wal_compression=lz4",
             "max_connections=96",
             "max_worker_processes=16",
             "max_parallel_workers=4",
@@ -1302,7 +1362,7 @@ mod tests {
                 "CREATE EXTENSION IF NOT EXISTS vector;",
                 "ALTER EXTENSION vector UPDATE TO '0.8.4';",
                 "CREATE EXTENSION IF NOT EXISTS pg_search;",
-                "ALTER EXTENSION pg_search UPDATE TO '0.25.10';",
+                "ALTER EXTENSION pg_search UPDATE TO '0.25.11';",
                 "CREATE EXTENSION IF NOT EXISTS pgstattuple;",
             ]
         );
@@ -1311,7 +1371,7 @@ mod tests {
     #[test]
     fn inspection_parser_preserves_owner_state_health_and_image() {
         let parsed = parse_container_inspection(
-            "true\t0123456789abcdef\trunning\thealthy\tparadedb/example@sha256:digest\t127.0.0.1\t55432\t268435456\t2147483648\t1073741824\t4000000000\t256\t[{\"Type\":\"volume\",\"Name\":\"cartograph-v2-0123456789abcdef-data\",\"Destination\":\"/var/lib/postgresql\",\"RW\":true}]",
+            "true\t0123456789abcdef\trunning\thealthy\tparadedb/example@sha256:digest\t127.0.0.1\t55432\t268435456\t2147483648\t1073741824\t4000000000\t256\t[{\"Type\":\"volume\",\"Name\":\"cartograph-v2-0123456789abcdef-data\",\"Destination\":\"/var/lib/postgresql\",\"RW\":true}]\t[\"postgres\",\"-c\",\"max_wal_size=4GB\"]",
         );
         let parsed = match parsed {
             Ok(parsed) => parsed,
@@ -1331,6 +1391,39 @@ mod tests {
         assert_eq!(parsed.nano_cpus, 4_000_000_000);
         assert_eq!(parsed.pids_limit, 256);
         assert!(has_expected_data_mount(&parsed, &identity()));
+        assert_eq!(parsed.command, ["postgres", "-c", "max_wal_size=4GB"]);
+        assert!(!has_current_postgres_settings(&parsed));
+    }
+
+    #[test]
+    fn only_the_current_command_counts_as_current_settings() {
+        let current = postgres_command();
+        // The WAL settings changed; everything else is carried over unchanged.
+        let changed = current
+            .iter()
+            .filter(|argument| !LEGACY_POSTGRES_COMMAND.contains(&argument.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            changed,
+            [
+                "max_wal_size=2GB",
+                "min_wal_size=256MB",
+                "wal_compression=lz4"
+            ]
+        );
+        let with = |command: Vec<String>| {
+            ContainerInspection {
+            command,
+            ..parse_container_inspection(
+                "true\t0123456789abcdef\trunning\thealthy\timage\t127.0.0.1\t55432\t1\t1\t1\t1\t1\t[]\t[]",
+            )
+            .unwrap_or_else(|error| panic!("inspection fixture failed: {error}"))
+        }
+        };
+        assert!(has_current_postgres_settings(&with(current)));
+        assert!(!has_current_postgres_settings(&with(
+            LEGACY_POSTGRES_COMMAND.map(str::to_owned).to_vec()
+        )));
     }
 
     #[test]
@@ -1348,6 +1441,12 @@ mod tests {
             parse_container_inspection("true\tonly-two-fields"),
             Err(ManagedDatabaseError::DockerResponse)
         ));
+        let without_command = parse_container_inspection(
+            "true\t0123456789abcdef\trunning\thealthy\timage\t127.0.0.1\t55432\t1\t1\t1\t1\t1\t[]\tnull",
+        )
+        .unwrap_or_else(|error| panic!("a null command must still parse: {error}"));
+        assert!(without_command.command.is_empty());
+        assert!(!has_current_postgres_settings(&without_command));
     }
 
     #[test]

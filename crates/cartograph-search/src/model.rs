@@ -1765,9 +1765,35 @@ struct EvidenceDetails {
     reference: Option<ReferenceEvidence>,
     #[serde(skip_serializing_if = "Option::is_none")]
     graph: Option<GraphEvidence>,
+    /// Advisory decision-provider probability that reading this candidate
+    /// helps the task; present only on ranked retrieval evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decision_relevance: Option<f64>,
 }
 
 impl EvidenceItem {
+    /// Advisory decision-provider relevance, when the packet was ranked.
+    #[must_use]
+    pub const fn decision_relevance(&self) -> Option<f64> {
+        self.details.decision_relevance
+    }
+
+    /// Whether this item is only a BM25 or semantic retrieval candidate, not an
+    /// exact caller anchor or structural expansion.
+    #[must_use]
+    pub fn is_retrieval_candidate(&self) -> bool {
+        !self.details.reasons.is_empty()
+            && self
+                .details
+                .reasons
+                .iter()
+                .all(|reason| matches!(reason, EvidenceReason::Bm25 | EvidenceReason::Semantic))
+    }
+
+    pub(crate) fn set_decision_relevance(&mut self, relevance: f64) {
+        self.details.decision_relevance = Some(relevance);
+    }
+
     /// Published generation identity.
     #[must_use]
     pub const fn generation_id(&self) -> &GenerationId {
@@ -2287,6 +2313,7 @@ fn evidence_base(
             bm25_components: Vec::new(),
             reference: None,
             graph: None,
+            decision_relevance: None,
         },
     }
 }
@@ -2337,10 +2364,11 @@ const fn search_component(component: LexicalComponent) -> SearchComponent {
 mod packets;
 
 pub use packets::{
-    ContextAbstention, ContextPacket, EditCandidate, EditCandidateBasis, EditCandidateSet,
-    GenerationEvidence, RetrievalConfidence, ReviewAbstention, ReviewBudget, ReviewBudgetInput,
-    ReviewPacket, ReviewRequest, ReviewRequestOptions, ReviewTruncation, WorkingTreeChangeKind,
-    WorkingTreeEvidence, WorkingTreeEvidenceInput, WorkingTreeOverlay, WorkingTreeOverlayInput,
+    ContextAbstention, ContextPacket, DecisionRankEvidence, DecisionRankState, EditCandidate,
+    EditCandidateBasis, EditCandidateSet, GenerationEvidence, RetrievalConfidence,
+    ReviewAbstention, ReviewBudget, ReviewBudgetInput, ReviewPacket, ReviewRequest,
+    ReviewRequestOptions, ReviewTruncation, WorkingTreeChangeKind, WorkingTreeEvidence,
+    WorkingTreeEvidenceInput, WorkingTreeOverlay, WorkingTreeOverlayInput,
     WorkingTreeOverlayStatus,
 };
 pub(crate) use packets::{ContextPacketDetails, EditCandidateInput, ReviewPacketDetails};

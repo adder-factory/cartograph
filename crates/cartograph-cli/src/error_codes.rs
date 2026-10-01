@@ -243,6 +243,7 @@ const fn index_lifecycle_failure_code(error: &ProjectError) -> Option<&'static s
         ProjectError::SourceChangedDuringIndex => Some("source_changed_during_index"),
         ProjectError::IndexFailed => Some("index_failed"),
         ProjectError::IndexLeaseBusy => Some("lease_busy"),
+        ProjectError::IndexRetentionBacklog => Some("retention_backlog"),
         ProjectError::IndexLeaseFailed => Some("lease_failed"),
         ProjectError::IndexPublicationFailed => Some("publication_failed"),
         ProjectError::IndexCleanupFailed => Some("index_cleanup_failed"),
@@ -325,6 +326,7 @@ pub(crate) fn direct_index_failure_json(error: &ProjectError) -> Result<String, 
             | ProjectError::IndexStageFileFailed { .. }
             | ProjectError::IndexLeaseFailed
             | ProjectError::IndexLeaseBusy
+            | ProjectError::IndexRetentionBacklog
             | ProjectError::IndexPublicationFailed
     );
     let capacity = is_generation_capacity_failure(error);

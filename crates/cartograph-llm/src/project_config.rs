@@ -510,6 +510,7 @@ pub struct ProjectLlmTierConfig {
     cli_bridge: Option<CliBridgeConfig>,
     llama_server_args: Vec<String>,
     externally_managed: bool,
+    decision_features: Option<Vec<String>>,
 }
 
 impl std::fmt::Debug for ProjectLlmTierConfig {
@@ -533,6 +534,7 @@ impl std::fmt::Debug for ProjectLlmTierConfig {
             .field("cli_bridge_configured", &self.cli_bridge.is_some())
             .field("llama_server_argument_count", &self.llama_server_args.len())
             .field("externally_managed", &self.externally_managed)
+            .field("decision_features", &self.decision_features)
             .finish()
     }
 }
@@ -623,6 +625,13 @@ impl ProjectLlmTierConfig {
     pub const fn externally_managed(&self) -> bool {
         self.externally_managed
     }
+
+    #[must_use]
+    /// Decision-tier feature names the project allows to consult the provider;
+    /// `None` when the tier does not list them, meaning exploration only.
+    pub fn decision_features(&self) -> Option<&[String]> {
+        self.decision_features.as_deref()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -648,6 +657,7 @@ pub struct ProjectLlmTierInput {
     summary_batch_size: Option<u16>,
     claude_bin: Option<String>,
     cli_bridge: Option<CliBridgeConfig>,
+    decision_features: Option<Vec<String>>,
 }
 
 impl ProjectLlmTierInput {
@@ -681,6 +691,7 @@ impl ProjectLlmTierInput {
             summary_batch_size: None,
             claude_bin: None,
             cli_bridge: None,
+            decision_features: None,
         })
     }
 
@@ -697,6 +708,26 @@ impl ProjectLlmTierInput {
         input.tier = ProjectLlmTier::Decision;
         input.provider = ProjectLlmProvider::Typesafe;
         input.with_api_key_env(api_key_env)
+    }
+
+    /// Replace the decision tier's provider feature allowlist, for example
+    /// `["explore", "context"]`. Other tiers reject a feature list.
+    /// # Errors
+    ///
+    /// Returns an error for a non-decision tier or an invalid feature name.
+    pub fn with_decision_features(
+        mut self,
+        features: Vec<String>,
+    ) -> Result<Self, ProjectLlmConfigError> {
+        if self.tier != ProjectLlmTier::Decision {
+            return Err(ProjectLlmConfigError::InvalidTier);
+        }
+        let encoded = Value::Array(features.iter().cloned().map(Value::String).collect());
+        let mut object = Map::new();
+        object.insert("features".to_owned(), encoded);
+        parse_decision_features(&object)?;
+        self.decision_features = Some(features);
+        Ok(self)
     }
 
     /// Returns the claude bridge.
@@ -724,6 +755,7 @@ impl ProjectLlmTierInput {
             summary_batch_size: None,
             claude_bin: None,
             cli_bridge: None,
+            decision_features: None,
         })
     }
 
@@ -751,6 +783,7 @@ impl ProjectLlmTierInput {
             summary_batch_size: None,
             claude_bin: None,
             cli_bridge: Some(config),
+            decision_features: None,
         })
     }
 
@@ -781,6 +814,7 @@ impl ProjectLlmTierInput {
             summary_batch_size: None,
             claude_bin: None,
             cli_bridge: None,
+            decision_features: None,
         })
     }
 
@@ -1617,6 +1651,12 @@ fn write_project_llm_provider(tier: &mut Map<String, Value>, input: &ProjectLlmT
 }
 
 fn write_project_llm_optional_settings(tier: &mut Map<String, Value>, input: &ProjectLlmTierInput) {
+    if let Some(features) = &input.decision_features {
+        tier.insert(
+            "features".to_owned(),
+            Value::Array(features.iter().cloned().map(Value::String).collect()),
+        );
+    }
     if let Some(ask_model) = &input.ask_model {
         tier.insert("askModel".to_owned(), Value::String(ask_model.clone()));
     }
@@ -1927,6 +1967,11 @@ fn parse_tier(
     let cli_bridge = parse_cli_bridge(value, provider)?;
     let llama_server_args = parse_llama_server_args(value)?;
     let externally_managed = optional_bool(value, "externallyManaged")?.unwrap_or(false);
+    let decision_features = if resolution.configured == ProjectLlmTier::Decision {
+        parse_decision_features(value)?
+    } else {
+        None
+    };
     Ok(ProjectLlmTierConfig {
         provider,
         endpoint,
@@ -1942,7 +1987,41 @@ fn parse_tier(
         cli_bridge,
         llama_server_args,
         externally_managed,
+        decision_features,
     })
+}
+
+/// Bounded feature allowlist for the decision tier. Unknown names are kept
+/// so a newer configuration stays readable; consumers ignore them.
+fn parse_decision_features(
+    object: &Map<String, Value>,
+) -> Result<Option<Vec<String>>, ProjectLlmConfigError> {
+    const MAXIMUM_FEATURES: usize = 16;
+    const MAXIMUM_FEATURE_BYTES: usize = 64;
+    let Some(value) = object.get("features") else {
+        return Ok(None);
+    };
+    let values = value
+        .as_array()
+        .filter(|values| values.len() <= MAXIMUM_FEATURES)
+        .ok_or(ProjectLlmConfigError::InvalidTier)?;
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|name| {
+                    !name.is_empty()
+                        && name.len() <= MAXIMUM_FEATURE_BYTES
+                        && name
+                            .bytes()
+                            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+                })
+                .map(str::to_owned)
+                .ok_or(ProjectLlmConfigError::InvalidTier)
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 struct TierCredentials {

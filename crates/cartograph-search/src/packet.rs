@@ -49,6 +49,7 @@ pub(crate) fn assemble_packet(input: PacketAssembly<'_>) -> ContextPacket {
             affected_tests: input.affected_tests,
             working_tree_overlay: WorkingTreeOverlay::not_checked(),
             truncated: input.truncated || evidence_was_truncated,
+            decision_rank: None,
         },
     }
 }
@@ -102,6 +103,70 @@ fn build_edit_candidates(task: &str, evidence: &[EvidenceItem]) -> EditCandidate
     }
     candidates.retain(|_, candidate| candidate.matched_term_count == strongest);
     finish_edit_candidates(candidates, EditCandidateBasis::TaskTerms, false)
+}
+
+/// Primary edit files derived from decision-ranked evidence: the distinct files
+/// of judged items with relevance at least 0.5, in ranked order. Exact-anchor
+/// candidates are authoritative and never replaced; `None` keeps the
+/// term-based candidates when no judged item is relevant enough.
+pub(crate) fn decision_edit_candidates(
+    task: &str,
+    evidence: &[EvidenceItem],
+    current: &EditCandidateSet,
+) -> Option<EditCandidateSet> {
+    const RELEVANT: f64 = 0.5;
+    if current
+        .candidates()
+        .iter()
+        .any(|candidate| candidate.basis() == EditCandidateBasis::ExactAnchor)
+    {
+        return None;
+    }
+    let task_terms = normalized_terms(task);
+    let mut order = Vec::<String>::new();
+    let mut files = BTreeMap::<String, EditCandidateAccumulator>::new();
+    for item in evidence.iter().filter(|item| {
+        is_edit_evidence(item)
+            && item
+                .decision_relevance()
+                .is_some_and(|value| value >= RELEVANT)
+    }) {
+        let path = item.path().to_owned();
+        if !files.contains_key(&path) {
+            order.push(path.clone());
+        }
+        let entry = files.entry(path).or_default();
+        entry.matched_term_count = entry
+            .matched_term_count
+            .max(matched_term_count(&task_terms, item));
+        entry.best_rank = minimum_rank(entry.best_rank, item.fused_rank());
+        entry
+            .qualified_names
+            .insert(item.qualified_name().to_owned());
+    }
+    if order.is_empty() {
+        return None;
+    }
+    let truncated = order.len() > MAX_EDIT_CANDIDATES;
+    let candidates = order
+        .into_iter()
+        .take(MAX_EDIT_CANDIDATES)
+        .filter_map(|path| {
+            let candidate = files.remove(&path)?;
+            Some(EditCandidate::new(EditCandidateInput {
+                path,
+                basis: EditCandidateBasis::DecisionRelevance,
+                matched_term_count: candidate.matched_term_count,
+                best_rank: candidate.best_rank,
+                qualified_names: candidate
+                    .qualified_names
+                    .into_iter()
+                    .take(MAX_EDIT_CANDIDATE_NAMES)
+                    .collect(),
+            }))
+        })
+        .collect();
+    Some(EditCandidateSet::new(candidates, truncated))
 }
 
 fn collect_exact_edit_candidates(

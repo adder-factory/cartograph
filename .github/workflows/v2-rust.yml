@@ -401,7 +401,7 @@ jobs:
       CARTOGRAPH_POSTGRES_PASSWORD: cartograph-v2-ci-only
       CARTOGRAPH_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
       CARTOGRAPH_TEST_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
-      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.25.10@sha256:188591a0bc317beb2c6d6d3f9ef0cb3e859d09ecc15a71dda5e9a027876686cf
+      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.25.11@sha256:a9cbdcfd8a1c349ab21590fd6d6dcbe7da489878df6502922d032dd64c1a7ae7
     steps:
       - name: Documentation-only required-check fast path
         if: needs.classify.outputs.docs_only == 'true'
@@ -597,6 +597,18 @@ jobs:
         run: >-
           cargo test --locked --quiet -p cartograph-agent --lib
           navigation::tests::live_navigation -- --ignored --nocapture --test-threads=1
+
+      - name: Jev context ranking reorders retrieval candidates and keeps order on outage
+        if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'
+        run: >-
+          cargo test --locked --quiet -p cartograph-agent --lib
+          decision_rerank::tests::live_context_ranking -- --ignored --nocapture --test-threads=1
+
+      - name: Jev rename triage labels mentions and leaves the plan on failure
+        if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'
+        run: >-
+          cargo test --locked --quiet -p cartograph-agent --lib
+          decision_rename::tests::live_rename -- --ignored --nocapture --test-threads=1
 
       - name: Candidate binary self-indexes this repository
         if: needs.classify.outputs.full == 'true' && matrix.shard == 'operations'

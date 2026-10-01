@@ -18,7 +18,8 @@ use super::{
     credentials::DatabaseCredentials,
     docker::{
         ContainerArchivePath, ContainerCreateSpec, ContainerInspection, DatabaseArchiveOperation,
-        DatabaseArchiveRequest, initialize_extensions,
+        DatabaseArchiveRequest, has_current_postgres_settings, initialize_extensions,
+        postgres_command,
     },
     has_expected_resource_limits, initialize_managed_database, validate_configured_port,
     validate_destructive_confirmation, validate_owned_container,
@@ -564,6 +565,7 @@ impl ManagedDatabaseMaintenance<'_> {
         if prepared.inspection.image != super::MANAGED_DATABASE_IMAGE
             || prepared.inspection.shared_memory_bytes < super::MANAGED_DATABASE_SHARED_MEMORY_BYTES
             || !has_expected_resource_limits(&prepared.inspection)
+            || !has_current_postgres_settings(&prepared.inspection)
         {
             return Ok(None);
         }
@@ -664,6 +666,7 @@ impl ManagedDatabaseMaintenance<'_> {
                 identity: &self.database.identity,
                 port: self.database.port,
                 image: super::MANAGED_DATABASE_IMAGE,
+                command: &postgres_command(),
             })
             .await
             .map_err(UpgradeInitializationFailure::RollbackSafe)?;
@@ -729,7 +732,9 @@ impl ManagedDatabaseMaintenance<'_> {
             .map_err(|_| ManagedDatabaseError::UpgradeRecoveryFailed)?;
         validate_configured_port(self.database.port, &replacement)
             .map_err(|_| ManagedDatabaseError::UpgradeRecoveryFailed)?;
-        if !has_expected_resource_limits(&replacement) {
+        if !has_expected_resource_limits(&replacement)
+            || !has_current_postgres_settings(&replacement)
+        {
             return Err(ManagedDatabaseError::UpgradeRecoveryFailed);
         }
         let rollback = self
@@ -1257,8 +1262,8 @@ mod tests {
     );
 
     const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
-        "paradedb/paradedb:0.25.9@sha256:",
-        "8b96369912d4d5611756383df8a7d87d4561750ceb4a12df606ec55e21194b18"
+        "paradedb/paradedb:0.25.10@sha256:",
+        "188591a0bc317beb2c6d6d3f9ef0cb3e859d09ecc15a71dda5e9a027876686cf"
     );
 
     struct LiveDockerCleanup {
@@ -1482,6 +1487,7 @@ mod tests {
                 identity: &database.identity,
                 port: database.port,
                 image: alias,
+                command: &postgres_command(),
             })
             .await
             .unwrap_or_else(|error| panic!("could not create headroom container: {error}"));
@@ -1881,7 +1887,66 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts the previous release's real ParadeDB image and resumes interrupted upgrade"]
     async fn managed_upgrade_from_previous_release_resumes_after_interrupted_rename() {
-        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.9").await;
+        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.10").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker and an isolated managed PostgreSQL database"]
+    async fn managed_upgrade_applies_current_postgres_settings_to_an_older_container() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create settings project: {error}"));
+        let database = live_database(directory.path());
+        let _cleanup = live_cleanup(&database, None);
+        let legacy = super::super::docker::LEGACY_POSTGRES_COMMAND.map(str::to_owned);
+        install_container(&database, super::super::MANAGED_DATABASE_IMAGE, &legacy).await;
+        let before = database
+            .lifecycle()
+            .status()
+            .await
+            .unwrap_or_else(|error| panic!("could not read pre-upgrade status: {error}"));
+        assert!(before.resource_limits_match && before.image_matches);
+        assert_eq!(
+            before.postgres_settings,
+            super::super::ManagedPostgresSettings::Outdated
+        );
+        execute_test_sql(&database, "CREATE TABLE settings_fixture (id integer)").await;
+        execute_test_sql(&database, "INSERT INTO settings_fixture VALUES (7)").await;
+
+        let upgraded = database
+            .maintenance()
+            .upgrade(confirmation(
+                &database,
+                ManagedDestructiveOperation::Upgrade,
+            ))
+            .await
+            .unwrap_or_else(|error| panic!("settings upgrade failed: {error}"));
+        assert!(
+            upgraded.upgraded,
+            "stale settings must replace the container"
+        );
+        let after = database
+            .lifecycle()
+            .status()
+            .await
+            .unwrap_or_else(|error| panic!("could not read post-upgrade status: {error}"));
+        assert_eq!(
+            after.postgres_settings,
+            super::super::ManagedPostgresSettings::Current
+        );
+        let connection = open_test_database(&database).await;
+        for (setting, expected) in [("max_wal_size", "2GB"), ("wal_compression", "lz4")] {
+            let row = query(AssertSqlSafe(format!("SHOW {setting}")))
+                .fetch_one(&connection.pool)
+                .await
+                .unwrap_or_else(|error| panic!("could not read {setting}: {error}"));
+            assert_eq!(row.try_get::<String, _>(0).ok().as_deref(), Some(expected));
+        }
+        let kept = query("SELECT id FROM settings_fixture")
+            .fetch_one(&connection.pool)
+            .await
+            .unwrap_or_else(|error| panic!("data volume was not kept: {error}"));
+        assert_eq!(kept.try_get::<i32, _>(0).ok(), Some(7));
+        connection.close().await;
     }
 
     #[tokio::test]
@@ -1956,7 +2021,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts the previous release's real ParadeDB image and exercises upgrade recovery"]
     async fn managed_upgrade_from_previous_release_recovers_around_extension_catalog_mutation() {
-        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.9").await;
+        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.10").await;
     }
 
     #[tokio::test]
@@ -2003,6 +2068,10 @@ mod tests {
     }
 
     async fn install_old_image_container(database: &ManagedDatabase, old_image: &str) {
+        install_container(database, old_image, &postgres_command()).await;
+    }
+
+    async fn install_container(database: &ManagedDatabase, image: &str, command: &[String]) {
         database
             .docker
             .ensure_available()
@@ -2025,7 +2094,8 @@ mod tests {
             .create_container(&ContainerCreateSpec {
                 identity: &database.identity,
                 port: database.port,
-                image: old_image,
+                image,
+                command,
             })
             .await
             .unwrap_or_else(|error| panic!("could not create old-image fixture: {error}"));
@@ -2215,7 +2285,7 @@ mod tests {
         );
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.10"
+            "0.25.11"
         );
         let connection = open_test_database(database).await;
         let capabilities = connection
@@ -2294,7 +2364,7 @@ mod tests {
     }
 
     fn live_database(project_root: &Path) -> ManagedDatabase {
-        live_database_with_port(project_root, available_loopback_port())
+        live_database_with_port(project_root, super::super::unused_test_loopback_port())
     }
 
     fn live_database_with_port(project_root: &Path, port: u16) -> ManagedDatabase {
@@ -2304,15 +2374,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("could not build live maintenance manager: {error}"))
             .with_startup_timeout(LIVE_TIMEOUT)
             .with_maintenance_timeout(LIVE_TIMEOUT)
-    }
-
-    fn available_loopback_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap_or_else(|error| panic!("could not reserve maintenance port: {error}"));
-        listener
-            .local_addr()
-            .unwrap_or_else(|error| panic!("could not inspect maintenance port: {error}"))
-            .port()
     }
 
     fn live_cleanup(database: &ManagedDatabase, image: Option<String>) -> LiveDockerCleanup {

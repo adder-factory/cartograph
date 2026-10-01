@@ -126,6 +126,24 @@ pub struct HistoryRefreshRequest {
     oversized_commits_skipped: u64,
     files: Vec<FileHistoryFact>,
     cochanges: Vec<FileCochangeFact>,
+    parameters: Option<HistoryRefreshParameters>,
+}
+
+/// Inputs that, with HEAD and shallowness, fully determine a churn and
+/// co-change refresh. A stored refresh with identical inputs is reusable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HistoryRefreshParameters {
+    /// Maximum commits scanned from HEAD.
+    pub max_commits: u64,
+    /// Commits reachable from HEAD within `max_commits + 1`; deepening a
+    /// shallow clone at the same HEAD changes it and forces a rescan.
+    pub commits_available: u64,
+    /// Version of the mining semantics; bumping it invalidates stored refreshes.
+    pub algorithm_version: u32,
+    /// Whether churn rows were retained.
+    pub churn: bool,
+    /// Whether co-change rows were retained.
+    pub co_change: bool,
 }
 
 /// Git-scan provenance kept separate from the durable relation batches.
@@ -181,8 +199,30 @@ impl HistoryRefreshRequest {
             oversized_commits_skipped: input.metadata.oversized_commits_skipped,
             files: input.files,
             cochanges: input.cochanges,
+            parameters: None,
         })
     }
+
+    /// Record the inputs that produced this refresh so an unchanged HEAD can
+    /// reuse it. Without them, any stored reuse record is removed.
+    #[must_use]
+    pub const fn with_parameters(mut self, parameters: HistoryRefreshParameters) -> Self {
+        self.parameters = Some(parameters);
+        self
+    }
+}
+
+/// Exact checkout state whose stored history refresh may be reused.
+#[derive(Clone, Copy, Debug)]
+pub struct HistoryReuseQuery<'query> {
+    /// Stable root identity of the registered project checkout.
+    pub root_identity: &'query str,
+    /// Current HEAD commit of the checkout.
+    pub head_commit: &'query str,
+    /// Whether the checkout's history is shallow.
+    pub shallow_history: bool,
+    /// Inputs the stored refresh must have been produced with.
+    pub parameters: HistoryRefreshParameters,
 }
 
 /// Bounded current-file history query.
@@ -263,6 +303,16 @@ pub struct HistoryRefreshReport {
     oversized_commits_skipped: u64,
     files_written: u64,
     cochanges_written: u64,
+    /// Whether the stored refresh for the same HEAD and inputs was reused.
+    reused: bool,
+}
+
+impl HistoryRefreshReport {
+    /// Whether stored evidence for the same HEAD and inputs was reused.
+    #[must_use]
+    pub const fn reused(&self) -> bool {
+        self.reused
+    }
 }
 
 /// One persisted path-level churn row.
@@ -338,6 +388,13 @@ struct CochangeChunkInput<'chunk> {
     chunk: &'chunk [FileCochangeFact],
 }
 
+struct RefreshRecordInput<'refresh> {
+    schema: &'refresh str,
+    project_id: &'refresh ProjectId,
+    report: &'refresh HistoryRefreshReport,
+    parameters: Option<HistoryRefreshParameters>,
+}
+
 impl CartographDatabase {
     /// Atomically replace file churn and co-change evidence under one project lock.
     /// # Errors
@@ -402,11 +459,7 @@ impl CartographDatabase {
             )
             .await?;
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| database_error("history-commit"))?;
-        Ok(HistoryRefreshReport {
+        let report = HistoryRefreshReport {
             head_commit: request.head_commit,
             shallow_history: request.shallow_history,
             commits_scanned: request.commits_scanned,
@@ -414,7 +467,103 @@ impl CartographDatabase {
             oversized_commits_skipped: request.oversized_commits_skipped,
             files_written: u64::try_from(request.files.len()).unwrap_or(u64::MAX),
             cochanges_written: u64::try_from(request.cochanges.len()).unwrap_or(u64::MAX),
-        })
+            reused: false,
+        };
+        record_history_refresh(
+            &mut transaction,
+            RefreshRecordInput {
+                schema: &schema,
+                project_id: &request.project_id,
+                report: &report,
+                parameters: request.parameters,
+            },
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| database_error("history-commit"))?;
+        Ok(report)
+    }
+
+    /// Return the stored refresh for the queried checkout when HEAD,
+    /// shallowness and every refresh input match, marked as reused; `None`
+    /// requires a refresh.
+    /// # Errors
+    ///
+    /// Returns an error if the stored record cannot be queried or decoded.
+    pub async fn reusable_history_refresh(
+        &self,
+        reuse: HistoryReuseQuery<'_>,
+    ) -> Result<Option<HistoryRefreshReport>, StorageError> {
+        let HistoryReuseQuery {
+            root_identity,
+            head_commit,
+            shallow_history,
+            parameters,
+        } = reuse;
+        let schema = quoted_schema(&self.schema);
+        let statement = format!(
+            r#"SELECT refresh.commits_scanned, refresh.truncated,
+                    refresh.oversized_commits_skipped, refresh.files_written,
+                    refresh.cochanges_written
+                FROM {schema}."history_refreshes" AS refresh
+                INNER JOIN {schema}."projects" AS projects
+                  ON projects.project_id = refresh.project_id
+                WHERE projects.root_identity = $1 AND refresh.head_commit = $2
+                  AND refresh.shallow_history = $3 AND refresh.max_commits = $4
+                  AND refresh.churn = $5 AND refresh.co_change = $6
+                  AND refresh.commits_available = $7 AND refresh.algorithm_version = $8"#
+        );
+        let row = query(AssertSqlSafe(statement))
+            .bind(root_identity)
+            .bind(head_commit)
+            .bind(shallow_history)
+            .bind(i64::try_from(parameters.max_commits).map_err(|_| {
+                StorageError::InvalidInput {
+                    field: "history_max_commits",
+                }
+            })?)
+            .bind(parameters.churn)
+            .bind(parameters.co_change)
+            .bind(i64::try_from(parameters.commits_available).map_err(|_| {
+                StorageError::InvalidInput {
+                    field: "history_commits_available",
+                }
+            })?)
+            .bind(i32::try_from(parameters.algorithm_version).map_err(|_| {
+                StorageError::InvalidInput {
+                    field: "history_algorithm_version",
+                }
+            })?)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| database_error("history-reuse-read"))?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let count = |index: usize| {
+            row.try_get::<i64, _>(index)
+                .ok()
+                .and_then(|value| u64::try_from(value).ok())
+                .ok_or(StorageError::CorruptStoredValue {
+                    field: "history_refresh",
+                })
+        };
+        Ok(Some(HistoryRefreshReport {
+            head_commit: head_commit.to_owned(),
+            shallow_history,
+            commits_scanned: count(0)?,
+            truncated: row
+                .try_get::<bool, _>(1)
+                .map_err(|_| StorageError::CorruptStoredValue {
+                    field: "history_refresh",
+                })?,
+            oversized_commits_skipped: count(2)?,
+            files_written: count(3)?,
+            cochanges_written: count(4)?,
+            reused: true,
+        }))
     }
 
     /// Atomically remove durable churn and co-change evidence when both
@@ -441,6 +590,7 @@ impl CartographDatabase {
             .await
             .map_err(|_| database_error("history-clear-lock"))?;
         for (relation, operation) in [
+            ("history_refreshes", "history-clear-refresh"),
             ("file_cochanges", "history-clear-cochanges"),
             ("file_history", "history-clear-files"),
         ] {
@@ -794,6 +944,75 @@ const fn corrupt() -> StorageError {
 
 const fn database_error(operation: &'static str) -> StorageError {
     StorageError::DatabaseOperation { operation }
+}
+
+/// Record or clear the reuse key for the refresh committed in `transaction`.
+async fn record_history_refresh(
+    transaction: &mut sqlx_postgres::PgConnection,
+    input: RefreshRecordInput<'_>,
+) -> Result<(), StorageError> {
+    let RefreshRecordInput {
+        schema,
+        project_id,
+        report,
+        parameters,
+    } = input;
+    let Some(parameters) = parameters else {
+        let statement = format!(
+            r#"DELETE FROM {schema}."history_refreshes" WHERE project_id = CAST($1 AS uuid)"#
+        );
+        query(AssertSqlSafe(statement))
+            .bind(project_id.as_str())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| database_error("history-refresh-clear"))?;
+        return Ok(());
+    };
+    let count = |value: u64| {
+        i64::try_from(value).map_err(|_| StorageError::InvalidInput {
+            field: "history_refresh",
+        })
+    };
+    let statement = format!(
+        r#"INSERT INTO {schema}."history_refreshes" (
+                project_id, head_commit, max_commits, churn, co_change, shallow_history,
+                commits_scanned, truncated, oversized_commits_skipped, files_written,
+                cochanges_written, commits_available, algorithm_version
+            ) VALUES (CAST($1 AS uuid), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (project_id) DO UPDATE SET
+                head_commit = EXCLUDED.head_commit, max_commits = EXCLUDED.max_commits,
+                commits_available = EXCLUDED.commits_available,
+                algorithm_version = EXCLUDED.algorithm_version,
+                churn = EXCLUDED.churn, co_change = EXCLUDED.co_change,
+                shallow_history = EXCLUDED.shallow_history,
+                commits_scanned = EXCLUDED.commits_scanned, truncated = EXCLUDED.truncated,
+                oversized_commits_skipped = EXCLUDED.oversized_commits_skipped,
+                files_written = EXCLUDED.files_written,
+                cochanges_written = EXCLUDED.cochanges_written,
+                refreshed_at = clock_timestamp()"#
+    );
+    query(AssertSqlSafe(statement))
+        .bind(project_id.as_str())
+        .bind(&report.head_commit)
+        .bind(count(parameters.max_commits)?)
+        .bind(parameters.churn)
+        .bind(parameters.co_change)
+        .bind(report.shallow_history)
+        .bind(count(report.commits_scanned)?)
+        .bind(report.truncated)
+        .bind(count(report.oversized_commits_skipped)?)
+        .bind(count(report.files_written)?)
+        .bind(count(report.cochanges_written)?)
+        .bind(count(parameters.commits_available)?)
+        .bind(i32::try_from(parameters.algorithm_version).map_err(|_| {
+            StorageError::InvalidInput {
+                field: "history_algorithm_version",
+            }
+        })?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| database_error("history-refresh-record"))?;
+    Ok(())
 }
 
 #[cfg(test)]
