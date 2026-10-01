@@ -20,13 +20,13 @@ use crate::{
     probe_capabilities,
 };
 
-/// Exact upstream `ParadeDB` 0.25.10 multi-architecture image accepted by Cartograph v2.
+/// Exact upstream `ParadeDB` 0.25.11 multi-architecture image accepted by Cartograph v2.
 ///
-/// The image deliberately contains the separately validated `pg_search` 0.25.10
+/// The image deliberately contains the separately validated `pg_search` 0.25.11
 /// and pgvector 0.8.4 extension builds.
 pub const MANAGED_DATABASE_IMAGE: &str = concat!(
-    "paradedb/paradedb:0.25.10@sha256:",
-    "188591a0bc317beb2c6d6d3f9ef0cb3e859d09ecc15a71dda5e9a027876686cf"
+    "paradedb/paradedb:0.25.11@sha256:",
+    "a9cbdcfd8a1c349ab21590fd6d6dcbe7da489878df6502922d032dd64c1a7ae7"
 );
 /// Default loopback port for the first managed Cartograph database.
 pub const DEFAULT_MANAGED_DATABASE_PORT: u16 = 55_432;

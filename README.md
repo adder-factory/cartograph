@@ -31,7 +31,7 @@ abstention instead of presenting stale or incomplete data as certainty.
 
 > [!IMPORTANT]
 > Cartograph v2 is PostgreSQL-only. It requires PostgreSQL 18.4 or newer within
-> major version 18, ParadeDB `pg_search` 0.25.10, and pgvector 0.8.4 or newer
+> major version 18, ParadeDB `pg_search` 0.25.11, and pgvector 0.8.4 or newer
 > (0.8.6 recommended for external PostgreSQL).
 > There is no SQLite runtime, compatibility mode, importer, optional feature,
 > or fallback.
@@ -101,7 +101,7 @@ cartograph context 'explain the primary request flow' --project-path .
 ```
 
 `db start` creates project-owned, loopback-only resources and pulls the pinned
-upstream ParadeDB 0.25.10 image, which contains `pg_search` 0.25.10 and pgvector
+upstream ParadeDB 0.25.11 image, which contains `pg_search` 0.25.11 and pgvector
 0.8.4. `doctor` fails closed unless PostgreSQL, pg_search, pgvector, preload,
 BM25, migrations, and code tokenization all pass.
 `doctor --json` retains `ready` as the backward-compatible hard-capability
@@ -188,7 +188,7 @@ in a pinned Rust/Trixie container and executed in a separate pinned Debian 13
 runtime container before publication.
 
 For an external deployment, the database administrator installs PostgreSQL 18.4
-or newer within major version 18, `pg_search` 0.25.10, and pgvector 0.8.4 or
+or newer within major version 18, `pg_search` 0.25.11, and pgvector 0.8.4 or
 newer, and creates pgvector before `pg_search`. Load the connection URL from the
 shell or a secret manager rather than a committed file:
 

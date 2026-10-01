@@ -109,7 +109,7 @@ sqlx-core = { version = "=0.9.0", default-features = false, features = [
   "_tls-rustls-ring-native-roots",
 ] }
 sqlx-postgres = { version = "=0.9.0", default-features = false }
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = [
   "fs",
@@ -123,7 +123,7 @@ tokio = { version = "1.53.1", features = [
 ] }
 toml_edit = "=0.25.15"
 tree-sitter = "=0.27.0"
-tree-sitter-abap-sqry = "=31.0.0"
+tree-sitter-abap-sqry = "=32.0.1"
 tree-sitter-ada = "=0.1.0"
 tree-sitter-arkts = "=0.3.0"
 tree-sitter-astro-next = "=0.1.1"

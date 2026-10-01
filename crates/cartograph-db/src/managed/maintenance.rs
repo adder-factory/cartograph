@@ -1262,8 +1262,8 @@ mod tests {
     );
 
     const PREVIOUS_MANAGED_DATABASE_IMAGE: &str = concat!(
-        "paradedb/paradedb:0.25.9@sha256:",
-        "8b96369912d4d5611756383df8a7d87d4561750ceb4a12df606ec55e21194b18"
+        "paradedb/paradedb:0.25.10@sha256:",
+        "188591a0bc317beb2c6d6d3f9ef0cb3e859d09ecc15a71dda5e9a027876686cf"
     );
 
     struct LiveDockerCleanup {
@@ -1887,7 +1887,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts the previous release's real ParadeDB image and resumes interrupted upgrade"]
     async fn managed_upgrade_from_previous_release_resumes_after_interrupted_rename() {
-        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.9").await;
+        assert_interrupted_upgrade_resumes(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.10").await;
     }
 
     #[tokio::test]
@@ -2021,7 +2021,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "starts the previous release's real ParadeDB image and exercises upgrade recovery"]
     async fn managed_upgrade_from_previous_release_recovers_around_extension_catalog_mutation() {
-        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.9").await;
+        assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.10").await;
     }
 
     #[tokio::test]
@@ -2285,7 +2285,7 @@ mod tests {
         );
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.10"
+            "0.25.11"
         );
         let connection = open_test_database(database).await;
         let capabilities = connection

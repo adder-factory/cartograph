@@ -1,7 +1,7 @@
 # ABAP grammar compatibility with Tree-sitter 0.27
 
 Cartograph uses the published Tree-sitter **0.27.0** native runtime. The current
-`tree-sitter-abap-sqry` 31.0.0 and `sqry-tree-sitter-support` 31.0.0 releases still
+`tree-sitter-abap-sqry` 32.0.1 and `sqry-tree-sitter-support` 32.0.1 releases still
 request 0.26. Both bindings need only `Language` and the two language ABI constants.
 
 `tree-sitter-026-compat` satisfies that dependency with direct reexports of the

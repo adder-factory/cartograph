@@ -83,7 +83,7 @@ same deadline as the HTTP request, and cancellation releases admission. At most
 Before migration or normal work, Cartograph proves:
 
 - PostgreSQL 18.4 or newer within major version 18;
-- `pg_search` 0.25.10, expected preload state, the `paradedb` access method, and
+- `pg_search` 0.25.11, expected preload state, the `paradedb` access method, and
   exact `pdb.source_code` token behavior;
 - pgvector 0.8.4 or newer, with 0.8.6 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
