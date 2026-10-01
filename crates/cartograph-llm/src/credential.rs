@@ -23,9 +23,9 @@ use tokio::{io::AsyncReadExt as _, process::Command};
 use crate::ProjectLlmConfigError;
 
 /// Deadline for one credential command run, including reading its output.
-pub(crate) const CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+const CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// Largest standard output accepted from a credential command.
-pub(crate) const MAXIMUM_CREDENTIAL_OUTPUT_BYTES: usize = 4 * 1024;
+const MAXIMUM_CREDENTIAL_OUTPUT_BYTES: usize = 4 * 1024;
 /// Minimum interval before re-running a command whose last run failed, or
 /// whose fresh output the provider rejected again.
 const RERUN_INTERVAL: Duration = Duration::from_secs(30);

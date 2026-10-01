@@ -177,20 +177,27 @@ fn http_response(status: &str, body: &str, headers: &str) -> String {
     )
 }
 
+/// Longest a scripted provider waits for the client's request.
+const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// Bytes read from the client per socket read.
+const REQUEST_CHUNK_BYTES: usize = 4096;
+/// Blank line that ends HTTP request headers.
+const HEADER_TERMINATOR: &str = "\r\n\r\n";
+
 fn read_request(stream: &mut std::net::TcpStream) -> String {
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_read_timeout(Some(REQUEST_READ_TIMEOUT))
         .unwrap_or_else(|e| panic!("timeout: {e}"));
     let mut received = Vec::new();
     loop {
-        let mut chunk = [0_u8; 4096];
+        let mut chunk = [0_u8; REQUEST_CHUNK_BYTES];
         let read = stream
             .read(&mut chunk)
             .unwrap_or_else(|e| panic!("read: {e}"));
         assert!(read > 0 && received.len() < MAXIMUM_REQUEST_BYTES);
         received.extend_from_slice(&chunk[..read]);
         let text = String::from_utf8_lossy(&received);
-        if let Some(end) = text.find("\r\n\r\n") {
+        if let Some(end) = text.find(HEADER_TERMINATOR) {
             let length = text[..end]
                 .lines()
                 .find_map(|line| {
@@ -199,7 +206,7 @@ fn read_request(stream: &mut std::net::TcpStream) -> String {
                         .and_then(|n| n.parse::<usize>().ok())
                 })
                 .unwrap_or_default();
-            if received.len() >= end + 4 + length {
+            if received.len() >= end + HEADER_TERMINATOR.len() + length {
                 break;
             }
         }
