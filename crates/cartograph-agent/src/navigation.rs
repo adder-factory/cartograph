@@ -5,6 +5,8 @@ use std::{
     time::Duration,
 };
 
+mod ledger;
+
 use cartograph_db::{CurrentSymbolRecord, CurrentSymbolSetLookup};
 use cartograph_domain::{GenerationId, NormalizedPath, ProjectId, SymbolId};
 use cartograph_llm::{
@@ -16,8 +18,9 @@ use cartograph_search::{
     TraversalRequest, TraversalResult,
 };
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
+use self::ledger::{NavigationLedger, RoundOutcome, RoundPrompt};
 use crate::{
     ProjectCancellation, ProjectError, ProjectRuntime, SourceContextOptions, SourceContextRequest,
     SymbolSourceContext,
@@ -233,6 +236,13 @@ impl NavigationReport {
             native_sources_truncated: false,
         }
     }
+
+    /// Record a redacted provider failure; native evidence is retained.
+    fn provider_unavailable(&mut self, error: JevError) {
+        self.stop = NavigationStop::ProviderUnavailable;
+        self.provider_error_detail = Some(error.to_string());
+        self.provider_error = Some(error);
+    }
 }
 
 pub(crate) trait DecisionProvider {
@@ -303,9 +313,7 @@ impl ProjectRuntime {
             Ok(Some(client)) => client,
             Ok(None) => return Ok(report),
             Err(error) => {
-                report.stop = NavigationStop::ProviderUnavailable;
-                report.provider_error_detail = Some(error.to_string());
-                report.provider_error = Some(error);
+                report.provider_unavailable(error);
                 return Ok(report);
             }
         };
@@ -317,19 +325,19 @@ impl ProjectRuntime {
         }
         let mut navigator = Navigator::new(self, request, cancellation);
         navigator.run_bounded(&client).await?;
-        Ok(navigator.report)
+        Ok(navigator.ledger.report)
     }
 }
 
+/// One bounded navigation: it fences every round to the packet's generation,
+/// asks the provider, and executes the chosen native retrieval. Bookkeeping
+/// lives in the [`NavigationLedger`].
 struct Navigator<'a> {
     runtime: &'a ProjectRuntime,
     request: NavigationRequest<'a>,
-    report: NavigationReport,
-    used: BTreeSet<String>,
-    operations: usize,
+    ledger: NavigationLedger<'a>,
     cancellation: ProjectCancellation,
     caller_cancellation: ProjectCancellation,
-    native_sources: Vec<&'a SymbolSourceContext>,
 }
 
 impl<'a> Navigator<'a> {
@@ -338,76 +346,12 @@ impl<'a> Navigator<'a> {
         request: NavigationRequest<'a>,
         cancellation: ProjectCancellation,
     ) -> Self {
-        let mut report = NavigationReport::new(
-            NavigationStop::NotConfigured,
-            request
-                .packet
-                .generation()
-                .map(|g| g.generation_id().clone()),
-        );
-        for evidence in request.packet.evidence() {
-            let Some(id) = evidence.symbol_id() else {
-                continue;
-            };
-            if report
-                .candidates
-                .iter()
-                .any(|candidate| &candidate.symbol_id == id)
-            {
-                continue;
-            }
-            if report.candidates.len() >= INITIAL_CANDIDATE_LIMIT {
-                if evidence.path().len() <= CANDIDATE_TEXT_LIMIT
-                    && evidence.qualified_name().len() <= CANDIDATE_TEXT_LIMIT
-                {
-                    report.candidates_truncated = true;
-                }
-                continue;
-            }
-            admit_candidate(
-                &mut report,
-                NavigationCandidate {
-                    symbol_id: id.clone(),
-                    path: evidence.path().to_owned(),
-                    name: evidence.qualified_name().to_owned(),
-                    symbol_kind: String::new(),
-                    signature: String::new(),
-                    start_line: evidence.start_line(),
-                    end_line: evidence.end_line(),
-                    relevance: None,
-                },
-            );
-        }
-        let mut native_sources = Vec::new();
-        let mut native_bytes = 0_usize;
-        let mut used = BTreeSet::new();
-        for source in request.native_sources {
-            let Some(excerpt) = source.excerpt() else {
-                continue;
-            };
-            let size = serde_json::to_vec(source).map_or(usize::MAX, |bytes| bytes.len());
-            if native_bytes.saturating_add(size) > MAXIMUM_NATIVE_SOURCE_BYTES {
-                report.native_sources_truncated = true;
-                continue;
-            }
-            native_bytes += size;
-            native_sources.push(source);
-            if !excerpt.truncated() {
-                used.insert(action_key(&Action::Read {
-                    symbol: source.symbol().symbol_id().clone(),
-                }));
-            }
-        }
-        report.native_source_windows = native_sources.len();
         Self {
             runtime,
+            ledger: NavigationLedger::new(&request),
             request,
-            report,
-            used,
-            operations: 0,
             cancellation: ProjectCancellation::new(),
             caller_cancellation: cancellation,
-            native_sources,
         }
     }
 
@@ -441,11 +385,13 @@ impl<'a> Navigator<'a> {
 
     async fn hydrate_candidates(&mut self) -> Result<(), ProjectError> {
         let generation = self
+            .ledger
             .report
             .generation_id
             .as_ref()
             .ok_or(ProjectError::SourceContextUnavailable)?;
         let ids = self
+            .ledger
             .report
             .candidates
             .iter()
@@ -463,21 +409,7 @@ impl<'a> Navigator<'a> {
                 .map_err(|_| ProjectError::RetrievalOperationFailed)
         })
         .await?;
-        let original_count = self.report.candidates.len();
-        self.report.candidates.retain_mut(|candidate| {
-            let Some(record) = records
-                .iter()
-                .find(|record| record.symbol_id() == &candidate.symbol_id)
-            else {
-                return false;
-            };
-            candidate.symbol_kind = record.symbol_kind().to_owned();
-            candidate.signature = bounded_signature(record.signature());
-            candidate.start_line = Some(record.start_line());
-            candidate.end_line = Some(record.end_line());
-            true
-        });
-        self.report.candidates_truncated |= self.report.candidates.len() < original_count;
+        self.ledger.hydrate(&records);
         Ok(())
     }
 
@@ -493,7 +425,7 @@ impl<'a> Navigator<'a> {
         if current
             .as_ref()
             .map(cartograph_db::CurrentGenerationRecord::generation_id)
-            != self.report.generation_id.as_ref()
+            != self.ledger.report.generation_id.as_ref()
         {
             return Err(ProjectError::SourceContextUnavailable);
         }
@@ -509,7 +441,7 @@ impl<'a> Navigator<'a> {
             || status.snapshot.as_ref().is_none_or(|snapshot| {
                 &snapshot.project_id != self.request.project_id
                     || snapshot.current.as_ref().map(|g| &g.generation_id)
-                        != self.report.generation_id.as_ref()
+                        != self.ledger.report.generation_id.as_ref()
             })
         {
             return Err(ProjectError::SourceContextUnavailable);
@@ -523,23 +455,23 @@ impl<'a> Navigator<'a> {
     /// execute several of the seven bounded operations with one provider call.
     async fn run(&mut self, provider: &impl DecisionProvider) -> Result<(), ProjectError> {
         for round in 0..MAXIMUM_STEPS {
-            if self.operations >= MAXIMUM_STEPS {
+            if self.ledger.operations >= MAXIMUM_STEPS {
                 break;
             }
             self.check_generation().await?;
             let Some(outcome) = self.decide(provider, round).await? else {
                 return Ok(());
             };
-            self.record_relevance(&outcome);
-            if let Some(stop) = self.terminal_stop(&outcome) {
-                self.finish(outcome.next, stop);
+            self.ledger.record_relevance(&outcome);
+            if let Some(stop) = outcome.terminal_stop(self.ledger.has_source_evidence()) {
+                self.ledger.finish(outcome.next, stop);
                 return Ok(());
             }
             if !self.execute_round(outcome, round).await? {
                 return Ok(());
             }
         }
-        self.report.stop = NavigationStop::StepLimit;
+        self.ledger.report.stop = NavigationStop::StepLimit;
         Ok(())
     }
 
@@ -550,50 +482,25 @@ impl<'a> Navigator<'a> {
         provider: &impl DecisionProvider,
         round: usize,
     ) -> Result<Option<RoundOutcome>, ProjectError> {
-        let actions = self.actions();
-        let relevance = self.relevance_targets();
-        let state = self.state(round);
-        let prompts = questions(&actions, &relevance);
+        let prompt = RoundPrompt::new(&self.ledger, round);
         let decision = tokio::select! {
             biased;
             () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            decision = provider.decide(&state, &prompts) => decision,
+            decision = provider.decide(&prompt.state, &prompt.questions) => decision,
         };
         let decision = match decision {
             Ok(decision) => decision,
             Err(error) => {
-                self.report.stop = NavigationStop::ProviderUnavailable;
-                self.report.provider_error_detail = Some(error.to_string());
-                self.report.provider_error = Some(error);
+                self.ledger.report.provider_unavailable(error);
                 return Ok(None);
             }
         };
-        let outcome = round_outcome(&actions, &relevance, &decision, round);
+        let outcome = prompt.outcome(&decision);
         if outcome.is_none() {
-            self.report.stop = NavigationStop::ProviderUnavailable;
-            self.report.provider_error = Some(JevError::InvalidResponse);
+            self.ledger.report.stop = NavigationStop::ProviderUnavailable;
+            self.ledger.report.provider_error = Some(JevError::InvalidResponse);
         }
         Ok(outcome)
-    }
-
-    fn record_relevance(&mut self, outcome: &RoundOutcome) {
-        for (index, probability) in &outcome.relevance {
-            if let Some(candidate) = self.report.candidates.get_mut(*index) {
-                candidate.relevance = Some(*probability);
-            }
-        }
-    }
-
-    fn finish(&mut self, mut last: NavigationStep, stop: NavigationStop) {
-        if stop == NavigationStop::Finished && !matches!(last.action, Action::Finish) {
-            // A sufficiency stop does not execute the chosen operation;
-            // record the finish that actually ended navigation instead.
-            last.action = Action::Finish;
-            last.completed = true;
-            last.confidence = last.source_sufficiency;
-        }
-        self.report.decisions.push(last);
-        self.report.stop = stop;
     }
 
     /// Execute a planned round. `false` means a failed lookup ended
@@ -603,7 +510,10 @@ impl<'a> Navigator<'a> {
         outcome: RoundOutcome,
         round: usize,
     ) -> Result<bool, ProjectError> {
-        let planned = self.plan_round(outcome);
+        let planned = outcome.plan(
+            &self.ledger.report.candidates,
+            self.ledger.remaining_operations(),
+        );
         let mut reads = Vec::new();
         let mut others = Vec::new();
         for step in &planned {
@@ -612,7 +522,7 @@ impl<'a> Navigator<'a> {
                 action => others.push(action.clone()),
             }
         }
-        self.report.decisions.extend(planned);
+        self.ledger.report.decisions.extend(planned);
         let executed = async {
             if !reads.is_empty() {
                 self.read_sources(&reads).await?;
@@ -626,248 +536,42 @@ impl<'a> Navigator<'a> {
         if executed.is_err() {
             // A failed lookup is recoverable only if source and generation still match.
             self.check_source().await?;
-            self.report.stop = NavigationStop::RetrievalUnavailable;
+            self.ledger.report.stop = NavigationStop::RetrievalUnavailable;
             return Ok(false);
         }
         self.check_generation().await?;
-        for step in self.report.decisions.iter_mut().rev() {
-            if step.round != round || step.completed {
-                break;
-            }
-            step.completed = true;
-        }
+        self.ledger.complete_round(round);
         Ok(true)
-    }
-
-    /// Provider state within the request bound. Signatures are the first
-    /// optional detail dropped, then additional source windows, so a large
-    /// candidate list degrades evidence detail instead of the whole round.
-    fn state(&self, round: usize) -> Value {
-        for (signatures, windows) in [
-            (true, usize::MAX),
-            (false, usize::MAX),
-            (false, 2),
-            (false, 0),
-        ] {
-            let state = self.state_with(round, signatures, windows);
-            if serde_json::to_vec(&state).map_or(usize::MAX, |bytes| bytes.len())
-                <= STATE_BUDGET_BYTES
-            {
-                return state;
-            }
-        }
-        self.state_with(round, false, 0)
-    }
-
-    fn state_with(&self, round: usize, signatures: bool, windows: usize) -> Value {
-        let previous = self
-            .report
-            .decisions
-            .iter()
-            .map(|step| json!({"action": step.action, "completed": step.completed}))
-            .collect::<Vec<_>>();
-        let candidates = self
-            .report
-            .candidates
-            .iter()
-            .map(|candidate| {
-                json!({
-                    "symbolId": candidate.symbol_id,
-                    "path": candidate.path,
-                    "name": candidate.name,
-                    "symbolKind": candidate.symbol_kind,
-                    "signature": if signatures { candidate.signature.as_str() } else { "" },
-                    "startLine": candidate.start_line,
-                    "endLine": candidate.end_line,
-                })
-            })
-            .collect::<Vec<_>>();
-        json!({
-            "task": self.request.task,
-            "round": round,
-            "candidates": candidates,
-            "nativeSourceWindows": self.native_sources,
-            "nativeSourcesTruncated": self.report.native_sources_truncated,
-            "sourceWindows": self.report.source_windows.iter().rev().take(windows).collect::<Vec<_>>(),
-            "sourceWindowsOmitted": self.report.source_windows.len().saturating_sub(windows),
-            "previousActions": previous,
-            "candidateListTruncated": self.report.candidates_truncated,
-        })
-    }
-
-    /// Unread candidates, in evidence order, whose relevance is judged this round.
-    fn relevance_targets(&self) -> Vec<usize> {
-        self.report
-            .candidates
-            .iter()
-            .enumerate()
-            .filter(|(_, candidate)| {
-                !self.used.contains(&action_key(&Action::Read {
-                    symbol: candidate.symbol_id.clone(),
-                }))
-            })
-            .map(|(index, _)| index)
-            .take(MAXIMUM_RELEVANCE_QUESTIONS)
-            .collect()
-    }
-
-    fn terminal_stop(&self, outcome: &RoundOutcome) -> Option<NavigationStop> {
-        let evidence = !self.report.source_windows.is_empty() || !self.native_sources.is_empty();
-        if outcome.next.source_sufficiency >= SUFFICIENCY_STOP && evidence {
-            return Some(NavigationStop::Finished);
-        }
-        if outcome
-            .relevance
-            .iter()
-            .any(|(_, probability)| *probability >= RELEVANCE_READ)
-        {
-            return None;
-        }
-        match outcome.next.action {
-            Action::Finish if evidence => Some(NavigationStop::Finished),
-            Action::Finish | Action::Abstain => Some(NavigationStop::Abstained),
-            _ => None,
-        }
-    }
-
-    /// Relevant unread candidates first, then the provider's chosen operation,
-    /// all within the remaining operation budget.
-    fn plan_round(&self, outcome: RoundOutcome) -> Vec<NavigationStep> {
-        let budget = MAXIMUM_STEPS.saturating_sub(self.operations);
-        let mut relevant = outcome
-            .relevance
-            .iter()
-            .filter(|(_, probability)| *probability >= RELEVANCE_READ)
-            .copied()
-            .collect::<Vec<_>>();
-        relevant.sort_by(|left, right| right.1.total_cmp(&left.1).then(left.0.cmp(&right.0)));
-        let mut planned = relevant
-            .into_iter()
-            .filter_map(|(index, probability)| {
-                self.report
-                    .candidates
-                    .get(index)
-                    .map(|candidate| NavigationStep {
-                        action: Action::Read {
-                            symbol: candidate.symbol_id.clone(),
-                        },
-                        confidence: probability,
-                        source_sufficiency: outcome.next.source_sufficiency,
-                        completed: false,
-                        round: outcome.next.round,
-                        graph: None,
-                    })
-            })
-            .take(MAXIMUM_READS_PER_ROUND.min(budget))
-            .collect::<Vec<_>>();
-        let chosen = action_key(&outcome.next.action);
-        if !matches!(outcome.next.action, Action::Finish | Action::Abstain)
-            && planned.len() < budget
-            && planned
-                .iter()
-                .all(|step| action_key(&step.action) != chosen)
-        {
-            planned.push(outcome.next);
-        }
-        planned
-    }
-
-    fn actions(&self) -> BTreeMap<String, (Action, String)> {
-        let mut actions = AvailableActions {
-            used: &self.used,
-            offered: BTreeMap::from([
-            ("finish".to_owned(), (Action::Finish, "Return the captured source evidence when it supports answering the task.".to_owned())),
-            ("abstain".to_owned(), (Action::Abstain, "No available operation will find the needed evidence; return native and captured evidence with abstention.".to_owned())),
-        ]),
-        };
-        for (index, candidate) in self.report.candidates.iter().enumerate() {
-            for (kind, action) in [
-                (
-                    "read",
-                    Action::Read {
-                        symbol: candidate.symbol_id.clone(),
-                    },
-                ),
-                (
-                    "callers",
-                    Action::Callers {
-                        symbol: candidate.symbol_id.clone(),
-                    },
-                ),
-                (
-                    "callees",
-                    Action::Callees {
-                        symbol: candidate.symbol_id.clone(),
-                    },
-                ),
-            ] {
-                if kind != "read"
-                    && !matches!(candidate.symbol_kind.as_str(), "function" | "method")
-                {
-                    continue;
-                }
-                actions.add(
-                    format!("{kind}_{index}"),
-                    action,
-                    format!(
-                        "{kind} candidate {index}: {} ({}) in {}",
-                        candidate.name, candidate.symbol_kind, candidate.path
-                    ),
-                );
-            }
-            actions.add(
-                format!("outline_{index}"),
-                Action::Outline {
-                    path: candidate.path.clone(),
-                },
-                format!("List declarations in {}", candidate.path),
-            );
-        }
-        for (index, name) in query_identifiers(self.request.task).into_iter().enumerate() {
-            actions.add(
-                format!("exact_{index}"),
-                Action::ExactName { name: name.clone() },
-                format!("Find exact declaration named {name}, copied from the user's task"),
-            );
-        }
-        actions.offered
     }
 
     async fn execute(&mut self, action: &Action) -> Result<(), ProjectError> {
         if let Action::Read { symbol } = action {
             return self.read_sources(std::slice::from_ref(symbol)).await;
         }
-        self.used.insert(action_key(action));
-        self.operations += 1;
-        let retrieval = DeterministicRetriever::new(self.runtime.database.clone());
+        self.ledger.record_lookup(action);
+        let lookup = NativeLookup {
+            retrieval: DeterministicRetriever::new(self.runtime.database.clone()),
+            project_id: self.request.project_id,
+            cancellation: &self.cancellation,
+        };
         let records = match action {
-            Action::Callers { symbol } => self.traverse(&retrieval, symbol, true).await?,
-            Action::Callees { symbol } => self.traverse(&retrieval, symbol, false).await?,
-            Action::Outline { path } => self.outline(&retrieval, path).await?,
-            Action::ExactName { name } => self.exact_name(&retrieval, name).await?,
+            Action::Callers { symbol } => self
+                .ledger
+                .record_graph(lookup.traverse(symbol, true).await?),
+            Action::Callees { symbol } => self
+                .ledger
+                .record_graph(lookup.traverse(symbol, false).await?),
+            Action::Outline { path } => lookup.outline(path).await?,
+            Action::ExactName { name } => lookup.exact_name(name).await?,
             Action::Read { .. } | Action::Finish | Action::Abstain => return Ok(()),
         };
-        if records
-            .iter()
-            .any(|record| Some(record.generation_id()) != self.report.generation_id.as_ref())
-        {
-            return Err(ProjectError::SourceContextUnavailable);
-        }
-        self.report.candidates_truncated |= records.len() > usize::from(LOOKUP_CANDIDATE_LIMIT);
-        for record in records.iter().take(usize::from(LOOKUP_CANDIDATE_LIMIT)) {
-            admit_record(&mut self.report, record);
-        }
-        Ok(())
+        self.ledger.admit_lookup(&records)
     }
 
     async fn read_sources(&mut self, symbols: &[SymbolId]) -> Result<(), ProjectError> {
-        for symbol in symbols {
-            self.used.insert(action_key(&Action::Read {
-                symbol: symbol.clone(),
-            }));
-        }
-        self.operations += symbols.len();
+        self.ledger.record_reads(symbols);
         let generation = self
+            .ledger
             .report
             .generation_id
             .as_ref()
@@ -887,52 +591,50 @@ impl<'a> Navigator<'a> {
         if sources.iter().any(|source| !source.fresh()) {
             return Err(ProjectError::SourceContextUnavailable);
         }
-        self.report.source_windows.extend(sources);
+        self.ledger.report.source_windows.extend(sources);
         Ok(())
     }
+}
 
+/// The native retrieval operations a provider may choose, bound to the
+/// navigated project and cancelled with the navigation. Callers check the
+/// returned records against the navigated generation.
+struct NativeLookup<'a> {
+    retrieval: DeterministicRetriever,
+    project_id: &'a ProjectId,
+    cancellation: &'a ProjectCancellation,
+}
+
+impl NativeLookup<'_> {
+    /// Direct callers (`incoming`) or callees of `symbol`, one hop deep.
     async fn traverse(
-        &mut self,
-        retrieval: &DeterministicRetriever,
+        &self,
         symbol: &SymbolId,
         incoming: bool,
-    ) -> Result<Vec<CurrentSymbolRecord>, ProjectError> {
+    ) -> Result<TraversalResult, ProjectError> {
         let budget = TraversalBudget::new(1, LOOKUP_CANDIDATE_LIMIT)
             .map_err(|_| ProjectError::InvalidOptions)?;
-        let request =
-            TraversalRequest::new(self.request.project_id.clone(), [symbol.clone()], budget)
-                .map_err(|_| ProjectError::InvalidOptions)?;
-        let result = crate::cancellable_project_read(&self.cancellation, async {
+        let request = TraversalRequest::new(self.project_id.clone(), [symbol.clone()], budget)
+            .map_err(|_| ProjectError::InvalidOptions)?;
+        crate::cancellable_project_read(self.cancellation, async {
             if incoming {
-                retrieval.callers(&request).await
+                self.retrieval.callers(&request).await
             } else {
-                retrieval.callees(&request).await
+                self.retrieval.callees(&request).await
             }
             .map_err(|_| ProjectError::RetrievalOperationFailed)
         })
-        .await?;
-        self.report.candidates_truncated |= result.truncated();
-        if let Some(step) = self.report.decisions.last_mut() {
-            step.graph = Some(result.clone());
-        }
-        Ok(result
-            .nodes()
-            .iter()
-            .map(|node| node.symbol().clone())
-            .collect())
+        .await
     }
 
-    async fn outline(
-        &self,
-        retrieval: &DeterministicRetriever,
-        path: &str,
-    ) -> Result<Vec<CurrentSymbolRecord>, ProjectError> {
+    /// Declarations in the file at `path`.
+    async fn outline(&self, path: &str) -> Result<Vec<CurrentSymbolRecord>, ProjectError> {
         let path = NormalizedPath::parse(path).map_err(|_| ProjectError::InvalidOptions)?;
         let query = ExactPathQuery::new(&path, LOOKUP_QUERY_LIMIT)
             .map_err(|_| ProjectError::InvalidOptions)?;
-        crate::cancellable_project_read(&self.cancellation, async {
-            retrieval
-                .exact_path(self.request.project_id, query)
+        crate::cancellable_project_read(self.cancellation, async {
+            self.retrieval
+                .exact_path(self.project_id, query)
                 .await
                 .map_err(|_| ProjectError::RetrievalOperationFailed)
         })
@@ -940,16 +642,13 @@ impl<'a> Navigator<'a> {
         .map(|result| result.map_or_else(Vec::new, |result| result.symbols().to_vec()))
     }
 
-    async fn exact_name(
-        &self,
-        retrieval: &DeterministicRetriever,
-        name: &str,
-    ) -> Result<Vec<CurrentSymbolRecord>, ProjectError> {
+    /// Declarations named exactly `name`.
+    async fn exact_name(&self, name: &str) -> Result<Vec<CurrentSymbolRecord>, ProjectError> {
         let query = ExactTextQuery::new(name, LOOKUP_QUERY_LIMIT)
             .map_err(|_| ProjectError::InvalidOptions)?;
-        crate::cancellable_project_read(&self.cancellation, async {
-            retrieval
-                .exact_name(self.request.project_id, query)
+        crate::cancellable_project_read(self.cancellation, async {
+            self.retrieval
+                .exact_name(self.project_id, query)
                 .await
                 .map_err(|_| ProjectError::RetrievalOperationFailed)
         })
@@ -1102,30 +801,6 @@ fn questions(
         });
     }
     questions
-}
-
-/// One provider round: the chosen next operation plus advisory relevance for
-/// each judged candidate index.
-struct RoundOutcome {
-    next: NavigationStep,
-    relevance: Vec<(usize, f64)>,
-}
-
-fn round_outcome(
-    actions: &BTreeMap<String, (Action, String)>,
-    relevance: &[usize],
-    decision: &JevDecision,
-    round: usize,
-) -> Option<RoundOutcome> {
-    let next = selected_step(actions, decision, round)?;
-    let relevance = relevance
-        .iter()
-        .filter_map(|index| match decision.answers.get(&relevance_key(*index)) {
-            Some(JevAnswer::Noul { noul }) => Some((*index, *noul)),
-            _ => None,
-        })
-        .collect();
-    Some(RoundOutcome { next, relevance })
 }
 
 fn selected_step(

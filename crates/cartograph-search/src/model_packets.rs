@@ -452,20 +452,23 @@ pub struct DecisionRankEvidence {
 }
 
 impl DecisionRankEvidence {
-    /// Record one ranking outcome with a stable redacted provider error code.
+    /// Record one ranking outcome from `model` over `judged` candidates.
     #[must_use]
-    pub fn new(
-        model: impl Into<String>,
-        state: DecisionRankState,
-        judged: usize,
-        provider_error: Option<String>,
-    ) -> Self {
+    pub fn new(model: impl Into<String>, state: DecisionRankState, judged: usize) -> Self {
         Self {
             model: model.into(),
             state,
             judged,
-            provider_error,
+            provider_error: None,
         }
+    }
+
+    /// Attach the stable redacted error code of the provider failure behind
+    /// this outcome; `None` records no code.
+    #[must_use]
+    pub fn with_provider_error(mut self, provider_error: Option<String>) -> Self {
+        self.provider_error = provider_error;
+        self
     }
 
     /// Ranking outcome.

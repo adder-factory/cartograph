@@ -51,15 +51,30 @@ pub(crate) const fn rejects_the_batch(error: &JevError) -> bool {
     )
 }
 
+/// One decision surface's items and how they are split into requests.
+pub(crate) struct BatchInput<'a, T, R> {
+    /// Request shape that builds and reads every batch.
+    pub(crate) request: &'a R,
+    /// Items to judge; results keep this order.
+    pub(crate) items: &'a [T],
+    /// Items judged per request; zero is treated as one.
+    pub(crate) size: usize,
+}
+
+/// Judge `input.items` in item order with at most [`DECISION_CONCURRENCY`]
+/// requests in flight.
 pub(crate) async fn decide_batches<T, R>(
     provider: &impl DecisionProvider,
-    request: &R,
-    items: &[T],
-    size: usize,
+    input: BatchInput<'_, T, R>,
 ) -> BatchOutcomes<R::Answer>
 where
     R: BatchRequest<T>,
 {
+    let BatchInput {
+        request,
+        items,
+        size,
+    } = input;
     let mut batches = items.chunks(size.max(1));
     let mut in_flight = FuturesOrdered::new();
     for batch in batches.by_ref().take(DECISION_CONCURRENCY) {
@@ -253,6 +268,15 @@ mod tests {
         }
     }
 
+    /// `items` judged by [`Echo`] in batches of `size`.
+    fn echo(items: &[u32], size: usize) -> BatchInput<'_, u32, Echo> {
+        BatchInput {
+            request: &Echo,
+            items,
+            size,
+        }
+    }
+
     fn answers(outcomes: &BatchOutcomes<f64>) -> Vec<Option<f64>> {
         outcomes
             .batches
@@ -268,7 +292,7 @@ mod tests {
     async fn batches_keep_item_order_and_cap_requests_in_flight() {
         let items = (0..50).collect::<Vec<u32>>();
         let provider = Provider::failing(Vec::new());
-        let outcomes = decide_batches(&provider, &Echo, &items, 24).await;
+        let outcomes = decide_batches(&provider, echo(&items, 24)).await;
         assert_eq!(outcomes.stopped, None);
         let expected = items
             .iter()
@@ -285,7 +309,7 @@ mod tests {
 
         let many = (0..200).collect::<Vec<u32>>();
         let busy = Provider::failing(Vec::new());
-        decide_batches(&busy, &Echo, &many, 1).await;
+        decide_batches(&busy, echo(&many, 1)).await;
         let most = busy.most_in_flight.load(Ordering::SeqCst);
         assert!(
             (2..=DECISION_CONCURRENCY).contains(&most),
@@ -298,13 +322,13 @@ mod tests {
         let items = (0..3).collect::<Vec<u32>>();
         // The first batch fails once and its retry succeeds.
         let recovered = Provider::failing(vec![(0, JevError::EndpointUnavailable, 1)]);
-        let outcomes = decide_batches(&recovered, &Echo, &items, 1).await;
+        let outcomes = decide_batches(&recovered, echo(&items, 1)).await;
         assert_eq!(answers(&outcomes), [Some(0.0), Some(0.01), Some(0.02)]);
         assert_eq!(recovered.calls.load(Ordering::SeqCst), 4);
 
         // The second item's batch is rejected twice; the third is still judged.
         let rejected = Provider::failing(vec![(1, JevError::BackendRejected, 2)]);
-        let outcomes = decide_batches(&rejected, &Echo, &items, 1).await;
+        let outcomes = decide_batches(&rejected, echo(&items, 1)).await;
         assert_eq!(outcomes.stopped, None);
         assert!(matches!(
             outcomes.batches[1].1,
@@ -318,7 +342,7 @@ mod tests {
         let items = (0..6).collect::<Vec<u32>>();
         // The second batch starts at item 2 and is unavailable on both attempts.
         let unavailable = Provider::failing(vec![(2, JevError::EndpointUnavailable, 2)]);
-        let outcomes = decide_batches(&unavailable, &Echo, &items, 2).await;
+        let outcomes = decide_batches(&unavailable, echo(&items, 2)).await;
         assert_eq!(outcomes.stopped, Some(JevError::EndpointUnavailable));
         assert_eq!(answers(&outcomes), [Some(0.0), Some(0.01)]);
     }

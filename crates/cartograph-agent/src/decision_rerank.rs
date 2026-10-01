@@ -49,77 +49,83 @@ impl ProjectRuntime {
         match JevSettings::try_from_project(&self.root)
             .and_then(|settings| settings.map(JevClient::new).transpose())
         {
-            Ok(Some(client)) => rank_with(&client, task, packet, cancellation).await,
+            Ok(Some(client)) => {
+                ContextRanker {
+                    provider: &client,
+                    cancellation,
+                }
+                .rank(task, packet)
+                .await
+            }
             Ok(None) => Ok(packet),
             Err(error) => Ok(packet.with_decision_rank(unavailable(0, &error))),
         }
     }
 }
 
-pub(crate) async fn rank_with(
-    provider: &impl DecisionProvider,
-    task: &str,
-    packet: ContextPacket,
-    cancellation: &ProjectCancellation,
-) -> Result<ContextPacket, ProjectError> {
-    let indices = packet.retrieval_evidence_indices(MAXIMUM_JUDGED);
-    if indices.len() < 2 {
-        return Ok(packet.with_decision_rank(DecisionRankEvidence::new(
-            JEV_MODEL,
-            DecisionRankState::NoCandidates,
-            indices.len(),
-            None,
-        )));
-    }
-    let state = state(task, &packet, &indices);
-    let scores = match judge(provider, &state, indices.len(), cancellation).await? {
-        Ok(scores) => scores,
-        Err(error) => return Ok(packet.with_decision_rank(unavailable(indices.len(), &error))),
-    };
-    let ranked = indices.iter().copied().zip(scores).collect::<Vec<_>>();
-    // Validation cannot fail for scores `judge` admitted; stay fail-open anyway.
-    match packet.clone().with_decision_relevance(task, &ranked) {
-        Ok(ranked_packet) => Ok(ranked_packet.with_decision_rank(DecisionRankEvidence::new(
-            JEV_MODEL,
-            DecisionRankState::Applied,
-            ranked.len(),
-            None,
-        ))),
-        Err(_) => {
-            Ok(packet.with_decision_rank(unavailable(ranked.len(), &JevError::InvalidResponse)))
-        }
-    }
+/// Relevance ranking for one request: the provider that judges candidates and
+/// the cancellation that ends the request.
+struct ContextRanker<'a, P> {
+    provider: &'a P,
+    cancellation: &'a ProjectCancellation,
 }
 
-/// One provider request for `count` relevance judgments. The outer error is
-/// only cancellation; provider failures and malformed or out-of-range answers
-/// are returned as the inner redacted error so ranking can fail open.
-async fn judge(
-    provider: &impl DecisionProvider,
-    state: &Value,
-    count: usize,
-    cancellation: &ProjectCancellation,
-) -> Result<Result<Vec<f64>, JevError>, ProjectError> {
-    let questions = questions(count);
-    let decision = tokio::select! {
-        biased;
-        () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-        decision = provider.decide(state, &questions) => decision,
-    };
-    Ok(decision
-        .and_then(|decision| scores(&decision.answers, count).ok_or(JevError::InvalidResponse)))
+impl<P: DecisionProvider> ContextRanker<'_, P> {
+    /// Reorder `packet`'s retrieval evidence by judged relevance to `task`.
+    /// Provider failures keep the native order and record a redacted outcome.
+    async fn rank(&self, task: &str, packet: ContextPacket) -> Result<ContextPacket, ProjectError> {
+        let indices = packet.retrieval_evidence_indices(MAXIMUM_JUDGED);
+        if indices.len() < 2 {
+            return Ok(packet.with_decision_rank(DecisionRankEvidence::new(
+                JEV_MODEL,
+                DecisionRankState::NoCandidates,
+                indices.len(),
+            )));
+        }
+        let state = state(task, &packet, &indices);
+        let scores = match self.judge(&state, indices.len()).await? {
+            Ok(scores) => scores,
+            Err(error) => return Ok(packet.with_decision_rank(unavailable(indices.len(), &error))),
+        };
+        let ranked = indices.iter().copied().zip(scores).collect::<Vec<_>>();
+        // Validation cannot fail for scores `judge` admitted; stay fail-open anyway.
+        match packet.clone().with_decision_relevance(task, &ranked) {
+            Ok(ranked_packet) => Ok(ranked_packet.with_decision_rank(DecisionRankEvidence::new(
+                JEV_MODEL,
+                DecisionRankState::Applied,
+                ranked.len(),
+            ))),
+            Err(_) => Ok(
+                packet.with_decision_rank(unavailable(ranked.len(), &JevError::InvalidResponse))
+            ),
+        }
+    }
+
+    /// One provider request for `count` relevance judgments. The outer error is
+    /// only cancellation; provider failures and malformed or out-of-range answers
+    /// are returned as the inner redacted error so ranking can fail open.
+    async fn judge(
+        &self,
+        state: &Value,
+        count: usize,
+    ) -> Result<Result<Vec<f64>, JevError>, ProjectError> {
+        let questions = questions(count);
+        let decision = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
+            decision = self.provider.decide(state, &questions) => decision,
+        };
+        Ok(decision
+            .and_then(|decision| scores(&decision.answers, count).ok_or(JevError::InvalidResponse)))
+    }
 }
 
 fn unavailable(judged: usize, error: &JevError) -> DecisionRankEvidence {
     let code = serde_json::to_value(error)
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned));
-    DecisionRankEvidence::new(
-        JEV_MODEL,
-        DecisionRankState::ProviderUnavailable,
-        judged,
-        code,
-    )
+    DecisionRankEvidence::new(JEV_MODEL, DecisionRankState::ProviderUnavailable, judged)
+        .with_provider_error(code)
 }
 
 fn state(task: &str, packet: &ContextPacket, indices: &[usize]) -> Value {
@@ -299,6 +305,16 @@ mod tests {
         }
     }
 
+    fn ranker<'a, P>(
+        provider: &'a P,
+        cancellation: &'a ProjectCancellation,
+    ) -> ContextRanker<'a, P> {
+        ContextRanker {
+            provider,
+            cancellation,
+        }
+    }
+
     struct Pending;
     impl DecisionProvider for Pending {
         async fn decide(
@@ -320,7 +336,7 @@ mod tests {
             (question_key(1), noul(0.9)),
         ]));
         assert_eq!(
-            judge(&valid, &state, 2, &cancellation).await,
+            ranker(&valid, &cancellation).judge(&state, 2).await,
             Ok(Ok(vec![0.2, 0.9]))
         );
         for answers in [
@@ -332,19 +348,21 @@ mod tests {
             ]),
         ] {
             assert_eq!(
-                judge(&Answers(answers), &state, 2, &cancellation).await,
+                ranker(&Answers(answers), &cancellation)
+                    .judge(&state, 2)
+                    .await,
                 Ok(Err(JevError::InvalidResponse)),
                 "malformed judgments keep the native order"
             );
         }
         assert_eq!(
-            judge(&Outage, &state, 2, &cancellation).await,
+            ranker(&Outage, &cancellation).judge(&state, 2).await,
             Ok(Err(JevError::RateLimited))
         );
         let cancelled = ProjectCancellation::new();
         cancelled.cancel();
         assert_eq!(
-            judge(&Pending, &state, 2, &cancelled).await,
+            ranker(&Pending, &cancelled).judge(&state, 2).await,
             Err(ProjectError::RequestCancelled)
         );
         let prompts = questions(3);
@@ -378,14 +396,11 @@ mod tests {
             .map(|item| item.qualified_name().to_owned())
             .collect::<Vec<_>>();
 
-        let ranked = rank_with(
-            &Reverse,
-            "ledger entry",
-            packet.clone(),
-            &ProjectCancellation::new(),
-        )
-        .await
-        .unwrap_or_else(|e| panic!("ranking: {e}"));
+        let cancellation = ProjectCancellation::new();
+        let ranked = ranker(&Reverse, &cancellation)
+            .rank("ledger entry", packet.clone())
+            .await
+            .unwrap_or_else(|e| panic!("ranking: {e}"));
         let rank = ranked
             .decision_rank()
             .unwrap_or_else(|| panic!("ranking provenance"));
@@ -415,7 +430,8 @@ mod tests {
                 .all(|index| ranked.evidence()[*index].decision_relevance().is_some())
         );
 
-        let unchanged = rank_with(&Outage, "ledger entry", packet, &ProjectCancellation::new())
+        let unchanged = ranker(&Outage, &cancellation)
+            .rank("ledger entry", packet)
             .await
             .unwrap_or_else(|e| panic!("outage: {e}"));
         let rank = unchanged

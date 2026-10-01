@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::{
     ProjectCancellation, ProjectError, ProjectRuntime, RenamePlan,
-    decision_batch::{BatchRequest, decide_batches, truncated},
+    decision_batch::{BatchInput, BatchRequest, decide_batches, truncated},
     navigation::DecisionProvider,
     rename::RenameTextualMention,
 };
@@ -115,10 +115,15 @@ pub(crate) async fn triage_with(
     let request = MentionRequest {
         symbol: symbol_state(&plan),
     };
+    let mentions = BatchInput {
+        request: &request,
+        items: &plan.textual_mentions,
+        size: MENTION_BATCH,
+    };
     let outcomes = tokio::select! {
         biased;
         () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-        outcomes = decide_batches(provider, &request, &plan.textual_mentions, MENTION_BATCH) => outcomes,
+        outcomes = decide_batches(provider, mentions) => outcomes,
     };
     let mut probabilities = Vec::with_capacity(plan.textual_mentions.len());
     for (_, judged) in outcomes.batches {

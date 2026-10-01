@@ -248,6 +248,15 @@ impl DecisionProvider for ChangedSource<'_> {
     }
 }
 
+/// First-round relevance for every candidate; at least `RELEVANCE_READ`, so
+/// each one is planned as a read.
+const FAN_OUT_RELEVANT: f64 = 0.9;
+/// Second-round relevance; below `RELEVANCE_READ`, so nothing more is read.
+const FAN_OUT_SETTLED: f64 = 0.1;
+/// Second-round sufficiency; at least `SUFFICIENCY_STOP`, so navigation
+/// finishes on the source read in the first round.
+const FAN_OUT_SUFFICIENT: f64 = 0.95;
+
 /// Judges every candidate relevant in the first round and declares the read
 /// source sufficient in the second, so one fan-out round replaces several
 /// sequential read decisions.
@@ -284,7 +293,12 @@ impl DecisionProvider for FanOut {
             );
             self.judged.store(candidates, Ordering::SeqCst);
             for key in relevance {
-                decision.answers.insert(key, JevAnswer::Noul { noul: 0.9 });
+                decision.answers.insert(
+                    key,
+                    JevAnswer::Noul {
+                        noul: FAN_OUT_RELEVANT,
+                    },
+                );
             }
         } else {
             assert_eq!(
@@ -294,11 +308,19 @@ impl DecisionProvider for FanOut {
                     .min(MAXIMUM_READS_PER_ROUND),
                 "the second round sees every source read in the first"
             );
-            decision
-                .answers
-                .insert("sufficient".to_owned(), JevAnswer::Noul { noul: 0.95 });
+            decision.answers.insert(
+                "sufficient".to_owned(),
+                JevAnswer::Noul {
+                    noul: FAN_OUT_SUFFICIENT,
+                },
+            );
             for key in relevance {
-                decision.answers.insert(key, JevAnswer::Noul { noul: 0.1 });
+                decision.answers.insert(
+                    key,
+                    JevAnswer::Noul {
+                        noul: FAN_OUT_SETTLED,
+                    },
+                );
             }
         }
         std::future::ready(Ok(decision))
@@ -433,8 +455,9 @@ async fn verify_fan_out_round(
         .await
         .unwrap_or_else(|e| panic!("fan-out navigation: {e}"));
     assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
-    assert_eq!(nav.report.stop, NavigationStop::Finished);
+    assert_eq!(nav.ledger.report.stop, NavigationStop::Finished);
     let reads = nav
+        .ledger
         .report
         .decisions
         .iter()
@@ -448,10 +471,11 @@ async fn verify_fan_out_round(
             .min(MAXIMUM_READS_PER_ROUND)
     );
     assert!(reads.iter().all(|step| step.round == 0 && step.completed));
-    assert_eq!(nav.report.source_windows.len(), reads.len());
-    assert_eq!(nav.operations, reads.len());
+    assert_eq!(nav.ledger.report.source_windows.len(), reads.len());
+    assert_eq!(nav.ledger.operations, reads.len());
     assert!(
-        nav.report
+        nav.ledger
+            .report
             .candidates
             .iter()
             .all(|candidate| candidate.relevance.is_some())
@@ -512,27 +536,28 @@ async fn verify_native_evidence_and_candidate_kinds(
         .run_bounded(&AlreadySufficient)
         .await
         .unwrap_or_else(|error| panic!("sufficient navigation: {error}"));
-    assert_eq!(sufficient.report.stop, NavigationStop::Finished);
-    assert_eq!(sufficient.operations, 0);
+    assert_eq!(sufficient.ledger.report.stop, NavigationStop::Finished);
+    assert_eq!(sufficient.ledger.operations, 0);
     assert!(
         sufficient
+            .ledger
             .report
             .decisions
             .iter()
             .all(|step| matches!(step.action, Action::Finish) && step.completed),
         "an unexecuted chosen operation must not be reported"
     );
-    assert!(sufficient.report.source_windows.is_empty());
+    assert!(sufficient.ledger.report.source_windows.is_empty());
     let mut nav = Navigator::new(runtime, request, ProjectCancellation::new());
     nav.run_bounded(&NativeEvidenceProbe)
         .await
         .unwrap_or_else(|error| panic!("seeded navigation: {error}"));
-    assert_eq!(nav.report.stop, NavigationStop::Finished);
+    assert_eq!(nav.ledger.report.stop, NavigationStop::Finished);
     assert!(
-        nav.report.source_windows.is_empty(),
+        nav.ledger.report.source_windows.is_empty(),
         "native evidence must not be returned twice"
     );
-    assert_eq!(nav.report.native_source_windows, 1);
+    assert_eq!(nav.ledger.report.native_source_windows, 1);
 }
 
 async fn verify_native_and_outage(
@@ -563,20 +588,24 @@ async fn verify_native_and_outage(
         })
         .await
         .unwrap_or_else(|e| panic!("navigation: {e}"));
-        assert_eq!(nav.report.source_windows.len(), 1);
-        let text = nav.report.source_windows[0]
+        assert_eq!(nav.ledger.report.source_windows.len(), 1);
+        let text = nav.ledger.report.source_windows[0]
             .excerpt()
             .unwrap_or_else(|| panic!("source excerpt"))
             .text();
         assert!(text.contains("pub fn entry_point() -> u32 { helper() }"));
-        assert!(nav.report.source_windows[0].fresh());
+        assert!(nav.ledger.report.source_windows[0].fresh());
         if error_after_read {
-            assert_eq!(nav.report.stop, NavigationStop::ProviderUnavailable);
-            assert_eq!(nav.report.provider_error, Some(JevError::RateLimited));
+            assert_eq!(nav.ledger.report.stop, NavigationStop::ProviderUnavailable);
+            assert_eq!(
+                nav.ledger.report.provider_error,
+                Some(JevError::RateLimited)
+            );
         } else {
-            assert_eq!(nav.report.stop, NavigationStop::Finished);
+            assert_eq!(nav.ledger.report.stop, NavigationStop::Finished);
             assert!(
-                nav.report
+                nav.ledger
+                    .report
                     .candidates
                     .iter()
                     .any(|candidate| candidate.name == "helper")
@@ -647,20 +676,23 @@ async fn verify_stop_conditions(
         nav.run_bounded(&Terminal(choice))
             .await
             .unwrap_or_else(|e| panic!("terminal decision: {e}"));
-        assert_eq!(nav.report.stop, expected);
-        assert!(nav.report.source_windows.is_empty());
+        assert_eq!(nav.ledger.report.stop, expected);
+        assert!(nav.ledger.report.source_windows.is_empty());
         if choice == "not_offered" {
-            assert_eq!(nav.report.provider_error, Some(JevError::InvalidResponse));
+            assert_eq!(
+                nav.ledger.report.provider_error,
+                Some(JevError::InvalidResponse)
+            );
         }
     }
     let mut nav = navigator(runtime, project, packet);
     nav.run_bounded(&ExhaustBudget)
         .await
         .unwrap_or_else(|e| panic!("bounded exploration: {e}"));
-    assert_eq!(nav.report.stop, NavigationStop::StepLimit);
-    assert_eq!(nav.report.decisions.len(), 7);
+    assert_eq!(nav.ledger.report.stop, NavigationStop::StepLimit);
+    assert_eq!(nav.ledger.report.decisions.len(), 7);
     assert_eq!(
-        nav.used.len(),
+        nav.ledger.used.len(),
         7,
         "repeated operations must not consume the budget"
     );
@@ -851,8 +883,8 @@ async fn verify_truncation(runtime: &ProjectRuntime, root: &std::path::Path, pro
             > EXPECTED_SEED_CANDIDATES
     );
     let nav = navigator(runtime, project, &packet);
-    assert_eq!(nav.report.candidates.len(), EXPECTED_SEED_CANDIDATES);
-    assert!(nav.report.candidates_truncated);
+    assert_eq!(nav.ledger.report.candidates.len(), EXPECTED_SEED_CANDIDATES);
+    assert!(nav.ledger.report.candidates_truncated);
     for action in [
         Action::Outline {
             path: "outline.rs".to_owned(),
@@ -862,12 +894,15 @@ async fn verify_truncation(runtime: &ProjectRuntime, root: &std::path::Path, pro
         },
     ] {
         let mut nav = navigator(runtime, project, &packet);
-        nav.report.candidates.clear();
-        nav.report.candidates_truncated = false;
+        nav.ledger.report.candidates.clear();
+        nav.ledger.report.candidates_truncated = false;
         nav.execute(&action)
             .await
             .unwrap_or_else(|e| panic!("bounded lookup: {e}"));
-        assert!(nav.report.candidates_truncated);
-        assert_eq!(nav.report.candidates.len(), EXPECTED_LOOKUP_CANDIDATES);
+        assert!(nav.ledger.report.candidates_truncated);
+        assert_eq!(
+            nav.ledger.report.candidates.len(),
+            EXPECTED_LOOKUP_CANDIDATES
+        );
     }
 }

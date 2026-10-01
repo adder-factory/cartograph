@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::{
     ProjectCancellation, ProjectError, ProjectRuntime,
-    decision_batch::{BatchRequest, decide_batches, truncated},
+    decision_batch::{BatchInput, BatchRequest, decide_batches, truncated},
     navigation::DecisionProvider,
 };
 
@@ -167,7 +167,15 @@ async fn judge_batches(
     provider: &impl DecisionProvider,
     candidates: &[RoleCandidate],
 ) -> RoleJudgement {
-    let outcomes = decide_batches(provider, &RoleRequest, candidates, ROLE_BATCH).await;
+    let outcomes = decide_batches(
+        provider,
+        BatchInput {
+            request: &RoleRequest,
+            items: candidates,
+            size: ROLE_BATCH,
+        },
+    )
+    .await;
     let systemic = outcomes
         .batches
         .iter()
