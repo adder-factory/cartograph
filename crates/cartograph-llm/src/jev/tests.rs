@@ -148,53 +148,86 @@ fn request_bounds_apply_before_transport() {
     assert_eq!(value["model"], JEV_MODEL);
 }
 
-fn fixture(status: &str, body: &str, headers: &str) -> (JevClient, thread::JoinHandle<String>) {
+/// Serve `responses` to consecutive connections and return each raw request.
+fn sequence_fixture(responses: Vec<String>) -> (Url, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| panic!("listen: {e}"));
     let address = listener
         .local_addr()
         .unwrap_or_else(|e| panic!("address: {e}"));
-    let response = format!(
+    let handle = thread::spawn(move || {
+        responses
+            .iter()
+            .map(|response| {
+                let (mut stream, _) = listener.accept().unwrap_or_else(|e| panic!("accept: {e}"));
+                let request = read_request(&mut stream);
+                let _ = stream.write_all(response.as_bytes());
+                request
+            })
+            .collect()
+    });
+    let endpoint = Url::parse(&format!("http://{address}/v1/systemone"))
+        .unwrap_or_else(|e| panic!("URL: {e}"));
+    (endpoint, handle)
+}
+
+fn http_response(status: &str, body: &str, headers: &str) -> String {
+    format!(
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}",
         body.len()
-    );
-    let handle = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap_or_else(|e| panic!("accept: {e}"));
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap_or_else(|e| panic!("timeout: {e}"));
-        let mut received = Vec::new();
-        loop {
-            let mut chunk = [0_u8; 4096];
-            let read = stream
-                .read(&mut chunk)
-                .unwrap_or_else(|e| panic!("read: {e}"));
-            assert!(read > 0 && received.len() < MAXIMUM_REQUEST_BYTES);
-            received.extend_from_slice(&chunk[..read]);
-            let text = String::from_utf8_lossy(&received);
-            if let Some(end) = text.find("\r\n\r\n") {
-                let length = text[..end]
-                    .lines()
-                    .find_map(|line| {
-                        line.to_ascii_lowercase()
-                            .strip_prefix("content-length: ")
-                            .and_then(|n| n.parse::<usize>().ok())
-                    })
-                    .unwrap_or_default();
-                if received.len() >= end + 4 + length {
-                    break;
-                }
+    )
+}
+
+fn read_request(stream: &mut std::net::TcpStream) -> String {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap_or_else(|e| panic!("timeout: {e}"));
+    let mut received = Vec::new();
+    loop {
+        let mut chunk = [0_u8; 4096];
+        let read = stream
+            .read(&mut chunk)
+            .unwrap_or_else(|e| panic!("read: {e}"));
+        assert!(read > 0 && received.len() < MAXIMUM_REQUEST_BYTES);
+        received.extend_from_slice(&chunk[..read]);
+        let text = String::from_utf8_lossy(&received);
+        if let Some(end) = text.find("\r\n\r\n") {
+            let length = text[..end]
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .and_then(|n| n.parse::<usize>().ok())
+                })
+                .unwrap_or_default();
+            if received.len() >= end + 4 + length {
+                break;
             }
         }
-        let _ = stream.write_all(response.as_bytes());
-        String::from_utf8(received).unwrap_or_else(|e| panic!("UTF-8: {e}"))
-    });
-    let settings = JevSettings {
-        endpoint: Url::parse(&format!("http://{address}/v1/systemone"))
-            .unwrap_or_else(|e| panic!("URL: {e}")),
-        api_key: SecretString::from("private-fixture-key".to_owned()),
+    }
+    String::from_utf8(received).unwrap_or_else(|e| panic!("UTF-8: {e}"))
+}
+
+fn settings_for(endpoint: Url, credential: TierCredential) -> JevSettings {
+    JevSettings {
+        endpoint,
+        credential,
         timeout: Duration::from_secs(2),
         features: BTreeSet::from([JevFeature::Explore]),
-    };
+    }
+}
+
+fn fixture(status: &str, body: &str, headers: &str) -> (JevClient, thread::JoinHandle<String>) {
+    let (endpoint, server) = sequence_fixture(vec![http_response(status, body, headers)]);
+    let handle = thread::spawn(move || {
+        server
+            .join()
+            .unwrap_or_else(|_| panic!("fixture server"))
+            .remove(0)
+    });
+    let settings = settings_for(
+        endpoint,
+        TierCredential::Static(SecretString::from("private-fixture-key".to_owned())),
+    );
     assert!(!format!("{settings:?}").contains("private-fixture"));
     (
         JevClient::new(settings).unwrap_or_else(|e| panic!("client: {e}")),
@@ -445,4 +478,150 @@ fn decision_features_default_to_exploration_and_ignore_unknown_names() {
             .is_err(),
         "feature names are lowercase identifiers"
     );
+}
+
+/// Executable `/bin/sh` credential helper that counts its runs next to itself.
+#[cfg(unix)]
+fn credential_helper(root: &std::path::Path, name: &str, body: &str) -> crate::CredentialCommand {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = root.join(name);
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\necho run >> \"$0.runs\"\n{body}\n"),
+    )
+    .unwrap_or_else(|e| panic!("helper: {e}"));
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+        .unwrap_or_else(|e| panic!("chmod: {e}"));
+    crate::CredentialCommand::new(vec![
+        path.to_str()
+            .unwrap_or_else(|| panic!("helper path is not UTF-8"))
+            .to_owned(),
+    ])
+    .unwrap_or_else(|e| panic!("command: {e}"))
+}
+
+#[cfg(unix)]
+fn helper_runs(root: &std::path::Path, name: &str) -> usize {
+    std::fs::read_to_string(root.join(format!("{name}.runs")))
+        .map_or(0, |text| text.lines().count())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn command_credential_runs_on_first_use_and_once_more_after_a_rejection() {
+    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let name = "rotating-jev";
+    let command = credential_helper(
+        root.path(),
+        name,
+        "printf 'jev-key-%s\\n' \"$(wc -l < \"$0.runs\" | tr -d ' ')\"",
+    );
+    let (endpoint, server) = sequence_fixture(vec![
+        http_response("401 Unauthorized", "", ""),
+        http_response("200 OK", &valid_response().to_string(), ""),
+    ]);
+    let client = JevClient::new(settings_for(endpoint, TierCredential::Command(command)))
+        .unwrap_or_else(|e| panic!("client: {e}"));
+    assert_eq!(
+        helper_runs(root.path(), name),
+        0,
+        "construction ran the helper"
+    );
+    let decision = client
+        .decide(&serde_json::json!({"task":"find code"}), &questions())
+        .await
+        .unwrap_or_else(|e| panic!("decision: {e}"));
+    assert_eq!(decision.answers.len(), 2);
+    let requests = server.join().unwrap_or_else(|_| panic!("fixture server"));
+    let authorization = |request: &String| {
+        request
+            .lines()
+            .find(|line| line.to_ascii_lowercase().starts_with("authorization:"))
+            .map(str::to_owned)
+    };
+    assert_eq!(
+        requests.iter().map(authorization).collect::<Vec<_>>(),
+        [
+            Some("authorization: Bearer jev-key-1".to_owned()),
+            Some("authorization: Bearer jev-key-2".to_owned())
+        ]
+    );
+    assert_eq!(helper_runs(root.path(), name), 2);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failing_credential_command_falls_back_without_contacting_the_provider() {
+    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let name = "locked-jev";
+    let command = credential_helper(
+        root.path(),
+        name,
+        "printf 'leaked-secret'\nprintf 'stderr-secret' >&2\nexit 4",
+    );
+    let provider = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| panic!("listen: {e}"));
+    provider
+        .set_nonblocking(true)
+        .unwrap_or_else(|e| panic!("nonblocking: {e}"));
+    let endpoint = Url::parse(&format!(
+        "http://{}/v1/systemone",
+        provider
+            .local_addr()
+            .unwrap_or_else(|e| panic!("address: {e}"))
+    ))
+    .unwrap_or_else(|e| panic!("URL: {e}"));
+    let client = JevClient::new(settings_for(
+        endpoint,
+        TierCredential::Command(command.clone()),
+    ))
+    .unwrap_or_else(|e| panic!("client: {e}"));
+    let Err(error) = client.decide(&Value::Null, &questions()).await else {
+        panic!("a failed credential command produced a decision");
+    };
+    assert_eq!(
+        serde_json::to_value(&error).unwrap_or_else(|e| panic!("error code: {e}")),
+        "credential_unavailable"
+    );
+    assert_eq!(
+        error.to_string(),
+        format!("Cartograph Jev credential command `{name}` exited with status 4")
+    );
+    assert!(!format!("{error:?}").contains("secret"));
+    assert!(matches!(provider.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+
+    // While the failure is recent, settings report it without re-running the
+    // helper, so exploration keeps its native path and reranker.
+    std::fs::create_dir(root.path().join(".cartograph")).unwrap_or_else(|e| panic!("state: {e}"));
+    std::fs::write(
+        root.path().join(".cartograph/config.json"),
+        serde_json::json!({"version":2,"llm":{"enabled":true,"decisionLlm":{
+            "provider":"typesafe","model":JEV_MODEL,
+            "apiKeyCommand":[command.program()]}}})
+        .to_string(),
+    )
+    .unwrap_or_else(|e| panic!("config: {e}"));
+    assert!(matches!(
+        JevSettings::try_from_project(root.path()),
+        Err(JevError::CredentialUnavailable(_))
+    ));
+    assert_eq!(helper_runs(root.path(), name), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn configured_command_is_not_run_when_settings_are_loaded() {
+    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let name = "unused-jev";
+    let command = credential_helper(root.path(), name, "printf 'jev-key'");
+    let input = crate::ProjectLlmTierInput::jev("TYPESAFE_API_KEY")
+        .and_then(|input| input.with_api_key_command(command))
+        .unwrap_or_else(|e| panic!("input: {e}"));
+    crate::write_project_llm_tiers(root.path(), &[input]).unwrap_or_else(|e| panic!("write: {e}"));
+    let settings = JevSettings::try_from_project(root.path())
+        .unwrap_or_else(|e| panic!("settings: {e}"))
+        .unwrap_or_else(|| panic!("missing tier"));
+    assert!(settings.allows(JevFeature::Explore));
+    assert!(!format!("{settings:?}").contains(name));
+    assert_eq!(helper_runs(root.path(), name), 0);
 }

@@ -155,6 +155,12 @@ pub enum EmbeddingError {
     /// The endpoint was unreachable or exceeded its request deadline.
     #[error("Cartograph embedding endpoint is unavailable")]
     EndpointUnavailable,
+    /// The tier's credential command produced no usable credential.
+    #[error("Cartograph embedding credential command {failure}")]
+    CredentialUnavailable {
+        /// Why the command produced no credential; never its output.
+        failure: crate::CredentialCommandFailure,
+    },
     /// The endpoint rejected the request without exposing its response body.
     #[error("Cartograph embedding endpoint rejected the request")]
     BackendRejected,

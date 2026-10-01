@@ -69,12 +69,12 @@ use cartograph_domain::{
 };
 use cartograph_llm::{
     ChatError, ChatMessageRequest, ChatSettings, CliBridgeConfig, CliBridgeConfigInput,
-    CliBridgeInputMode, CliBridgeResponseFormat, GroundedChatRequest, InstallModelsError,
-    InstallModelsOptions, JevFeature, JevSettings, OpenAiChatClient, ProjectLlmConfigError,
-    ProjectLlmTier, ProjectLlmTierInput, ProjectSourceSettings, ProjectSummaryEagerLimit,
-    install_recommended_models, load_project_llm_tier, load_project_source_settings,
-    load_project_summary_settings, probe_openai_compatible_endpoint, tune_project_llm_tier,
-    write_project_llm_configuration, write_project_max_file_size,
+    CliBridgeInputMode, CliBridgeResponseFormat, CredentialCommand, GroundedChatRequest,
+    InstallModelsError, InstallModelsOptions, JevFeature, JevSettings, OpenAiChatClient,
+    ProjectLlmConfigError, ProjectLlmTier, ProjectLlmTierInput, ProjectSourceSettings,
+    ProjectSummaryEagerLimit, install_recommended_models, load_project_llm_tier,
+    load_project_source_settings, load_project_summary_settings, probe_openai_compatible_endpoint,
+    tune_project_llm_tier, write_project_llm_configuration, write_project_max_file_size,
 };
 use cartograph_mcp::{
     BoxShutdownFuture, BoxToolFuture, ToolAnnotations, ToolCall, ToolCallContext,
@@ -262,6 +262,8 @@ const ADMIN_LLM_ENDPOINT_MAXIMUM_BYTES: usize = 4_096;
 const ADMIN_LLM_CLI_ARGUMENTS_MAXIMUM: usize = 128;
 const ADMIN_LLM_CLI_ARGUMENT_BYTES_MAXIMUM: usize = 4_096;
 const ADMIN_LLM_CLI_ARGUMENT_TOTAL_BYTES_MAXIMUM: usize = 32 * 1_024;
+/// A credential command's argv: its program plus the CLI bridge argument bound.
+const ADMIN_LLM_CREDENTIAL_ARGV_MAXIMUM: usize = ADMIN_LLM_CLI_ARGUMENTS_MAXIMUM + 1;
 const ADMIN_LLM_CLI_PROMPT_TEMPLATE_MAXIMUM_BYTES: usize = 64 * 1_024;
 const ADMIN_MAINTENANCE_LEASE: Duration = Duration::from_mins(5);
 const ADMIN_MAINTENANCE_TIMEOUT: Duration = Duration::from_mins(4);
@@ -3289,9 +3291,38 @@ struct ConfiguredLlmInput<'value> {
     endpoint: &'value str,
     model: &'value str,
     api_key_env: Option<&'value str>,
+    api_key_command: Option<&'value CredentialCommand>,
     timeout_ms: Option<u64>,
     concurrency: Option<u16>,
     clear_credentials: bool,
+}
+
+/// Credential fields one admin LLM preset applies to a tier. A credential
+/// command and an environment reference are mutually exclusive on input.
+#[derive(Clone, Copy)]
+struct AdminCredentialSource<'value> {
+    api_key_env: Option<&'value str>,
+    api_key_command: Option<&'value CredentialCommand>,
+    clear_credentials: bool,
+}
+
+fn apply_admin_credential(
+    input: ProjectLlmTierInput,
+    source: AdminCredentialSource<'_>,
+) -> Result<ProjectLlmTierInput, ToolError> {
+    if let Some(command) = source.api_key_command {
+        return input
+            .with_api_key_command(command.clone())
+            .map_err(project_llm_error);
+    }
+    if let Some(name) = source.api_key_env {
+        return input.with_api_key_env(name).map_err(project_llm_error);
+    }
+    Ok(if source.clear_credentials {
+        input.without_credentials()
+    } else {
+        input
+    })
 }
 
 fn configured_llm_input(config: ConfiguredLlmInput<'_>) -> Result<ProjectLlmTierInput, ToolError> {
@@ -3300,18 +3331,19 @@ fn configured_llm_input(config: ConfiguredLlmInput<'_>) -> Result<ProjectLlmTier
         endpoint,
         model,
         api_key_env,
+        api_key_command,
         timeout_ms,
         concurrency,
         clear_credentials,
     } = config;
-    let mut input = ProjectLlmTierInput::new(tier, endpoint, model).map_err(project_llm_error)?;
-    if let Some(api_key_env) = api_key_env {
-        input = input
-            .with_api_key_env(api_key_env)
-            .map_err(project_llm_error)?;
-    } else if clear_credentials {
-        input = input.without_credentials();
-    }
+    let mut input = apply_admin_credential(
+        ProjectLlmTierInput::new(tier, endpoint, model).map_err(project_llm_error)?,
+        AdminCredentialSource {
+            api_key_env,
+            api_key_command,
+            clear_credentials,
+        },
+    )?;
     if let Some(timeout_ms) = timeout_ms {
         input = input
             .with_timeout_ms(timeout_ms)
@@ -3358,6 +3390,7 @@ fn hybrid_embedding_input(
         endpoint: LLAMA_EMBED_ENDPOINT,
         model: &model,
         api_key_env: None,
+        api_key_command: None,
         timeout_ms,
         concurrency: Some(concurrency.unwrap_or(4)),
         clear_credentials: true,
@@ -3403,6 +3436,7 @@ fn claude_cli_input(
 struct AnthropicInputsRequest<'input> {
     directory: &'input Path,
     api_key_env: Option<&'input str>,
+    api_key_command: Option<&'input CredentialCommand>,
     timeout_ms: Option<u64>,
     concurrency: Option<u16>,
 }
@@ -3421,17 +3455,19 @@ fn hybrid_anthropic_inputs(
     let AnthropicInputsRequest {
         directory,
         api_key_env,
+        api_key_command,
         timeout_ms,
         concurrency,
     } = request;
     let make = |tier, model| -> Result<ProjectLlmTierInput, ToolError> {
-        let mut input =
-            ProjectLlmTierInput::anthropic_api(tier, model).map_err(project_llm_error)?;
-        if let Some(api_key_env) = api_key_env {
-            input = input
-                .with_api_key_env(api_key_env)
-                .map_err(project_llm_error)?;
-        }
+        let input = apply_admin_credential(
+            ProjectLlmTierInput::anthropic_api(tier, model).map_err(project_llm_error)?,
+            AdminCredentialSource {
+                api_key_env,
+                api_key_command,
+                clear_credentials: false,
+            },
+        )?;
         tune_provider_input(input, timeout_ms, concurrency)
     };
     let mut inputs = vec![hybrid_embedding_input(directory, timeout_ms, concurrency)?];
@@ -3469,6 +3505,7 @@ fn local_llama_inputs(
             endpoint: LLAMA_EMBED_ENDPOINT,
             model: &model("jina-embeddings-v2-base-code.Q4_K_M.gguf")?,
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(4)),
             clear_credentials: true,
@@ -3478,6 +3515,7 @@ fn local_llama_inputs(
             endpoint: LLAMA_CHAT_ENDPOINT,
             model: &model("qwen2.5-coder-3b-instruct-q4_k_m.gguf")?,
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3487,6 +3525,7 @@ fn local_llama_inputs(
             endpoint: LLAMA_CHAT_ENDPOINT,
             model: &model("qwen2.5-coder-3b-instruct-q4_k_m.gguf")?,
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3496,6 +3535,7 @@ fn local_llama_inputs(
             endpoint: LLAMA_CHAT_ENDPOINT,
             model: &model("qwen2.5-coder-3b-instruct-q4_k_m.gguf")?,
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3507,6 +3547,7 @@ fn local_llama_inputs(
             endpoint: LLAMA_ASK_ENDPOINT,
             model: &model("qwen2.5-coder-7b-instruct-q4_k_m.gguf")?,
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(1)),
             clear_credentials: true,
@@ -3516,6 +3557,7 @@ fn local_llama_inputs(
             endpoint: LLAMA_RERANK_ENDPOINT,
             model: &model("bge-reranker-v2-m3-Q4_K_M.gguf")?,
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3536,6 +3578,7 @@ fn ollama_inputs(
             endpoint,
             model: "nomic-embed-text",
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(4)),
             clear_credentials: true,
@@ -3545,6 +3588,7 @@ fn ollama_inputs(
             endpoint,
             model: "qwen2.5-coder:3b",
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3554,6 +3598,7 @@ fn ollama_inputs(
             endpoint,
             model: "qwen2.5-coder:3b",
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3563,6 +3608,7 @@ fn ollama_inputs(
             endpoint,
             model: "qwen2.5-coder:3b",
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(2)),
             clear_credentials: true,
@@ -3574,6 +3620,7 @@ fn ollama_inputs(
             endpoint,
             model: "qwen2.5-coder:7b",
             api_key_env: None,
+            api_key_command: None,
             timeout_ms,
             concurrency: Some(concurrency.unwrap_or(1)),
             clear_credentials: true,
@@ -3680,7 +3727,7 @@ fn cloud_llm_presets() -> Vec<Value> {
         json!({
             "id": "cloud-openai",
             "summary": "Use cloud OpenAI for a selected tier",
-            "description": "Keeps credentials in OPENAI_API_KEY or the selected apiKeyEnv and uses the official OpenAI-compatible endpoint.",
+            "description": "Keeps credentials in OPENAI_API_KEY, the selected apiKeyEnv, or an apiKeyCommand helper and uses the official OpenAI-compatible endpoint.",
             "requiresInstall": false,
             "nextSteps": ["set OPENAI_API_KEY", "apply each required tier", "run llm smoke"]
         }),
@@ -10723,6 +10770,7 @@ struct LlmApplyOptions<'input> {
     timeout_ms: Option<u64>,
     concurrency: Option<u16>,
     api_key_env: Option<&'input str>,
+    api_key_command: Option<&'input CredentialCommand>,
 }
 
 struct LlmApplyPlan {
@@ -10746,6 +10794,7 @@ fn local_backend_apply_plan(
                     "endpoint",
                     "model",
                     "apiKeyEnv",
+                    "apiKeyCommand",
                     "command",
                     "args",
                     "input",
@@ -10775,6 +10824,7 @@ fn local_backend_apply_plan(
                     "endpoint",
                     "model",
                     "apiKeyEnv",
+                    "apiKeyCommand",
                     "dir",
                     "command",
                     "args",
@@ -10812,6 +10862,7 @@ fn hybrid_apply_plan(
                     "endpoint",
                     "model",
                     "apiKeyEnv",
+                    "apiKeyCommand",
                     "minimal",
                     "command",
                     "args",
@@ -10842,6 +10893,7 @@ fn hybrid_apply_plan(
             hybrid_anthropic_inputs(AnthropicInputsRequest {
                 directory: &directory,
                 api_key_env: options.api_key_env,
+                api_key_command: options.api_key_command,
                 timeout_ms: options.timeout_ms,
                 concurrency: options.concurrency,
             })?
@@ -10903,6 +10955,7 @@ fn remote_apply_plan(
             endpoint,
             model,
             api_key_env,
+            api_key_command: options.api_key_command,
             timeout_ms: options.timeout_ms,
             concurrency: options.concurrency,
             clear_credentials,
@@ -10915,7 +10968,10 @@ fn cli_bridge_apply_plan(
     arguments: &Map<String, Value>,
     options: LlmApplyOptions<'_>,
 ) -> Result<LlmApplyPlan, ToolError> {
-    reject_present(arguments, &["endpoint", "apiKeyEnv", "minimal", "dir"])?;
+    reject_present(
+        arguments,
+        &["endpoint", "apiKeyEnv", "apiKeyCommand", "minimal", "dir"],
+    )?;
     let tier = parse_admin_llm_tier(required_text(arguments, "tier")?)?;
     let model = required_bounded_text(arguments, "model", ADMIN_LLM_MODEL_NAME_MAXIMUM_BYTES)?;
     let command = required_bounded_text(arguments, "command", ADMIN_LLM_ENDPOINT_MAXIMUM_BYTES)?;
@@ -10984,11 +11040,39 @@ fn required_cli_bridge_arguments(arguments: &Map<String, Value>) -> Result<Vec<S
         .collect()
 }
 
+/// Parse `apiKeyCommand`: a non-empty argv under the shared credential-command bounds.
+fn optional_credential_command(
+    arguments: &Map<String, Value>,
+) -> Result<Option<CredentialCommand>, ToolError> {
+    let Some(value) = arguments.get("apiKeyCommand") else {
+        return Ok(None);
+    };
+    let argv = value
+        .as_array()
+        .filter(|parts| parts.len() <= ADMIN_LLM_CREDENTIAL_ARGV_MAXIMUM)
+        .ok_or_else(invalid_arguments)?
+        .iter()
+        .map(|part| {
+            part.as_str()
+                .map(str::to_owned)
+                .ok_or_else(invalid_arguments)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    CredentialCommand::new(argv)
+        .map(Some)
+        .map_err(project_llm_error)
+}
+
 fn build_llm_apply_plan(
     arguments: &Map<String, Value>,
     preset: &str,
 ) -> Result<LlmApplyPlan, ToolError> {
+    let api_key_command = optional_credential_command(arguments)?;
+    if api_key_command.is_some() && arguments.contains_key("apiKeyEnv") {
+        return Err(invalid_arguments());
+    }
     let options = LlmApplyOptions {
+        api_key_command: api_key_command.as_ref(),
         timeout_ms: optional_bounded_admin_u64(
             arguments,
             "timeoutMs",
@@ -11792,6 +11876,7 @@ impl AdminCoreTools<'_> {
                 "responseFormat",
                 "responsePath",
                 "apiKeyEnv",
+                "apiKeyCommand",
                 "timeoutMs",
                 "minimal",
                 "dir",
@@ -12198,7 +12283,7 @@ impl AdminCoreTools<'_> {
             "detected": detected,
             "recommended": recommendation,
             "presets": presets,
-            "secretPolicy": "apiKeyEnv is preferred; legacy inline apiKey is read only for v1.1.33 migration compatibility and never returned",
+            "secretPolicy": "apiKeyEnv or apiKeyCommand (an argv the server runs lazily; only the argv is stored) is preferred; legacy inline apiKey is read only for v1.1.33 migration compatibility and never returned",
         }))
     }
 
@@ -12217,6 +12302,7 @@ impl AdminCoreTools<'_> {
                 "responseFormat",
                 "responsePath",
                 "apiKeyEnv",
+                "apiKeyCommand",
                 "timeoutMs",
                 "concurrency",
                 "minimal",
@@ -12238,6 +12324,7 @@ impl AdminCoreTools<'_> {
                     "responseFormat",
                     "responsePath",
                     "apiKeyEnv",
+                    "apiKeyCommand",
                     "timeoutMs",
                     "concurrency",
                     "minimal",
@@ -20184,6 +20271,7 @@ fn admin_definition() -> Result<ToolDefinition, ToolContractError> {
         "responseFormat": {"type": "string", "enum": ["raw", "json-path", "claude"], "description": "cli-bridge only. Bounded stdout decoder."},
         "responsePath": {"type": "string", "minLength": 1, "maxLength": ADMIN_LLM_ENDPOINT_MAXIMUM_BYTES, "description": "cli-bridge json-path only. Validated dotted path with array indexes."},
         "apiKeyEnv": {"type": "string"},
+        "apiKeyCommand": {"type": "array", "minItems": 1, "maxItems": ADMIN_LLM_CREDENTIAL_ARGV_MAXIMUM, "items": {"type": "string", "minLength": 1, "maxLength": ADMIN_LLM_CLI_ARGUMENT_BYTES_MAXIMUM}, "description": "Remote llm-apply presets only; exclusive with apiKeyEnv. Credential helper argv the MCP server runs without a shell on the tier's first use; its stdout is the key and only the argv is stored."},
         "timeoutMs": {"type": "integer", "minimum": 1, "maximum": ADMIN_BIOMARKER_REFRESH_MAXIMUM_TIMEOUT_MS, "description": "Legacy biomarkers-refresh statement-timeout alias, or the bounded execution timeout for supported LLM/SCIP admin operations. Prefer databaseQueryTimeoutMs for biomarkers-refresh."},
         "minimal": {"type": "boolean"},
         "dir": {"type": "string"},
@@ -21792,6 +21880,7 @@ const ADMIN_ARGUMENT_FIELDS: &[&str] = &[
     "responseFormat",
     "responsePath",
     "apiKeyEnv",
+    "apiKeyCommand",
     "timeoutMs",
     "minimal",
     "dir",
@@ -24656,6 +24745,10 @@ fn chat_error(error: ChatError) -> ToolError {
             ToolErrorCode::Unavailable,
             "Grounded chat evidence exceeded the configured request bound",
         ),
+        ChatError::CredentialUnavailable { .. } => safe_error(
+            ToolErrorCode::Unavailable,
+            "Grounded chat credential command did not produce a credential; run `cartograph doctor` for the failing program and status",
+        ),
         ChatError::ClientUnavailable
         | ChatError::EndpointUnavailable
         | ChatError::BackendRejected
@@ -25788,6 +25881,60 @@ mod tests {
         let mut invalid = arguments;
         invalid.insert("responseFormat".to_owned(), json!("json-path"));
         assert!(build_llm_apply_plan(&invalid, "cli-bridge").is_err());
+    }
+
+    #[test]
+    fn mcp_llm_apply_stores_a_credential_command_exclusive_with_api_key_env() {
+        let argv = json!(["/opt/bin/secret-helper", "get", "-k"]);
+        let command = Map::from_iter([("apiKeyCommand".to_owned(), argv.clone())]);
+        let mut remote = command.clone();
+        remote.insert("tier".to_owned(), json!("chat"));
+        remote.insert("model".to_owned(), json!("gpt-fixture"));
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        for (preset, arguments) in [
+            ("cloud-openai", &remote),
+            ("hybrid-anthropic-api", &command),
+        ] {
+            let plan = build_llm_apply_plan(arguments, preset)
+                .unwrap_or_else(|error| panic!("{preset} plan failed: {error:?}"));
+            write_project_llm_configuration(root.path(), &plan.inputs, &plan.cleared)
+                .unwrap_or_else(|error| panic!("{preset} config failed: {error}"));
+        }
+        let config = serde_json::from_str::<Value>(
+            &std::fs::read_to_string(root.path().join(".cartograph/config.json"))
+                .unwrap_or_else(|error| panic!("config read failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("config parse failed: {error}"));
+        for tier in ["summarizeLlm", "localLlm", "askLlm", "classifyLlm"] {
+            assert_eq!(config["llm"][tier]["apiKeyCommand"], argv, "{tier}");
+            assert!(config["llm"][tier].get("apiKeyEnv").is_none(), "{tier}");
+        }
+
+        let mut both = remote.clone();
+        both.insert("apiKeyEnv".to_owned(), json!("OPENAI_FIXTURE_KEY"));
+        assert!(build_llm_apply_plan(&both, "cloud-openai").is_err());
+        for malformed in [
+            json!([]),
+            json!(["/opt/bin/secret-helper", 3]),
+            json!("helper"),
+        ] {
+            let mut arguments = remote.clone();
+            arguments.insert("apiKeyCommand".to_owned(), malformed);
+            assert!(build_llm_apply_plan(&arguments, "cloud-openai").is_err());
+        }
+        let mut bridge = Map::from_iter([
+            ("tier".to_owned(), json!("chat")),
+            ("model".to_owned(), json!("agent-model")),
+            ("command".to_owned(), json!("agent-cli")),
+            ("args".to_owned(), json!([])),
+            ("input".to_owned(), json!("stdin")),
+            ("responseFormat".to_owned(), json!("raw")),
+        ]);
+        bridge.insert("apiKeyCommand".to_owned(), argv);
+        assert!(build_llm_apply_plan(&bridge, "cli-bridge").is_err());
+        for preset in ["ollama", "local-llama-cpp", "hybrid-claude-bridge"] {
+            assert!(build_llm_apply_plan(&command, preset).is_err(), "{preset}");
+        }
     }
 
     #[test]

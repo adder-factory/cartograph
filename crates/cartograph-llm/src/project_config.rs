@@ -10,6 +10,8 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 use url::Url;
 
+use crate::credential::{CredentialCommand, TierCredential};
+
 pub use cartograph_config::{ProjectGenerationStorage, ProjectSourceSettings};
 
 const MAXIMUM_MODEL_BYTES: usize = 256;
@@ -18,9 +20,11 @@ const MAXIMUM_TIMEOUT_MS: u64 = 600_000;
 const MAXIMUM_CONCURRENCY: u16 = 16;
 const MAXIMUM_SUMMARY_BATCH_SIZE: u16 = 16;
 const MAXIMUM_CLI_COMMAND_BYTES: usize = 4_096;
-const MAXIMUM_CLI_ARGUMENTS: usize = 128;
+pub(crate) const MAXIMUM_CLI_ARGUMENTS: usize = 128;
 const MAXIMUM_CLI_ARGUMENT_BYTES: usize = 4_096;
 const MAXIMUM_CLI_ARGUMENT_TOTAL_BYTES: usize = 32 * 1_024;
+/// A credential command's argv: its program plus up to the CLI argument bound.
+const MAXIMUM_CREDENTIAL_COMMAND_ARGV: usize = MAXIMUM_CLI_ARGUMENTS + 1;
 const MAXIMUM_CLI_PROMPT_TEMPLATE_BYTES: usize = 64 * 1_024;
 const MAXIMUM_CLI_RESPONSE_PATH_BYTES: usize = 4_096;
 const MAXIMUM_CLI_RESPONSE_PATH_COMPONENTS: usize = 64;
@@ -402,6 +406,8 @@ pub enum ProjectLlmCredentialSource {
     Environment,
     /// Represents the inline legacy project LLM credential source.
     InlineLegacy,
+    /// A shell-free command run lazily in the serving process; only its argv is stored.
+    Command,
 }
 
 /// Secret-free outcome for one configured tier credential mutation.
@@ -418,6 +424,8 @@ pub enum ProjectLlmCredentialWriteAction {
     ClearedOriginChange,
     /// The caller replaced any previous credential with an environment reference.
     EnvironmentReferenceSet,
+    /// The caller replaced any previous credential with a credential command.
+    CommandReferenceSet,
 }
 
 /// One tier's secret-free credential mutation result.
@@ -501,6 +509,8 @@ pub struct ProjectLlmTierConfig {
     model: String,
     ask_model: Option<String>,
     api_key: Option<SecretString>,
+    api_key_env: Option<String>,
+    api_key_command: Option<CredentialCommand>,
     unavailable_credential_env: Option<String>,
     credential_source: ProjectLlmCredentialSource,
     timeout_ms: Option<u64>,
@@ -522,6 +532,8 @@ impl std::fmt::Debug for ProjectLlmTierConfig {
             .field("model", &self.model)
             .field("ask_model", &self.ask_model)
             .field("api_key_configured", &self.api_key.is_some())
+            .field("api_key_env", &self.api_key_env)
+            .field("api_key_command", &self.api_key_command)
             .field(
                 "unavailable_credential_env",
                 &self.unavailable_credential_env,
@@ -576,6 +588,28 @@ impl ProjectLlmTierConfig {
     #[must_use]
     pub fn unavailable_credential_env(&self) -> Option<&str> {
         self.unavailable_credential_env.as_deref()
+    }
+
+    /// Environment variable the credential is read from (the explicit
+    /// `apiKeyEnv` or the provider default), whether or not it is set here.
+    #[must_use]
+    pub fn api_key_env(&self) -> Option<&str> {
+        self.api_key_env.as_deref()
+    }
+
+    /// Credential command run lazily by the serving process, when configured.
+    #[must_use]
+    pub const fn api_key_command(&self) -> Option<&CredentialCommand> {
+        self.api_key_command.as_ref()
+    }
+
+    /// Credential the tier sends: a resolved key, a lazily run command, or none.
+    pub(crate) fn credential(&self) -> TierCredential {
+        match (&self.api_key, &self.api_key_command) {
+            (Some(key), _) => TierCredential::Static(key.clone()),
+            (None, Some(command)) => TierCredential::Command(command.clone()),
+            (None, None) => TierCredential::None,
+        }
     }
 
     #[must_use]
@@ -639,11 +673,15 @@ enum ProjectLlmCredentialIntent {
     Preserve,
     Clear,
     Environment(String),
+    Command(CredentialCommand),
 }
+
+/// Configuration fields that each name one credential source.
+const CREDENTIAL_FIELDS: [&str; 3] = ["apiKey", "apiKeyEnv", "apiKeyCommand"];
 
 /// Validated config mutation. Credentials are preserved only while the
 /// provider endpoint origin is unchanged, unless explicitly cleared or
-/// replaced with an environment-variable reference.
+/// replaced with an environment-variable reference or a credential command.
 #[derive(Clone, Debug)]
 pub struct ProjectLlmTierInput {
     tier: ProjectLlmTier,
@@ -837,16 +875,37 @@ impl ProjectLlmTierInput {
         mut self,
         value: impl Into<String>,
     ) -> Result<Self, ProjectLlmConfigError> {
-        if matches!(
-            self.provider,
-            ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge
-        ) {
-            return Err(ProjectLlmConfigError::InvalidTier);
-        }
+        self.reject_credential_free_provider()?;
         let value = value.into();
         validate_env_name(&value)?;
         self.credential_intent = ProjectLlmCredentialIntent::Environment(value);
         Ok(self)
+    }
+
+    /// Replace any credential with a shell-free command the serving process
+    /// runs lazily; only the argv is written to configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for the credential-free Claude and CLI bridges.
+    pub fn with_api_key_command(
+        mut self,
+        command: CredentialCommand,
+    ) -> Result<Self, ProjectLlmConfigError> {
+        self.reject_credential_free_provider()?;
+        self.credential_intent = ProjectLlmCredentialIntent::Command(command);
+        Ok(self)
+    }
+
+    fn reject_credential_free_provider(&self) -> Result<(), ProjectLlmConfigError> {
+        if matches!(
+            self.provider,
+            ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge
+        ) {
+            Err(ProjectLlmConfigError::InvalidTier)
+        } else {
+            Ok(())
+        }
     }
 
     #[must_use]
@@ -942,19 +1001,31 @@ impl ProjectLlmTierInput {
     }
 }
 
-fn validate_cli_bridge_config(config: &CliBridgeConfig) -> Result<(), ProjectLlmConfigError> {
-    validate_cli_process_text(&config.command, MAXIMUM_CLI_COMMAND_BYTES)?;
-    if config.args.len() > MAXIMUM_CLI_ARGUMENTS {
+/// Validate one shell-free argv: a bounded program plus at most 128 bounded,
+/// control-free arguments. Shared by the CLI bridge and credential commands.
+pub(crate) fn validate_process_argv(
+    program: &str,
+    args: &[String],
+) -> Result<(), ProjectLlmConfigError> {
+    validate_cli_process_text(program, MAXIMUM_CLI_COMMAND_BYTES)?;
+    if args.len() > MAXIMUM_CLI_ARGUMENTS {
         return Err(ProjectLlmConfigError::InvalidTier);
     }
     let mut argument_bytes = 0_usize;
-    let mut prompt_tokens = 0_usize;
-    for argument in &config.args {
+    for argument in args {
         validate_cli_process_text(argument, MAXIMUM_CLI_ARGUMENT_BYTES)?;
         argument_bytes = argument_bytes
             .checked_add(argument.len())
             .filter(|total| *total <= MAXIMUM_CLI_ARGUMENT_TOTAL_BYTES)
             .ok_or(ProjectLlmConfigError::InvalidTier)?;
+    }
+    Ok(())
+}
+
+fn validate_cli_bridge_config(config: &CliBridgeConfig) -> Result<(), ProjectLlmConfigError> {
+    validate_process_argv(&config.command, &config.args)?;
+    let mut prompt_tokens = 0_usize;
+    for argument in &config.args {
         prompt_tokens = prompt_tokens
             .checked_add(validate_template_tokens(
                 argument,
@@ -1198,6 +1269,43 @@ pub fn load_exact_project_llm_tier(
     tier: ProjectLlmTier,
 ) -> Result<Option<ProjectLlmTierConfig>, ProjectLlmConfigError> {
     load_project_llm_tier_with_fallback(project_root, tier, false)
+}
+
+/// Name the environment variable an exact tier reads its credential from (the
+/// explicit `apiKeyEnv` or the provider default) without reading the variable.
+/// Diagnostics use this to name a variable missing from the current process.
+/// Returns `None` for an absent tier, an inline key, a credential command or a
+/// credential-free provider.
+/// # Errors
+///
+/// Returns an error if the project/config path is unsafe/unreadable/oversized,
+/// or the tier's provider or `apiKeyEnv` field is malformed.
+pub fn load_project_llm_credential_environment(
+    project_root: &Path,
+    tier: ProjectLlmTier,
+) -> Result<Option<String>, ProjectLlmConfigError> {
+    let Some(value) = read_config_value(project_root)? else {
+        return Ok(None);
+    };
+    let Some(object) = value
+        .get("llm")
+        .and_then(|llm| llm.get(tier.config_key()))
+        .and_then(Value::as_object)
+    else {
+        return Ok(None);
+    };
+    let provider = object
+        .get("provider")
+        .and_then(Value::as_str)
+        .and_then(ProjectLlmProvider::parse)
+        .ok_or(ProjectLlmConfigError::InvalidTier)?;
+    if credential_free(provider)
+        || object.contains_key("apiKey")
+        || object.contains_key("apiKeyCommand")
+    {
+        return Ok(None);
+    }
+    credential_environment_name(object, provider).map(|name| name.map(str::to_owned))
 }
 
 /// Read the v1-compatible project-wide source-file ceiling without conflating
@@ -1463,7 +1571,7 @@ where
             return Ok(());
         };
         validate_api_key(inline)?;
-        if object.contains_key("apiKeyEnv") {
+        if object.contains_key("apiKeyEnv") || object.contains_key("apiKeyCommand") {
             return Err(ProjectLlmConfigError::InvalidTier);
         }
         let provider = object
@@ -1729,23 +1837,31 @@ fn apply_credential_intent(
     tier: &mut Map<String, Value>,
     input: &ProjectLlmTierInput,
 ) -> ProjectLlmCredentialWriteAction {
-    let had_credentials = tier.contains_key("apiKey") || tier.contains_key("apiKeyEnv");
+    let had_credentials = CREDENTIAL_FIELDS
+        .iter()
+        .any(|field| tier.contains_key(*field));
     match &input.credential_intent {
         ProjectLlmCredentialIntent::Clear => {
-            tier.remove("apiKey");
-            tier.remove("apiKeyEnv");
+            remove_credential_fields(tier);
             ProjectLlmCredentialWriteAction::ClearedExplicitly
         }
         ProjectLlmCredentialIntent::Environment(environment) => {
-            tier.remove("apiKey");
+            remove_credential_fields(tier);
             tier.insert("apiKeyEnv".to_owned(), Value::String(environment.clone()));
             ProjectLlmCredentialWriteAction::EnvironmentReferenceSet
+        }
+        ProjectLlmCredentialIntent::Command(command) => {
+            remove_credential_fields(tier);
+            tier.insert(
+                "apiKeyCommand".to_owned(),
+                credential_command_value(command),
+            );
+            ProjectLlmCredentialWriteAction::CommandReferenceSet
         }
         ProjectLlmCredentialIntent::Preserve
             if had_credentials && credential_origin_changed(tier, input) =>
         {
-            tier.remove("apiKey");
-            tier.remove("apiKeyEnv");
+            remove_credential_fields(tier);
             ProjectLlmCredentialWriteAction::ClearedOriginChange
         }
         ProjectLlmCredentialIntent::Preserve if had_credentials => {
@@ -1753,6 +1869,22 @@ fn apply_credential_intent(
         }
         ProjectLlmCredentialIntent::Preserve => ProjectLlmCredentialWriteAction::Unchanged,
     }
+}
+
+fn remove_credential_fields(tier: &mut Map<String, Value>) {
+    for field in CREDENTIAL_FIELDS {
+        tier.remove(field);
+    }
+}
+
+/// The stored argv: the program followed by its arguments.
+fn credential_command_value(command: &CredentialCommand) -> Value {
+    Value::Array(
+        std::iter::once(command.program())
+            .chain(command.args().iter().map(String::as_str))
+            .map(|part| Value::String(part.to_owned()))
+            .collect(),
+    )
 }
 
 fn credential_origin_changed(configured: &Map<String, Value>, input: &ProjectLlmTierInput) -> bool {
@@ -1978,6 +2110,8 @@ fn parse_tier(
         model,
         ask_model,
         api_key: credentials.api_key,
+        api_key_env: credentials.environment,
+        api_key_command: credentials.command,
         unavailable_credential_env: credentials.unavailable_environment,
         credential_source: credentials.source,
         timeout_ms: limits.timeout_ms,
@@ -2027,7 +2161,21 @@ fn parse_decision_features(
 struct TierCredentials {
     api_key: Option<SecretString>,
     source: ProjectLlmCredentialSource,
+    environment: Option<String>,
     unavailable_environment: Option<String>,
+    command: Option<CredentialCommand>,
+}
+
+impl TierCredentials {
+    const fn none() -> Self {
+        Self {
+            api_key: None,
+            source: ProjectLlmCredentialSource::None,
+            environment: None,
+            unavailable_environment: None,
+            command: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -2040,43 +2188,91 @@ struct CredentialResolution<'input> {
     missing_decision_env_permitted: bool,
 }
 
+/// Credential sources are mutually exclusive: at most one of `apiKey`,
+/// `apiKeyEnv` and `apiKeyCommand`, and none for the credential-free bridges.
+/// A credential command is only parsed here; it runs on the tier's first use.
 fn parse_tier_credentials(
     value: &Map<String, Value>,
     provider: ProjectLlmProvider,
 ) -> Result<TierCredentials, ProjectLlmConfigError> {
     let explicit_api_key_env = optional_string_value(value, "apiKeyEnv")?;
     let inline = optional_string_value(value, "apiKey")?;
-    let api_key_env = explicit_api_key_env
-        .or_else(|| (provider == ProjectLlmProvider::Typesafe).then_some("TYPESAFE_API_KEY"))
-        .or_else(|| (provider == ProjectLlmProvider::AnthropicApi).then_some("ANTHROPIC_API_KEY"))
-        .or_else(|| {
-            (provider == ProjectLlmProvider::OpenAiCompat && value.get("endpoint").is_none())
-                .then_some("OPENAI_API_KEY")
-        });
-    if explicit_api_key_env.is_some() && inline.is_some() {
+    let command = parse_credential_command(value)?;
+    let configured_sources = [
+        explicit_api_key_env.is_some(),
+        inline.is_some(),
+        command.is_some(),
+    ]
+    .into_iter()
+    .filter(|configured| *configured)
+    .count();
+    if configured_sources > 1 || (credential_free(provider) && configured_sources > 0) {
         return Err(ProjectLlmConfigError::InvalidTier);
     }
-    if matches!(
-        provider,
-        ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge
-    ) {
-        if inline.is_some() || explicit_api_key_env.is_some() {
-            return Err(ProjectLlmConfigError::InvalidTier);
-        }
+    if credential_free(provider) {
+        return Ok(TierCredentials::none());
+    }
+    if let Some(command) = command {
         return Ok(TierCredentials {
-            api_key: None,
-            source: ProjectLlmCredentialSource::None,
-            unavailable_environment: None,
+            source: ProjectLlmCredentialSource::Command,
+            command: Some(command),
+            ..TierCredentials::none()
         });
     }
     resolve_tier_credentials(CredentialResolution {
         value,
         explicit_api_key_env,
         inline,
-        api_key_env,
+        api_key_env: credential_environment_name(value, provider)?,
         missing_default_env_permitted: provider == ProjectLlmProvider::OpenAiCompat,
         missing_decision_env_permitted: provider == ProjectLlmProvider::Typesafe,
     })
+}
+
+const fn credential_free(provider: ProjectLlmProvider) -> bool {
+    matches!(
+        provider,
+        ProjectLlmProvider::ClaudeBridge | ProjectLlmProvider::CliBridge
+    )
+}
+
+/// Parse `apiKeyCommand`: a bounded JSON array holding the program and its arguments.
+fn parse_credential_command(
+    value: &Map<String, Value>,
+) -> Result<Option<CredentialCommand>, ProjectLlmConfigError> {
+    let Some(raw) = value.get("apiKeyCommand") else {
+        return Ok(None);
+    };
+    let argv = raw
+        .as_array()
+        .filter(|parts| parts.len() <= MAXIMUM_CREDENTIAL_COMMAND_ARGV)
+        .ok_or(ProjectLlmConfigError::InvalidTier)?
+        .iter()
+        .map(|part| {
+            part.as_str()
+                .map(str::to_owned)
+                .ok_or(ProjectLlmConfigError::InvalidTier)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    CredentialCommand::new(argv).map(Some)
+}
+
+/// Environment variable a tier reads: the explicit `apiKeyEnv`, else the provider default.
+fn credential_environment_name(
+    value: &Map<String, Value>,
+    provider: ProjectLlmProvider,
+) -> Result<Option<&str>, ProjectLlmConfigError> {
+    let default = match provider {
+        ProjectLlmProvider::Typesafe => Some("TYPESAFE_API_KEY"),
+        ProjectLlmProvider::AnthropicApi => Some("ANTHROPIC_API_KEY"),
+        ProjectLlmProvider::OpenAiCompat if !value.contains_key("endpoint") => {
+            Some("OPENAI_API_KEY")
+        }
+        ProjectLlmProvider::OpenAiCompat
+        | ProjectLlmProvider::ClaudeBridge
+        | ProjectLlmProvider::CliBridge => None,
+    };
+    Ok(optional_string_value(value, "apiKeyEnv")?.or(default))
 }
 
 fn optional_string_value<'input>(
@@ -2093,46 +2289,46 @@ fn optional_string_value<'input>(
 fn resolve_tier_credentials(
     resolution: CredentialResolution<'_>,
 ) -> Result<TierCredentials, ProjectLlmConfigError> {
-    let (api_key, source) = if let Some(key) = resolution.inline {
+    if let Some(key) = resolution.inline {
         validate_api_key(key)?;
-        (
-            Some(SecretString::from(key.to_owned())),
-            ProjectLlmCredentialSource::InlineLegacy,
-        )
-    } else if let Some(name) = resolution.api_key_env {
-        validate_env_name(name)?;
-        match env::var(name) {
-            Ok(key) => {
-                validate_api_key(&key)?;
-                (
-                    Some(SecretString::from(key)),
-                    ProjectLlmCredentialSource::Environment,
-                )
-            }
-            Err(env::VarError::NotPresent) if resolution.missing_decision_env_permitted => {
-                return Ok(TierCredentials {
-                    api_key: None,
-                    source: ProjectLlmCredentialSource::Environment,
-                    unavailable_environment: Some(name.to_owned()),
-                });
-            }
-            Err(env::VarError::NotPresent)
-                if resolution.explicit_api_key_env.is_none()
-                    && resolution.value.get("endpoint").is_some()
-                    && resolution.missing_default_env_permitted =>
-            {
-                (None, ProjectLlmCredentialSource::None)
-            }
-            Err(_) => return Err(ProjectLlmConfigError::CredentialUnavailable),
-        }
-    } else {
-        (None, ProjectLlmCredentialSource::None)
+        return Ok(TierCredentials {
+            api_key: Some(SecretString::from(key.to_owned())),
+            source: ProjectLlmCredentialSource::InlineLegacy,
+            ..TierCredentials::none()
+        });
+    }
+    let Some(name) = resolution.api_key_env else {
+        return Ok(TierCredentials::none());
     };
-    Ok(TierCredentials {
-        api_key,
-        source,
-        unavailable_environment: None,
-    })
+    validate_env_name(name)?;
+    let environment = TierCredentials {
+        source: ProjectLlmCredentialSource::Environment,
+        environment: Some(name.to_owned()),
+        ..TierCredentials::none()
+    };
+    match env::var(name) {
+        Ok(key) => {
+            validate_api_key(&key)?;
+            Ok(TierCredentials {
+                api_key: Some(SecretString::from(key)),
+                ..environment
+            })
+        }
+        Err(env::VarError::NotPresent) if resolution.missing_decision_env_permitted => {
+            Ok(TierCredentials {
+                unavailable_environment: Some(name.to_owned()),
+                ..environment
+            })
+        }
+        Err(env::VarError::NotPresent)
+            if resolution.explicit_api_key_env.is_none()
+                && resolution.value.get("endpoint").is_some()
+                && resolution.missing_default_env_permitted =>
+        {
+            Ok(TierCredentials::none())
+        }
+        Err(_) => Err(ProjectLlmConfigError::CredentialUnavailable),
+    }
 }
 
 struct TierRuntimeLimits {

@@ -3,7 +3,8 @@ use std::{env, path::Path, time::Duration};
 use secrecy::SecretString;
 use url::Url;
 
-use crate::{EmbeddingError, ProjectLlmTier, load_project_llm_tier};
+use crate::credential::TierCredential;
+use crate::{EmbeddingError, ProjectLlmTier, ProjectLlmTierConfig, load_project_llm_tier};
 
 /// Optional API key for the OpenAI-compatible embedding endpoint.
 pub const EMBEDDING_API_KEY_ENV: &str = "CARTOGRAPH_EMBEDDING_API_KEY";
@@ -45,7 +46,7 @@ struct IntegerSetting<T> {
 pub struct EmbeddingSettings {
     endpoint: Url,
     model: String,
-    api_key: Option<SecretString>,
+    credential: TierCredential,
     request_timeout: Duration,
     maximum_batch: usize,
     maximum_input_bytes: usize,
@@ -58,7 +59,7 @@ impl std::fmt::Debug for EmbeddingSettings {
             .debug_struct("EmbeddingSettings")
             .field("endpoint", &"<redacted>")
             .field("model", &self.model)
-            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("credential", &self.credential)
             .field("request_timeout", &self.request_timeout)
             .field("maximum_batch", &self.maximum_batch)
             .field("maximum_input_bytes", &self.maximum_input_bytes)
@@ -130,11 +131,22 @@ impl EmbeddingSettings {
         else {
             return Ok(None);
         };
-        let mut settings = Self::new(config.endpoint(), config.model(), config.api_key())?;
+        Self::from_project_config(&config).map(Some)
+    }
+
+    /// Build settings from one loaded project tier. A credential command is
+    /// kept unresolved; the client runs it on the first request.
+    /// # Errors
+    ///
+    /// Returns an error if the tier's endpoint or model violates the embedding
+    /// transport bounds.
+    pub fn from_project_config(config: &ProjectLlmTierConfig) -> Result<Self, EmbeddingError> {
+        let mut settings = Self::new(config.endpoint(), config.model(), None)?;
+        settings.credential = config.credential();
         if let Some(timeout_ms) = config.timeout_ms() {
             settings.request_timeout = Duration::from_millis(timeout_ms);
         }
-        Ok(Some(settings))
+        Ok(settings)
     }
 
     /// Validate an explicit endpoint/model/key boundary with production defaults.
@@ -173,7 +185,7 @@ impl EmbeddingSettings {
         Ok(Self {
             endpoint,
             model,
-            api_key,
+            credential: TierCredential::from_key(api_key),
             request_timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS),
             maximum_batch: DEFAULT_MAXIMUM_BATCH,
             maximum_input_bytes: DEFAULT_MAXIMUM_INPUT_BYTES,
@@ -191,8 +203,8 @@ impl EmbeddingSettings {
         &self.model
     }
 
-    pub(crate) const fn api_key(&self) -> Option<&SecretString> {
-        self.api_key.as_ref()
+    pub(crate) const fn credential(&self) -> &TierCredential {
+        &self.credential
     }
 
     pub(crate) const fn request_timeout(&self) -> Duration {

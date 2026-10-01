@@ -209,11 +209,16 @@ cartograph doctor .
 Supported chat providers are OpenAI-compatible HTTP, Anthropic Messages API,
 and the bounded local Claude CLI bridge. Embedding and reranker tiers use
 OpenAI-compatible HTTP. Credentials should be resolved from environment
-variables, not stored inline.
+variables or a credential command, not stored inline.
 
 For optional Jev retrieval navigation, use
 `cartograph llm setup . --preset jev --api-key-env TYPESAFE_API_KEY` and provide
-that key in the MCP host's environment. `cartograph_explore` then permits
+that key in the MCP host's environment, or let the server fetch it on first use
+with `cartograph llm setup . --preset jev --api-key-command <exe> --api-key-arg <arg>`
+so the host registration stays a plain `cartograph serve --mcp`. `doctor`
+warns, without becoming unhealthy, when the configured variable is unset in its
+own shell; it runs a configured credential command and reports whether it
+produced a key. `cartograph_explore` then permits
 bounded parallel Jev decisions over the question and source evidence;
 `decision: "native"` bypasses the provider. An absent or unavailable Jev tier
 preserves native retrieval. See [configuration](CONFIGURATION.md#optional-jev-navigation)

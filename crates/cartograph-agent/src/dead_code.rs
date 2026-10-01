@@ -207,16 +207,7 @@ pub async fn judge_dead_code_candidates(
                 models.insert(completion.model().to_owned());
                 parse_batch_reply(completion.content(), batch.len())
             }
-            Err(
-                ChatError::IncompleteConfiguration
-                | ChatError::InvalidConfiguration { .. }
-                | ChatError::ClientUnavailable
-                | ChatError::EndpointUnavailable
-                | ChatError::BackendRejected
-                | ChatError::ResponseLimit
-                | ChatError::InvalidResponse
-                | ChatError::RequestLimit,
-            ) => None,
+            Err(error) => unjudged_batch(error),
         };
         if parsed.is_none() {
             batch_errors = batch_errors.saturating_add(1);
@@ -313,6 +304,22 @@ struct JudgeRow {
     verdict: DeadCodeVerdict,
     confidence: f64,
     reason: String,
+}
+
+/// Every chat failure leaves its batch unjudged. The exhaustive match makes a
+/// new failure category a deliberate decision rather than a silent default.
+const fn unjudged_batch(error: ChatError) -> Option<BTreeMap<usize, ParsedJudgement>> {
+    match error {
+        ChatError::IncompleteConfiguration
+        | ChatError::InvalidConfiguration { .. }
+        | ChatError::ClientUnavailable
+        | ChatError::EndpointUnavailable
+        | ChatError::CredentialUnavailable { .. }
+        | ChatError::BackendRejected
+        | ChatError::ResponseLimit
+        | ChatError::InvalidResponse
+        | ChatError::RequestLimit => None,
+    }
 }
 
 fn parse_batch_reply(value: &str, expected: usize) -> Option<BTreeMap<usize, ParsedJudgement>> {

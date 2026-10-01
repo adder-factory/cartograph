@@ -3,6 +3,7 @@
 mod chat;
 mod client;
 mod config;
+mod credential;
 mod endpoint;
 mod jev;
 mod model;
@@ -20,6 +21,7 @@ pub use client::OpenAiEmbeddingClient;
 pub use config::{
     EMBEDDING_API_KEY_ENV, EMBEDDING_ENDPOINT_ENV, EMBEDDING_MODEL_ENV, EmbeddingSettings,
 };
+pub use credential::{CredentialCommand, CredentialCommandError, CredentialCommandFailure};
 pub use jev::{
     JEV_ENDPOINT, JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevFeature, JevQuestion,
     JevSettings, NoulCriteria, jev_feature_enabled,
@@ -36,8 +38,8 @@ pub use project_config::{
     ProjectLlmCredentialSource, ProjectLlmCredentialWriteAction, ProjectLlmCredentialWriteEntry,
     ProjectLlmProvider, ProjectLlmTier, ProjectLlmTierConfig, ProjectLlmTierInput,
     ProjectLlmWriteReport, ProjectSourceSettings, ProjectSummaryEagerLimit, ProjectSummarySettings,
-    load_exact_project_llm_tier, load_project_llm_tier, load_project_max_file_size,
-    load_project_source_settings, load_project_summary_settings,
+    load_exact_project_llm_tier, load_project_llm_credential_environment, load_project_llm_tier,
+    load_project_max_file_size, load_project_source_settings, load_project_summary_settings,
     migrate_project_inline_credentials, probe_openai_compatible_endpoint, tune_project_llm_tier,
     write_project_llm_configuration, write_project_llm_configuration_with_report,
     write_project_llm_tiers, write_project_max_file_size,

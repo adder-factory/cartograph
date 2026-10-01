@@ -36,8 +36,9 @@ use cartograph_domain::{
     EdgeKind, ModelId, NormalizedPath, ProjectId, ProjectOperation, SourceLanguage, SymbolId,
 };
 use cartograph_llm::{
-    ProjectLlmCredentialSource, ProjectLlmTier, load_exact_project_llm_tier,
-    probe_openai_compatible_endpoint,
+    CredentialCommand, CredentialCommandError, JevError, JevSettings, ProjectLlmConfigError,
+    ProjectLlmCredentialSource, ProjectLlmTier, ProjectLlmTierConfig, load_exact_project_llm_tier,
+    load_project_llm_credential_environment, probe_openai_compatible_endpoint,
 };
 use cartograph_mcp::{ProtocolServer, ServerConfig, ServerLimits, ServerMetadata, ToolProfile};
 use cartograph_search::{
@@ -4408,7 +4409,12 @@ struct LlmDoctorContext<'input> {
     project_path: &'input Path,
     checks: &'input mut Vec<DoctorCheck>,
     loopback: &'input mut BTreeMap<String, Vec<&'static str>>,
+    /// Credential commands to run once every tier has been read.
+    credential_commands: &'input mut Vec<(DoctorLlmTier, CredentialCommand)>,
 }
+
+/// Credential commands doctor runs at once; each is bounded by its own deadline.
+const DOCTOR_CREDENTIAL_COMMAND_CONCURRENCY: usize = 4;
 
 trait ReadinessLabel {
     fn label(self) -> &'static str;
@@ -5316,18 +5322,21 @@ async fn check_llm_configuration(
         },
     ];
     let mut loopback = BTreeMap::<String, Vec<&'static str>>::new();
+    let mut credential_commands = Vec::new();
     let mut embedding_configuration = EmbeddingConfigurationState::NotConfigured;
     for tier in tiers {
         let mut context = LlmDoctorContext {
             project_path,
             checks,
             loopback: &mut loopback,
+            credential_commands: &mut credential_commands,
         };
         if let Some(state) = check_llm_tier_configuration(&mut context, tier) {
             embedding_configuration = state;
         }
     }
 
+    check_llm_credential_commands(credential_commands, checks).await;
     check_loopback_llm_endpoints(loopback, checks).await;
     embedding_configuration
 }
@@ -5336,49 +5345,22 @@ fn check_llm_tier_configuration(
     context: &mut LlmDoctorContext<'_>,
     tier: DoctorLlmTier,
 ) -> Option<EmbeddingConfigurationState> {
-    let config = match load_exact_project_llm_tier(context.project_path, tier.tier) {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            if tier.required {
-                context.checks.push(doctor_warn(
-                    format!("llm-{}", tier.label),
-                    format!(
-                        "The {} LLM tier is not configured; deterministic graph/BM25 retrieval remains available.",
-                        tier.label
-                    ),
-                    "Run `cartograph llm setup` or `cartograph llm install --minimal`.".to_owned(),
-                ));
-            }
-            return tier
-                .embedding
-                .then_some(EmbeddingConfigurationState::NotConfigured);
-        }
-        Err(error) => {
-            context.checks.push(doctor_fail(
-                format!("llm-{}", tier.label),
-                error.to_string(),
-                "Repair .cartograph/config.json with `cartograph llm setup`.".to_owned(),
-            ));
-            return tier
-                .embedding
-                .then_some(EmbeddingConfigurationState::Unavailable);
-        }
+    let config = match load_doctor_llm_tier(context, tier) {
+        Ok(config) => config,
+        Err(state) => return state,
     };
     if config.credential_source() == ProjectLlmCredentialSource::InlineLegacy {
         context.checks.push(doctor_warn(
             format!("llm-{}-credential", tier.label),
             "A legacy inline LLM credential is configured.",
-            "Move the credential to an environment variable and use apiKeyEnv.".to_owned(),
+            "Move the credential to an environment variable (apiKeyEnv) or a credential command (apiKeyCommand).".to_owned(),
         ));
     }
-    if tier.tier == ProjectLlmTier::Decision
-        && cartograph_llm::JevSettings::try_from_project(context.project_path).is_err()
+    if let Some(command) = config.api_key_command() {
+        context.credential_commands.push((tier, command.clone()));
+    }
+    if tier.tier == ProjectLlmTier::Decision && !check_decision_tier(context.checks, tier, &config)
     {
-        context.checks.push(doctor_fail(
-            "llm-decision-config",
-            "The Jev decision tier is invalid or its credential is unavailable; exploration will use native fallback.",
-            "Run `cartograph llm setup --preset jev --api-key-env TYPESAFE_API_KEY` and supply that environment variable to the host.".to_owned(),
-        ));
         return None;
     }
     check_local_model(tier.label, config.model(), context.checks);
@@ -5399,6 +5381,180 @@ fn check_llm_tier_configuration(
     }
     tier.embedding
         .then_some(EmbeddingConfigurationState::Configured)
+}
+
+/// Load one exact tier. When doctor cannot inspect it further, the check
+/// explaining why is recorded and the embedding readiness state is returned.
+fn load_doctor_llm_tier(
+    context: &mut LlmDoctorContext<'_>,
+    tier: DoctorLlmTier,
+) -> Result<ProjectLlmTierConfig, Option<EmbeddingConfigurationState>> {
+    let unavailable = tier
+        .embedding
+        .then_some(EmbeddingConfigurationState::Unavailable);
+    match load_exact_project_llm_tier(context.project_path, tier.tier) {
+        Ok(Some(config)) => return Ok(config),
+        Ok(None) => {
+            if tier.required {
+                context.checks.push(doctor_warn(
+                    format!("llm-{}", tier.label),
+                    format!(
+                        "The {} LLM tier is not configured; deterministic graph/BM25 retrieval remains available.",
+                        tier.label
+                    ),
+                    "Run `cartograph llm setup` or `cartograph llm install --minimal`.".to_owned(),
+                ));
+            }
+            return Err(tier
+                .embedding
+                .then_some(EmbeddingConfigurationState::NotConfigured));
+        }
+        Err(ProjectLlmConfigError::CredentialUnavailable) => {
+            let variable = load_project_llm_credential_environment(context.project_path, tier.tier)
+                .ok()
+                .flatten();
+            context.checks.push(missing_credential_check(
+                tier,
+                variable
+                    .as_deref()
+                    .unwrap_or("The configured credential variable"),
+            ));
+        }
+        Err(error) => context.checks.push(doctor_fail(
+            format!("llm-{}", tier.label),
+            error.to_string(),
+            "Repair .cartograph/config.json with `cartograph llm setup`.".to_owned(),
+        )),
+    }
+    Err(unavailable)
+}
+
+/// Classify the optional Jev tier. A credential variable missing from this
+/// shell warns, because the MCP server reads its own environment; only a tier
+/// Cartograph cannot use fails. Returns whether the generic remote checks apply.
+fn check_decision_tier(
+    checks: &mut Vec<DoctorCheck>,
+    tier: DoctorLlmTier,
+    config: &ProjectLlmTierConfig,
+) -> bool {
+    match JevSettings::from_config(config) {
+        Ok(_) | Err(JevError::CredentialUnavailable(_)) => true,
+        Err(JevError::CredentialMissing {
+            environment_variable,
+        }) => {
+            checks.push(missing_credential_check(tier, &environment_variable));
+            false
+        }
+        Err(_) => {
+            checks.push(doctor_fail(
+                "llm-decision-config",
+                "The Jev decision tier is invalid (unexpected provider, model, endpoint or timeout); exploration uses native retrieval.",
+                format!(
+                    "Run `cartograph llm setup --preset jev {}` to restore the pinned model and endpoint.",
+                    decision_credential_flags(config)
+                ),
+            ));
+            false
+        }
+    }
+}
+
+/// The setup flags that keep the decision tier's configured credential source.
+fn decision_credential_flags(config: &ProjectLlmTierConfig) -> String {
+    config.api_key_command().map_or_else(
+        || {
+            format!(
+                "--api-key-env {}",
+                config.api_key_env().unwrap_or("TYPESAFE_API_KEY")
+            )
+        },
+        |command| {
+            format!(
+                "--api-key-command <{}> --api-key-arg <arg>",
+                command.program_name()
+            )
+        },
+    )
+}
+
+/// What a tier without its credential means for retrieval.
+fn unavailable_tier_consequence(tier: DoctorLlmTier) -> String {
+    if tier.tier == ProjectLlmTier::Decision {
+        "Explore uses native retrieval until then.".to_owned()
+    } else {
+        format!("The {} tier is unavailable until then.", tier.label)
+    }
+}
+
+/// Doctor's own shell lacks a configured credential variable. That blocks
+/// readiness only for a required tier; optional tiers warn.
+fn missing_credential_check(tier: DoctorLlmTier, variable: &str) -> DoctorCheck {
+    let message = format!(
+        "{variable} is not set in this shell; the MCP server needs it in its own environment. {}",
+        unavailable_tier_consequence(tier)
+    );
+    let preset = if tier.tier == ProjectLlmTier::Decision {
+        "--preset jev "
+    } else {
+        ""
+    };
+    let remediation = format!(
+        "Supply {variable} to the MCP server process (its host `env` block or secret-manager launcher), or let Cartograph resolve the key on first use: `cartograph llm setup {preset}--api-key-command <exe> --api-key-arg <arg>`."
+    );
+    let id = format!("llm-{}-credential", tier.label);
+    if tier.required {
+        doctor_fail(id, message, remediation)
+    } else {
+        doctor_warn(id, message, remediation)
+    }
+}
+
+/// Run each configured credential command once, bounded, and report only
+/// whether it produced a credential; the value is discarded.
+async fn check_llm_credential_commands(
+    commands: Vec<(DoctorLlmTier, CredentialCommand)>,
+    checks: &mut Vec<DoctorCheck>,
+) {
+    let results = stream::iter(commands)
+        .map(|(tier, command)| async move {
+            let result = command.verify().await;
+            (tier, command, result)
+        })
+        .buffered(DOCTOR_CREDENTIAL_COMMAND_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    for (tier, command, result) in results {
+        checks.push(credential_command_check(tier, &command, result));
+    }
+}
+
+fn credential_command_check(
+    tier: DoctorLlmTier,
+    command: &CredentialCommand,
+    result: Result<(), CredentialCommandError>,
+) -> DoctorCheck {
+    let id = format!("llm-{}-credential", tier.label);
+    let Err(error) = result else {
+        return doctor_pass(
+            id,
+            format!(
+                "The {} credential command `{}` produced a credential; the MCP server runs it on first use.",
+                tier.label,
+                command.program_name()
+            ),
+        );
+    };
+    let message = format!(
+        "The {} tier's {error}. {}",
+        tier.label,
+        unavailable_tier_consequence(tier)
+    );
+    let remediation = "Run the configured command where the MCP server runs and fix it (for example, unlock its secret store); the server retries it on a later use without a restart.".to_owned();
+    if tier.required {
+        doctor_fail(id, message, remediation)
+    } else {
+        doctor_warn(id, message, remediation)
+    }
 }
 
 fn endpoint_is_loopback(endpoint: &str) -> bool {
@@ -5558,6 +5714,7 @@ mod tests {
     use super::*;
     use clap::Parser;
 
+    mod doctor_llm;
     mod documentation_contract;
 
     fn walk_cli_contract(

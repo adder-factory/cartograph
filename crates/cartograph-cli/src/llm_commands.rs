@@ -11,8 +11,8 @@ use cartograph_config::{DATABASE_URL_ENV, DatabaseSettings};
 use cartograph_db::{CartographDatabase, ManagedDatabase};
 use cartograph_llm::{
     ChatMessageRequest, ChatSettings, CliBridgeConfig, CliBridgeConfigInput, CliBridgeInputMode,
-    CliBridgeResponseFormat, EmbeddingSettings, InstallModelsOptions, OpenAiChatClient,
-    OpenAiEmbeddingClient, OpenAiRerankClient, ProjectCredentialMigrationReport,
+    CliBridgeResponseFormat, CredentialCommand, EmbeddingSettings, InstallModelsOptions,
+    OpenAiChatClient, OpenAiEmbeddingClient, OpenAiRerankClient, ProjectCredentialMigrationReport,
     ProjectCredentialMigrationStatus, ProjectLlmCredentialWriteEntry, ProjectLlmTier,
     ProjectLlmTierInput, RerankSettings, install_recommended_models, load_exact_project_llm_tier,
     migrate_project_inline_credentials, probe_openai_compatible_endpoint,
@@ -34,6 +34,8 @@ const LM_STUDIO_ENDPOINT: &str = "http://127.0.0.1:1234";
 #[cfg(test)]
 const UNREACHABLE_LOOPBACK_ENDPOINT: &str = "http://127.0.0.1:1";
 const OPENAI_ENDPOINT: &str = "https://api.openai.com";
+const OPENAI_DEFAULT_API_KEY_ENV: &str = "OPENAI_API_KEY";
+const JEV_DEFAULT_API_KEY_ENV: &str = "TYPESAFE_API_KEY";
 const CREDENTIAL_MIGRATION_CONFIRMATION: &str = "migrate-inline-credentials";
 #[cfg(test)]
 const OPENAI_V1_ENDPOINT: &str = "https://api.openai.com/v1";
@@ -41,7 +43,7 @@ const OPENAI_V1_ENDPOINT: &str = "https://api.openai.com/v1";
 #[derive(Debug, Subcommand)]
 pub(super) enum LlmCommand {
     /// Select detected/local/cloud providers and atomically update config.json.
-    Setup(SetupArguments),
+    Setup(Box<SetupArguments>),
     /// Send small real requests to every required or explicitly configured tier.
     Smoke(SmokeArguments),
     /// Download checksum-pinned recommended GGUFs and write the local stack config.
@@ -108,11 +110,91 @@ pub(super) struct SetupArguments {
 #[derive(Debug, Args)]
 struct SetupCredentialArguments {
     /// Environment-variable name containing the provider credential.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "api_key_command")]
     api_key_env: Option<String>,
-    /// Remove existing credentials; mutually exclusive with --api-key-env.
-    #[arg(long, conflicts_with = "api_key_env")]
+    /// Credential helper the serving process runs without a shell on the
+    /// tier's first use; its standard output (trailing whitespace trimmed) is
+    /// the credential. Only the command line is stored.
+    #[arg(long, value_name = "EXE")]
+    api_key_command: Option<String>,
+    /// One credential helper argument; repeat for each argument.
+    #[arg(
+        long = "api-key-arg",
+        value_name = "ARG",
+        requires = "api_key_command",
+        allow_hyphen_values = true
+    )]
+    api_key_args: Vec<String>,
+    /// Remove existing credentials; mutually exclusive with --api-key-env and
+    /// --api-key-command.
+    #[arg(long, conflicts_with_all = ["api_key_env", "api_key_command"])]
     clear_credentials: bool,
+}
+
+impl SetupCredentialArguments {
+    /// Whether any credential source or removal was requested.
+    const fn requested(&self) -> bool {
+        self.api_key_env.is_some() || self.api_key_command.is_some() || self.clear_credentials
+    }
+
+    /// The same exclusions clap enforces, for arguments built without clap.
+    fn validate(&self) -> Result<(), String> {
+        let sources = [
+            self.api_key_env.is_some(),
+            self.api_key_command.is_some(),
+            self.clear_credentials,
+        ]
+        .into_iter()
+        .filter(|requested| *requested)
+        .count();
+        if sources > 1 {
+            Err(
+                "--api-key-env, --api-key-command and --clear-credentials are mutually exclusive"
+                    .to_owned(),
+            )
+        } else if self.api_key_command.is_none() && !self.api_key_args.is_empty() {
+            Err("--api-key-arg requires --api-key-command".to_owned())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Validated credential command from --api-key-command and --api-key-arg.
+    fn command(&self) -> Result<Option<CredentialCommand>, String> {
+        self.api_key_command
+            .as_ref()
+            .map(|program| {
+                CredentialCommand::new(
+                    std::iter::once(program.clone())
+                        .chain(self.api_key_args.iter().cloned())
+                        .collect(),
+                )
+                .map_err(|error| error.to_string())
+            })
+            .transpose()
+    }
+
+    /// Apply the requested credential source to one tier input. Without a
+    /// request, `default_environment` names the variable to reference, if any.
+    fn apply(
+        &self,
+        input: ProjectLlmTierInput,
+        default_environment: Option<&str>,
+    ) -> Result<ProjectLlmTierInput, String> {
+        self.validate()?;
+        if let Some(command) = self.command()? {
+            return input
+                .with_api_key_command(command)
+                .map_err(|error| error.to_string());
+        }
+        match self.api_key_env.as_deref().or(default_environment) {
+            Some(name) => input
+                .with_api_key_env(name)
+                .map_err(|error| error.to_string()),
+            None if self.clear_credentials => Ok(input.without_credentials()),
+            None => Ok(input),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -457,7 +539,7 @@ struct InstallReport {
 
 pub(super) async fn run(command: LlmCommand) -> Result<ExitCode, String> {
     match command {
-        LlmCommand::Setup(arguments) => run_setup(arguments).await,
+        LlmCommand::Setup(arguments) => run_setup(*arguments).await,
         LlmCommand::Smoke(arguments) => run_smoke(arguments).await,
         LlmCommand::Install(arguments) => run_install(arguments).await,
         LlmCommand::MigrateCredentials(arguments) => run_migrate_credentials(arguments),
@@ -733,22 +815,19 @@ fn jev_inputs(
         || arguments.model.is_some()
         || arguments.minimal
     {
-        return Err("Jev uses the decision tier and its pinned model/endpoint; configure only --api-key-env or --clear-credentials".to_owned());
+        return Err("Jev uses the decision tier and its pinned model/endpoint; configure only --api-key-env, --api-key-command or --clear-credentials".to_owned());
     }
+    arguments.credentials.validate()?;
     if arguments.credentials.clear_credentials {
-        if arguments.credentials.api_key_env.is_some() || arguments.jev_features.is_some() {
-            return Err(
-                "--clear-credentials conflicts with --api-key-env and --jev-features".to_owned(),
-            );
+        if arguments.jev_features.is_some() {
+            return Err("--clear-credentials conflicts with --jev-features".to_owned());
         }
         return Ok((Vec::new(), vec![ProjectLlmTier::Decision]));
     }
-    let environment = arguments
-        .credentials
-        .api_key_env
-        .as_deref()
-        .unwrap_or("TYPESAFE_API_KEY");
-    let mut input = ProjectLlmTierInput::jev(environment).map_err(|error| error.to_string())?;
+    let mut input = arguments.credentials.apply(
+        ProjectLlmTierInput::jev(JEV_DEFAULT_API_KEY_ENV).map_err(|error| error.to_string())?,
+        Some(JEV_DEFAULT_API_KEY_ENV),
+    )?;
     if let Some(features) = &arguments.jev_features {
         let mut names = features
             .iter()
@@ -769,8 +848,7 @@ fn reject_custom_fields(arguments: &SetupArguments) -> Result<(), String> {
         arguments.endpoint.is_some(),
         arguments.model.is_some(),
         has_cli_bridge_fields(arguments),
-        arguments.credentials.api_key_env.is_some(),
-        arguments.credentials.clear_credentials,
+        arguments.credentials.requested(),
     ]
     .contains(&true);
     if provider_fields_present {
@@ -846,29 +924,16 @@ fn custom_inputs(
         .model
         .as_deref()
         .ok_or_else(|| "--preset custom requires --model".to_owned())?;
-    let mut input = ProjectLlmTierInput::new(tier.into(), endpoint, model)
+    let input = ProjectLlmTierInput::new(tier.into(), endpoint, model)
         .map_err(|error| error.to_string())?;
-    if arguments.credentials.clear_credentials && arguments.credentials.api_key_env.is_some() {
-        return Err("--clear-credentials conflicts with --api-key-env".to_owned());
-    }
-    if let Some(name) = &arguments.credentials.api_key_env {
-        input = input
-            .with_api_key_env(name)
-            .map_err(|error| error.to_string())?;
-    } else if arguments.credentials.clear_credentials {
-        input = input.without_credentials();
-    }
+    let input = arguments.credentials.apply(input, None)?;
     Ok((vec![input], Vec::new()))
 }
 
 fn cli_bridge_inputs(
     arguments: &SetupArguments,
 ) -> Result<(Vec<ProjectLlmTierInput>, Vec<ProjectLlmTier>), String> {
-    if arguments.minimal
-        || arguments.endpoint.is_some()
-        || arguments.credentials.api_key_env.is_some()
-        || arguments.credentials.clear_credentials
-    {
+    if arguments.minimal || arguments.endpoint.is_some() || arguments.credentials.requested() {
         return Err(
             "cli-bridge accepts chat tier, model, and command transport fields without HTTP or credential options"
                 .to_owned(),
@@ -924,21 +989,15 @@ fn cloud_openai_inputs(
         .model
         .as_deref()
         .ok_or_else(|| "--preset cloud-open-ai requires --model".to_owned())?;
-    let mut input = ProjectLlmTierInput::new(
+    let input = ProjectLlmTierInput::new(
         tier.into(),
         arguments.endpoint.as_deref().unwrap_or(OPENAI_ENDPOINT),
         model,
     )
     .map_err(|error| error.to_string())?;
-    input = input
-        .with_api_key_env(
-            arguments
-                .credentials
-                .api_key_env
-                .as_deref()
-                .unwrap_or("OPENAI_API_KEY"),
-        )
-        .map_err(|error| error.to_string())?;
+    let input = arguments
+        .credentials
+        .apply(input, Some(OPENAI_DEFAULT_API_KEY_ENV))?;
     Ok((vec![input], Vec::new()))
 }
 
@@ -982,8 +1041,7 @@ fn hybrid_claude_has_custom_fields(arguments: &SetupArguments) -> bool {
         arguments.tier.is_some(),
         arguments.endpoint.is_some(),
         arguments.model.is_some(),
-        arguments.credentials.api_key_env.is_some(),
-        arguments.credentials.clear_credentials,
+        arguments.credentials.requested(),
         has_cli_bridge_fields(arguments),
     ]
     .contains(&true)
@@ -994,19 +1052,14 @@ fn hybrid_anthropic_inputs(
 ) -> Result<(Vec<ProjectLlmTierInput>, Vec<ProjectLlmTier>), String> {
     if hybrid_anthropic_has_custom_fields(arguments) {
         return Err(
-            "hybrid-anthropic-api uses its bounded default chat tiers; only --api-key-env may override credential lookup"
+            "hybrid-anthropic-api uses its bounded default chat tiers; only --api-key-env or --api-key-command may override credential lookup"
                 .to_owned(),
         );
     }
     let make = |tier, model| -> Result<ProjectLlmTierInput, String> {
-        let mut input =
+        let input =
             ProjectLlmTierInput::anthropic_api(tier, model).map_err(|error| error.to_string())?;
-        if let Some(name) = &arguments.credentials.api_key_env {
-            input = input
-                .with_api_key_env(name)
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(input)
+        arguments.credentials.apply(input, None)
     };
     let mut inputs = vec![hybrid_embedding_input()?];
     inputs.push(
@@ -1238,12 +1291,8 @@ async fn smoke_embedding(project: &Path, timeout: Duration) -> SmokeRow {
     let model = Some(configured.model().to_owned());
     let endpoint = Some(configured.endpoint().to_owned());
     let result = async {
-        let settings = EmbeddingSettings::new(
-            configured.endpoint(),
-            configured.model(),
-            configured.api_key(),
-        )
-        .map_err(|error| error.to_string())?;
+        let settings = EmbeddingSettings::from_project_config(&configured)
+            .map_err(|error| error.to_string())?;
         let client = OpenAiEmbeddingClient::new(settings).map_err(|error| error.to_string())?;
         let batch = client
             .embed(&["Cartograph LLM smoke embedding probe".to_owned()])
@@ -1798,6 +1847,8 @@ mod tests {
             response_path: None,
             credentials: SetupCredentialArguments {
                 api_key_env: None,
+                api_key_command: None,
+                api_key_args: Vec::new(),
                 clear_credentials: false,
             },
             jev_features: None,
@@ -1927,6 +1978,8 @@ mod tests {
             response_path: None,
             credentials: SetupCredentialArguments {
                 api_key_env: None,
+                api_key_command: None,
+                api_key_args: Vec::new(),
                 clear_credentials: false,
             },
             jev_features: None,
@@ -2189,7 +2242,10 @@ mod tests {
         let mut setup = setup_arguments(root.path());
         setup.preset = Some(SetupPreset::Skip);
         setup.json = true;
-        assert_eq!(run(LlmCommand::Setup(setup)).await, Ok(ExitCode::SUCCESS));
+        assert_eq!(
+            run(LlmCommand::Setup(Box::new(setup))).await,
+            Ok(ExitCode::SUCCESS)
+        );
         assert!(!root.path().join(".cartograph/config.json").exists());
 
         assert_eq!(
@@ -2205,5 +2261,122 @@ mod tests {
         assert!(!unreachable.reachable);
         assert!(!unreachable.openai_compatible);
         assert!(unreachable.models.is_empty());
+    }
+
+    #[test]
+    fn credential_commands_are_written_for_remote_presets_and_exclusive_with_other_sources() {
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let mut arguments = setup_arguments(root.path());
+        arguments.credentials.api_key_command = Some("/opt/bin/secret-helper".to_owned());
+        arguments.credentials.api_key_args = vec!["get".to_owned(), "--field=key".to_owned()];
+        let (jev, _) = setup_inputs(&arguments, SetupPreset::Jev)
+            .unwrap_or_else(|error| panic!("Jev command setup failed: {error}"));
+        arguments.tier = Some(LlmTierArgument::Chat);
+        arguments.endpoint = Some(OPENAI_V1_ENDPOINT.to_owned());
+        arguments.model = Some("gpt-fixture".to_owned());
+        let (custom, _) = setup_inputs(&arguments, SetupPreset::Custom)
+            .unwrap_or_else(|error| panic!("custom command setup failed: {error}"));
+        write_project_llm_configuration(root.path(), &[jev, custom].concat(), &[])
+            .unwrap_or_else(|error| panic!("config write failed: {error}"));
+        let written: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.path().join(".cartograph/config.json"))
+                .unwrap_or_else(|error| panic!("config read failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("config JSON failed: {error}"));
+        let argv = serde_json::json!(["/opt/bin/secret-helper", "get", "--field=key"]);
+        for tier in ["decisionLlm", "summarizeLlm"] {
+            assert_eq!(written["llm"][tier]["apiKeyCommand"], argv, "{tier}");
+            assert!(written["llm"][tier].get("apiKeyEnv").is_none(), "{tier}");
+        }
+
+        for preset in [
+            SetupPreset::CliBridge,
+            SetupPreset::HybridClaudeBridge,
+            SetupPreset::Ollama,
+        ] {
+            assert!(setup_inputs(&arguments, preset).is_err(), "{preset:?}");
+        }
+        arguments.credentials.api_key_env = Some("OPENAI_FIXTURE_KEY".to_owned());
+        assert!(setup_inputs(&arguments, SetupPreset::Custom).is_err());
+        arguments.credentials.api_key_env = None;
+        arguments.credentials.clear_credentials = true;
+        assert!(setup_inputs(&arguments, SetupPreset::Custom).is_err());
+        assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
+        arguments.credentials.clear_credentials = false;
+        arguments.credentials.api_key_command = None;
+        assert!(setup_inputs(&arguments, SetupPreset::Custom).is_err());
+    }
+
+    #[test]
+    fn command_line_credential_flags_are_mutually_exclusive() {
+        #[derive(clap::Parser)]
+        struct Harness {
+            #[command(flatten)]
+            arguments: SetupArguments,
+        }
+        let parse = |flags: &[&str]| {
+            <Harness as clap::Parser>::try_parse_from(
+                ["setup", ".", "--preset", "jev"].iter().chain(flags),
+            )
+        };
+        let parsed = parse(&[
+            "--api-key-command",
+            "/opt/helper",
+            "--api-key-arg",
+            "--item",
+        ])
+        .unwrap_or_else(|error| panic!("command flags failed: {error}"));
+        assert_eq!(
+            parsed.arguments.credentials.api_key_command.as_deref(),
+            Some("/opt/helper")
+        );
+        assert_eq!(parsed.arguments.credentials.api_key_args, ["--item"]);
+        for rejected in [
+            &[
+                "--api-key-env",
+                "MY_KEY",
+                "--api-key-command",
+                "/opt/helper",
+            ][..],
+            &["--clear-credentials", "--api-key-command", "/opt/helper"],
+            &["--api-key-arg", "orphan"],
+        ] {
+            assert!(parse(rejected).is_err(), "{rejected:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn smoke_reports_a_failing_credential_command_without_its_output() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("fixture: {error}"));
+        let helper = root.path().join("smoke-helper");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\nprintf 'smoke-token-value'\nprintf 'stderr-token-value' >&2\nexit 9\n",
+        )
+        .unwrap_or_else(|error| panic!("helper: {error}"));
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700))
+            .unwrap_or_else(|error| panic!("chmod: {error}"));
+        let command = CredentialCommand::new(vec![
+            helper
+                .to_str()
+                .unwrap_or_else(|| panic!("helper path is not UTF-8"))
+                .to_owned(),
+        ])
+        .unwrap_or_else(|error| panic!("command: {error}"));
+        let input = ProjectLlmTierInput::jev("TYPESAFE_API_KEY")
+            .and_then(|input| input.with_api_key_command(command))
+            .unwrap_or_else(|error| panic!("tier: {error}"));
+        cartograph_llm::write_project_llm_tiers(root.path(), &[input])
+            .unwrap_or_else(|error| panic!("config: {error}"));
+        let row = smoke_jev(root.path(), Duration::from_secs(5)).await;
+        assert_eq!(row.status, SmokeStatus::Fail);
+        assert_eq!(
+            row.detail,
+            "Cartograph Jev credential command `smoke-helper` exited with status 9"
+        );
+        assert_eq!(row.model.as_deref(), Some(cartograph_llm::JEV_MODEL));
     }
 }

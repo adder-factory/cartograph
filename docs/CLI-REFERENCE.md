@@ -365,8 +365,10 @@ discarding the other four.
 ```text
 cartograph llm migrate-credentials [PROJECT] [--tier-env TIER=ENV]
   [--apply --confirm migrate-inline-credentials]
-cartograph llm setup custom [--api-key-env ENV | --clear-credentials]
-cartograph llm setup [PROJECT] --preset jev [--api-key-env ENV]
+cartograph llm setup custom [--api-key-env ENV
+  | --api-key-command EXE [--api-key-arg ARG]... | --clear-credentials]
+cartograph llm setup [PROJECT] --preset jev
+  [--api-key-env ENV | --api-key-command EXE [--api-key-arg ARG]...]
   [--jev-features explore,context,roles,rename] | [--clear-credentials]
 cartograph llm setup [PROJECT] --preset cli-bridge --tier <chat|local|ask|classify>
   --command EXECUTABLE [--arg ARG]... --input <stdin|arg>
@@ -381,7 +383,15 @@ migration requires an exact environment-value match, serializes Cartograph
 writers with a private lock, and aborts if the config bytes changed after the
 proof was made. Custom setup clears retained credentials automatically when the
 provider/endpoint origin changes; `--clear-credentials` is the explicit
-same-origin removal path and conflicts with `--api-key-env`. `--jev-features`
+same-origin removal path and conflicts with `--api-key-env` and
+`--api-key-command`. `--api-key-command` stores a credential helper's argv
+(repeat `--api-key-arg` for each argument) instead of a variable name; the
+serving process runs it without a shell on the tier's first use, and the two
+sources are mutually exclusive. Every preset that accepts `--api-key-env`
+accepts it; the MCP `cartograph_admin` `llm-apply` action takes the same argv as
+`apiKeyCommand`. See [credential sources](CONFIGURATION.md#credential-sources).
+`doctor` and `llm smoke` run a configured command and report only whether it
+produced a credential. `--jev-features`
 applies only to the Jev preset and writes the decision tier's `features` list;
 without it an existing list is preserved and a new tier permits exploration
 only. Backend cleanup

@@ -9,14 +9,16 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use super::{
     Arc, Duration, MAXIMUM_ACTIVE_REQUESTS, MAXIMUM_BACKGROUND_REQUESTS, MAXIMUM_ENDPOINTS,
     MAXIMUM_TRANSPORTS, MAXIMUM_WAITING_BACKGROUND_REQUESTS, MAXIMUM_WAITING_REQUESTS,
-    RequestPriority, SecretString, TransportRegistry, TransportSettings, Url,
+    RequestPriority, TierCredential, TransportRegistry, TransportSettings, Url,
 };
+use crate::CredentialCommand;
+use secrecy::SecretString;
 
-fn settings<'a>(endpoint: &'a Url, secret: Option<&'a SecretString>) -> TransportSettings<'a> {
+fn settings<'a>(endpoint: &'a Url, credential: &'a TierCredential) -> TransportSettings<'a> {
     TransportSettings {
         endpoint,
         model: "fixture",
-        api_key: secret,
+        credential,
         connect_timeout: Duration::from_secs(2),
         request_timeout: Duration::from_secs(5),
     }
@@ -36,7 +38,7 @@ async fn repeated_construction_reuses_a_real_keep_alive_connection() {
     let client = async {
         for _ in 0..2 {
             let transport = registry
-                .get(settings(&endpoint, None))
+                .get(settings(&endpoint, &TierCredential::None))
                 .unwrap_or_else(|()| panic!("transport construction failed"));
             let response = transport
                 .client
@@ -81,21 +83,26 @@ async fn repeated_construction_reuses_a_real_keep_alive_connection() {
 fn settings_and_secret_rotation_replace_transport_without_replacing_endpoint_capacity() {
     let endpoint = Url::parse("http://127.0.0.1:18083/v1/embeddings")
         .unwrap_or_else(|error| panic!("transport endpoint failed: {error}"));
-    let secret_a = SecretString::from("fixture-a");
-    let secret_b = SecretString::from("fixture-b");
+    let secret_a = TierCredential::Static(SecretString::from("fixture-a"));
+    let secret_b = TierCredential::Static(SecretString::from("fixture-b"));
+    let command = TierCredential::Command(
+        CredentialCommand::new(vec!["fixture-a".to_owned()])
+            .unwrap_or_else(|error| panic!("credential command failed: {error}")),
+    );
     let mut registry = TransportRegistry::default();
     let original = registry
-        .get(settings(&endpoint, Some(&secret_a)))
+        .get(settings(&endpoint, &secret_a))
         .unwrap_or_else(|()| panic!("transport construction failed"));
     let repeated = registry
-        .get(settings(&endpoint, Some(&secret_a)))
+        .get(settings(&endpoint, &secret_a))
         .unwrap_or_else(|()| panic!("transport repeat failed"));
     assert!(Arc::ptr_eq(&original, &repeated));
-    for mutation in 0..3 {
-        let mut changed = settings(&endpoint, Some(&secret_a));
+    for mutation in 0..4 {
+        let mut changed = settings(&endpoint, &secret_a);
         match mutation {
-            0 => changed.api_key = Some(&secret_b),
+            0 => changed.credential = &secret_b,
             1 => changed.model = "replacement",
+            2 => changed.credential = &command,
             _ => changed.request_timeout = Duration::from_secs(3),
         }
         let changed = registry
@@ -111,7 +118,7 @@ async fn background_load_leaves_foreground_capacity_and_cancelled_waiters_releas
     let endpoint = Url::parse("http://127.0.0.1:18083/v1/embeddings")
         .unwrap_or_else(|error| panic!("transport endpoint failed: {error}"));
     let transport = TransportRegistry::default()
-        .get(settings(&endpoint, None))
+        .get(settings(&endpoint, &TierCredential::None))
         .unwrap_or_else(|()| panic!("transport construction failed"));
     let mut background = Vec::new();
     for _ in 0..MAXIMUM_BACKGROUND_REQUESTS {
@@ -183,15 +190,23 @@ fn bounded_registry_cannot_replace_capacity_still_owned_by_active_clients() {
             .unwrap_or_else(|error| panic!("transport endpoint failed: {error}"));
         retained.push(
             registry
-                .get(settings(&endpoint, None))
+                .get(settings(&endpoint, &TierCredential::None))
                 .unwrap_or_else(|()| panic!("transport construction failed")),
         );
     }
     let overflow = Url::parse("http://127.0.0.1:30000/v1/embeddings")
         .unwrap_or_else(|error| panic!("transport endpoint failed: {error}"));
-    assert!(registry.get(settings(&overflow, None)).is_err());
+    assert!(
+        registry
+            .get(settings(&overflow, &TierCredential::None))
+            .is_err()
+    );
     assert!(registry.transports.len() <= MAXIMUM_TRANSPORTS);
     assert_eq!(registry.endpoints.len(), MAXIMUM_ENDPOINTS);
     drop(retained);
-    assert!(registry.get(settings(&overflow, None)).is_ok());
+    assert!(
+        registry
+            .get(settings(&overflow, &TierCredential::None))
+            .is_ok()
+    );
 }

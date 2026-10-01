@@ -24,6 +24,7 @@ MCP call is the control evidence.
 | Status reports stale source | [Index is stale](#index-is-stale) |
 | A large index reaches a hard bound | [Native generation reaches its capacity bound](#native-generation-reaches-its-capacity-bound) |
 | Hybrid retrieval skips semantic search | [Semantic search is skipped](#semantic-search-is-skipped) |
+| Doctor warns that an LLM credential is not set | [An LLM credential is missing from doctor's shell](#an-llm-credential-is-missing-from-doctors-shell) |
 | BM25 is unhealthy after a crash | [ParadeDB derived index is unhealthy after a crash](#paradedb-derived-index-is-unhealthy-after-a-crash) |
 | Install or release checksum verification fails | [Release archive or install checksum fails](#release-archive-or-install-checksum-fails) |
 
@@ -281,6 +282,33 @@ An embedding sweep reports the complete `corpusDocuments` alongside
 documents reuse matching content-addressed vectors before endpoint work; only
 documents whose rendered embedding input changed are submitted. The legacy
 `documents` counter remains the endpoint-work count for compatibility.
+
+## An LLM credential is missing from doctor's shell
+
+`doctor` reads the project configuration in its own shell, but the MCP server
+reads a tier's `apiKeyEnv` variable from its own environment. A variable that is
+unset in doctor's shell is reported as `llm-<tier>-credential`: a warning for
+the optional tiers (decision/Jev, summarize, local, ask, classify, reranker),
+which never makes doctor or onboarding unready, and a failure only for the
+required embedding tier. The message names the configured variable. An invalid
+tier still fails, for example `llm-decision-config` for an unexpected Jev
+model, endpoint or timeout.
+
+To supply the key to the server without a plaintext secret in a host
+configuration and without wrapping `cartograph serve` in a secret-manager
+launcher, configure a [credential command](CONFIGURATION.md#credential-sources):
+
+```sh
+cartograph llm setup . --preset jev \
+  --api-key-command /path/to/secret-helper --api-key-arg get --api-key-arg typesafe-api-key
+```
+
+`doctor` and `llm smoke` then run that command, bounded and without a shell,
+and report only whether it produced a credential, naming the program and exit
+status on failure. The server runs the same command on the tier's first use. If
+it fails there, Jev reports `providerError: "credential_unavailable"` and
+explore keeps native retrieval. The server tries the command again 30 seconds
+later, without a host restart.
 
 ## ParadeDB derived index is unhealthy after a crash
 
