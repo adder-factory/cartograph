@@ -2364,7 +2364,7 @@ mod tests {
     }
 
     fn live_database(project_root: &Path) -> ManagedDatabase {
-        live_database_with_port(project_root, available_loopback_port())
+        live_database_with_port(project_root, super::super::unused_test_loopback_port())
     }
 
     fn live_database_with_port(project_root: &Path, port: u16) -> ManagedDatabase {
@@ -2374,15 +2374,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("could not build live maintenance manager: {error}"))
             .with_startup_timeout(LIVE_TIMEOUT)
             .with_maintenance_timeout(LIVE_TIMEOUT)
-    }
-
-    fn available_loopback_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap_or_else(|error| panic!("could not reserve maintenance port: {error}"));
-        listener
-            .local_addr()
-            .unwrap_or_else(|error| panic!("could not inspect maintenance port: {error}"))
-            .port()
     }
 
     fn live_cleanup(database: &ManagedDatabase, image: Option<String>) -> LiveDockerCleanup {

@@ -1295,6 +1295,27 @@ fn container_state(inspection: &ContainerInspection) -> ManagedContainerState {
     }
 }
 
+/// A currently free loopback port for a Docker-published test fixture.
+///
+/// `bind("127.0.0.1:0")` returns an ephemeral port, and every process's
+/// outbound connections draw from that same range, so on a busy host another
+/// socket can take the port between this probe and Docker's bind. Probing
+/// below the Linux (32768+) and macOS/Windows (49152+) ephemeral ranges, from
+/// a per-process starting offset, leaves only explicit listeners to collide.
+#[cfg(test)]
+pub(super) fn unused_test_loopback_port() -> u16 {
+    const FIRST: u32 = 20_000;
+    const SPAN: u32 = 12_000;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.subsec_nanos());
+    let start = (std::process::id() ^ nanos) % SPAN;
+    (0..SPAN)
+        .filter_map(|step| u16::try_from(FIRST + (start + step) % SPAN).ok())
+        .find(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok())
+        .unwrap_or_else(|| panic!("no free loopback test port below the ephemeral range"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1518,7 +1539,7 @@ mod tests {
             Ok(schema) => schema,
             Err(error) => panic!("managed test schema is invalid: {error}"),
         };
-        let live_port = available_loopback_port();
+        let live_port = unused_test_loopback_port();
         let database = match managed_database_with_schema(directory.path(), live_port, schema) {
             Ok(database) => database.with_startup_timeout(TEST_STARTUP_TIMEOUT),
             Err(error) => panic!("could not build manager: {error}"),
@@ -1848,11 +1869,11 @@ mod tests {
             if let Err(error) = std::fs::create_dir(&timeout_root) {
                 panic!("could not create timeout project: {error}");
             }
-            let zero_timeout = match ManagedDatabase::new(&timeout_root, available_loopback_port())
-            {
-                Ok(database) => database.with_startup_timeout(Duration::ZERO),
-                Err(error) => panic!("could not build timeout manager: {error}"),
-            };
+            let zero_timeout =
+                match ManagedDatabase::new(&timeout_root, unused_test_loopback_port()) {
+                    Ok(database) => database.with_startup_timeout(Duration::ZERO),
+                    Err(error) => panic!("could not build timeout manager: {error}"),
+                };
             let _cleanup = DockerCleanup {
                 container_name: zero_timeout.identity.container_name.clone(),
                 volume_name: zero_timeout.identity.volume_name.clone(),
@@ -1879,15 +1900,6 @@ mod tests {
             return;
         }
         panic!("could not reserve an isolated managed timeout port");
-    }
-
-    fn available_loopback_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap_or_else(|error| panic!("could not reserve managed test port: {error}"));
-        listener
-            .local_addr()
-            .unwrap_or_else(|error| panic!("could not inspect managed test port: {error}"))
-            .port()
     }
 
     async fn assert_existing_volume_without_password_is_refused(database: &ManagedDatabase) {
