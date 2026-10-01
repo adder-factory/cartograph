@@ -127,7 +127,7 @@ impl ProjectRuntime {
         self.persist_git_history(project_id, prepared).await
     }
 
-    pub(crate) async fn prepare_git_history(
+    async fn prepare_git_history(
         &self,
         options: HistoryIndexOptions,
         cancellation: ProjectCancellation,

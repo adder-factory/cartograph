@@ -64,39 +64,64 @@ const DELETE_ORDER: [&str; 27] = [
 /// per-transaction deadline. Tables without a suffix are single-row or small
 /// and use the plain bounded sweep.
 fn keyset_columns(table: &str) -> &'static [&'static str] {
-    match table {
-        "native_generation_spill_rows" => &["relation", "batch_sequence", "row_ordinal"],
-        "native_generation_spill_files"
-        | "native_generation_spill_symbols"
-        | "native_generation_spill_edges"
-        | "native_generation_spill_references"
-        | "native_generation_spill_numerical_sites"
-        | "native_generation_spill_documents" => &["batch_sequence", "row_ordinal"],
-        "native_generation_spill_batches" => &["relation", "batch_sequence"],
-        "document_embeddings" => &["document_id", "model_id"],
-        "search_documents" => &["document_id"],
-        "edges" => &[
+    KEYSET_COLUMNS
+        .iter()
+        .find_map(|(name, columns)| (*name == table).then_some(*columns))
+        .unwrap_or(&[])
+}
+
+const SPILL_FACT_KEYSET: &[&str] = &["batch_sequence", "row_ordinal"];
+
+const KEYSET_COLUMNS: &[(&str, &[&str])] = &[
+    (
+        "native_generation_spill_rows",
+        &["relation", "batch_sequence", "row_ordinal"],
+    ),
+    ("native_generation_spill_files", SPILL_FACT_KEYSET),
+    ("native_generation_spill_symbols", SPILL_FACT_KEYSET),
+    ("native_generation_spill_edges", SPILL_FACT_KEYSET),
+    ("native_generation_spill_references", SPILL_FACT_KEYSET),
+    ("native_generation_spill_numerical_sites", SPILL_FACT_KEYSET),
+    ("native_generation_spill_documents", SPILL_FACT_KEYSET),
+    (
+        "native_generation_spill_batches",
+        &["relation", "batch_sequence"],
+    ),
+    ("document_embeddings", &["document_id", "model_id"]),
+    ("search_documents", &["document_id"]),
+    (
+        "edges",
+        &[
             "source_symbol_id",
             "target_symbol_id",
             "edge_kind",
             "provenance",
         ],
-        "references" => &["reference_name", "file_id", "start_byte", "reference_id"],
-        "numerical_sites" => &["numerical_site_id"],
-        "symbol_coverage" => &["source_id", "symbol_id"],
-        "symbol_similarity_edges" => &["model_id", "source_symbol_id", "target_symbol_id"],
-        "symbol_issues" => &[
+    ),
+    (
+        "references",
+        &["reference_name", "file_id", "start_byte", "reference_id"],
+    ),
+    ("numerical_sites", &["numerical_site_id"]),
+    ("symbol_coverage", &["source_id", "symbol_id"]),
+    (
+        "symbol_similarity_edges",
+        &["model_id", "source_symbol_id", "target_symbol_id"],
+    ),
+    (
+        "symbol_issues",
+        &[
             "symbol_id",
             "issue_number",
             "commit_sha",
             "attribution_kind",
         ],
-        "summary_priority_queue" | "symbols" => &["symbol_id"],
-        "structural_findings" => &["symbol_id", "finding"],
-        "files" => &["file_id"],
-        _ => &[],
-    }
-}
+    ),
+    ("summary_priority_queue", &["symbol_id"]),
+    ("symbols", &["symbol_id"]),
+    ("structural_findings", &["symbol_id", "finding"]),
+    ("files", &["file_id"]),
+];
 
 /// Per-relation drain progress for one generation.
 ///
@@ -391,6 +416,14 @@ async fn finish_maintenance(
     }
 }
 
+/// One relation of one generation being drained in the current transaction.
+#[derive(Clone, Copy)]
+struct DrainTarget<'a, 'context> {
+    context: &'a RetentionContext<'context>,
+    work: &'a CandidateWork,
+    table: &'static str,
+}
+
 #[derive(Default)]
 pub(super) struct Progress {
     pub removed: RemovedGenerationCounts,
@@ -453,24 +486,19 @@ impl Progress {
     ) -> Result<(), GenerationRetentionError> {
         let generation_id = &work.candidate.generation_id;
         for table in DELETE_ORDER {
+            let target = DrainTarget {
+                context,
+                work,
+                table,
+            };
             let remaining = context.policy.maximum_cascade_rows - self.rows;
             let next = match cursors.state(generation_id, table) {
                 TableDrain::Keyset(_) | TableDrain::Sweep if remaining == 0 => break,
                 TableDrain::Keyset(cursor) => {
-                    self.keyset_step(
-                        connection,
-                        context,
-                        work,
-                        table,
-                        cursor.as_deref(),
-                        remaining,
-                    )
-                    .await?
-                }
-                TableDrain::Sweep => {
-                    self.sweep_step(connection, context, work, table, remaining)
+                    self.keyset_step(connection, target, cursor.as_deref(), remaining)
                         .await?
                 }
+                TableDrain::Sweep => self.sweep_step(connection, target, remaining).await?,
                 TableDrain::Done | TableDrain::ParentDeferred => continue,
             };
             if let Some(next) = next {
@@ -484,14 +512,12 @@ impl Progress {
     async fn keyset_step(
         &mut self,
         connection: &mut sqlx_postgres::PgConnection,
-        context: &RetentionContext<'_>,
-        work: &CandidateWork,
-        table: &'static str,
+        target: DrainTarget<'_, '_>,
         cursor: Option<&str>,
         remaining: u64,
     ) -> Result<Option<TableDrain>, GenerationRetentionError> {
-        let batch = keyset_batch(connection, context, work, table, cursor, remaining).await?;
-        self.record(table, batch.removed, None)?;
+        let batch = keyset_batch(connection, target, cursor, remaining).await?;
+        self.record(target.table, batch.removed, None)?;
         Ok(Some(if batch.removed < remaining {
             TableDrain::Done
         } else {
@@ -504,20 +530,18 @@ impl Progress {
     async fn sweep_step(
         &mut self,
         connection: &mut sqlx_postgres::PgConnection,
-        context: &RetentionContext<'_>,
-        work: &CandidateWork,
-        table: &'static str,
+        target: DrainTarget<'_, '_>,
         remaining: u64,
     ) -> Result<Option<TableDrain>, GenerationRetentionError> {
-        let deleted = if table == "index_generations" {
-            delete_parent_bounded(connection, context, work, remaining).await?
+        let deleted = if target.table == "index_generations" {
+            delete_parent_bounded(connection, target.context, target.work, remaining).await?
         } else {
-            Some(sweep_batch(connection, context, work, table, remaining).await?)
+            Some(sweep_batch(connection, target, remaining).await?)
         };
         let Some((removed, original_state)) = deleted else {
             return Ok(Some(TableDrain::ParentDeferred));
         };
-        self.record(table, removed, original_state.as_deref())?;
+        self.record(target.table, removed, original_state.as_deref())?;
         Ok((removed < remaining).then_some(TableDrain::Done))
     }
 
@@ -555,12 +579,15 @@ struct KeysetBatch {
 /// used by the backing B-tree.
 async fn keyset_batch(
     connection: &mut sqlx_postgres::PgConnection,
-    context: &RetentionContext<'_>,
-    work: &CandidateWork,
-    table: &'static str,
+    target: DrainTarget<'_, '_>,
     cursor: Option<&str>,
     limit: u64,
 ) -> Result<KeysetBatch, GenerationRetentionError> {
+    let DrainTarget {
+        context,
+        work,
+        table,
+    } = target;
     let columns = keyset_columns(table);
     let schema = &context.quoted_schema;
     let quoted: Vec<String> = columns
@@ -629,12 +656,10 @@ async fn keyset_batch(
 /// Delete an unordered bounded batch from a small relation without a keyset.
 async fn sweep_batch(
     connection: &mut sqlx_postgres::PgConnection,
-    context: &RetentionContext<'_>,
-    work: &CandidateWork,
-    table: &'static str,
+    target: DrainTarget<'_, '_>,
     limit: u64,
 ) -> Result<(u64, Option<String>), GenerationRetentionError> {
-    sweep_statement(connection, context, work, table, limit)
+    sweep_statement(connection, target, limit)
         .await?
         .map_err(|_| database_error("drain-generation-rows"))
 }
@@ -643,11 +668,14 @@ async fn sweep_batch(
 /// so the parent-row path can distinguish its own deadline from real failures.
 async fn sweep_statement(
     connection: &mut sqlx_postgres::PgConnection,
-    context: &RetentionContext<'_>,
-    work: &CandidateWork,
-    table: &'static str,
+    target: DrainTarget<'_, '_>,
     limit: u64,
 ) -> Result<Result<(u64, Option<String>), sqlx_core::Error>, GenerationRetentionError> {
+    let DrainTarget {
+        context,
+        work,
+        table,
+    } = target;
     // ctid is consumed within this statement only. TidScan avoids a join plan
     // that scans the entire large target heap to delete a small admitted set.
     let returning = if table == "index_generations" {
@@ -711,7 +739,12 @@ async fn delete_parent_bounded(
     crate::database::set_local_statement_timeout(connection, budget)
         .await
         .map_err(|()| GenerationRetentionError::InvalidPolicy)?;
-    match sweep_statement(connection, context, work, "index_generations", limit).await? {
+    let target = DrainTarget {
+        context,
+        work,
+        table: "index_generations",
+    };
+    match sweep_statement(connection, target, limit).await? {
         Ok(result) => {
             query("RELEASE SAVEPOINT cartograph_retention_parent")
                 .execute(&mut *connection)

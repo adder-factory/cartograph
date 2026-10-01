@@ -375,6 +375,13 @@ struct CochangeChunkInput<'chunk> {
     chunk: &'chunk [FileCochangeFact],
 }
 
+struct RefreshRecordInput<'refresh> {
+    schema: &'refresh str,
+    project_id: &'refresh ProjectId,
+    report: &'refresh HistoryRefreshReport,
+    parameters: Option<HistoryRefreshParameters>,
+}
+
 impl CartographDatabase {
     /// Atomically replace file churn and co-change evidence under one project lock.
     /// # Errors
@@ -451,10 +458,12 @@ impl CartographDatabase {
         };
         record_history_refresh(
             &mut transaction,
-            &schema,
-            &request.project_id,
-            &report,
-            request.parameters,
+            RefreshRecordInput {
+                schema: &schema,
+                project_id: &request.project_id,
+                report: &report,
+                parameters: request.parameters,
+            },
         )
         .await?;
         transaction
@@ -923,11 +932,14 @@ const fn database_error(operation: &'static str) -> StorageError {
 /// Record or clear the reuse key for the refresh committed in `transaction`.
 async fn record_history_refresh(
     transaction: &mut sqlx_postgres::PgConnection,
-    schema: &str,
-    project_id: &ProjectId,
-    report: &HistoryRefreshReport,
-    parameters: Option<HistoryRefreshParameters>,
+    input: RefreshRecordInput<'_>,
 ) -> Result<(), StorageError> {
+    let RefreshRecordInput {
+        schema,
+        project_id,
+        report,
+        parameters,
+    } = input;
     let Some(parameters) = parameters else {
         let statement = format!(
             r#"DELETE FROM {schema}."history_refreshes" WHERE project_id = CAST($1 AS uuid)"#
