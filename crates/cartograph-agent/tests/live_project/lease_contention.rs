@@ -161,7 +161,11 @@ impl Contention<'_> {
     /// Hold the project operation lock in an open transaction, as a competing
     /// writer's long prepare transaction does for its whole COPY.
     async fn hold_project_lock(&self) -> HeldLock {
-        hold_advisory_lock(self.settings, self.project_lock_key()).await
+        hold_transaction_lock(
+            self.settings,
+            TransactionLock::Advisory(self.project_lock_key()),
+        )
+        .await
     }
 
     /// Only the published generation and the competing writer's own staging
@@ -336,6 +340,67 @@ async fn failed_cleanup_after_a_primary_failure_keeps_the_primary_code() {
     drop_schema(&settings, &schema).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn a_lease_read_blocked_past_its_bound_is_retryable_contention_not_lease_loss() {
+    let (schema, settings, project) = live_project_fixture("8");
+    let source = project.path().join("service.ts");
+    write_source(&source, ORIGINAL_SOURCE);
+    {
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("lease-read runtime failed: {error}"));
+        let options = IndexOptions::default().with_history_refresh(false);
+        let first = runtime
+            .index(options.clone())
+            .await
+            .unwrap_or_else(|error| panic!("lease-read initial index failed: {error}"));
+        write_source(&source, CHANGED_SOURCE);
+
+        // A concurrent schema change holds the lease table, so the bounded
+        // pre-reservation lease read waits out its statement timeout. This
+        // attempt never held a lease, so the outcome is the retryable
+        // contention code, not a lost heartbeat.
+        let schema_change = hold_transaction_lock(
+            &settings,
+            TransactionLock::Table {
+                schema: schema.to_string(),
+                table: "project_operation_leases",
+            },
+        )
+        .await;
+        let blocked = runtime
+            .index_with_failure_detail(options.clone())
+            .await
+            .map(|report| report.generation_id);
+        schema_change.release().await;
+        let Err(failure) = blocked else {
+            panic!("a blocked lease read did not reject the attempt: {blocked:?}");
+        };
+        assert_eq!(failure.error(), &ProjectError::IndexLeaseBusy);
+        assert!(!failure.cleanup_failed());
+        assert_eq!(
+            generation_counts(&settings, &schema, &first.project_id).await,
+            GenerationCounts {
+                staging: 0,
+                failed: 0,
+                total: 1,
+            },
+            "a blocked lease read reserved or abandoned a generation"
+        );
+        assert_eq!(visibility(&runtime).await, Some(true));
+
+        let recovered = runtime
+            .index(options)
+            .await
+            .unwrap_or_else(|error| panic!("index after the lease-table lock failed: {error}"));
+        assert!(recovered.published);
+        runtime.close().await;
+    }
+
+    drop_schema(&settings, &schema).await;
+}
+
 async fn visibility(runtime: &ProjectRuntime) -> Option<bool> {
     runtime
         .database()
@@ -404,40 +469,58 @@ pub(super) async fn hold_schema_maintenance_lock(
     settings: &DatabaseSettings,
     schema: &str,
 ) -> HeldLock {
-    hold_advisory_lock(
+    hold_transaction_lock(
         settings,
-        format!("cartograph-v2-schema-maintenance:{schema}"),
+        TransactionLock::Advisory(format!("cartograph-v2-schema-maintenance:{schema}")),
     )
     .await
 }
 
-async fn hold_advisory_lock(settings: &DatabaseSettings, key: String) -> HeldLock {
+/// What one separate session locks inside its open transaction.
+enum TransactionLock {
+    /// One advisory key, as Cartograph's project and maintenance locks use.
+    Advisory(String),
+    /// One table in `ACCESS EXCLUSIVE` mode, as a concurrent schema change
+    /// holds it; every read of that table waits until the lock is released.
+    Table { schema: String, table: &'static str },
+}
+
+/// Take `lock` in a transaction of a separate session and hold it until the
+/// returned handle is released.
+async fn hold_transaction_lock(settings: &DatabaseSettings, lock: TransactionLock) -> HeldLock {
     let pool = cartograph_db::connect(settings)
         .await
-        .unwrap_or_else(|error| panic!("advisory lock connection failed: {error}"));
+        .unwrap_or_else(|error| panic!("lock holder connection failed: {error}"));
     let (locked_sender, locked) = oneshot::channel();
     let (release, released) = oneshot::channel::<()>();
     let holder = tokio::spawn(async move {
         let mut transaction = pool
             .begin()
             .await
-            .unwrap_or_else(|error| panic!("advisory lock transaction failed: {error}"));
-        query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(key)
+            .unwrap_or_else(|error| panic!("lock holder transaction failed: {error}"));
+        let statement = match lock {
+            TransactionLock::Advisory(key) => {
+                query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))").bind(key)
+            }
+            TransactionLock::Table { schema, table } => query(AssertSqlSafe(format!(
+                r#"LOCK TABLE "{schema}"."{table}" IN ACCESS EXCLUSIVE MODE"#
+            ))),
+        };
+        statement
             .execute(&mut *transaction)
             .await
-            .unwrap_or_else(|error| panic!("advisory lock failed: {error}"));
+            .unwrap_or_else(|error| panic!("lock holder could not lock: {error}"));
         let _locked = locked_sender.send(());
         let _released = released.await;
         transaction
             .rollback()
             .await
-            .unwrap_or_else(|error| panic!("advisory lock release failed: {error}"));
+            .unwrap_or_else(|error| panic!("lock holder release failed: {error}"));
         pool.close().await;
     });
     locked
         .await
-        .unwrap_or_else(|error| panic!("advisory lock holder stopped: {error}"));
+        .unwrap_or_else(|error| panic!("lock holder stopped: {error}"));
     HeldLock { release, holder }
 }
 

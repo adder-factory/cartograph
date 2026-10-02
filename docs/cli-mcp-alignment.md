@@ -89,7 +89,10 @@ same typed error on CLI and MCP, while digest preserves successful sections and
 labels an incomplete section independently.
 Non-recoverable file-local index errors share the same typed project-relative
 path and fixed reason across both surfaces: direct CLI JSON uses
-`error.file_failure`, while admin job status uses `fileFailure`. Invalid spans
+`error.file_failure`, while admin job status uses `fileFailure`. A failed
+cleanup of the attempt's own staging generation is the same secondary
+`code`/`message` object beside the primary failure: `error.cleanup_failure` in
+direct CLI JSON and `cleanupFailure` in admin job status. Invalid spans
 and non-cancelled parser stops instead publish an empty partial file with a
 stable degraded reason. Generation-capacity failures name
 `maxGenerationBytes`, its Cartograph-process scope, and a bounded next action in

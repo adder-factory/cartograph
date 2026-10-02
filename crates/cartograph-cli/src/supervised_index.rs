@@ -7,7 +7,9 @@
 //! A cancelled request reports `request_cancelled` as its primary failure.
 //! It adds the secondary `cleanup_failure` unless PostgreSQL confirms the
 //! cleanup of what that request itself held. Other writers' leases and
-//! generations on the same project are never part of that proof.
+//! generations on the same project are never part of that proof. MCP admin
+//! index jobs run the same direct path under their job cancellation, so both
+//! surfaces report a cancelled index's cleanup identically.
 //!
 //! The hidden `--supervised` mode is the child that `upgrade --apply` runs.
 //! Its parent holds stdin open and closes it to request the same cooperative
@@ -16,6 +18,8 @@
 //! [`SUPERVISED_WRITER_WAIT`]) for another live writer on the project instead
 //! of failing immediately with `lease_busy`, including a writer that started
 //! while this child scanned the checkout and now blocks its attempt.
+//! `sync-if-dirty` waits on the same project leases through
+//! [`wait_for_project_writers`] after its own `lease_busy` attempts.
 
 use std::{
     io::{Read, Write as _},
@@ -606,11 +610,11 @@ enum AttemptVerdict {
 
 /// Whether another project writer refused the attempt.
 ///
-/// The agent reports every collision as `lease_busy`: a live project lease or
-/// a project lock still held past the bounded staging-preflight wait (another
-/// writer's prepare transaction holds it for its whole COPY) before any
-/// generation is reserved, and a writer that won after that check at lease
-/// acquisition. A cleanup failure that follows the collision is secondary
+/// The agent reports every collision as `lease_busy`: a live project lease, a
+/// project lock still held past the bounded staging-preflight wait (another
+/// writer's prepare transaction holds it for its whole COPY), or a lock that
+/// kept the lease read waiting past that wait, before any generation is
+/// reserved, and a writer that won after that check at lease acquisition. A cleanup failure that follows the collision is secondary
 /// detail of that primary. `index_cleanup_failed` as the primary failure
 /// means only that the pre-reservation staging recovery failed for a reason
 /// other than contention, so it is a final fault, never a collision.
@@ -664,20 +668,53 @@ struct WriterWait<'wait> {
     deadline: Instant,
 }
 
+/// Wait out other writers on the request's registered project; see
+/// [`wait_for_project_leases`].
+async fn wait_for_other_writers(wait: &WriterWait<'_>) -> Result<(), ProjectError> {
+    let Some(project_id) = within_wait(wait, registered_project(wait.runtime)).await? else {
+        return Ok(());
+    };
+    wait_for_project_leases(wait, &project_id).await
+}
+
+/// Wait, until `deadline`, for every live operation lease on the project to
+/// end; a deadline that passes first reports the retryable `lease_busy`.
+///
+/// `sync-if-dirty` waits here after an attempt reports `lease_busy`. A live
+/// lease of any operation in [`PROJECT_OPERATIONS`] refuses index acquisition,
+/// so waiting on the index lease alone would retry, and rescan the checkout,
+/// while a sync, hook, migration, or rebuild lease is still live. The wait is
+/// the supervised one without cancellation or progress reporting.
+pub(crate) async fn wait_for_project_writers(
+    runtime: &ProjectRuntime,
+    project_id: &ProjectId,
+    deadline: Instant,
+) -> Result<(), ProjectError> {
+    let progress = SupervisedProgress::default();
+    let cancellation = ProjectCancellation::new();
+    let wait = WriterWait {
+        runtime,
+        progress: &progress,
+        cancellation: &cancellation,
+        deadline,
+    };
+    wait_for_project_leases(&wait, project_id).await
+}
+
 /// Poll the project's operation leases while another writer holds one.
 ///
 /// Missing, expired, or unreadable lease rows end the wait: they never
 /// authorize anything, because the index's own exact lease acquisition stays
 /// the only authority. Each renewal observed from another writer advances
 /// `writer_heartbeats`, so the supervising parent sees the wait is live.
-async fn wait_for_other_writers(wait: &WriterWait<'_>) -> Result<(), ProjectError> {
-    let Some(project_id) = within_wait(wait, registered_project(wait.runtime)).await? else {
-        return Ok(());
-    };
+async fn wait_for_project_leases(
+    wait: &WriterWait<'_>,
+    project_id: &ProjectId,
+) -> Result<(), ProjectError> {
     let mut last_heartbeat = None;
     loop {
         let Some(heartbeat) =
-            within_wait(wait, live_writer_heartbeat(wait.runtime, &project_id)).await?
+            within_wait(wait, live_writer_heartbeat(wait.runtime, project_id)).await?
         else {
             return Ok(());
         };
@@ -1033,6 +1070,95 @@ mod tests {
         for (slot, operation) in PROJECT_OPERATIONS.into_iter().enumerate() {
             assert_eq!(operation_slot(operation), slot);
         }
+    }
+
+    /// Bound of each live wait that another operation's lease outlasts, and
+    /// how long the competing writer holds its lease before releasing it.
+    const LIVE_WAIT_BOUND: Duration = Duration::from_millis(1_500);
+    /// Bound of the wait that the competing writer's release ends first.
+    const RELEASED_WAIT_BOUND: Duration = Duration::from_secs(30);
+    /// The competing lease outlives every wait in the test.
+    const COMPETING_LEASE: Duration = Duration::from_mins(1);
+
+    /// Take another writer's live `operation` lease on the project.
+    async fn competing_lease(
+        runtime: &ProjectRuntime,
+        project_id: &ProjectId,
+        operation: ProjectOperation,
+    ) -> cartograph_db::ProjectLease {
+        runtime
+            .database()
+            .acquire_lease(cartograph_db::LeaseRequest::new(
+                LeaseTarget::new(project_id.clone(), operation, None),
+                cartograph_db::LeaseOwner::new(std::process::id(), "competing-project-writer"),
+                COMPETING_LEASE,
+            ))
+            .await
+            .unwrap_or_else(|error| panic!("competing {operation:?} lease failed: {error}"))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn project_writer_wait_outlasts_every_operations_live_lease() {
+        let url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| panic!("live writer-wait database is not configured"));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let schema = format!("cg_cli_writer_wait_{}_{nanos}", std::process::id());
+        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
+            .unwrap_or_else(|error| panic!("writer-wait schema guard failed: {error}"));
+        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("4"), Some("10000"))
+            .and_then(|settings| settings.with_schema(&schema))
+            .unwrap_or_else(|error| panic!("writer-wait settings failed: {error}"));
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        std::fs::write(project.path().join("lib.rs"), "pub fn waited() {}\n")
+            .unwrap_or_else(|error| panic!("writer-wait fixture failed: {error}"));
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("writer-wait runtime failed: {error}"));
+        let project_id = runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("writer-wait initial index failed: {error}"))
+            .project_id;
+
+        // Every operation's live lease refuses index acquisition, so a wait
+        // that ignored one would retry (and rescan the checkout) at once. A
+        // wait that outlives its bound is the retryable contention code.
+        for operation in PROJECT_OPERATIONS {
+            let lease = competing_lease(&runtime, &project_id, operation).await;
+            let waited =
+                wait_for_project_writers(&runtime, &project_id, Instant::now() + LIVE_WAIT_BOUND)
+                    .await;
+            assert_eq!(
+                waited,
+                Err(ProjectError::IndexLeaseBusy),
+                "the wait did not hold for a live {operation:?} lease"
+            );
+            runtime
+                .database()
+                .release_lease(&lease)
+                .await
+                .unwrap_or_else(|error| panic!("{operation:?} lease release failed: {error}"));
+        }
+
+        // A writer that releases its lease mid-wait ends the wait.
+        let lease = competing_lease(&runtime, &project_id, ProjectOperation::Sync).await;
+        let started = Instant::now();
+        let release = async {
+            tokio::time::sleep(LIVE_WAIT_BOUND).await;
+            runtime.database().release_lease(&lease).await
+        };
+        let (waited, released) = tokio::join!(
+            wait_for_project_writers(&runtime, &project_id, started + RELEASED_WAIT_BOUND),
+            release
+        );
+        released.unwrap_or_else(|error| panic!("sync lease release failed: {error}"));
+        assert_eq!(waited, Ok(()));
+        assert!(started.elapsed() >= LIVE_WAIT_BOUND);
+        runtime.close().await;
     }
 
     /// A broken stdin: interrupted once, then failing permanently.

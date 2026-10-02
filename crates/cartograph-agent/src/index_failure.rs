@@ -89,33 +89,31 @@ impl From<ProjectError> for IndexFailure {
 pub(crate) enum StagingPreflight {
     /// Abandoned staging generations, if any, were terminalized.
     Recovered,
-    /// Another operation holds a live project lease or the project lock.
+    /// Another operation holds a live project lease, the project lock, or a
+    /// lock that kept the lease read waiting past its bound.
     ProjectBusy,
 }
 
 /// Terminalize abandoned staging generations unless another writer is active.
 ///
-/// A live lease on the project, or a project lock still held past the bounded
-/// wait (for example, by another writer's long prepare transaction), means a
-/// project operation is in flight. Lease acquisition would reject this attempt
-/// anyway, so the preflight reports contention instead of a cleanup failure and
-/// leaves every row untouched.
+/// A live lease on the project, or a lease read or project lock wait still
+/// blocked when its bounded wait ends (for example, behind another writer's
+/// long prepare transaction), means a project operation is in flight. Lease
+/// acquisition would reject this attempt anyway, so the preflight reports
+/// contention instead of a cleanup failure and leaves every row untouched.
 ///
 /// # Errors
 ///
-/// Returns [`ProjectError::IndexLeaseFailed`] when lease state cannot be read
-/// and [`ProjectError::IndexCleanupFailed`] when the bounded cleanup fails for
-/// any reason other than a project lock wait that timed out.
+/// Returns [`ProjectError::StatusFailed`] when lease state cannot be read for
+/// a reason other than that bounded wait, and
+/// [`ProjectError::IndexCleanupFailed`] when the bounded cleanup fails for any
+/// reason other than a project lock wait that timed out.
 pub(crate) async fn recover_abandoned_staging(
     database: &CartographDatabase,
     project_id: &ProjectId,
     statement_timeout: Duration,
 ) -> Result<StagingPreflight, ProjectError> {
-    if database
-        .has_live_lease(project_id, statement_timeout)
-        .await
-        .map_err(|_| ProjectError::IndexLeaseFailed)?
-    {
+    if project_lease_held(&database.has_live_lease(project_id, statement_timeout).await)? {
         return Ok(StagingPreflight::ProjectBusy);
     }
     match database
@@ -125,6 +123,22 @@ pub(crate) async fn recover_abandoned_staging(
         Ok(_) => Ok(StagingPreflight::Recovered),
         Err(StorageError::StatementTimeout { .. }) => Ok(StagingPreflight::ProjectBusy),
         Err(_) => Err(ProjectError::IndexCleanupFailed),
+    }
+}
+
+/// Whether the pre-reservation read of the project's leases found contention.
+///
+/// A read that exceeds its bounded statement timeout waited behind a lock on
+/// the lease table held by a concurrent writer or schema change, so it is
+/// contention, like a project lock wait that times out. Any other read failure
+/// is [`ProjectError::StatusFailed`]: this attempt holds no lease yet, so it
+/// cannot have lost one, and [`ProjectError::IndexLeaseFailed`] stays reserved
+/// for a held lease whose ownership could not be proven.
+const fn project_lease_held(read: &Result<bool, StorageError>) -> Result<bool, ProjectError> {
+    match read {
+        Ok(held) => Ok(*held),
+        Err(StorageError::StatementTimeout { .. }) => Ok(true),
+        Err(_) => Err(ProjectError::StatusFailed),
     }
 }
 
@@ -309,6 +323,28 @@ mod tests {
         );
         assert_eq!(timed_out.error(), &ProjectError::IndexLeaseFailed);
         assert!(timed_out.cleanup_failed());
+    }
+
+    #[test]
+    fn an_unreadable_lease_table_is_contention_or_a_status_failure_never_lease_loss() {
+        assert_eq!(project_lease_held(&Ok(true)), Ok(true));
+        assert_eq!(project_lease_held(&Ok(false)), Ok(false));
+        // A lease read that waited out its bound behind a lock on the lease
+        // table is contention, like a project lock wait that times out.
+        assert_eq!(
+            project_lease_held(&Err(StorageError::StatementTimeout {
+                operation: "live-lease",
+            })),
+            Ok(true)
+        );
+        // Any other unreadable lease state is a database read failure: this
+        // attempt never held a lease, so it cannot have lost one.
+        assert_eq!(
+            project_lease_held(&Err(StorageError::DatabaseOperation {
+                operation: "live-lease",
+            })),
+            Err(ProjectError::StatusFailed)
+        );
     }
 
     #[test]

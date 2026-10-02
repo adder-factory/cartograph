@@ -17,8 +17,8 @@ use std::{
 };
 
 use cartograph_agent::{
-    EmbeddingOptions, IndexOptions, IndexReport, ProjectCancellation, ProjectError, ProjectRuntime,
-    ProjectStatus, RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport,
+    EmbeddingOptions, IndexFailure, IndexOptions, IndexReport, ProjectCancellation, ProjectError,
+    ProjectRuntime, ProjectStatus, RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport,
     SourceContextOptions, SourceContextRequest, WorkingTreeOverlayRequest,
     semantic_readiness_from_database,
 };
@@ -98,8 +98,8 @@ const DEFAULT_IMPORT_OUTPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_IMPORT_WORKING_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAINTENANCE_LEASE_DURATION: Duration = Duration::from_mins(5);
 const MAINTENANCE_STATEMENT_TIMEOUT: Duration = Duration::from_mins(4);
+/// Longest `sync-if-dirty` waits for other project writers' leases in total.
 const SYNC_IF_DIRTY_LEASE_WAIT: Duration = Duration::from_mins(5);
-const SYNC_IF_DIRTY_LEASE_POLL: Duration = Duration::from_millis(200);
 /// Bound on the post-failure lookup of whether a generation is still current.
 const FAILURE_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAXIMUM_TRANSIENT_FILE_BYTES: usize = 10 * 1024 * 1024;
@@ -3294,7 +3294,7 @@ async fn run_sync_if_dirty(
     };
     let outcome = sync_if_dirty_index(&runtime, project_id, options)
         .await
-        .map_err(|error| error_codes::direct_index_failure_message(&error))?;
+        .map_err(|failure| error_codes::direct_index_attempt_failure_message(&failure))?;
     if !quiet {
         match outcome {
             SyncIfDirtyIndexOutcome::Indexed { published: true } => {
@@ -3319,56 +3319,45 @@ enum SyncIfDirtyIndexOutcome {
     JoinedCurrentGeneration,
 }
 
+/// Index until an attempt is not refused by another project writer.
+///
+/// After a `lease_busy` attempt it waits, within one bound of
+/// [`SYNC_IF_DIRTY_LEASE_WAIT`] across all attempts, for every live operation
+/// lease on the project to end, then joins a generation that writer already
+/// made current or retries its own index. A bound that expires first reports
+/// that last collision: the retryable `lease_busy`, plus its cleanup failure
+/// if one followed it. An index failure keeps its secondary cleanup failure.
 async fn sync_if_dirty_index(
     runtime: &ProjectRuntime,
     project_id: ProjectId,
     options: IndexOptions,
-) -> Result<SyncIfDirtyIndexOutcome, ProjectError> {
+) -> Result<SyncIfDirtyIndexOutcome, IndexFailure> {
     let mut wait_deadline = None;
     loop {
-        match runtime.index(options.clone()).await {
+        let collision = match runtime.index_with_failure_detail(options.clone()).await {
             Ok(report) => {
                 return Ok(SyncIfDirtyIndexOutcome::Indexed {
                     published: report.published,
                 });
             }
-            Err(ProjectError::IndexLeaseBusy) => {}
-            Err(error) => return Err(error),
-        }
+            Err(failure) if matches!(failure.error(), ProjectError::IndexLeaseBusy) => failure,
+            Err(failure) => return Err(failure),
+        };
 
         let deadline = *wait_deadline
             .get_or_insert_with(|| tokio::time::Instant::now() + SYNC_IF_DIRTY_LEASE_WAIT);
-        let target = LeaseTarget::new(project_id.clone(), ProjectOperation::Index, None);
-        wait_for_competing_index(runtime, &target, deadline).await?;
-
-        let status = tokio::time::timeout_at(deadline, runtime.status())
+        if supervised_index::wait_for_project_writers(runtime, &project_id, deadline)
             .await
-            .map_err(|_| ProjectError::IndexLeaseFailed)??;
-        if status.fresh {
+            .is_err()
+        {
+            return Err(collision);
+        }
+        let Ok(status) = tokio::time::timeout_at(deadline, runtime.status()).await else {
+            return Err(collision);
+        };
+        if status?.fresh {
             return Ok(SyncIfDirtyIndexOutcome::JoinedCurrentGeneration);
         }
-    }
-}
-
-async fn wait_for_competing_index(
-    runtime: &ProjectRuntime,
-    target: &LeaseTarget,
-    deadline: tokio::time::Instant,
-) -> Result<(), ProjectError> {
-    loop {
-        let status = tokio::time::timeout_at(deadline, runtime.database().lease_status(target))
-            .await
-            .map_err(|_| ProjectError::IndexLeaseFailed)?
-            .map_err(|_| ProjectError::IndexLeaseFailed)?;
-        if status
-            .as_ref()
-            .is_none_or(cartograph_db::LeaseStatus::expired)
-        {
-            return Ok(());
-        }
-        tokio::time::timeout_at(deadline, tokio::time::sleep(SYNC_IF_DIRTY_LEASE_POLL))
-            .await
-            .map_err(|_| ProjectError::IndexLeaseFailed)?;
     }
 }
 
@@ -5832,6 +5821,7 @@ mod tests {
 
     mod doctor_llm;
     mod documentation_contract;
+    pub(crate) mod index_cleanup_fixture;
 
     fn walk_cli_contract(
         command: &clap::Command,

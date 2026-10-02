@@ -89,20 +89,25 @@ that ended the attempt. When bounded cleanup of the attempt's own staging
 generation also fails afterward, and the attempt's final unleased-staging
 cleanup does not terminalize that generation either, the object adds a
 separate `cleanup_failure` (`code: index_cleanup_failed`, `message`) instead
-of replacing `code`; the next index retries that cleanup.
+of replacing `code`; the next index retries that cleanup. MCP admin job status
+reports the same object as `cleanupFailure`.
 For a cancelled index, `cleanup_failure` instead reflects the PostgreSQL check
 described below. `code: index_cleanup_failed` alone means the pre-reservation
 recovery of abandoned staging generations itself failed for a reason other
 than contention. `previous_generation_visible` is read from PostgreSQL after the
 failure: `true` when a published generation is still current, `false` when the
 project has none (for example, before its first successful index), and `null`
-when that bounded lookup itself failed. Another live project lease, or another
-writer still holding the project lock past the bounded five-second wait,
+when that bounded lookup itself failed. Another live project lease, another
+writer still holding the project lock past the bounded five-second wait, or a
+lock that keeps the read of the project's leases waiting past that same bound
 returns the retryable `lease_busy` before any generation is reserved; an
 unchanged checkout still returns its no-op report. A writer that takes the
 lease after that check is still rejected at lease acquisition with
 `lease_busy`, and the attempt's reserved generation is cleaned up. A lost or
-unconfirmed lease heartbeat reports `lease_failed`.
+unconfirmed lease heartbeat reports `lease_failed`. A read of the project's
+leases that fails for another reason reports `index_failed` with the message
+`Cartograph project status is unavailable`, never `lease_failed`: that
+attempt held no lease to lose.
 
 A successful `index --format json` report includes `live_source`. `matched`
 means the live checkout still matched the report's `source_revision` at the
@@ -164,12 +169,15 @@ complete. The legacy `documents` field remains the endpoint-work count for
 wire compatibility. `embedding-status` is read-only and should be used before
 requesting an explicit sweep.
 
-`sync-if-dirty` skips a clean, current checkout. If another native watcher or
-manual index owns the project's index lease, it observes that lease for a
-bounded five minutes instead of stealing it or immediately returning
-`lease_failed`. After the competing writer releases, the command succeeds when
-that writer published the now-current source revision; otherwise it retries its
-own complete index.
+`sync-if-dirty` skips a clean, current checkout. If another operation holds a
+live lease on the project (a native watcher or manual index, or a sync, hook,
+migration, or rebuild), it waits for every such lease, within one bounded
+five-minute wait, instead of stealing it or rescanning the checkout while the
+lease is live. After the competing writers release, the command succeeds when
+one of them published the now-current source revision; otherwise it retries its
+own complete index. A live lease that outlasts the five minutes ends the
+command with the retryable `lease_busy`. Like `index`, a failure message names
+a cleanup failure that followed it as a secondary `index_cleanup_failed`.
 
 `scip-export` requires a fresh generation and writes atomically inside the
 project. It emits standard SCIP plus a forward-compatible Cartograph extension

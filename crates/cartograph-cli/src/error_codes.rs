@@ -5,7 +5,7 @@ pub(crate) const GENERATION_CAPACITY_LIMIT: &str = "maxGenerationBytes";
 pub(crate) const GENERATION_CAPACITY_SCOPE: &str = "cartograph_process";
 pub(crate) const GENERATION_CAPACITY_NEXT_ACTION: &str = "use generationStorage=postgres for a dense repository; maxGenerationBytes cannot exceed 8589934592 bytes (8 GiB), so when that ceiling is already selected exclude machine-generated or compiled artifacts with --exclude or project configuration, then run an explicit cartograph index; auto-sync suppresses itself after five capacity failures";
 /// Stable code for a failed bounded cleanup of index staging state.
-const INDEX_CLEANUP_FAILED_CODE: &str = "index_cleanup_failed";
+pub(crate) const INDEX_CLEANUP_FAILED_CODE: &str = "index_cleanup_failed";
 
 pub(crate) const fn is_generation_capacity_failure(error: &ProjectError) -> bool {
     matches!(
@@ -314,10 +314,25 @@ struct DirectIndexFailure<'failure> {
 }
 
 /// A failure observed after, and subordinate to, the primary failure.
-#[derive(Serialize)]
-struct SecondaryFailure {
+///
+/// Direct `index --format json` reports it as `cleanup_failure` and MCP admin
+/// job status as `cleanupFailure`; both carry the same `code` and `message`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct SecondaryFailure {
     code: &'static str,
     message: String,
+}
+
+impl SecondaryFailure {
+    /// The secondary cleanup failure `failure` carries, if any: bounded
+    /// cleanup of the attempt's own staging generation also failed, and the
+    /// next index attempt retries it.
+    pub(crate) fn index_cleanup(failure: &IndexFailure) -> Option<Self> {
+        failure.cleanup_failed().then(|| Self {
+            code: INDEX_CLEANUP_FAILED_CODE,
+            message: ProjectError::IndexCleanupFailed.to_string(),
+        })
+    }
 }
 
 /// One failed direct index attempt plus what readers still see afterward.
@@ -365,10 +380,7 @@ pub(crate) fn direct_index_failure_json(
             message: error.to_string(),
             stage,
             previous_generation_visible: input.previous_generation_visible,
-            cleanup_failure: input.failure.cleanup_failed().then(|| SecondaryFailure {
-                code: INDEX_CLEANUP_FAILED_CODE,
-                message: ProjectError::IndexCleanupFailed.to_string(),
-            }),
+            cleanup_failure: SecondaryFailure::index_cleanup(input.failure),
             capacity_limit: capacity.then_some(GENERATION_CAPACITY_LIMIT),
             capacity_scope: capacity.then_some(GENERATION_CAPACITY_SCOPE),
             next_action: capacity.then_some(GENERATION_CAPACITY_NEXT_ACTION),

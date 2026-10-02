@@ -18,16 +18,17 @@ use cartograph_agent::{
     FileDriftError, FileDriftOptions, FileSourceOptions, FileSourceRequest, GitLineHistory,
     GitLineHistoryRequest, GitLineRange, GitRenameEvidence, HistoryIndexError, HistoryIndexOptions,
     ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
-    IndexOptions, IssueHistoryIndexError, IssueHistoryIndexOptions, IssueHistoryIndexRequest,
-    JEV_ROLE_MODEL, LayerAnalysisError, LayerAnalysisReport, LcovLoadOptions,
-    MAXIMUM_UNIX_MILLISECONDS, NavigationPolicy, NavigationRequest, PipelineFailureReason,
-    PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime, ProjectStatus,
-    RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions, RetrievalRequest,
-    ReviewError, ReviewOptions, RoleCandidate, RoleVerdict, ScipExportRequest, ScipImportLimits,
-    ScipImportRequest, SourceCompareError, SourceCompareOptions, SourceContextOptions,
-    SourceContextRequest, SourceSearchError, SourceSearchHit, SourceSearchOptions,
-    SupervisorStatus, SymbolSourceContext, TestEvidenceError, TestEvidenceOptions,
-    TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest, judge_dead_code_candidates,
+    IndexFailure, IndexOptions, IssueHistoryIndexError, IssueHistoryIndexOptions,
+    IssueHistoryIndexRequest, JEV_ROLE_MODEL, LayerAnalysisError, LayerAnalysisReport,
+    LcovLoadOptions, MAXIMUM_UNIX_MILLISECONDS, NavigationPolicy, NavigationRequest,
+    PipelineFailureReason, PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime,
+    ProjectStatus, RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions,
+    RetrievalRequest, ReviewError, ReviewOptions, RoleCandidate, RoleVerdict, ScipExportRequest,
+    ScipImportLimits, ScipImportRequest, SourceCompareError, SourceCompareOptions,
+    SourceContextOptions, SourceContextRequest, SourceSearchError, SourceSearchHit,
+    SourceSearchOptions, SupervisorStatus, SymbolSourceContext, TestEvidenceError,
+    TestEvidenceOptions, TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest,
+    judge_dead_code_candidates,
 };
 use cartograph_db::{
     AgentArtifactContent, AgentArtifactKind, AgentArtifactQuery, AgentArtifactScope,
@@ -100,11 +101,12 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::auto_sync::{AutoSyncError, AutoSyncStatus, ProjectAutoSync};
 use crate::byte_format::format_binary_bytes;
-use crate::error_codes::index_stage_failure_code;
+use crate::error_codes::{SecondaryFailure, index_stage_failure_code};
 use crate::host::{
     DiagnosticLocation, HostInspectionError, ProjectDiscoveryRequest, detect_install_targets,
     discover_projects,
 };
+use crate::supervised_index::{CancellableIndex, IndexSupervision, run_cancellable_index};
 
 #[cfg(test)]
 use cartograph_db::{AgentArtifactRecord, AgentArtifactState};
@@ -2686,8 +2688,65 @@ struct AdminJobView {
     failure_detail: Option<AdminJobFailureDetail>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file_failure: Option<AdminJobFileFailure>,
+    /// Bounded cleanup of the job's own staging generation also failed. It
+    /// accompanies the primary `failure`, or a cancellation, without
+    /// replacing it, exactly as direct `index --format json` reports it: index
+    /// jobs run the CLI's direct cancellable index, so PostgreSQL settles a
+    /// cancelled job's cleanup the same way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cleanup_failure: Option<SecondaryFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     progress: Option<SupervisorStatus>,
+}
+
+impl AdminJobView {
+    /// A job that has not finished.
+    const fn running(job_id: u64, action: AdminAction) -> Self {
+        Self {
+            job_id,
+            action,
+            status: AdminJobStatus::Running,
+            report: None,
+            failure: None,
+            failure_detail: None,
+            file_failure: None,
+            cleanup_failure: None,
+            progress: None,
+        }
+    }
+
+    /// The terminal view of one finished job. A cancellation reports no
+    /// primary failure but keeps a failed cleanup of what the job held.
+    fn finished(job_id: u64, action: AdminAction, result: Result<Value, IndexFailure>) -> Self {
+        let running = Self::running(job_id, action);
+        let failure = match result {
+            Ok(report) => {
+                return Self {
+                    status: AdminJobStatus::Succeeded,
+                    report: Some(report),
+                    ..running
+                };
+            }
+            Err(failure) => failure,
+        };
+        let cleanup_failure = SecondaryFailure::index_cleanup(&failure);
+        let error = failure.error();
+        if matches!(error, ProjectError::RequestCancelled) {
+            return Self {
+                status: AdminJobStatus::Cancelled,
+                cleanup_failure,
+                ..running
+            };
+        }
+        Self {
+            status: AdminJobStatus::Failed,
+            failure: Some(admin_job_failure(error)),
+            failure_detail: admin_job_failure_detail(error),
+            file_failure: admin_job_file_failure(error),
+            cleanup_failure,
+            ..running
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -2769,12 +2828,16 @@ impl AdminJobs {
         }
     }
 
-    async fn start<Operation>(
+    /// Start one background job. An operation fails with a [`ProjectError`],
+    /// or with an [`IndexFailure`] when it also reports whether the bounded
+    /// cleanup of its own staging generation failed.
+    async fn start<Operation, Failure>(
         &self,
         input: AdminJobRequest<Operation>,
     ) -> Result<AdminJobView, ToolError>
     where
-        Operation: Future<Output = Result<Value, ProjectError>> + Send + 'static,
+        Operation: Future<Output = Result<Value, Failure>> + Send + 'static,
+        Failure: Into<IndexFailure> + Send + 'static,
     {
         let AdminJobRequest {
             action,
@@ -2794,31 +2857,9 @@ impl AdminJobs {
             .next_id
             .checked_add(1)
             .ok_or_else(ToolError::internal)?;
-        let view = AdminJobView {
-            job_id,
-            action,
-            status: AdminJobStatus::Running,
-            report: None,
-            failure: None,
-            failure_detail: None,
-            file_failure: None,
-            progress: None,
-        };
+        let view = AdminJobView::running(job_id, action);
         let handle = tokio::spawn(async move {
-            let result = operation.await;
-            let (status, report, failure, failure_detail, file_failure) = match result {
-                Ok(report) => (AdminJobStatus::Succeeded, Some(report), None, None, None),
-                Err(ProjectError::RequestCancelled) => {
-                    (AdminJobStatus::Cancelled, None, None, None, None)
-                }
-                Err(error) => (
-                    AdminJobStatus::Failed,
-                    None,
-                    Some(admin_job_failure(&error)),
-                    admin_job_failure_detail(&error),
-                    admin_job_file_failure(&error),
-                ),
-            };
+            let result = operation.await.map_err(Into::into);
             let mut state = shared.state.lock().await;
             let Some(active) = state.active.take() else {
                 return;
@@ -2827,16 +2868,7 @@ impl AdminJobs {
                 state.active = Some(active);
                 return;
             }
-            state.latest = Some(AdminJobView {
-                job_id,
-                action: active.view.action,
-                status,
-                report,
-                failure,
-                failure_detail,
-                file_failure,
-                progress: None,
-            });
+            state.latest = Some(AdminJobView::finished(job_id, active.view.action, result));
             drop(state);
         });
         state.active = Some(ActiveAdminJob {
@@ -2952,14 +2984,8 @@ impl AdminJobs {
                 return;
             };
             state.latest = Some(AdminJobView {
-                job_id: active.view.job_id,
-                action: active.view.action,
                 status: AdminJobStatus::Cancelled,
-                report: None,
-                failure: None,
-                failure_detail: None,
-                file_failure: None,
-                progress: None,
+                ..AdminJobView::running(active.view.job_id, active.view.action)
             });
             active.handle
         };
@@ -11980,16 +12006,20 @@ impl AdminCoreTools<'_> {
             action,
             cancellation,
             operation: async move {
-                let index = target_runtime
-                    .index_with_cancellation(options, operation_cancellation.clone())
-                    .await?;
+                let index = run_cancellable_index(CancellableIndex {
+                    runtime: &target_runtime,
+                    options,
+                    cancellation: operation_cancellation.clone(),
+                    supervision: IndexSupervision::Direct,
+                })
+                .await?;
                 let enrichment = Box::pin(run_post_index_enrichment(
                     target_runtime,
                     enrichment,
                     operation_cancellation,
                 ))
                 .await?;
-                Ok(json!({
+                Ok::<Value, IndexFailure>(json!({
                     "initialization": initialization,
                     "index": index,
                     "enrichment": enrichment,
@@ -12580,16 +12610,20 @@ impl AdminLifecycleTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let report = runtime
-                        .index_with_cancellation(options, operation_cancellation.clone())
-                        .await?;
+                    let report = run_cancellable_index(CancellableIndex {
+                        runtime: &runtime,
+                        options,
+                        cancellation: operation_cancellation.clone(),
+                        supervision: IndexSupervision::Direct,
+                    })
+                    .await?;
                     let enrichment = Box::pin(run_post_index_enrichment(
                         runtime,
                         enrichment,
                         operation_cancellation,
                     ))
                     .await?;
-                    Ok(json!({
+                    Ok::<Value, IndexFailure>(json!({
                         "report": report,
                         "enrichment": enrichment,
                         "forceRequested": force,
@@ -12738,14 +12772,18 @@ impl AdminLifecycleTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let index = runtime
-                        .index_with_cancellation(index_options, operation_cancellation.clone())
-                        .await?;
+                    let index = run_cancellable_index(CancellableIndex {
+                        runtime: &runtime,
+                        options: index_options,
+                        cancellation: operation_cancellation.clone(),
+                        supervision: IndexSupervision::Direct,
+                    })
+                    .await?;
                     let graph_reused = !index.published;
                     let embedding = runtime
                         .embed_current_with_cancellation(embedding_options, operation_cancellation)
                         .await?;
-                    Ok(json!({
+                    Ok::<Value, IndexFailure>(json!({
                         "index": index,
                         "embedding": embedding,
                         "graphPreserved": true,
@@ -25309,6 +25347,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::tests::index_cleanup_fixture::{HeldSchemaMaintenance, reject_staging_failure};
 
     const TEST_DEFAULT_LIMIT: u16 = 10;
     const TEST_VALID_LIMIT: u16 = 20;
@@ -28475,6 +28514,68 @@ pub fn root() -> u32 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn admin_index_job_reports_its_failed_cleanup_beside_the_primary_failure() {
+        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| panic!("live admin cleanup database is not configured"));
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let schema = format!("cg_cli_admin_cleanup_{}_{}", process::id(), nanos);
+        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
+            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
+        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
+            .and_then(|settings| settings.with_schema(&schema))
+            .unwrap_or_else(|error| panic!("admin cleanup settings failed: {error}"));
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let source = project.path().join("lib.rs");
+        std::fs::write(&source, "fn cleaned() -> u32 { 1 }\n")
+            .unwrap_or_else(|error| panic!("admin cleanup fixture write failed: {error}"));
+        let runtime = Arc::new(
+            ProjectRuntime::connect(project.path(), &settings)
+                .await
+                .unwrap_or_else(|error| panic!("admin cleanup runtime failed: {error}")),
+        );
+        runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("admin cleanup initial index failed: {error}"));
+        let handler = CartographMcpHandler::new(runtime.clone())
+            .unwrap_or_else(|error| panic!("admin cleanup handler failed: {error}"));
+        std::fs::write(&source, "fn cleaned() -> u32 { 2 }\n")
+            .unwrap_or_else(|error| panic!("admin cleanup edit failed: {error}"));
+
+        // Schema maintenance refuses the lease after the job reserved its
+        // generation, and the fixture makes that generation's cleanup fail.
+        reject_staging_failure(&settings, &schema).await;
+        let maintenance = HeldSchemaMaintenance::hold(&settings, &schema).await;
+        AdminLifecycleTools(&handler)
+            .start_index_job(AdminAction::Index, &Map::new())
+            .await
+            .unwrap_or_else(|error| panic!("admin cleanup job failed to start: {error}"));
+        let started = handler
+            .admin_jobs
+            .status(None)
+            .await
+            .unwrap_or_else(|error| panic!("admin cleanup status failed: {error}"));
+        let terminal =
+            wait_for_admin_status(&handler.admin_jobs, started.job_id, AdminJobStatus::Failed)
+                .await;
+        maintenance.release().await;
+
+        let wire = serde_json::to_value(&terminal)
+            .unwrap_or_else(|error| panic!("admin cleanup view did not serialize: {error}"));
+        assert_eq!(wire["failure"], "lease_failed", "{wire}");
+        assert_eq!(
+            wire["cleanupFailure"]["code"], "index_cleanup_failed",
+            "the job dropped its failed cleanup: {wire}"
+        );
+        drop(handler);
+        drop(runtime);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn neighbor_summary_sweep_uses_same_kind_pgvector_evidence_without_transitive_drift() {
         let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
             .unwrap_or_else(|_| panic!("live neighbor summary database is not configured"));
@@ -29556,6 +29657,56 @@ pub fn target(value: u32) -> u32 {
         let terminal = wait_for_admin_status(&jobs, started.job_id, AdminJobStatus::Failed).await;
         assert_eq!(terminal.status, AdminJobStatus::Failed);
         assert_eq!(terminal.failure, Some(AdminJobFailure::OperationFailed));
+    }
+
+    fn admin_job_wire(result: Result<Value, IndexFailure>) -> Value {
+        serde_json::to_value(AdminJobView::finished(1, AdminAction::Index, result))
+            .unwrap_or_else(|error| panic!("admin job view did not serialize: {error}"))
+    }
+
+    #[test]
+    fn admin_job_view_adds_a_failed_cleanup_beside_the_primary_like_the_cli() {
+        let primary_with_cleanup =
+            IndexFailure::from(ProjectError::IndexPublicationFailed).with_failed_cleanup();
+        let failed = admin_job_wire(Err(primary_with_cleanup.clone()));
+        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["failure"], "publication_failed");
+        assert_eq!(
+            failed["cleanupFailure"],
+            json!({
+                "code": "index_cleanup_failed",
+                "message": ProjectError::IndexCleanupFailed.to_string(),
+            })
+        );
+        // The MCP object is the CLI's `cleanup_failure`, field for field.
+        let direct = crate::error_codes::direct_index_failure_json(
+            crate::error_codes::DirectIndexFailureInput {
+                failure: &primary_with_cleanup,
+                previous_generation_visible: Some(true),
+            },
+        )
+        .unwrap_or_else(|error| panic!("direct failure did not serialize: {error}"));
+        let direct = serde_json::from_str::<Value>(&direct)
+            .unwrap_or_else(|error| panic!("direct failure was not JSON: {error}"));
+        assert_eq!(failed["cleanupFailure"], direct["error"]["cleanup_failure"]);
+
+        // Without a failed cleanup the existing view is unchanged.
+        let plain = admin_job_wire(Err(ProjectError::IndexPublicationFailed.into()));
+        assert_eq!(plain["failure"], "publication_failed");
+        assert!(plain.get("cleanupFailure").is_none());
+        assert!(
+            admin_job_wire(Ok(json!({})))
+                .get("cleanupFailure")
+                .is_none()
+        );
+
+        // A cancelled job has no primary failure but keeps its failed cleanup.
+        let cancelled = admin_job_wire(Err(
+            IndexFailure::from(ProjectError::RequestCancelled).with_failed_cleanup()
+        ));
+        assert_eq!(cancelled["status"], "cancelled");
+        assert!(cancelled.get("failure").is_none());
+        assert_eq!(cancelled["cleanupFailure"]["code"], "index_cleanup_failed");
     }
 
     #[test]

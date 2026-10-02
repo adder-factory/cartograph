@@ -187,34 +187,44 @@ generation protected by a live lease is preserved. This lets an unchanged
 retry recover work abandoned by an interrupted client without forcing a full
 re-index; normal retention may subsequently remove the failed row. While
 another operation holds a live project lease, or still holds the project lock
-after the bounded five-second wait, that recovery is deferred to a later
-attempt: an unchanged checkout still returns its no-op, and a changed checkout
-returns `lease_busy` without reserving a generation.
+after the bounded five-second wait, or a lock keeps the read of the project's
+leases waiting past that bound, that recovery is deferred to a later attempt:
+an unchanged checkout still returns its no-op, and a changed checkout returns
+`lease_busy` without reserving a generation.
 
 ## Index reports `lease_busy` or `index_cleanup_failed`
 
 `lease_busy` is retryable contention. Another operation owns a live project
 lease, or another writer (for example, an MCP server's automatic sync inside
-its long prepare/COPY transaction) still holds the project lock. Contention
+its long prepare/COPY transaction) still holds the project lock, or a lock (for
+example, a concurrent schema change) keeps the read of the project's leases
+waiting past its bounded five-second wait. Contention
 seen before reservation reserves no generation; a writer that wins after that
 check is still rejected at lease acquisition and the attempt's reserved
 generation is cleaned up. The current generation stays published. Wait for
-the writer to finish and retry; `sync-if-dirty` and automatic sync already
-wait or schedule the retry. `admin unlock` removes only database-clock-expired
-leases and cannot clear a live writer.
+the writer to finish and retry. `sync-if-dirty` already waits, up to five
+minutes in total, for every live lease on the project (index, sync, hook,
+migration, or rebuild) before it retries, and reports `lease_busy` if a lease
+outlasts that wait; automatic sync schedules the retry. `admin unlock` removes
+only database-clock-expired leases and cannot clear a live writer.
 
 When an attempt fails and the bounded cleanup of its own staging generation
 also fails afterward (for example, because its own interrupted transaction
 still holds the project lock), `index --format json` keeps the first failure as
 `code` and reports the cleanup as `cleanup_failure` with
-`index_cleanup_failed`. A cancelled index (`request_cancelled`) reports
-`cleanup_failure` unless PostgreSQL confirms that no generation it reserved is
+`index_cleanup_failed`; MCP admin job status reports it as `cleanupFailure`
+beside its unchanged `failure`, and `autoSync` as `lastCleanupFailureCode`
+beside its unchanged `lastErrorCode`. A cancelled index (`request_cancelled`)
+reports `cleanup_failure` unless PostgreSQL confirms that no generation it reserved is
 still `staging` or `ready` and that its lease names none of them. The next index retries that
 cleanup. A lost or
-unconfirmed lease heartbeat is `lease_failed`. `code: index_cleanup_failed` on
-its own means the pre-reservation staging recovery failed for a reason other
-than contention; inspect PostgreSQL health and generation retention before
-retrying.
+unconfirmed lease heartbeat is `lease_failed`. A read of the project's leases
+that fails before reservation for a reason other than that bounded wait is a
+project-status failure (`Cartograph project status is unavailable`), never
+`lease_failed`: the attempt held no lease to lose; check PostgreSQL health.
+`code: index_cleanup_failed` on its own means the pre-reservation staging
+recovery failed for a reason other than contention; inspect PostgreSQL health
+and generation retention before retrying.
 
 `previous_generation_visible` reports what PostgreSQL shows after the failure:
 `true` when a published generation is still current, `false` when the project
