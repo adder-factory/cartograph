@@ -75,6 +75,39 @@ const LEASE_WAIT_ATTEMPTS: usize = 250;
 const LEASE_WAIT_INTERVAL: Duration = Duration::from_millis(20);
 const INSTRUMENTED_STAGE_WAIT_ATTEMPTS: usize = 500;
 const NONCOOPERATIVE_WORK_DURATION: Duration = Duration::from_secs(2);
+// Lease renewal must not depend on how the root work schedules: the blocking
+// test holds a worker thread in synchronous code until it has observed 10
+// heartbeat intervals, requiring only a lenient fraction of renewals. The
+// release bound only ends a section the test failed to release, and stays below
+// the progress timeout.
+const BLOCKING_WORK_OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
+const BLOCKING_WORK_PROGRESS_TIMEOUT: Duration = Duration::from_secs(5);
+const BLOCKING_WORK_RELEASE_BOUND: Duration = Duration::from_secs(4);
+const BLOCKING_OBSERVATION_WINDOW: Duration = Duration::from_secs(1);
+const EXPECTED_HEARTBEATS_WHILE_BLOCKED: u64 = 3;
+// Abort cannot interrupt root work inside a synchronous section, so a cancelled
+// or fenced run must wait for that section to end and keep renewing an owned
+// lease until its cleanup. The settle delay outlasts the cancellation grace plus
+// one more grace or heartbeat request, the bounds after which a run that gave
+// up on its root would already have returned. The release bound only ends a
+// section that a failed test never released.
+const BLOCKED_ROOT_SETTLE: Duration = Duration::from_secs(1);
+const BLOCKED_ROOT_RELEASE_BOUND: Duration = Duration::from_secs(20);
+const UNREAPED_ROOT_RESULT_BOUND: Duration = Duration::from_secs(8);
+// Mirrors the supervisor's database finish reserve: five heartbeat requests are
+// kept after the reap ceiling for owned cleanup.
+const SUPERVISOR_FINISH_DATABASE_STEPS: u32 = 5;
+// The stalled configuration reaps work until its operation timeout minus the
+// database finish reserve.
+const STALLED_REAP_CEILING: Duration = STANDARD_OPERATION_TIMEOUT
+    .saturating_sub(STANDARD_HEARTBEAT_TIMEOUT.saturating_mul(SUPERVISOR_FINISH_DATABASE_STEPS));
+// Progress batches reduced inside one poll, as ordered stage reduction does,
+// while concurrent status readers keep the fair progress lock contended.
+const STATUS_READERS: usize = 4;
+const PROGRESS_BATCH_ITEMS: usize = 8;
+const PROGRESS_CONTENTION_WINDOW: Duration = Duration::from_millis(1_500);
+const PROGRESS_DEADLOCK_BOUND: Duration = Duration::from_secs(10);
+const STATUS_READER_JOIN_BOUND: Duration = Duration::from_secs(2);
 const SHORT_CANCELLATION_GRACE: Duration = Duration::from_millis(150);
 const CANCELLING_OBSERVATION_DELAY: Duration = Duration::from_millis(40);
 // This test proves the whole-operation deadline despite continuous work
@@ -116,6 +149,45 @@ const TRANSIENT_HEARTBEAT_PROGRESS_TIMEOUT: Duration = Duration::from_secs(2);
 const TRANSIENT_HEARTBEAT_LEASE_DURATION: Duration = Duration::from_secs(6);
 const TRANSIENT_HEARTBEAT_DELAY_SECONDS: &str = "0.60";
 const TRANSIENT_HEARTBEAT_DELAY_ATTEMPTS: i64 = 2;
+// Work that finishes while a slow but successful heartbeat straddles the work
+// deadline must still yield to that deadline, as the inline monitor did. The
+// first heartbeat starts one interval after acquisition, 2.1 s before the 6 s
+// work window closes when acquisition is instant, and a trigger holds it 2.2 s,
+// below its 2.5 s statement timeout, so it always ends after the window closes;
+// the work, which finishes as soon as it sees that heartbeat, then still
+// finishes inside the window unless acquisition took about 2 s. The operation
+// timeout is the work window plus grace, COPY, and the database finish reserve.
+const HELD_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(5);
+const HELD_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(3_900);
+const HELD_HEARTBEAT_WORK_WINDOW: Duration = Duration::from_secs(6);
+const HELD_HEARTBEAT_OPERATION_TIMEOUT: Duration = HELD_HEARTBEAT_WORK_WINDOW
+    .saturating_add(STANDARD_CANCELLATION_GRACE)
+    .saturating_add(STANDARD_COPY_TIMEOUT)
+    .saturating_add(HELD_HEARTBEAT_TIMEOUT.saturating_mul(SUPERVISOR_FINISH_DATABASE_STEPS));
+const HELD_HEARTBEAT_PROGRESS_TIMEOUT: Duration = Duration::from_millis(3_500);
+const HELD_HEARTBEAT_LEASE_DURATION: Duration = Duration::from_secs(32);
+const HELD_HEARTBEAT_DELAY_SECONDS: &str = "2.20";
+const HELD_HEARTBEAT_DELAY_ATTEMPTS: i64 = 1;
+const HELD_HEARTBEAT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+// The same held heartbeat must also yield to a progress stall that expires
+// while it is held: the work finishes as soon as it sees the heartbeat, then
+// reports no progress for the rest of the 2.2 s hold, which outlasts the 1 s
+// progress timeout, while the work window stays far away.
+const STALL_RACE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+const STALL_RACE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(1);
+const STALL_RACE_WORK_WINDOW: Duration = Duration::from_secs(20);
+const STALL_RACE_OPERATION_TIMEOUT: Duration = STALL_RACE_WORK_WINDOW
+    .saturating_add(STANDARD_CANCELLATION_GRACE)
+    .saturating_add(STANDARD_COPY_TIMEOUT)
+    .saturating_add(HELD_HEARTBEAT_TIMEOUT.saturating_mul(SUPERVISOR_FINISH_DATABASE_STEPS));
+const STALL_RACE_LEASE_DURATION: Duration = Duration::from_secs(30);
+// Children must be reaped as soon as blocked root work is gone, not after the
+// reap-time lease renewal settles. A held renewal heartbeat waits on a locked
+// lease row inside its 1.5 s statement timeout while the child is observed.
+const SETTLING_OPERATION_TIMEOUT: Duration = Duration::from_secs(25);
+const SETTLING_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(3);
+const SETTLING_LEASE_DURATION: Duration = Duration::from_secs(20);
+const SETTLING_CHILD_REAP_BOUND: Duration = Duration::from_secs(1);
 const EXPECTED_TRANSIENT_HEARTBEAT_ATTEMPTS: i64 = 3;
 const ABORT_OPERATION_TIMEOUT: Duration = Duration::from_secs(3);
 const ABORT_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(100);
@@ -2836,6 +2908,664 @@ async fn noncooperative_work_is_dropped_after_visible_cancellation_grace() {
     fixture.close().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn lease_heartbeats_continue_while_root_work_blocks_its_thread() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocking_work_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let (blocking, blocking_started) = oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(request(request_target), move |context| async move {
+                drop(staged);
+                assert!(
+                    context
+                        .progress()
+                        .begin_stage(PipelineStage::Resolve)
+                        .await
+                        .is_ok()
+                );
+                let _ = blocking.send(());
+                // Synchronous code run directly in async context never yields, so
+                // it holds this worker thread until the test has observed renewal.
+                let _ = released.recv_timeout(BLOCKING_WORK_RELEASE_BOUND);
+                Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Resolve))
+            })
+            .await
+    });
+    assert!(blocking_started.await.is_ok());
+    let before = supervisor.status().await.heartbeat_count();
+    tokio::time::sleep(BLOCKING_OBSERVATION_WINDOW).await;
+    let during = supervisor.status().await.heartbeat_count();
+    let _ = release.send(());
+    assert!(
+        during >= before.saturating_add(EXPECTED_HEARTBEATS_WHILE_BLOCKED),
+        "lease renewal stalled while the root work blocked its thread: {before} -> {during}"
+    );
+    let result = join(handle).await;
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Pipeline {
+                stage: PipelineStage::Resolve
+            })
+        ),
+        "unexpected blocked-work result: {result:?}"
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn concurrent_status_readers_never_deadlock_batched_progress() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), boundary_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                request_with_duration(request_target, BOUNDARY_LEASE_DURATION),
+                move |context| async move {
+                    drop(staged);
+                    let progress = context.progress();
+                    assert!(progress.begin_stage(PipelineStage::Parse).await.is_ok());
+                    let contended_until = tokio::time::Instant::now() + PROGRESS_CONTENTION_WINDOW;
+                    while tokio::time::Instant::now() < contended_until {
+                        // Like ordered stage reduction, several outputs advance
+                        // progress inside one poll before the work yields.
+                        for _ in 0..PROGRESS_BATCH_ITEMS {
+                            assert!(progress.advance(1, 1).await.is_ok());
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                    Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Parse))
+                },
+            )
+            .await
+    });
+    // Status readers model `cartograph admin index` polling the job from the CLI.
+    let reading = Arc::new(AtomicBool::new(true));
+    let readers = (0..STATUS_READERS)
+        .map(|_| {
+            let supervisor = supervisor.clone();
+            let reading = reading.clone();
+            tokio::spawn(async move {
+                while reading.load(Ordering::Acquire) {
+                    let _ = supervisor.status().await;
+                    tokio::task::yield_now().await;
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let joined = tokio::time::timeout(PROGRESS_DEADLOCK_BOUND, handle).await;
+    reading.store(false, Ordering::Release);
+    let result = joined
+        .unwrap_or_else(|_| {
+            panic!("supervised progress deadlocked behind concurrent status readers")
+        })
+        .unwrap_or_else(|error| panic!("contended-progress supervisor task failed: {error}"));
+    for reader in readers {
+        assert!(matches!(
+            tokio::time::timeout(STATUS_READER_JOIN_BOUND, reader).await,
+            Ok(Ok(()))
+        ));
+    }
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Pipeline {
+                stage: PipelineStage::Parse
+            })
+        ),
+        "unexpected contended-progress result: {result:?}"
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn work_finished_during_a_held_heartbeat_still_yields_to_the_work_deadline() {
+    let fixture = open_fixture().await;
+    install_heartbeat_delay(
+        &fixture,
+        HELD_HEARTBEAT_DELAY_SECONDS,
+        HELD_HEARTBEAT_DELAY_ATTEMPTS,
+    )
+    .await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), held_heartbeat_config());
+    let pool = fixture.pool.clone();
+    let schema = fixture.schema.clone();
+    let (finished, mut finished_at) = oneshot::channel();
+    // The supervisor's budget starts after this instant, so its work deadline is
+    // no earlier than this instant plus the work window.
+    let window_opened_by = tokio::time::Instant::now();
+    let result = supervisor
+        .run(
+            request_with_duration(target.clone(), HELD_HEARTBEAT_LEASE_DURATION),
+            move |context| async move {
+                let progress = context.progress();
+                progress
+                    .begin_stage(PipelineStage::Copy)
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                let ready = context
+                    .prepare_generation(GenerationContents::new(
+                        staged,
+                        canonical(GenerationFacts::default()),
+                    ))
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                // Finish only once the held heartbeat is in flight. While this
+                // work runs, only the active-work keeper heartbeats; publication
+                // and cleanup heartbeats start after the work has ended.
+                while !heartbeat_delay_started(&pool, &schema).await {
+                    tokio::time::sleep(HELD_HEARTBEAT_POLL_INTERVAL).await;
+                    progress
+                        .advance(1, 1)
+                        .await
+                        .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                }
+                let _ = finished.send(tokio::time::Instant::now());
+                Ok(ready)
+            },
+        )
+        .await;
+    let finished_at = finished_at.try_recv().unwrap_or_else(|_| {
+        panic!("work never saw an active-work heartbeat in flight: {result:?}")
+    });
+    assert!(
+        finished_at < window_opened_by + HELD_HEARTBEAT_WORK_WINDOW,
+        "work finished {:?} after the run began, too late to race the work deadline",
+        finished_at - window_opened_by
+    );
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Cancelled {
+                reason: CancellationReason::OperationDeadline,
+                grace_exceeded: false
+            })
+        ),
+        "work finished during a held heartbeat bypassed the work deadline: {result:?}"
+    );
+    assert_eq!(
+        supervisor.status().await.state(),
+        SupervisorState::Cancelled
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn work_finished_during_a_held_heartbeat_still_yields_to_a_progress_stall() {
+    let fixture = open_fixture().await;
+    install_heartbeat_delay(
+        &fixture,
+        HELD_HEARTBEAT_DELAY_SECONDS,
+        HELD_HEARTBEAT_DELAY_ATTEMPTS,
+    )
+    .await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), stall_race_config());
+    let pool = fixture.pool.clone();
+    let schema = fixture.schema.clone();
+    let (finished, mut finished_signal) = oneshot::channel();
+    let result = supervisor
+        .run(
+            request_with_duration(target.clone(), STALL_RACE_LEASE_DURATION),
+            move |context| async move {
+                let progress = context.progress();
+                progress
+                    .begin_stage(PipelineStage::Copy)
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                let ready = context
+                    .prepare_generation(GenerationContents::new(
+                        staged,
+                        canonical(GenerationFacts::default()),
+                    ))
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                // Progress continues until the held active-work heartbeat is in
+                // flight, then stops; the work finishes at once.
+                while !heartbeat_delay_started(&pool, &schema).await {
+                    tokio::time::sleep(HELD_HEARTBEAT_POLL_INTERVAL).await;
+                    progress
+                        .advance(1, 1)
+                        .await
+                        .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                }
+                let _ = finished.send(());
+                Ok(ready)
+            },
+        )
+        .await;
+    assert!(
+        finished_signal.try_recv().is_ok(),
+        "work never saw an active-work heartbeat in flight: {result:?}"
+    );
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Cancelled {
+                reason: CancellationReason::ProgressStalled,
+                grace_exceeded: false
+            })
+        ),
+        "work finished during a held heartbeat bypassed the progress watchdog: {result:?}"
+    );
+    let status = supervisor.status().await;
+    assert_eq!(status.state(), SupervisorState::Wedged);
+    assert_eq!(
+        status.cancellation_reason(),
+        Some(CancellationReason::ProgressStalled)
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn children_are_reaped_while_reap_time_lease_renewal_settles() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let child_dropped = Arc::new(AtomicBool::new(false));
+    let child_observer = child_dropped.clone();
+    let (child_started, child_started_receiver) = oneshot::channel();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), settling_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                request_with_duration(request_target, SETTLING_LEASE_DURATION),
+                move |context| async move {
+                    drop(staged);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Resolve)
+                            .await
+                            .is_ok()
+                    );
+                    let _child = match context.spawn(1, async move {
+                        let _child_drop = DropFlag(child_observer);
+                        let _ = child_started.send(());
+                        pending::<Result<(), PipelineFailure>>().await
+                    }) {
+                        Ok(child) => child,
+                        Err(error) => panic!("registered child did not spawn: {error}"),
+                    };
+                    assert!(child_started_receiver.await.is_ok());
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    assert!(supervisor.cancel());
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    // Past the grace the run renews the lease while it waits for the root;
+    // lock the exact lease row so the next renewal heartbeat is held.
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let mut lease_lock = match fixture.pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => panic!("lease-lock transaction failed: {error}"),
+    };
+    let lease_lock_statement = format!(
+        r#"SELECT lease_id FROM "{}"."project_operation_leases"
+            WHERE project_id = CAST($1 AS uuid) AND operation = $2
+            FOR UPDATE"#,
+        fixture.schema
+    );
+    if let Err(error) = query(AssertSqlSafe(lease_lock_statement))
+        .bind(target.project_id().as_str())
+        .bind(target.operation().as_str())
+        .fetch_one(&mut *lease_lock)
+        .await
+    {
+        panic!("could not lock exact lease row: {error}");
+    }
+    wait_for_schema_lock(&fixture.pool, &fixture.schema, "project_operation_leases").await;
+    release.release();
+    let child_reaped = wait_for_flag(&child_dropped, SETTLING_CHILD_REAP_BOUND).await;
+    let renewal_still_held = !handle.is_finished();
+    assert!(lease_lock.rollback().await.is_ok());
+    let result = join(handle).await;
+    assert!(
+        renewal_still_held,
+        "the run finished while its renewal heartbeat was held: {result:?}"
+    );
+    assert!(
+        child_reaped,
+        "registered children waited for reap-time lease renewal to settle: {result:?}"
+    );
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Cancelled {
+                reason: CancellationReason::Requested,
+                grace_exceeded: true
+            })
+        ),
+        "unexpected settling-renewal result: {result:?}"
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn cancellation_waits_for_blocked_root_work_and_renews_until_cleanup() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let root_dropped = Arc::new(AtomicBool::new(false));
+    let root_observer = root_dropped.clone();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocking_work_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(request(request_target), move |context| async move {
+                drop(staged);
+                let _root_drop = DropFlag(root_observer);
+                assert!(
+                    context
+                        .progress()
+                        .begin_stage(PipelineStage::Resolve)
+                        .await
+                        .is_ok()
+                );
+                root.hold();
+                pending::<Result<ReadyGeneration, PipelineFailure>>().await
+            })
+            .await
+    });
+    release.started().await;
+    assert!(supervisor.cancel());
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let before = supervisor.status().await.heartbeat_count();
+    tokio::time::sleep(BLOCKING_OBSERVATION_WINDOW).await;
+    let during = supervisor.status().await.heartbeat_count();
+    let lease_while_waiting = fixture.database.lease_status(&target).await;
+    let returned_early = handle.is_finished();
+    release.release();
+    let result = join(handle).await;
+    assert!(
+        !returned_early,
+        "cancellation gave up on root work still in a synchronous section: {result:?}"
+    );
+    assert!(
+        during >= before.saturating_add(EXPECTED_HEARTBEATS_WHILE_BLOCKED),
+        "the lease was not renewed while cancellation waited for root work: {before} -> {during}"
+    );
+    assert!(matches!(lease_while_waiting, Ok(Some(_))));
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Cancelled {
+                reason: CancellationReason::Requested,
+                grace_exceeded: true
+            })
+        ),
+        "unexpected blocked-root cancellation result: {result:?}"
+    );
+    assert!(root_dropped.load(Ordering::Acquire));
+    let status = supervisor.status().await;
+    assert_eq!(status.state(), SupervisorState::Wedged);
+    assert!(status.grace_exceeded());
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn lease_loss_waits_for_blocked_root_work_before_reporting() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let root_dropped = Arc::new(AtomicBool::new(false));
+    let root_observer = root_dropped.clone();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocking_work_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(request(request_target), move |context| async move {
+                drop(staged);
+                let _root_drop = DropFlag(root_observer);
+                assert!(
+                    context
+                        .progress()
+                        .begin_stage(PipelineStage::Parse)
+                        .await
+                        .is_ok()
+                );
+                root.hold();
+                pending::<Result<ReadyGeneration, PipelineFailure>>().await
+            })
+            .await
+    });
+    release.started().await;
+    expire_lease(&fixture, &target).await;
+    let takeover = match fixture
+        .database
+        .acquire_lease(LeaseRequest::new(
+            target.clone(),
+            LeaseOwner::new(process::id(), "blocked-root-takeover"),
+            TEST_LEASE_DURATION,
+        ))
+        .await
+    {
+        Ok(lease) => lease,
+        Err(error) => panic!("takeover lease acquisition failed: {error}"),
+    };
+    wait_for_cancellation_reason(&supervisor, CancellationReason::LeaseLost).await;
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let returned_early = handle.is_finished();
+    release.release();
+    let result = join(handle).await;
+    assert!(
+        !returned_early,
+        "lease loss gave up on root work still in a synchronous section: {result:?}"
+    );
+    assert!(
+        matches!(
+            result,
+            Err(SupervisorError::Cancelled {
+                reason: CancellationReason::LeaseLost,
+                grace_exceeded: false
+            })
+        ),
+        "unexpected blocked-root lease-loss result: {result:?}"
+    );
+    assert!(root_dropped.load(Ordering::Acquire));
+    assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
+    let status = match fixture.database.lease_status(&target).await {
+        Ok(Some(status)) => status,
+        Ok(None) => panic!("takeover lease disappeared"),
+        Err(error) => panic!("takeover lease status failed: {error}"),
+    };
+    assert_eq!(status.owner_process_start(), "blocked-root-takeover");
+    assert!(fixture.database.release_lease(&takeover).await.is_ok());
+    fail_recoverable_generation(&fixture, &generation_id).await;
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn dropping_the_run_while_root_work_is_blocked_still_cleans_up() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let root_dropped = Arc::new(AtomicBool::new(false));
+    let root_observer = root_dropped.clone();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocking_work_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let outer = tokio::spawn(async move {
+        runner
+            .run(request(request_target), move |context| async move {
+                drop(staged);
+                let _root_drop = DropFlag(root_observer);
+                assert!(
+                    context
+                        .progress()
+                        .begin_stage(PipelineStage::Resolve)
+                        .await
+                        .is_ok()
+                );
+                root.hold();
+                pending::<Result<ReadyGeneration, PipelineFailure>>().await
+            })
+            .await
+    });
+    release.started().await;
+    outer.abort();
+    assert!(matches!(outer.await, Err(error) if error.is_cancelled()));
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let while_blocked = supervisor.status().await;
+    release.release();
+    assert_eq!(
+        while_blocked.state(),
+        SupervisorState::Cancelling,
+        "the dropped run gave up on root work still in a synchronous section"
+    );
+    wait_for_supervisor_state(&supervisor, SupervisorState::Wedged).await;
+    assert!(root_dropped.load(Ordering::Acquire));
+    let status = supervisor.status().await;
+    assert_eq!(
+        status.cancellation_reason(),
+        Some(CancellationReason::Requested)
+    );
+    assert!(status.grace_exceeded());
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert!(matches!(
+        fixture.database.lease_status(&target).await,
+        Ok(None)
+    ));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn root_work_blocked_past_the_reap_ceiling_is_reported_unreaped() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), stalled_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    // The supervisor's budget starts after this instant, so its reap ceiling is
+    // no earlier than this instant plus the ceiling offset.
+    let started_by = tokio::time::Instant::now();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(request(request_target), move |context| async move {
+                drop(staged);
+                assert!(
+                    context
+                        .progress()
+                        .begin_stage(PipelineStage::Resolve)
+                        .await
+                        .is_ok()
+                );
+                root.hold();
+                pending::<Result<ReadyGeneration, PipelineFailure>>().await
+            })
+            .await
+    });
+    release.started().await;
+    // The blocked root stalls progress, is cancelled, and is then waited for
+    // until the reap ceiling but never past it.
+    let joined = tokio::time::timeout(UNREAPED_ROOT_RESULT_BOUND, handle).await;
+    let returned_after = started_by.elapsed();
+    release.release();
+    let result = joined
+        .unwrap_or_else(|_| panic!("the run waited past its reap ceiling for blocked root work"))
+        .unwrap_or_else(|error| panic!("unreaped-root supervisor task failed: {error}"));
+    assert!(
+        matches!(result, Err(SupervisorError::UnreapedWorkers)),
+        "unexpected unreaped-root result: {result:?}"
+    );
+    assert!(
+        returned_after >= STALLED_REAP_CEILING,
+        "the run gave up on its root work after {returned_after:?}, before its reap ceiling"
+    );
+    assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
+    // Unreaped work forbids owned cleanup; the staging generation is recovered.
+    assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
+    expire_lease(&fixture, &target).await;
+    fail_recoverable_generation(&fixture, &generation_id).await;
+
+    fixture.close().await;
+}
+
 #[tokio::test]
 #[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
 async fn cancellation_during_blocked_acquisition_reaps_work_and_leaves_recoverable_staging() {
@@ -3426,6 +4156,42 @@ fn standard_config() -> SupervisorConfig {
         .with_copy_timeout(STANDARD_COPY_TIMEOUT)
 }
 
+fn blocking_work_config() -> SupervisorConfig {
+    SupervisorConfig::new(BLOCKING_WORK_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STANDARD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(STANDARD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(BLOCKING_WORK_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn held_heartbeat_config() -> SupervisorConfig {
+    SupervisorConfig::new(HELD_HEARTBEAT_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(HELD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(HELD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(HELD_HEARTBEAT_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn stall_race_config() -> SupervisorConfig {
+    SupervisorConfig::new(STALL_RACE_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STALL_RACE_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(HELD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(STALL_RACE_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn settling_config() -> SupervisorConfig {
+    SupervisorConfig::new(SETTLING_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STANDARD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(SETTLING_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(BLOCKING_WORK_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
 fn stalled_config() -> SupervisorConfig {
     standard_config()
         .with_progress_timeout(STALLED_PROGRESS_TIMEOUT)
@@ -3574,6 +4340,54 @@ struct DropFlag(Arc<AtomicBool>);
 impl Drop for DropFlag {
     fn drop(&mut self) {
         self.0.store(true, Ordering::Release);
+    }
+}
+
+/// Root work side of a synchronous section that abort cannot interrupt.
+struct BlockedRoot {
+    started: oneshot::Sender<()>,
+    released: std::sync::mpsc::Receiver<()>,
+}
+
+/// Test side of a [`BlockedRoot`] section.
+struct RootRelease {
+    started: oneshot::Receiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+fn blocked_root() -> (BlockedRoot, RootRelease) {
+    let (started, started_receiver) = oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    (
+        BlockedRoot { started, released },
+        RootRelease {
+            started: started_receiver,
+            release,
+        },
+    )
+}
+
+impl BlockedRoot {
+    /// Report the section started, then block this worker thread under
+    /// `block_in_place` until the test releases it or the bound elapses.
+    fn hold(self) {
+        let _ = self.started.send(());
+        tokio::task::block_in_place(|| {
+            let _ = self.released.recv_timeout(BLOCKED_ROOT_RELEASE_BOUND);
+        });
+    }
+}
+
+impl RootRelease {
+    async fn started(&mut self) {
+        assert!(
+            (&mut self.started).await.is_ok(),
+            "root work never reached its blocked section"
+        );
+    }
+
+    fn release(&self) {
+        let _ = self.release.send(());
     }
 }
 
@@ -3891,6 +4705,34 @@ async fn wait_for_supervisor_state(supervisor: &IndexerSupervisor, expected: Sup
     );
 }
 
+/// Wait up to `bound` for `flag` to be set; true once it is.
+async fn wait_for_flag(flag: &AtomicBool, bound: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + bound;
+    while !flag.load(Ordering::Acquire) {
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(LEASE_WAIT_INTERVAL).await;
+    }
+    true
+}
+
+async fn wait_for_cancellation_reason(
+    supervisor: &IndexerSupervisor,
+    expected: CancellationReason,
+) {
+    for _ in 0..LEASE_WAIT_ATTEMPTS {
+        if supervisor.status().await.cancellation_reason() == Some(expected) {
+            return;
+        }
+        tokio::time::sleep(LEASE_WAIT_INTERVAL).await;
+    }
+    panic!(
+        "supervisor did not select {expected:?}; final status: {:?}",
+        supervisor.status().await
+    );
+}
+
 async fn install_one_shot_publish_delay(fixture: &DatabaseFixture) {
     let sequence = format!(
         r#"CREATE SEQUENCE "{}"."publish_delay_sequence""#,
@@ -3958,6 +4800,16 @@ async fn install_one_shot_acquisition_delay(fixture: &DatabaseFixture) {
 }
 
 async fn install_one_shot_heartbeat_delay(fixture: &DatabaseFixture) {
+    install_heartbeat_delay(
+        fixture,
+        TRANSIENT_HEARTBEAT_DELAY_SECONDS,
+        TRANSIENT_HEARTBEAT_DELAY_ATTEMPTS,
+    )
+    .await;
+}
+
+/// Delay the first `attempts` lease heartbeats by `seconds` inside PostgreSQL.
+async fn install_heartbeat_delay(fixture: &DatabaseFixture, seconds: &str, attempts: i64) {
     let sequence = format!(
         r#"CREATE SEQUENCE "{}"."heartbeat_delay_sequence""#,
         fixture.schema
@@ -3969,8 +4821,8 @@ async fn install_one_shot_heartbeat_delay(fixture: &DatabaseFixture) {
             AS $delay$
             BEGIN
                 IF nextval('"{}"."heartbeat_delay_sequence"'::regclass)
-                   <= {TRANSIENT_HEARTBEAT_DELAY_ATTEMPTS} THEN
-                    PERFORM pg_sleep({TRANSIENT_HEARTBEAT_DELAY_SECONDS});
+                   <= {attempts} THEN
+                    PERFORM pg_sleep({seconds});
                 END IF;
                 RETURN NEW;
             END
@@ -3989,6 +4841,17 @@ async fn install_one_shot_heartbeat_delay(fixture: &DatabaseFixture) {
             panic!("could not install one-shot heartbeat delay: {error}");
         }
     }
+}
+
+/// Whether a delayed heartbeat has started executing its delay trigger.
+async fn heartbeat_delay_started(pool: &sqlx_postgres::PgPool, schema: &str) -> bool {
+    let statement = format!(r#"SELECT is_called FROM "{schema}"."heartbeat_delay_sequence""#);
+    query(AssertSqlSafe(statement))
+        .fetch_one(pool)
+        .await
+        .ok()
+        .and_then(|row| row.try_get::<bool, _>(0).ok())
+        .unwrap_or(false)
 }
 
 async fn heartbeat_delay_attempts(fixture: &DatabaseFixture) -> i64 {

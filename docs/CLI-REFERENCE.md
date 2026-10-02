@@ -72,6 +72,21 @@ writes a structured `error` object to stderr with `code`, `message`, `stage`,
 literal values, database URL, or parser/driver internals. MCP admin job status
 uses the same bounded `fileFailure` evidence.
 
+A generated `cartograph admin` command that starts a background job, such as
+`admin index`, runs the job in-process and polls its status until it finishes.
+That wait has a ten-minute CLI deadline which also bounds every individual
+status poll. When the deadline elapses, or the wait fails for any other reason,
+the command cancels the job and waits up to four minutes for its cleanup before
+it exits nonzero. Cleanup normally fails the staging generation and releases
+the project's index lease. A job cancelled inside a long synchronous stage
+section first finishes that section, keeping its lease renewed meanwhile. If
+lease ownership is lost or its outcome is ambiguous, the work is still running
+at the operation deadline, or cleanup outlasts the four-minute wait, the lease
+is not released by this command: it expires on its own and the next writer
+recovers the staging generation. Run index work expected to exceed the deadline
+through `cartograph index` or the `cartograph_admin` job API of a long-lived
+`cartograph serve`.
+
 Invalid parser-recovery spans and parser stops without cancellation are instead
 retained as partial files and listed in a successful index report with degraded
 reason `extraction_invalid_span` or `extraction_parser_stopped`.

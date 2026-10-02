@@ -269,6 +269,18 @@ time, completed stage timings, total elapsed time, and cancellation state. A
 busy host is therefore distinguishable from a stalled stage without exposing
 source or database text.
 
+The index lease is renewed by its own task, independently of how pipeline work
+is scheduled: the heartbeat count keeps advancing while a stage performs long
+CPU work, and polling status can no longer stall the pipeline's progress
+updates. A heartbeat count that stops advancing while a job is active therefore
+points at PostgreSQL or lease trouble, or a starved host, rather than a busy
+stage. Renewal pauses during a cancellation grace period, so a supervisor state
+that stays `cancelling` (or `wedged`, after a progress stall) while the
+heartbeat count advances means the cancelled work is still finishing a long
+synchronous section. The job then fails its staging generation and releases
+the lease, or, if the section outlasts the operation deadline, ends unreaped
+and leaves both for lease expiry and recovery.
+
 ## Semantic search is skipped
 
 Hybrid mode requires a reachable OpenAI-compatible embedding endpoint and a

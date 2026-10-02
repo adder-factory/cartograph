@@ -3601,36 +3601,23 @@ async fn spill_derived_generation_facts(
     let maximum_bytes = config.limits.retained.max_generation_bytes;
     let mut derived_sequence = source.files;
     for kind in SpilledDerivedFactKind::ALL {
-        let (mut facts, charged) = derive_spilled_facts(
-            &state.index,
-            DerivedFactBound {
-                cancellation,
-                maximum_bytes,
-            },
-            kind,
-        )
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-        state.high_water = state.high_water.max(charged);
-        scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
-        if !generation_facts_are_empty(&facts) {
-            if state.centrality_enabled {
-                append_spilled_centrality_facts(
-                    &mut state.centrality,
-                    &facts,
-                    &mut state.centrality_budget,
-                )
-                .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-            }
-            let batch = NativeGenerationSpillFactBatch::new(
-                FactBatchInput {
+        // Deriving one kind walks the whole resolution index and validates the
+        // batch synchronously; keep that work off the async worker core so it
+        // cannot hold tasks scheduled on this worker for the whole walk.
+        let batch = block_in_place(|| {
+            derive_spilled_fact_batch(
+                state,
+                DerivedFactBatchRequest {
+                    kind,
                     sequence: derived_sequence,
-                    facts,
-                    limits: state.validation_limits,
+                    bound: DerivedFactBound {
+                        cancellation,
+                        maximum_bytes,
+                    },
                 },
-                || cancellation.is_cancelled(),
             )
-            .map_err(classify_spill_validation_error)?;
-            add_spill_fact_counts(&mut state.counts, batch.counts())?;
+        })?;
+        if let Some(batch) = batch {
             source
                 .spill
                 .append_fact_batch(batch)
@@ -3646,6 +3633,56 @@ async fn spill_derived_generation_facts(
             .map_err(|_| ResolveGenerationFailure::unclassified())?;
     }
     Ok(derived_sequence)
+}
+
+/// One derived fact kind and the batch sequence it would occupy.
+#[derive(Clone, Copy)]
+struct DerivedFactBatchRequest<'request> {
+    kind: SpilledDerivedFactKind,
+    sequence: u64,
+    bound: DerivedFactBound<'request>,
+}
+
+/// Derive, overlay-filter, and validate one derived fact kind.
+///
+/// Returns `None` when the kind produced no facts. Counts and centrality input
+/// are recorded before the batch is returned for durable append.
+fn derive_spilled_fact_batch(
+    state: &mut SpilledResolutionState,
+    request: DerivedFactBatchRequest<'_>,
+) -> Result<Option<NativeGenerationSpillFactBatch>, ResolveGenerationFailure> {
+    let DerivedFactBatchRequest {
+        kind,
+        sequence,
+        bound,
+    } = request;
+    let cancellation = bound.cancellation;
+    let (mut facts, charged) = derive_spilled_facts(&state.index, bound, kind)
+        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+    state.high_water = state.high_water.max(charged);
+    scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
+    if generation_facts_are_empty(&facts) {
+        return Ok(None);
+    }
+    if state.centrality_enabled {
+        append_spilled_centrality_facts(
+            &mut state.centrality,
+            &facts,
+            &mut state.centrality_budget,
+        )
+        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+    }
+    let batch = NativeGenerationSpillFactBatch::new(
+        FactBatchInput {
+            sequence,
+            facts,
+            limits: state.validation_limits,
+        },
+        || cancellation.is_cancelled(),
+    )
+    .map_err(classify_spill_validation_error)?;
+    add_spill_fact_counts(&mut state.counts, batch.counts())?;
+    Ok(Some(batch))
 }
 
 fn append_spilled_centrality_facts(
@@ -3731,8 +3768,10 @@ async fn apply_spilled_centrality(
         cancellation,
         progress,
     } = request;
+    // PageRank, sampled betweenness, and score ordering are whole-graph CPU
+    // work; run them off the async worker core.
     if policy.page_rank {
-        let report = apply_page_rank(facts, || cancellation.is_cancelled())
+        let report = block_in_place(|| apply_page_rank(facts, || cancellation.is_cancelled()))
             .map_err(|_| ResolveGenerationFailure::unclassified())?;
         if report.iterations > 0 {
             progress
@@ -3742,8 +3781,9 @@ async fn apply_spilled_centrality(
         }
     }
     if policy.betweenness {
-        let report = apply_sampled_betweenness(facts, || cancellation.is_cancelled())
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
+        let report =
+            block_in_place(|| apply_sampled_betweenness(facts, || cancellation.is_cancelled()))
+                .map_err(|_| ResolveGenerationFailure::unclassified())?;
         let completed = report.sample_count.max(report.nodes_scored);
         if completed > 0 {
             progress
@@ -3752,6 +3792,27 @@ async fn apply_spilled_centrality(
                 .map_err(|_| ResolveGenerationFailure::unclassified())?;
         }
     }
+    let scores = block_in_place(|| ordered_centrality_scores(facts))?;
+    for batch in scores.chunks(SPILLED_CENTRALITY_UPDATE_ROWS) {
+        if cancellation.is_cancelled() {
+            return Err(ResolveGenerationFailure::unclassified());
+        }
+        spill
+            .apply_centrality_scores(batch)
+            .await
+            .map_err(|error| classify_spill_resolve_error(&error))?;
+        progress
+            .advance_progress(usize_to_u64(batch.len()), 0)
+            .await
+            .map_err(|_| ResolveGenerationFailure::unclassified())?;
+    }
+    Ok(())
+}
+
+/// Centrality scores for every symbol, ordered by symbol identifier.
+fn ordered_centrality_scores(
+    facts: &GenerationFacts,
+) -> Result<Vec<NativeGenerationSpillCentralityScore>, ResolveGenerationFailure> {
     let mut scores = Vec::new();
     scores
         .try_reserve(facts.symbols.len())
@@ -3768,20 +3829,7 @@ async fn apply_spilled_centrality(
     }
     scores
         .sort_unstable_by(|left, right| left.symbol_id().as_str().cmp(right.symbol_id().as_str()));
-    for batch in scores.chunks(SPILLED_CENTRALITY_UPDATE_ROWS) {
-        if cancellation.is_cancelled() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        spill
-            .apply_centrality_scores(batch)
-            .await
-            .map_err(|error| classify_spill_resolve_error(&error))?;
-        progress
-            .advance_progress(usize_to_u64(batch.len()), 0)
-            .await
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-    }
-    Ok(())
+    Ok(scores)
 }
 
 #[derive(Clone, Copy)]
@@ -7447,14 +7495,14 @@ struct SpilledResolutionPreparation {
 async fn build_spilled_resolution_preparation(
     source: &SpilledNativeFacts,
     source_root: &SourceRoot,
-    preparation: ResolutionPreparationRequest<'_>,
+    request: ResolutionPreparationRequest<'_>,
 ) -> Result<(CloneEvidenceMap, ResolutionIndex, u64), StageItemFailure> {
     let ResolutionPreparationRequest {
-        policy,
         maximum_bytes,
         cancellation,
         progress,
-    } = preparation;
+        ..
+    } = request;
     let working_limit = maximum_bytes
         .checked_mul(RESOLVE_WORKING_MULTIPLIER)
         .ok_or(StageItemFailure)?;
@@ -7525,6 +7573,23 @@ async fn build_spilled_resolution_preparation(
         },
     )
     .await?;
+    // Candidate ordering and partial-clone analysis walk every retained symbol
+    // and reread sources; keep that synchronous work off the async worker core.
+    block_in_place(move || finish_spilled_resolution_preparation(preparation, source_root, request))
+}
+
+/// Order resolution candidates, analyze partial clones, and collect clone
+/// evidence for a fully indexed spilled generation.
+fn finish_spilled_resolution_preparation(
+    mut preparation: SpilledResolutionPreparation,
+    source_root: &SourceRoot,
+    request: ResolutionPreparationRequest<'_>,
+) -> Result<(CloneEvidenceMap, ResolutionIndex, u64), StageItemFailure> {
+    let ResolutionPreparationRequest {
+        policy,
+        cancellation,
+        ..
+    } = request;
     let mut cancelled = || cancellation.is_cancelled();
     finalize_resolution_candidate_order(
         &mut preparation.index,
