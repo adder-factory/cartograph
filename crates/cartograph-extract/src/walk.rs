@@ -31,6 +31,7 @@ mod numerical;
 mod polyglot;
 mod prisma_family;
 mod references;
+mod rust_macro;
 mod schema;
 mod shader_family;
 mod shell_family;

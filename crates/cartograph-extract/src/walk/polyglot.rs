@@ -1,12 +1,10 @@
-use cartograph_domain::{
-    ReferenceKind, SourceLanguage, SourcePosition, SourceSpan, SymbolId, SymbolKind, Visibility,
-};
+use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind, Visibility};
 use tree_sitter::Node;
 
 use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
 
 use super::{
-    ExtractionBuilder, PendingReference, PendingSymbol, SingleChildUnwrap, references,
+    ExtractionBuilder, PendingReference, PendingSymbol, SingleChildUnwrap, references, rust_macro,
     syntax::{
         children, descendants_including_root, has_child_kind, is_call_or_construction_target,
         named_children, span_for,
@@ -125,7 +123,6 @@ struct RustNamespaceBinding<'tree> {
 }
 
 const MAX_RUST_USE_DEPTH: usize = 64;
-const MAX_RUST_MACRO_QUALIFIED_CALLS: usize = 1_024;
 const RUST_PATH_SEPARATOR: &str = "::";
 
 #[derive(Clone, Copy)]
@@ -169,7 +166,7 @@ pub(super) fn capture_usage(
         (SourceLanguage::Python, "attribute") => {
             references::capture_member_field(builder, node, "attribute")
         }
-        (SourceLanguage::Rust, "macro_invocation") => capture_rust_macro(builder, node),
+        (SourceLanguage::Rust, "macro_invocation") => rust_macro::capture_invocation(builder, node),
         _ => Ok(()),
     }
 }
@@ -1565,239 +1562,6 @@ fn emit_node_reference(
             node: input.node,
         },
     )
-}
-
-fn capture_rust_macro(
-    builder: &mut ExtractionBuilder<'_, '_>,
-    node: Node<'_>,
-) -> Result<(), ExtractError> {
-    let Some(target) = node.child_by_field_name("macro") else {
-        return Ok(());
-    };
-    let name = builder.context.owned_text(target)?;
-    let capacity = crate::RUST_MACRO_RESOLUTION_PREFIX
-        .len()
-        .checked_add(name.len())
-        .ok_or(ExtractError::OutputLimit)?;
-    builder.context.budget.ensure_string_length(capacity)?;
-    let mut resolution_name = String::new();
-    resolution_name
-        .try_reserve_exact(capacity)
-        .map_err(|_| ExtractError::OutputLimit)?;
-    resolution_name.push_str(crate::RUST_MACRO_RESOLUTION_PREFIX);
-    resolution_name.push_str(&name);
-    builder.emit_reference(crate::ExtractedReference {
-        owner: builder.owners.last().cloned(),
-        name,
-        resolution_name: Some(resolution_name),
-        kind: ReferenceKind::Calls,
-        span: span_for(target)?,
-    })?;
-    capture_rust_macro_qualified_calls(builder, node)
-}
-
-fn capture_rust_macro_qualified_calls(
-    builder: &mut ExtractionBuilder<'_, '_>,
-    macro_node: Node<'_>,
-) -> Result<(), ExtractError> {
-    let Some(tokens) = named_children(macro_node).find(|child| child.kind() == "token_tree") else {
-        return Ok(());
-    };
-    let mut emitted = 0_usize;
-    for identifier in descendants_including_root(tokens) {
-        let Some((name, resolution_name, span)) =
-            rust_macro_qualified_call(builder, tokens, identifier)?
-        else {
-            continue;
-        };
-        emitted = emitted.checked_add(1).ok_or(ExtractError::OutputLimit)?;
-        if emitted > MAX_RUST_MACRO_QUALIFIED_CALLS {
-            return Err(ExtractError::OutputLimit);
-        }
-        if emitted.is_multiple_of(64) {
-            builder.context.ensure_active()?;
-        }
-        builder.emit_reference(crate::ExtractedReference {
-            owner: builder.owners.last().cloned(),
-            name,
-            resolution_name,
-            kind: ReferenceKind::Calls,
-            span,
-        })?;
-    }
-    Ok(())
-}
-
-fn rust_macro_qualified_call(
-    builder: &ExtractionBuilder<'_, '_>,
-    tokens: Node<'_>,
-    identifier: Node<'_>,
-) -> Result<Option<(String, Option<String>, SourceSpan)>, ExtractError> {
-    let source = builder.context.source();
-    if identifier.kind() != "identifier"
-        || rust_path_has_preceding_separator(source, tokens.start_byte(), identifier.start_byte())
-    {
-        return Ok(None);
-    }
-    let static_end = rust_qualified_call_end(source, identifier.start_byte(), tokens.end_byte());
-    let receiver_end = static_end
-        .is_none()
-        .then(|| rust_receiver_call_end(source, identifier.start_byte(), tokens.end_byte()))
-        .flatten();
-    let Some(end_byte) = static_end.or(receiver_end) else {
-        return Ok(None);
-    };
-    let raw = source
-        .get(identifier.start_byte()..end_byte)
-        .ok_or(ExtractError::InvalidSpan)?;
-    let name = compact_rust_path(builder, raw)?;
-    let resolution_name = if receiver_end.is_some() {
-        let member = name.rsplit('.').next().ok_or(ExtractError::InvalidSpan)?;
-        Some(references::dynamic_dispatch_resolution(builder, member)?)
-    } else {
-        None
-    };
-    Ok(Some((
-        name,
-        resolution_name,
-        rust_macro_path_span(source, identifier, end_byte)?,
-    )))
-}
-
-fn rust_path_has_preceding_separator(source: &str, lower_bound: usize, start: usize) -> bool {
-    source
-        .get(lower_bound..start)
-        .map(str::trim_end)
-        .is_some_and(|prefix| prefix.ends_with(RUST_PATH_SEPARATOR) || prefix.ends_with('.'))
-}
-
-fn rust_qualified_call_end(source: &str, start: usize, upper_bound: usize) -> Option<usize> {
-    let bytes = source.as_bytes();
-    if start >= upper_bound || upper_bound > bytes.len() || !rust_identifier_start(bytes[start]) {
-        return None;
-    }
-    let mut cursor = rust_identifier_end(bytes, start, upper_bound);
-    let mut components = 0_usize;
-    loop {
-        let separator = skip_ascii_whitespace(bytes, cursor, upper_bound);
-        if separator.saturating_add(2) > upper_bound
-            || bytes.get(separator..separator.saturating_add(2)) != Some(b"::")
-        {
-            break;
-        }
-        let component = skip_ascii_whitespace(bytes, separator.saturating_add(2), upper_bound);
-        if component >= upper_bound || !rust_identifier_start(bytes[component]) {
-            break;
-        }
-        cursor = rust_identifier_end(bytes, component, upper_bound);
-        components = components.checked_add(1)?;
-    }
-    if components == 0 {
-        return None;
-    }
-    let call = skip_ascii_whitespace(bytes, cursor, upper_bound);
-    (call < upper_bound && bytes[call] == b'(').then_some(cursor)
-}
-
-fn rust_receiver_call_end(source: &str, start: usize, upper_bound: usize) -> Option<usize> {
-    let bytes = source.as_bytes();
-    if start >= upper_bound || upper_bound > bytes.len() || !rust_identifier_start(bytes[start]) {
-        return None;
-    }
-    let mut cursor = rust_identifier_end(bytes, start, upper_bound);
-    let mut components = 0_usize;
-    loop {
-        let separator = skip_ascii_whitespace(bytes, cursor, upper_bound);
-        if separator >= upper_bound || bytes[separator] != b'.' {
-            break;
-        }
-        let component = skip_ascii_whitespace(bytes, separator.saturating_add(1), upper_bound);
-        if component >= upper_bound || !rust_identifier_start(bytes[component]) {
-            break;
-        }
-        cursor = rust_identifier_end(bytes, component, upper_bound);
-        components = components.checked_add(1)?;
-    }
-    if components == 0 {
-        return None;
-    }
-    let call = skip_ascii_whitespace(bytes, cursor, upper_bound);
-    (call < upper_bound && bytes[call] == b'(').then_some(cursor)
-}
-
-fn rust_identifier_start(byte: u8) -> bool {
-    byte == b'_' || byte.is_ascii_alphabetic()
-}
-
-fn rust_identifier_end(bytes: &[u8], start: usize, upper_bound: usize) -> usize {
-    let mut cursor = start.saturating_add(1);
-    while cursor < upper_bound
-        && bytes[cursor] != b'\0'
-        && (bytes[cursor] == b'_' || bytes[cursor].is_ascii_alphanumeric())
-    {
-        cursor = cursor.saturating_add(1);
-    }
-    cursor
-}
-
-fn skip_ascii_whitespace(bytes: &[u8], start: usize, upper_bound: usize) -> usize {
-    let mut cursor = start;
-    while cursor < upper_bound && bytes[cursor].is_ascii_whitespace() {
-        cursor = cursor.saturating_add(1);
-    }
-    cursor
-}
-
-fn compact_rust_path(
-    builder: &ExtractionBuilder<'_, '_>,
-    raw: &str,
-) -> Result<String, ExtractError> {
-    builder.context.budget.ensure_string_length(raw.len())?;
-    let mut name = String::new();
-    name.try_reserve_exact(raw.len())
-        .map_err(|_| ExtractError::OutputLimit)?;
-    name.extend(raw.chars().filter(|character| !character.is_whitespace()));
-    Ok(name)
-}
-
-fn rust_macro_path_span(
-    source: &str,
-    start_node: Node<'_>,
-    end_byte: usize,
-) -> Result<SourceSpan, ExtractError> {
-    let start_point = start_node.start_position();
-    let start_line = u32::try_from(start_point.row)
-        .ok()
-        .and_then(|line| line.checked_add(1))
-        .ok_or(ExtractError::InvalidSpan)?;
-    let start_column = u32::try_from(start_point.column).map_err(|_| ExtractError::InvalidSpan)?;
-    let mut end_line = start_line;
-    let mut end_column = start_column;
-    for byte in source
-        .get(start_node.start_byte()..end_byte)
-        .ok_or(ExtractError::InvalidSpan)?
-        .bytes()
-    {
-        if byte == b'\n' {
-            end_line = end_line.checked_add(1).ok_or(ExtractError::InvalidSpan)?;
-            end_column = 0;
-        } else {
-            end_column = end_column.checked_add(1).ok_or(ExtractError::InvalidSpan)?;
-        }
-    }
-    let start = SourcePosition::new(
-        u64::try_from(start_node.start_byte()).map_err(|_| ExtractError::InvalidSpan)?,
-        start_line,
-        start_column,
-    )
-    .map_err(|_| ExtractError::InvalidSpan)?;
-    let end = SourcePosition::new(
-        u64::try_from(end_byte).map_err(|_| ExtractError::InvalidSpan)?,
-        end_line,
-        end_column,
-    )
-    .map_err(|_| ExtractError::InvalidSpan)?;
-    SourceSpan::new(start, end).map_err(|_| ExtractError::InvalidSpan)
 }
 
 fn top_level_symbol(builder: &ExtractionBuilder<'_, '_>, name: &str) -> Option<SymbolId> {

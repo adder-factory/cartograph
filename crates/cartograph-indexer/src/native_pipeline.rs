@@ -20525,6 +20525,91 @@ export function secondClone(value: number) {
     }
 
     #[test]
+    fn rust_macro_argument_references_resolve_to_cross_module_declarations() {
+        let fixtures = [
+            (
+                "src/lib.rs",
+                "mod checks;\nmod limits;\nmod math;\nmod report;\nmod upgrade;\n",
+            ),
+            (
+                "src/upgrade.rs",
+                "mod index_child;\nfn whole_minutes(seconds: u64) -> u64 { seconds / 60 }\npub fn timed_out_message() -> String {\n    format!(\"no progress for {} minutes\", whole_minutes(index_child::INDEX_INACTIVITY_TIMEOUT))\n}\n",
+            ),
+            (
+                "src/upgrade/index_child.rs",
+                "pub(super) const INDEX_INACTIVITY_TIMEOUT: u64 = 300;\npub(super) const INDEX_UNREAD_TIMEOUT: u64 = 60;\n",
+            ),
+            (
+                "src/math.rs",
+                "pub fn compute(value: u32) -> u32 { value * 2 }\npub fn uncalled(value: u32) -> u32 { value }\n",
+            ),
+            (
+                "src/checks.rs",
+                "use crate::math::*;\npub fn verify() { assert_eq!(compute(2), 4); }\n",
+            ),
+            ("src/limits.rs", "pub const ROW_LIMIT: usize = 10;\n"),
+            (
+                "src/report.rs",
+                "use crate::limits::*;\npub fn render() -> String { format!(\"at most {ROW_LIMIT} rows\") }\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let incoming = |facts: &CanonicalGenerationFacts, target: &SymbolInput| {
+            facts
+                .edges()
+                .iter()
+                .filter(|edge| {
+                    edge.target_symbol_id == target.symbol_id && edge.kind != EdgeKind::Contains
+                })
+                .map(|edge| edge.source_symbol_id.clone())
+                .collect::<Vec<_>>()
+        };
+        for facts in [&forward, &reversed] {
+            // Each target is used only inside macro arguments, which is what
+            // `unused_export` and the call graph previously could not see.
+            for (caller_path, caller, target_path, target) in [
+                (
+                    "src/upgrade.rs",
+                    "timed_out_message",
+                    "src/upgrade/index_child.rs",
+                    "INDEX_INACTIVITY_TIMEOUT",
+                ),
+                (
+                    "src/upgrade.rs",
+                    "timed_out_message",
+                    "src/upgrade.rs",
+                    "whole_minutes",
+                ),
+                ("src/checks.rs", "verify", "src/math.rs", "compute"),
+                ("src/report.rs", "render", "src/limits.rs", "ROW_LIMIT"),
+            ] {
+                let caller = capability_symbol(facts, caller_path, caller);
+                let target = capability_symbol(facts, target_path, target);
+                assert_eq!(
+                    incoming(facts, target),
+                    std::slice::from_ref(&caller.symbol_id),
+                    "{target_path}::{}",
+                    target.qualified_name
+                );
+            }
+            for (path, name) in [
+                ("src/upgrade/index_child.rs", "INDEX_UNREAD_TIMEOUT"),
+                ("src/math.rs", "uncalled"),
+            ] {
+                let unused = capability_symbol(facts, path, name);
+                assert_eq!(
+                    incoming(facts, unused),
+                    [] as [SymbolId; 0],
+                    "{path}::{name}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rust_workspace_crate_resolution_abstains_on_duplicate_package_names() {
         let fixtures = [
             (

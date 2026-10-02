@@ -238,6 +238,15 @@ Implemented language-level behavior includes:
 - Cargo-workspace Rust crate roots, public inline-module paths, and named
   `pub use` facades, with package-scoped cross-crate resolution that preserves
   private-module and ambiguous-package boundaries;
+- Rust macro arguments, which the grammar keeps as an unexpanded token tree:
+  calls, receiver calls, and paths inside them publish the same references as
+  direct code, and nested invocations are macro calls. Inside std formatting
+  and assertion macros, whose arguments are known expressions, constant-shaped
+  names and inline `{NAME}`/`NAME$` format-string captures are also value
+  references. Other bare identifiers (usually locals), constant-shaped tokens
+  in other macros (which may be DSL keys or types), attribute bodies,
+  `macro_rules!` templates, metavariables, and string text publish nothing, and
+  one invocation exceeding its reference bound fails the file's output limit;
 - component/template, Salesforce markup, MyBatis, VB6, properties, Liquid, and
   BG3/Osiris domain semantics;
 - bounded npm/Composer/Cargo package and workspace manifest facts, including

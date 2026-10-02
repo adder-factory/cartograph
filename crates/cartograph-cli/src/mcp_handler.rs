@@ -17192,10 +17192,10 @@ async fn history_commits(
     )
 }
 
-async fn history_refresh(
-    handler: &CartographMcpHandler,
-    execution: HistoryExecution<'_>,
-) -> Result<ToolResult, ToolError> {
+/// The commit bound a refresh request asks for and the Git-history options it implies.
+fn history_refresh_bounds(
+    execution: &HistoryExecution<'_>,
+) -> Result<(u32, HistoryIndexOptions), ToolError> {
     reject_present(
         execution.arguments,
         &["symbol", "file", "limit", "minCount"],
@@ -17215,6 +17215,14 @@ async fn history_refresh(
     let options = HistoryIndexOptions::default()
         .with_max_commits(max_commits)
         .map_err(history_index_error)?;
+    Ok((max_commits, options))
+}
+
+async fn history_refresh(
+    handler: &CartographMcpHandler,
+    execution: HistoryExecution<'_>,
+) -> Result<ToolResult, ToolError> {
+    let (max_commits, options) = history_refresh_bounds(&execution)?;
     let generation = handler
         .runtime
         .database()
@@ -18490,7 +18498,19 @@ impl ToolHandler for CartographMcpHandler {
     }
 }
 
+/// Every advertised tool, in its deterministic published order.
+///
+/// The registry is the concatenation of three contiguous groups, so no single
+/// builder depends on every tool's definition.
 pub(super) fn tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractError> {
+    let mut definitions = retrieval_tool_definitions()?;
+    definitions.extend(analysis_tool_definitions()?);
+    definitions.extend(workflow_tool_definitions()?);
+    Ok(definitions)
+}
+
+/// Retrieval, navigation, and change-impact tools.
+fn retrieval_tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractError> {
     let read_only = read_only_annotations();
     Ok(vec![
         ask_definition(external_read_annotations())?,
@@ -18509,6 +18529,13 @@ pub(super) fn tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractErro
         graph_definition(read_only)?,
         affected_definition(read_only)?,
         tests_for_definition(read_only)?,
+    ])
+}
+
+/// Code-health, coverage, dependency, and history analysis tools.
+fn analysis_tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractError> {
+    let read_only = read_only_annotations();
+    Ok(vec![
         biomarkers_definition(read_only)?,
         numerical_definition(read_only)?,
         coverage_definition(write_annotations())?,
@@ -18518,6 +18545,13 @@ pub(super) fn tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractErro
         host_definition(read_only)?,
         history_definition(write_annotations())?,
         imports_definition(read_only)?,
+    ])
+}
+
+/// Durable workflow state, review, and administration tools.
+fn workflow_tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractError> {
+    let read_only = read_only_annotations();
+    Ok(vec![
         note_definition()?,
         propose_rename_definition(read_only)?,
         role_definition()?,
