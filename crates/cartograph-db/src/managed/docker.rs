@@ -1235,6 +1235,8 @@ fn validate_volume_ownership(
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     const LOCAL_DOCKER_ENDPOINTS: [&str; 6] = [
@@ -1429,18 +1431,18 @@ mod tests {
     #[test]
     fn volume_ownership_rejects_foreign_resources() {
         assert!(validate_volume_ownership("true\t0123456789abcdef", &identity()).is_ok());
-        assert!(matches!(
+        assert_matches!(
             validate_volume_ownership("<no value>\t<no value>", &identity()),
             Err(ManagedDatabaseError::ForeignVolume)
-        ));
+        );
     }
 
     #[test]
     fn malformed_inspection_is_rejected_instead_of_assumed_owned() {
-        assert!(matches!(
-            parse_container_inspection("true\tonly-two-fields"),
-            Err(ManagedDatabaseError::DockerResponse)
-        ));
+        assert_matches!(
+            parse_container_inspection("true\tonly-two-fields").err(),
+            Some(ManagedDatabaseError::DockerResponse)
+        );
         let without_command = parse_container_inspection(
             "true\t0123456789abcdef\trunning\thealthy\timage\t127.0.0.1\t55432\t1\t1\t1\t1\t1\t[]\tnull",
         )

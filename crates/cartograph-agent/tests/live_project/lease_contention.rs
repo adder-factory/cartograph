@@ -107,8 +107,9 @@ async fn competing_live_writer_reports_lease_busy_without_reserving_a_generation
             .generation_state(&first.project_id, &writer_generation)
             .await
             .unwrap_or_else(|error| panic!("abandoned staging state failed: {error}"));
-        assert!(
-            matches!(abandoned, None | Some(GenerationState::Failed)),
+        assert_matches!(
+            abandoned,
+            None | Some(GenerationState::Failed),
             "the released writer's staging generation stayed nonterminal: {abandoned:?}"
         );
         runtime.close().await;

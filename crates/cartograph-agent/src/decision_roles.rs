@@ -277,6 +277,7 @@ fn questions(count: usize) -> BTreeMap<String, JevQuestion> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::sync::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -535,10 +536,10 @@ mod tests {
         );
         let cancelled = ProjectCancellation::new();
         cancelled.cancel();
-        assert!(matches!(
+        assert_matches!(
             judge_with(&provider, &invented, &cancelled).await,
             Err(ProjectError::RequestCancelled)
-        ));
+        );
     }
 
     #[test]

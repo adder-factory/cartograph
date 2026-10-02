@@ -408,6 +408,7 @@ fn hex_digest(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::{io::Write as _, net::TcpListener, thread, time::Duration};
 
     use super::*;
@@ -454,10 +455,12 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("unsafe target fixture failed: {error}"));
         let client = test_client();
-        assert!(matches!(
-            install_one(&client, directory.path(), RECOMMENDED_MODELS[0]).await,
-            Err(InstallModelsError::UnsafeTarget)
-        ));
+        assert_matches!(
+            install_one(&client, directory.path(), RECOMMENDED_MODELS[0])
+                .await
+                .err(),
+            Some(InstallModelsError::UnsafeTarget)
+        );
     }
 
     #[tokio::test]
@@ -514,18 +517,18 @@ mod tests {
 
     #[tokio::test]
     async fn directory_options_and_download_failures_are_bounded_before_publication() {
-        assert!(matches!(
+        assert_matches!(
             InstallModelsOptions::new("", true, 1),
             Err(InstallModelsError::InvalidOptions)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             InstallModelsOptions::new("models", true, 0),
             Err(InstallModelsError::InvalidOptions)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             InstallModelsOptions::new("models", false, MAXIMUM_INSTALL_CONCURRENCY + 1),
             Err(InstallModelsError::InvalidOptions)
-        ));
+        );
         let root =
             tempfile::tempdir().unwrap_or_else(|error| panic!("directory fixture failed: {error}"));
         let created = root.path().join("created/models");

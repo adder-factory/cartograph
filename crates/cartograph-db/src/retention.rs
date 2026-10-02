@@ -980,6 +980,7 @@ const fn database_error(operation: &'static str) -> GenerationRetentionError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::time::Duration;
 
     use cartograph_domain::GenerationId;
@@ -998,21 +999,21 @@ mod tests {
 
     #[test]
     fn retention_requires_a_nonzero_bounded_delete_batch() {
-        assert!(matches!(
+        assert_matches!(
             GenerationRetentionPolicy::new(TEST_RETAINED_SUPERSEDED, INVALID_DELETE_BATCH),
             Err(GenerationRetentionError::InvalidPolicy)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             GenerationRetentionPolicy::new(TEST_RETAINED_SUPERSEDED, TEST_OVERSIZED_DELETE_BATCH),
             Err(GenerationRetentionError::InvalidPolicy)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             GenerationRetentionPolicy::new(TEST_RETAINED_SUPERSEDED, TEST_DELETE_BATCH),
             Ok(policy)
                 if policy.recent_superseded() == TEST_RETAINED_SUPERSEDED
                     && policy.maximum_deletions() == TEST_DELETE_BATCH
                     && policy.stale_staging_age() == DEFAULT_STALE_STAGING_AGE
-        ));
+        );
     }
 
     #[test]
@@ -1027,10 +1028,10 @@ mod tests {
             policy.with_stale_staging_age(MAXIMUM_STALE_STAGING_AGE + Duration::from_secs(1)),
             Err(GenerationRetentionError::InvalidPolicy)
         );
-        assert!(matches!(
+        assert_matches!(
             policy.with_stale_staging_age(Duration::from_mins(1)),
             Ok(updated) if updated.stale_staging_age() == Duration::from_mins(1)
-        ));
+        );
     }
 
     #[test]
@@ -1045,10 +1046,10 @@ mod tests {
             policy.with_maximum_cascade_rows(MAXIMUM_CASCADE_ROW_BUDGET + 1),
             Err(GenerationRetentionError::InvalidPolicy)
         );
-        assert!(matches!(
+        assert_matches!(
             policy.with_maximum_cascade_rows(7_700_000),
             Ok(updated) if updated.maximum_cascade_rows() == 7_700_000
-        ));
+        );
     }
 
     #[test]

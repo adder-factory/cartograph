@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env, process,
     sync::atomic::{AtomicU32, Ordering},
@@ -1166,10 +1167,10 @@ async fn assert_spill_quota_and_fence(fixture: &DatabaseFixture) {
         )
         .unwrap_or_else(|error| panic!("quota batch was invalid: {error}"))
     };
-    assert!(matches!(
+    assert_matches!(
         spill.append_extracted_batch(oversized()).await,
         Err(StorageError::GenerationSpillLimitReached { resource: "bytes" })
-    ));
+    );
     assert_eq!(
         spill
             .report()
@@ -1300,7 +1301,7 @@ async fn assert_numerical_evidence_round_trip(fixture: &DatabaseFixture, ready: 
         Some("absolute_only_tolerance")
     );
     assert_eq!(row.try_get::<String, _>(4).ok().as_deref(), Some("f32"));
-    assert!(matches!(row.try_get::<i32, _>(5), Ok(900_000)));
+    assert_matches!(row.try_get::<i32, _>(5), Ok(900_000));
     assert_eq!(
         row.try_get::<String, _>(6).ok().as_deref(),
         Some("rust_ast_v1")
@@ -1330,22 +1331,22 @@ async fn assert_reference_evidence_round_trip(fixture: &DatabaseFixture, ready: 
         .fetch_one(&fixture.pool)
         .await
         .unwrap_or_else(|error| panic!("could not inspect reference evidence: {error}"));
-    assert!(matches!(
+    assert_matches!(
         row.try_get::<String, _>(0),
         Ok(value) if value == SYMBOL_TWO
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         row.try_get::<String, _>(1),
         Ok(value) if value == SYMBOL_ONE
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         row.try_get::<String, _>(2),
         Ok(value) if value == "fixture_call"
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         row.try_get::<String, _>(3),
         Ok(value) if value == "test-exact"
-    ));
+    );
 }
 
 async fn assert_copy_chunk_and_null_boundaries(fixture: &DatabaseFixture) {
@@ -1401,26 +1402,23 @@ async fn assert_copy_chunk_and_null_boundaries(fixture: &DatabaseFixture) {
         Ok(row) => row,
         Err(error) => panic!("could not inspect COPY chunk boundaries: {error}"),
     };
-    assert!(matches!(
-        row.try_get::<i64, _>("documents"),
-        Ok(CHUNK_DOCUMENT_COUNT)
-    ));
-    assert!(matches!(
+    assert_matches!(row.try_get::<i64, _>("documents"), Ok(CHUNK_DOCUMENT_COUNT));
+    assert_matches!(
         row.try_get::<i64, _>("null_file_ids"),
         Ok(CHUNK_DOCUMENT_COUNT)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         row.try_get::<i64, _>("null_symbol_ids"),
         Ok(CHUNK_DOCUMENT_COUNT)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         row.try_get::<i64, _>("cumulative_rows"),
         Ok(CUMULATIVE_COPY_ROW_COUNT)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         row.try_get::<i64, _>("individual_rows"),
         Ok(INDIVIDUAL_COPY_ROW_COUNT)
-    ));
+    );
 }
 
 fn chunk_document(id: &str, path: &str, code_bytes: usize) -> SearchDocumentInput {
@@ -1658,12 +1656,12 @@ async fn assert_relation_validation_rolls_back(fixture: &DatabaseFixture) {
         .await;
     let staged = match failed {
         Err(error) => {
-            assert!(matches!(
+            assert_matches!(
                 error.error(),
                 StorageError::DatabaseOperation {
                     operation: "verify-copied-relations"
                 }
-            ));
+            );
             error.into_parts().0
         }
         Ok(_) => panic!("relation-corrupted COPY unexpectedly became ready"),
@@ -1915,20 +1913,20 @@ async fn assert_persisted_generation(fixture: &DatabaseFixture, ready: &ReadyGen
         Ok(row) => row,
         Err(error) => panic!("could not inspect copied generation: {error}"),
     };
-    assert!(matches!(row.try_get::<i64, _>("files"), Ok(2)));
-    assert!(matches!(row.try_get::<i64, _>("symbols"), Ok(2)));
-    assert!(matches!(row.try_get::<i64, _>("edges"), Ok(1)));
-    assert!(matches!(row.try_get::<i64, _>("refs"), Ok(1)));
-    assert!(matches!(row.try_get::<i64, _>("numerical_sites"), Ok(1)));
-    assert!(matches!(row.try_get::<i64, _>("documents"), Ok(2)));
+    assert_matches!(row.try_get::<i64, _>("files"), Ok(2));
+    assert_matches!(row.try_get::<i64, _>("symbols"), Ok(2));
+    assert_matches!(row.try_get::<i64, _>("edges"), Ok(1));
+    assert_matches!(row.try_get::<i64, _>("refs"), Ok(1));
+    assert_matches!(row.try_get::<i64, _>("numerical_sites"), Ok(1));
+    assert_matches!(row.try_get::<i64, _>("documents"), Ok(2));
     assert_eq!(
         row.try_get::<String, _>("digest").ok().as_deref(),
         Some(ready.content_digest().as_str())
     );
-    assert!(matches!(
+    assert_matches!(
         row.try_get::<i16, _>("digest_version"),
         Ok(value) if value == GenerationDigestVersion::CURRENT.database_value()
-    ));
+    );
 }
 
 async fn assert_copy_text_round_trip(fixture: &DatabaseFixture, ready: &ReadyGeneration) {
@@ -2033,12 +2031,12 @@ async fn assert_copy_failure_rolls_back(
         .await;
     let staged = match failed {
         Err(error) => {
-            assert!(matches!(
+            assert_matches!(
                 error.error(),
                 StorageError::DatabaseOperation {
                     operation: "copy-search-documents"
                 }
-            ));
+            );
             error.into_parts().0
         }
         Ok(_) => panic!("trigger-rejected COPY unexpectedly became ready"),
@@ -2135,10 +2133,10 @@ async fn assert_generation_is_empty(fixture: &DatabaseFixture, generation: &Gene
         .bind(generation.as_str())
         .fetch_one(&fixture.pool)
         .await;
-    assert!(matches!(
+    assert_matches!(
         row.and_then(|row| row.try_get::<i64, _>("fact_count")),
         Ok(0)
-    ));
+    );
 }
 
 async fn drop_schema(pool: &sqlx_postgres::PgPool, schema: &str) {

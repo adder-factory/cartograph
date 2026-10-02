@@ -1,3 +1,4 @@
+use std::assert_matches;
 use std::{
     future::Future as _,
     pin::pin,
@@ -139,7 +140,10 @@ async fn background_load_leaves_foreground_capacity_and_cancelled_waiters_releas
     for _ in 0..MAXIMUM_WAITING_BACKGROUND_REQUESTS {
         let mut waiter =
             Box::pin(transport.admit(RequestPriority::Background, Duration::from_secs(5)));
-        assert!(matches!(waiter.as_mut().poll(&mut context), Poll::Pending));
+        assert_matches!(
+            waiter.as_mut().poll(&mut context).map_ok(drop),
+            Poll::Pending
+        );
         pending.push(waiter);
     }
     assert!(
@@ -175,10 +179,10 @@ async fn background_load_leaves_foreground_capacity_and_cancelled_waiters_releas
         MAXIMUM_ACTIVE_REQUESTS
     );
     let mut cancelled = pin!(transport.admit(RequestPriority::Foreground, Duration::from_secs(5)));
-    assert!(matches!(
-        cancelled.as_mut().poll(&mut context),
-        Poll::Ready(Ok(_))
-    ));
+    assert_matches!(
+        cancelled.as_mut().poll(&mut context).map_ok(drop),
+        Poll::Ready(Ok(()))
+    );
 }
 
 #[test]

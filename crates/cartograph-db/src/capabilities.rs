@@ -330,6 +330,8 @@ fn parse_three_part_version(version: &str) -> Option<[u32; 3]> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     fn ready_facts() -> ProbeFacts {
@@ -471,7 +473,7 @@ mod tests {
                 .find(|check| check.id == "pg-search-extension");
 
             assert!(!report.ready);
-            assert!(matches!(extension_check, Some(check) if check.status == CheckStatus::Fail));
+            assert_matches!(extension_check, Some(check) if check.status == CheckStatus::Fail);
         }
     }
 
@@ -488,7 +490,7 @@ mod tests {
             .iter()
             .find(|check| check.id == "pgvector-extension");
 
-        assert!(matches!(extension_check, Some(check) if check.status == CheckStatus::Fail));
+        assert_matches!(extension_check, Some(check) if check.status == CheckStatus::Fail);
         assert!(pgvector_version_is_supported("0.8.4"));
         assert!(pgvector_version_is_supported("0.8.5"));
         assert!(pgvector_version_is_supported("0.8.6"));
@@ -508,6 +510,6 @@ mod tests {
             .iter()
             .find(|check| check.id == "source-code-tokenizer");
 
-        assert!(matches!(tokenizer_check, Some(check) if check.status == CheckStatus::Fail));
+        assert_matches!(tokenizer_check, Some(check) if check.status == CheckStatus::Fail);
     }
 }

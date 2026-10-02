@@ -3,6 +3,7 @@
 #[path = "../test_support/dependency_ownership.rs"]
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env,
     future::{Future, pending, poll_fn},
@@ -740,10 +741,7 @@ async fn successful_supervision_renews_releases_and_requires_publication() {
     );
     assert!(!supervisor.cancel());
     assert!(supervisor.status().await.heartbeat_count() >= EXPECTED_MINIMUM_HEARTBEATS);
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -790,10 +788,7 @@ async fn transient_heartbeat_timeouts_retry_within_the_bounded_reap_horizon() {
     );
     assert!(supervisor.status().await.heartbeat_count() > 0);
     assert!(heartbeat_delay_attempts(&fixture).await >= EXPECTED_TRANSIENT_HEARTBEAT_ATTEMPTS);
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -878,10 +873,7 @@ async fn bounded_parallel_stage_reduces_before_supervised_publication() {
         status.completed_bytes(),
         ORDERED_STAGE_ITEMS * ORDERED_STAGE_ITEM_BYTES
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -958,10 +950,7 @@ async fn native_source_pipeline_copies_publishes_and_is_bm25_searchable() {
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -1171,10 +1160,7 @@ async fn cache_hit_revalidation_preserves_source_drift_in_memory_and_postgres_sp
             .unwrap_or_else(|error| panic!("{storage:?} cache build task failed: {error}"));
         assert_cache_drift_failure(&result, storage);
         assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-        assert!(matches!(
-            fixture.database.lease_status(&target).await,
-            Ok(None)
-        ));
+        assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     }
 
     fixture.close().await;
@@ -1231,24 +1217,21 @@ async fn postgres_spill_in_loop_storage_fault_is_not_attributed_to_a_source_file
         .await
         .unwrap_or_else(|error| panic!("spill fault omitted its native failure: {error}"));
 
-    assert!(matches!(
+    assert_matches!(
         native_error,
         NativePipelineError::Spill {
             stage: PipelineStage::Parse
         }
-    ));
+    );
     assert!(native_error.file_failure().is_none());
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Pipeline {
             stage: PipelineStage::Parse
         })
-    ));
+    );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -1314,34 +1297,29 @@ async fn postgres_spill_item_deadline_remains_deadline_without_file_attribution(
         .await
         .unwrap_or_else(|error| panic!("spill deadline omitted its native failure: {error}"));
 
-    assert!(matches!(
+    assert_matches!(
         native_error,
         NativePipelineError::Stage(StageRunError::Item {
             stage: PipelineStage::Parse,
             kind: StageFailureKind::Deadline,
             ..
         })
-    ));
+    );
     assert_eq!(
         native_error.reason(),
         Some(PipelineFailureReason::DeadlineExceeded)
     );
     assert!(native_error.file_failure().is_none());
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::PipelineWithReason {
-                stage: PipelineStage::Parse,
-                reason: PipelineFailureReason::DeadlineExceeded
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::PipelineWithReason {
+            stage: PipelineStage::Parse,
+            reason: PipelineFailureReason::DeadlineExceeded
+        }),
         "spill deadline returned the wrong supervised failure: {result:?}"
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2063,10 +2041,10 @@ async fn assert_native_unresolved_reference(
         .unwrap_or_else(|error| panic!("could not inspect unresolved reference: {error}"));
     assert!(row.try_get::<bool, _>("has_owner").unwrap_or(false));
     assert!(row.try_get::<bool, _>("unresolved").unwrap_or(false));
-    assert!(matches!(
+    assert_matches!(
         row.try_get::<String, _>("resolution_provenance"),
         Ok(value) if value == "native-unresolved"
-    ));
+    );
 }
 
 async fn assert_native_edge_kind(
@@ -2089,7 +2067,7 @@ async fn assert_native_edge_kind(
         .bind(kind.as_str())
         .fetch_one(&fixture.pool)
         .await;
-    assert!(matches!(row, Ok(row) if row.try_get::<bool, _>("present").unwrap_or(false)));
+    assert_matches!(row, Ok(row) if row.try_get::<bool, _>("present").unwrap_or(false));
 }
 
 fn native_pipeline_config() -> NativePipelineConfig {
@@ -2184,10 +2162,7 @@ async fn large_payload_copy_uses_its_own_stage_deadline() {
         observed_metrics.snapshot().copy_duration() > LARGE_COPY_HEARTBEAT_TIMEOUT,
         "COPY fixture did not exceed the heartbeat request deadline"
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2249,10 +2224,7 @@ async fn recovered_ready_generation_still_publishes_through_supervisor_gate() {
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2288,13 +2260,10 @@ async fn dropped_failed_child_blocks_publication_and_cleans_owned_generation() {
                 .map_err(|_| PipelineFailure::new(PipelineStage::Copy))
         })
         .await;
-    assert!(matches!(result, Err(SupervisorError::WorkerFailed)));
+    assert_matches!(result, Err(SupervisorError::WorkerFailed));
     assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2319,18 +2288,15 @@ async fn propagated_pipeline_failure_precedes_the_observed_worker_poison_bit() {
             Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Parse))
         })
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Pipeline {
             stage: PipelineStage::Parse
         })
-    ));
+    );
     assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2386,10 +2352,7 @@ async fn blocked_supervised_copy_rolls_back_backend_query_and_advisory_locks() {
     assert_generation_advisories_available(&fixture, &target).await;
     assert!(table_lock.rollback().await.is_ok());
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
     assert!(
@@ -2468,21 +2431,18 @@ async fn requested_cancellation_reaps_inflight_copy_before_external_unlock() {
         });
     let result =
         joined.unwrap_or_else(|error| panic!("cancelled COPY supervisor task failed: {error}"));
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: true
         })
-    ));
+    );
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert!(table_lock.rollback().await.is_ok());
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2550,15 +2510,12 @@ async fn aborting_public_run_reaps_inflight_copy_before_external_unlock() {
         panic!("{error}; supervisor outcome: {outcome:?}");
     }
     outer.abort();
-    assert!(matches!(outer.await, Err(error) if error.is_cancelled()));
+    assert_matches!(outer.await, Err(error) if error.is_cancelled());
     wait_for_supervisor_state(&supervisor, SupervisorState::Wedged).await;
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(table_lock.rollback().await.is_ok());
 
     fixture.close().await;
@@ -2613,7 +2570,7 @@ async fn dropping_polled_run_outside_runtime_reaps_inflight_copy() {
             .await
     });
     poll_fn(|context| {
-        assert!(matches!(run.as_mut().poll(context), Poll::Pending));
+        assert_matches!(run.as_mut().poll(context), Poll::Pending);
         Poll::Ready(())
     })
     .await;
@@ -2635,10 +2592,7 @@ async fn dropping_polled_run_outside_runtime_reaps_inflight_copy() {
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(table_lock.rollback().await.is_ok());
 
     fixture.close().await;
@@ -2674,23 +2628,20 @@ async fn requested_cancellation_fails_owned_generation_and_releases_lease() {
     wait_for_lease(&fixture.database, &target).await;
     assert!(supervisor.cancel());
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: false
         })
-    ));
+    );
     assert_eq!(
         supervisor.status().await.state(),
         SupervisorState::Cancelled
     );
     assert!(supervisor.status().await.heartbeat_count() > 0);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2711,13 +2662,13 @@ async fn progress_stall_cancels_work_and_marks_generation_failed() {
             Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Discover))
         })
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::ProgressStalled,
             grace_exceeded: false
         })
-    ));
+    );
     let status = supervisor.status().await;
     assert_eq!(status.state(), SupervisorState::Wedged);
     assert_eq!(
@@ -2725,10 +2676,7 @@ async fn progress_stall_cancels_work_and_marks_generation_failed() {
         Some(CancellationReason::ProgressStalled)
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2775,13 +2723,13 @@ async fn lost_lease_cancels_without_mutating_new_owners_generation() {
         Err(error) => panic!("takeover lease acquisition failed: {error}"),
     };
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::LeaseLost,
             grace_exceeded: false
         })
-    ));
+    );
     assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
     let status = match fixture.database.lease_status(&target).await {
         Ok(Some(status)) => status,
@@ -2824,14 +2772,12 @@ async fn operation_deadline_cancels_despite_continuous_progress() {
             }
         })
         .await;
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::OperationDeadline,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::OperationDeadline,
+            grace_exceeded: false
+        }),
         "unexpected operation-deadline result: {result:?}"
     );
     assert_eq!(
@@ -2840,10 +2786,7 @@ async fn operation_deadline_cancels_despite_continuous_progress() {
     );
     assert!(supervisor.status().await.heartbeat_count() > 0);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2888,22 +2831,19 @@ async fn noncooperative_work_is_dropped_after_visible_cancellation_grace() {
         SupervisorState::Cancelling
     );
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: true
         })
-    ));
+    );
     let status = supervisor.status().await;
     assert_eq!(status.state(), SupervisorState::Wedged);
     assert!(status.grace_exceeded());
     assert!(dropped.load(Ordering::Acquire));
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2949,20 +2889,15 @@ async fn lease_heartbeats_continue_while_root_work_blocks_its_thread() {
         "lease renewal stalled while the root work blocked its thread: {before} -> {during}"
     );
     let result = join(handle).await;
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Pipeline {
-                stage: PipelineStage::Resolve
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Pipeline {
+            stage: PipelineStage::Resolve
+        }),
         "unexpected blocked-work result: {result:?}"
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3021,25 +2956,20 @@ async fn concurrent_status_readers_never_deadlock_batched_progress() {
         })
         .unwrap_or_else(|error| panic!("contended-progress supervisor task failed: {error}"));
     for reader in readers {
-        assert!(matches!(
+        assert_matches!(
             tokio::time::timeout(STATUS_READER_JOIN_BOUND, reader).await,
             Ok(Ok(()))
-        ));
+        );
     }
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Pipeline {
-                stage: PipelineStage::Parse
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Pipeline {
+            stage: PipelineStage::Parse
+        }),
         "unexpected contended-progress result: {result:?}"
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3103,14 +3033,12 @@ async fn work_finished_during_a_held_heartbeat_still_yields_to_the_work_deadline
         "work finished {:?} after the run began, too late to race the work deadline",
         finished_at - window_opened_by
     );
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::OperationDeadline,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::OperationDeadline,
+            grace_exceeded: false
+        }),
         "work finished during a held heartbeat bypassed the work deadline: {result:?}"
     );
     assert_eq!(
@@ -3118,10 +3046,7 @@ async fn work_finished_during_a_held_heartbeat_still_yields_to_the_work_deadline
         SupervisorState::Cancelled
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3177,14 +3102,12 @@ async fn work_finished_during_a_held_heartbeat_still_yields_to_a_progress_stall(
         finished_signal.try_recv().is_ok(),
         "work never saw an active-work heartbeat in flight: {result:?}"
     );
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::ProgressStalled,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::ProgressStalled,
+            grace_exceeded: false
+        }),
         "work finished during a held heartbeat bypassed the progress watchdog: {result:?}"
     );
     let status = supervisor.status().await;
@@ -3194,10 +3117,7 @@ async fn work_finished_during_a_held_heartbeat_still_yields_to_a_progress_stall(
         Some(CancellationReason::ProgressStalled)
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3282,21 +3202,16 @@ async fn children_are_reaped_while_reap_time_lease_renewal_settles() {
         child_reaped,
         "registered children waited for reap-time lease renewal to settle: {result:?}"
     );
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::Requested,
-                grace_exceeded: true
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: true
+        }),
         "unexpected settling-renewal result: {result:?}"
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3350,15 +3265,13 @@ async fn cancellation_waits_for_blocked_root_work_and_renews_until_cleanup() {
         during >= before.saturating_add(EXPECTED_HEARTBEATS_WHILE_BLOCKED),
         "the lease was not renewed while cancellation waited for root work: {before} -> {during}"
     );
-    assert!(matches!(lease_while_waiting, Ok(Some(_))));
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::Requested,
-                grace_exceeded: true
-            })
-        ),
+    assert_matches!(lease_while_waiting, Ok(Some(_)));
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: true
+        }),
         "unexpected blocked-root cancellation result: {result:?}"
     );
     assert!(root_dropped.load(Ordering::Acquire));
@@ -3366,10 +3279,7 @@ async fn cancellation_waits_for_blocked_root_work_and_renews_until_cleanup() {
     assert_eq!(status.state(), SupervisorState::Wedged);
     assert!(status.grace_exceeded());
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3427,14 +3337,12 @@ async fn lease_loss_waits_for_blocked_root_work_before_reporting() {
         !returned_early,
         "lease loss gave up on root work still in a synchronous section: {result:?}"
     );
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::LeaseLost,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::LeaseLost,
+            grace_exceeded: false
+        }),
         "unexpected blocked-root lease-loss result: {result:?}"
     );
     assert!(root_dropped.load(Ordering::Acquire));
@@ -3483,7 +3391,7 @@ async fn dropping_the_run_while_root_work_is_blocked_still_cleans_up() {
     });
     release.started().await;
     outer.abort();
-    assert!(matches!(outer.await, Err(error) if error.is_cancelled()));
+    assert_matches!(outer.await, Err(error) if error.is_cancelled());
     wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
     tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
     let while_blocked = supervisor.status().await;
@@ -3502,10 +3410,7 @@ async fn dropping_the_run_while_root_work_is_blocked_still_cleans_up() {
     );
     assert!(status.grace_exceeded());
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3549,8 +3454,9 @@ async fn root_work_blocked_past_the_reap_ceiling_is_reported_unreaped() {
     let result = joined
         .unwrap_or_else(|_| panic!("the run waited past its reap ceiling for blocked root work"))
         .unwrap_or_else(|error| panic!("unreaped-root supervisor task failed: {error}"));
-    assert!(
-        matches!(result, Err(SupervisorError::UnreapedWorkers)),
+    assert_matches!(
+        result,
+        Err(SupervisorError::UnreapedWorkers),
         "unexpected unreaped-root result: {result:?}"
     );
     assert!(
@@ -3616,16 +3522,14 @@ async fn cancellation_during_blocked_acquisition_reaps_work_and_leaves_recoverab
     // Cancellation may linearize before the exact probe starts (cancelled) or
     // while the access-exclusive lock prevents proof (ambiguous). Both exits
     // must reap every database task before returning.
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::Requested,
-                grace_exceeded: false
-            } | SupervisorError::AmbiguousOutcome {
-                operation: "acquire"
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: false
+        } | SupervisorError::AmbiguousOutcome {
+            operation: "acquire"
+        }),
         "unexpected blocked acquisition result: {result:?}"
     );
     assert!(!work_called.load(Ordering::Acquire));
@@ -3633,10 +3537,7 @@ async fn cancellation_during_blocked_acquisition_reaps_work_and_leaves_recoverab
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert!(lock.rollback().await.is_ok());
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(!supervisor.cancel());
     assert_no_active_schema_work(&fixture).await;
     fail_recoverable_generation(&fixture, &generation_id).await;
@@ -3663,18 +3564,15 @@ async fn timed_out_acquisition_keeps_one_exact_attempt_and_recovers_its_token() 
             Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Discover))
         })
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Pipeline {
             stage: PipelineStage::Discover
         })
-    ));
+    );
     assert!(work_called.load(Ordering::Acquire));
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3736,10 +3634,7 @@ async fn publication_gate_rejects_late_cancellation_and_commits_once() {
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(!supervisor.cancel());
     drop(lock_connection);
 
@@ -3774,10 +3669,7 @@ async fn timed_out_publication_reconciles_ready_state_retries_and_releases_atomi
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3806,18 +3698,15 @@ async fn timed_out_cleanup_reconciles_failure_and_exact_release_atomically() {
     wait_for_lease(&fixture.database, &target).await;
     assert!(supervisor.cancel());
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: false
         })
-    ));
+    );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3864,13 +3753,11 @@ async fn blocked_publication_is_aborted_reaped_and_leaves_no_active_query() {
     let result = result.unwrap_or_else(|error| {
         panic!("blocked publication exceeded its absolute supervisor deadline: {error}")
     });
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::AmbiguousOutcome {
-                operation: "publish-generation"
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::AmbiguousOutcome {
+            operation: "publish-generation"
+        }),
         "unexpected blocked publication result: {result:?}"
     );
     assert_no_active_schema_work(&fixture).await;
@@ -3929,22 +3816,18 @@ async fn blocked_cleanup_is_aborted_reaped_and_leaves_no_active_query() {
     let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
         panic!("blocked cleanup replaced or dropped the primary failure: {result:?}");
     };
-    assert!(
-        matches!(
-            **primary,
-            SupervisorError::Pipeline {
-                stage: PipelineStage::Read
-            }
-        ),
+    assert_matches!(
+        **primary,
+        SupervisorError::Pipeline {
+            stage: PipelineStage::Read
+        },
         "unexpected primary failure: {primary:?}"
     );
-    assert!(
-        matches!(
-            **cleanup,
-            SupervisorError::AmbiguousOutcome {
-                operation: "cleanup-generation"
-            }
-        ),
+    assert_matches!(
+        **cleanup,
+        SupervisorError::AmbiguousOutcome {
+            operation: "cleanup-generation"
+        },
         "unexpected secondary cleanup failure: {cleanup:?}"
     );
     expire_lease(&fixture, &target).await;
@@ -3988,23 +3871,19 @@ async fn blocked_cleanup_after_cancellation_keeps_the_cancellation_primary() {
     let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
         panic!("blocked cleanup replaced or dropped the cancellation: {result:?}");
     };
-    assert!(
-        matches!(
-            **primary,
-            SupervisorError::Cancelled {
-                reason: CancellationReason::Requested,
-                grace_exceeded: false,
-            }
-        ),
+    assert_matches!(
+        **primary,
+        SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: false,
+        },
         "unexpected primary failure: {primary:?}"
     );
-    assert!(
-        matches!(
-            **cleanup,
-            SupervisorError::AmbiguousOutcome {
-                operation: "cleanup-generation"
-            }
-        ),
+    assert_matches!(
+        **cleanup,
+        SupervisorError::AmbiguousOutcome {
+            operation: "cleanup-generation"
+        },
         "unexpected secondary cleanup failure: {cleanup:?}"
     );
     expire_lease(&fixture, &target).await;
@@ -4101,14 +3980,12 @@ async fn heartbeat_uncertainty_drops_root_and_reaps_registered_children_without_
         });
     let result = joined
         .unwrap_or_else(|error| panic!("uncertain-heartbeat supervisor task failed: {error}"));
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::LeaseHeartbeatFailed,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::LeaseHeartbeatFailed,
+            grace_exceeded: false
+        }),
         "unexpected uncertain-heartbeat result: {result:?}"
     );
     assert!(root_dropped.load(Ordering::Acquire));
@@ -4210,14 +4087,12 @@ async fn heartbeat_uncertainty_reaps_concurrent_copy_before_returning() {
         });
     let result = joined
         .unwrap_or_else(|error| panic!("combined uncertainty supervisor task failed: {error}"));
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::LeaseHeartbeatFailed,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::LeaseHeartbeatFailed,
+            grace_exceeded: false
+        }),
         "unexpected combined-uncertainty result: {result:?}"
     );
     assert_no_active_schema_work(&fixture).await;
@@ -4759,7 +4634,7 @@ async fn assert_generation_advisories_available(fixture: &DatabaseFixture, targe
     .execute(&mut *connection)
     .await;
     assert!(released.is_ok());
-    assert!(matches!(acquired, Ok((true, true))));
+    assert_matches!(acquired, Ok((true, true)));
 }
 
 async fn wait_for_supervisor_stage(supervisor: &IndexerSupervisor, expected: PipelineStage) {
@@ -5055,8 +4930,7 @@ async fn assert_generation_state(
         .database
         .generation_state(&fixture.project, generation)
         .await;
-    assert!(
-        matches!(&actual, Ok(Some(state)) if *state == expected),
+    assert_matches!(&actual, Ok(Some(state)) if *state == expected,
         "generation did not reach {expected:?}: {actual:?}"
     );
 }

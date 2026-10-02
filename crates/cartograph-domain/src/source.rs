@@ -1939,6 +1939,7 @@ fn has_windows_drive_prefix(raw: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::collections::BTreeSet;
 
     use super::{
@@ -1958,7 +1959,7 @@ mod tests {
     #[test]
     fn paths_canonicalize_and_spans_reject_escaping_coordinates() {
         let canonical = NormalizedPath::parse(r"src\feature\.\service.ts");
-        assert!(matches!(canonical, Ok(path) if path.as_str() == "src/feature/service.ts"));
+        assert_matches!(canonical, Ok(path) if path.as_str() == "src/feature/service.ts");
         assert!(NormalizedPath::parse("../secret.ts").is_err());
         assert!(NormalizedPath::parse("/absolute.ts").is_err());
         assert!(NormalizedPath::parse("C:\\absolute.ts").is_err());

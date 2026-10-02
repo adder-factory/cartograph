@@ -4037,6 +4037,8 @@ const fn database_error(operation: &'static str) -> StorageError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     #[test]
@@ -4080,14 +4082,15 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("multi-row extraction batch must be valid: {error}"));
         assert_eq!(batch.rows.len(), 2);
-        assert!(matches!(
+        assert_matches!(
             NativeGenerationSpillExtractedBatch::new(
                 i64::MAX.unsigned_abs(),
                 vec![first.into(), second.into()]
-            ),
-            Err(StorageError::InvalidInput {
+            )
+            .err(),
+            Some(StorageError::InvalidInput {
                 field: "spill_batch_sequence"
             })
-        ));
+        );
     }
 }

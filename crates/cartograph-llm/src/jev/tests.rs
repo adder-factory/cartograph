@@ -1,3 +1,4 @@
+use std::assert_matches;
 use std::{
     io::{Read as _, Write as _},
     net::TcpListener,
@@ -93,40 +94,40 @@ fn parallel_answer_validation_rejects_incomplete_or_foreign_decisions() {
         .remove("sufficient");
     cases.push(response);
     for response in cases {
-        assert!(matches!(
+        assert_matches!(
             decode_response(&serde_json::to_vec(&response).unwrap_or_default(), &q),
             Err(JevError::InvalidResponse)
-        ));
+        );
     }
     let duplicate = format!(
         r#"{{"model":"{JEV_MODEL}","answers":{{"action":{{"type":"choice","choice":"read","probabilities":{{"read":0.9,"read":0.9,"stop":0.1}},"confidence":0.8}},"sufficient":{{"type":"noul","noul":0.2}}}}}}"#
     );
-    assert!(matches!(
+    assert_matches!(
         decode_response(duplicate.as_bytes(), &q),
         Err(JevError::InvalidResponse)
-    ));
+    );
     let duplicate = format!(
         r#"{{"model":"{JEV_MODEL}","answers":{{"sufficient":{{"type":"noul","noul":0.2}},"sufficient":{{"type":"noul","noul":0.8}}}}}}"#
     );
-    assert!(matches!(
+    assert_matches!(
         decode_response(duplicate.as_bytes(), &q),
         Err(JevError::InvalidResponse)
-    ));
+    );
 }
 
 #[test]
 fn request_bounds_apply_before_transport() {
-    assert!(matches!(
+    assert_matches!(
         encode_request(&Value::Null, &BTreeMap::new()),
         Err(JevError::RequestLimit)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         encode_request(
             &Value::String("s".repeat(MAXIMUM_STATE_BYTES)),
             &questions()
         ),
         Err(JevError::RequestLimit)
-    ));
+    );
     let q = BTreeMap::from([(
         "one".to_owned(),
         JevQuestion::Choice {
@@ -134,10 +135,10 @@ fn request_bounds_apply_before_transport() {
             criteria: BTreeMap::from([("only".to_owned(), "only".to_owned())]),
         },
     )]);
-    assert!(matches!(
+    assert_matches!(
         encode_request(&Value::Null, &q),
         Err(JevError::RequestLimit)
-    ));
+    );
     let body = encode_request(&serde_json::json!({"task":"find code"}), &questions())
         .unwrap_or_else(|e| panic!("encode: {e}"));
     let value: Value = serde_json::from_slice(&body).unwrap_or_else(|e| panic!("JSON: {e}"));
@@ -279,7 +280,7 @@ async fn rejected_credentials_capacity_and_redirects_are_redacted() {
     ] {
         let (client, server) = fixture(status, "secret-provider-body", "");
         let result = client.decide(&Value::Null, &questions()).await;
-        assert!(matches!(&result, Err(error) if error == &expected));
+        assert_matches!(&result, Err(error) if error == &expected);
         assert!(!format!("{result:?}").contains("secret-provider-body"));
         server.join().unwrap_or_else(|_| panic!("fixture server"));
     }
@@ -296,11 +297,11 @@ async fn rejected_credentials_capacity_and_redirects_are_redacted() {
         "",
         &format!("Location: http://{address}/must-not-receive-key\r\n"),
     );
-    assert!(matches!(
+    assert_matches!(
         client.decide(&Value::Null, &questions()).await,
         Err(JevError::BackendRejected)
-    ));
-    assert!(matches!(target.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+    );
+    assert_matches!(target.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock);
     server.join().unwrap_or_else(|_| panic!("fixture server"));
 }
 
@@ -314,8 +315,9 @@ async fn oversized_and_malformed_provider_bodies_cannot_control_retrieval() {
         ("not-json".to_owned(), JevError::InvalidResponse),
     ] {
         let (client, server) = fixture("200 OK", &body, "");
-        assert!(
-            matches!(client.decide(&Value::Null, &questions()).await, Err(error) if error == expected)
+        assert_matches!(
+            client.decide(&Value::Null, &questions()).await,
+            Err(error) if error == expected
         );
         server.join().unwrap_or_else(|_| panic!("fixture server"));
     }
@@ -341,10 +343,10 @@ fn decision_settings_reject_unreviewed_models_endpoints_and_excessive_deadlines(
             config.to_string(),
         )
         .unwrap_or_else(|e| panic!("config: {e}"));
-        assert!(matches!(
+        assert_matches!(
             JevSettings::try_from_project(root.path()),
             Err(JevError::ConfigurationUnavailable)
-        ));
+        );
     }
     std::fs::write(
         root.path().join(".cartograph/config.json"),
@@ -371,11 +373,11 @@ fn decision_config_is_opt_in_and_never_falls_back_to_chat() {
     let input = crate::ProjectLlmTierInput::jev("CARTOGRAPH_MISSING_JEV_FIXTURE_KEY")
         .unwrap_or_else(|e| panic!("input: {e}"));
     crate::write_project_llm_tiers(root.path(), &[input]).unwrap_or_else(|e| panic!("write: {e}"));
-    assert!(matches!(
+    assert_matches!(
         JevSettings::try_from_project(root.path()),
         Err(JevError::CredentialMissing { environment_variable })
             if environment_variable == "CARTOGRAPH_MISSING_JEV_FIXTURE_KEY"
-    ));
+    );
     let text = std::fs::read_to_string(root.path().join(".cartograph/config.json"))
         .unwrap_or_else(|e| panic!("read: {e}"));
     let config: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("JSON: {e}"));
@@ -402,11 +404,13 @@ async fn jev_live_parallel_decision() {
     let client = JevClient::new(settings).unwrap_or_else(|e| panic!("client: {e}"));
     let result = client.decide(&serde_json::json!({"task":"Find the declaration of the parser. No source has been read."}), &questions()).await.unwrap_or_else(|e| panic!("live decision: {e}"));
     assert_eq!(result.model, JEV_MODEL);
-    assert!(
-        matches!(result.answers.get("action"), Some(JevAnswer::Choice { choice, .. }) if choice == "read")
+    assert_matches!(
+        result.answers.get("action"),
+        Some(JevAnswer::Choice { choice, .. }) if choice == "read"
     );
-    assert!(
-        matches!(result.answers.get("sufficient"), Some(JevAnswer::Noul { noul }) if *noul < 0.5)
+    assert_matches!(
+        result.answers.get("sufficient"),
+        Some(JevAnswer::Noul { noul }) if *noul < 0.5
     );
 }
 
@@ -595,7 +599,7 @@ async fn failing_credential_command_falls_back_without_contacting_the_provider()
         format!("Cartograph Jev credential command `{name}` exited with status 4")
     );
     assert!(!format!("{error:?}").contains("secret"));
-    assert!(matches!(provider.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+    assert_matches!(provider.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock);
 
     // While the failure is recent, settings report it without re-running the
     // helper, so exploration keeps its native path and reranker.
@@ -608,10 +612,10 @@ async fn failing_credential_command_falls_back_without_contacting_the_provider()
         .to_string(),
     )
     .unwrap_or_else(|e| panic!("config: {e}"));
-    assert!(matches!(
+    assert_matches!(
         JevSettings::try_from_project(root.path()),
         Err(JevError::CredentialUnavailable(_))
-    ));
+    );
     assert_eq!(helper_runs(root.path(), name), 1);
 }
 

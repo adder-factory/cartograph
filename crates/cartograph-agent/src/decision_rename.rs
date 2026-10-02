@@ -231,6 +231,7 @@ fn question_key(index: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::time::SystemTime;
 
     use cartograph_config::DatabaseSettings;
@@ -381,10 +382,10 @@ mod tests {
         assert!(mentions > MENTION_BATCH, "fixture must span two requests");
         let cancelled = ProjectCancellation::new();
         cancelled.cancel();
-        assert!(matches!(
+        assert_matches!(
             triage_with(&Outage, plan.clone(), &cancelled).await,
             Err(ProjectError::RequestCancelled)
-        ));
+        );
 
         let triaged = triage_with(
             &Scripted {

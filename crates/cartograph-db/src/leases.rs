@@ -1081,6 +1081,8 @@ const fn corrupt(field: &'static str) -> LeaseError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     const VALID_OWNER_PID: u32 = 10;
@@ -1178,10 +1180,10 @@ mod tests {
         };
         assert_ne!(first, second);
         assert_eq!(first.as_str().as_bytes().get(14), Some(&b'4'));
-        assert!(matches!(
+        assert_matches!(
             first.as_str().as_bytes().get(19),
             Some(b'8' | b'9' | b'a' | b'b')
-        ));
+        );
     }
 
     #[test]

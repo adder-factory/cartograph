@@ -332,6 +332,7 @@ fn planned_item_deadline(
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::time::Duration;
 
     use cartograph_extract::{ExtractedFile, SourceLimits, SourceSnapshot, native_output_limit};
@@ -394,15 +395,15 @@ mod tests {
     #[test]
     fn native_stage_configuration_rejects_invalid_capacity_and_deadlines() {
         let deadline = Instant::now() + TEST_TIMEOUT;
-        assert!(matches!(
+        assert_matches!(
             NativeExtractionStageConfig::new(
                 StageCapacity::new(EMPTY_ITEMS, EMPTY_ITEMS),
                 TEST_ITEM_TIMEOUT,
                 StageDeadlinePolicy::new(deadline, TEST_CLEANUP_GRACE),
             ),
             Err(NativeExtractionConfigError::Invalid { field: "workers" })
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             NativeExtractionStageConfig::new(
                 StageCapacity::new(SERIAL_WORKERS, EMPTY_ITEMS),
                 Duration::ZERO,
@@ -411,8 +412,8 @@ mod tests {
             Err(NativeExtractionConfigError::Invalid {
                 field: "item_timeout"
             })
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             NativeExtractionStageConfig::new(
                 StageCapacity::new(SERIAL_WORKERS, EMPTY_ITEMS),
                 TEST_ITEM_TIMEOUT,
@@ -421,8 +422,8 @@ mod tests {
             Err(NativeExtractionConfigError::Invalid {
                 field: "stage_deadline"
             })
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             NativeExtractionStageConfig::new(
                 StageCapacity::new(SERIAL_WORKERS, EMPTY_ITEMS),
                 TEST_ITEM_TIMEOUT,
@@ -431,7 +432,7 @@ mod tests {
             Err(NativeExtractionConfigError::Invalid {
                 field: "cleanup_grace"
             })
-        ));
+        );
     }
 
     #[tokio::test]
@@ -451,10 +452,12 @@ mod tests {
             std::iter::empty::<SourceSnapshot>(),
             DigestObserver::new(StageMetrics::new()),
         );
-        assert!(matches!(
-            Box::pin(run_native_extraction_stage(&runner, request)).await,
-            Err(NativeExtractionStageError::Runtime)
-        ));
+        assert_matches!(
+            Box::pin(run_native_extraction_stage(&runner, request))
+                .await
+                .err(),
+            Some(NativeExtractionStageError::Runtime)
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);

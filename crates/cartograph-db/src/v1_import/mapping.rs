@@ -956,6 +956,8 @@ fn confidence(raw: Option<&str>) -> Result<f32, V1PostgresImportError> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use crate::ReferenceSpanPrecision;
     use cartograph_domain::ContentDigest;
@@ -1126,12 +1128,12 @@ mod tests {
     #[test]
     fn ambiguous_legacy_columns_fail_closed_and_zero_width_symbols_are_retained() {
         let unicode = source_file("\u{e9}foo\n");
-        assert!(matches!(
+        assert_matches!(
             source_position(&unicode, 1, AMBIGUOUS_COLUMN),
             Err(super::V1PostgresImportError::InvalidSourceData {
                 field: "coordinate_encoding"
             })
-        ));
+        );
 
         let empty = source_file("\n");
         let node = source_node("node", 0, 0);
@@ -1147,12 +1149,12 @@ mod tests {
 
         let mixed_only = source_file("\u{e9}abc\n");
         let mixed_node = source_node("mixed", MIXED_START_COLUMN, MIXED_END_COLUMN);
-        assert!(matches!(
+        assert_matches!(
             source_span(&mixed_only, &mixed_node),
             Err(super::V1PostgresImportError::InvalidSourceData {
                 field: "coordinate_encoding"
             })
-        ));
+        );
     }
 
     #[test]
@@ -1282,10 +1284,10 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("import limits failed: {error}"))
         };
-        assert!(matches!(
-            admit_mapping(&snapshot, limits(admitted - 1)),
-            Err(V1PostgresImportError::SourceLimit)
-        ));
+        assert_matches!(
+            admit_mapping(&snapshot, limits(admitted - 1)).err(),
+            Some(V1PostgresImportError::SourceLimit)
+        );
         assert!(admit_mapping(&snapshot, limits(admitted)).is_ok());
     }
 

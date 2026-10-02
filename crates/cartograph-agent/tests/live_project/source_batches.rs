@@ -1,3 +1,5 @@
+use std::assert_matches;
+
 use super::{
     CurrentGenerationLookup, ExactTextLookup, IndexOptions, ProjectCancellation, ProjectError,
     ProjectRuntime, SourceContextOptions, SourceContextRequest, SymbolId, drop_schema,
@@ -74,7 +76,7 @@ async fn source_batches_scan_once_and_preserve_source_and_generation_fences() {
     let cancellation = ProjectCancellation::new();
     cancellation.cancel();
     let before = runtime.source_scan_observations();
-    assert!(matches!(
+    assert_matches!(
         runtime
             .source_context_batch_with_cancellation(
                 &report.generation_id,
@@ -83,14 +85,14 @@ async fn source_batches_scan_once_and_preserve_source_and_generation_fences() {
             )
             .await,
         Err(ProjectError::RequestCancelled)
-    ));
+    );
     assert_eq!(runtime.source_scan_observations(), before);
     runtime
         .index(IndexOptions::default().with_history_refresh(false))
         .await
         .unwrap_or_else(|error| panic!("source batch reindex failed: {error}"));
     let before = runtime.source_scan_observations();
-    assert!(matches!(
+    assert_matches!(
         runtime
             .source_context_batch_with_cancellation(
                 &report.generation_id,
@@ -99,7 +101,7 @@ async fn source_batches_scan_once_and_preserve_source_and_generation_fences() {
             )
             .await,
         Err(ProjectError::SourceContextUnavailable)
-    ));
+    );
     assert_eq!(runtime.source_scan_observations(), before);
     runtime.close().await;
     drop_schema(&settings, &schema).await;

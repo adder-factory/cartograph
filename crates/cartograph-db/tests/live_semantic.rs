@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env, process,
     sync::atomic::{AtomicU32, Ordering},
@@ -97,20 +98,20 @@ async fn setup_semantic_scenario(fixture: &Fixture) -> SemanticScenario {
     let registered_a = register_model(&fixture.database, model_a.clone()).await;
     let repeated_a = register_model(&fixture.database, model_a).await;
     assert_eq!(registered_a, repeated_a);
-    assert!(matches!(
+    assert_matches!(
         fixture
             .database
             .register_embedding_model(conflicting_model(), STATEMENT_TIMEOUT)
             .await,
         Err(SemanticStorageError::ModelConflict)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         fixture
             .database
             .register_embedding_model(conflicting_fingerprint_model(), STATEMENT_TIMEOUT)
             .await,
         Err(SemanticStorageError::ModelConflict)
-    ));
+    );
     let hnsw_a = fixture
         .database
         .ensure_embedding_model_hnsw(&selector_a, STATEMENT_TIMEOUT)
@@ -734,7 +735,7 @@ async fn retired_embedding_maintenance_is_auditable_dry_run_first_and_model_scop
     assert_eq!(after.historical_embeddings, 0);
     assert_eq!(after.retired_model_embeddings, 0);
     assert_eq!(after.model_indexes, 1);
-    assert!(matches!(
+    assert_matches!(
         fixture
             .database
             .embedding_storage_audit(&project, Duration::ZERO)
@@ -742,8 +743,8 @@ async fn retired_embedding_maintenance_is_auditable_dry_run_first_and_model_scop
         Err(SemanticStorageError::InvalidInput {
             field: "statement_timeout"
         })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         fixture
             .database
             .cleanup_retired_embeddings(&project, false, Duration::ZERO)
@@ -751,7 +752,7 @@ async fn retired_embedding_maintenance_is_auditable_dry_run_first_and_model_scop
         Err(SemanticStorageError::InvalidInput {
             field: "statement_timeout"
         })
-    ));
+    );
 
     drop(fixture.database);
     drop_schema(&fixture.pool, &fixture.schema).await;

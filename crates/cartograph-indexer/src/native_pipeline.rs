@@ -15747,6 +15747,7 @@ fn usize_to_u64(value: usize) -> u64 {
 mod tests {
     mod rust_receivers;
 
+    use std::assert_matches;
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};
 
     use cartograph_scip::{
@@ -19930,7 +19931,7 @@ export function secondClone(value: number) {
                 read_manifest_input(&source_root, directory.path(), path),
                 || false,
             );
-            assert!(matches!(result, Ok(None)), "{path}: {result:?}");
+            assert_matches!(result, Ok(None), "{path}: {result:?}");
         }
     }
 
@@ -20937,10 +20938,7 @@ export function secondClone(value: number) {
                 next >= CANCEL_AFTER_POLLS
             },
         );
-        assert!(matches!(
-            result,
-            Err(ResolveGenerationFailure { reason: None })
-        ));
+        assert_matches!(result, Err(ResolveGenerationFailure { reason: None }));
         assert_eq!(polls.get(), CANCEL_AFTER_POLLS);
     }
 
@@ -20972,7 +20970,7 @@ export function secondClone(value: number) {
             polls.set(next);
             next >= INNER_CANCEL_AFTER_POLLS
         });
-        assert!(matches!(result, Err(StageItemFailure)));
+        assert_matches!(result.err(), Some(StageItemFailure));
         assert_eq!(polls.get(), INNER_CANCEL_AFTER_POLLS);
     }
 
@@ -21314,14 +21312,14 @@ export function secondClone(value: number) {
             Some(PipelineFailureReason::DeadlineExceeded)
         );
         assert!(error.file_failure().is_none());
-        assert!(matches!(
+        assert_matches!(
             error,
             NativePipelineError::Stage(StageRunError::Item {
                 stage: PipelineStage::Parse,
                 kind: StageFailureKind::Deadline,
                 ..
             })
-        ));
+        );
     }
 
     #[test]
@@ -21342,12 +21340,12 @@ export function secondClone(value: number) {
             Some(failure),
         );
 
-        assert!(matches!(
+        assert_matches!(
             error,
             NativePipelineError::Spill {
                 stage: PipelineStage::Parse
             }
-        ));
+        );
         assert!(error.file_failure().is_none());
         assert_eq!(error.reason(), None);
     }
@@ -21660,13 +21658,13 @@ export function secondClone(value: number) {
             panic!("malformed overlay unexpectedly produced facts");
         };
         assert_eq!(error.stage(), PipelineStage::Overlay);
-        assert!(matches!(
+        assert_matches!(
             error,
             NativePipelineError::Stage(StageRunError::Item {
                 stage: PipelineStage::Overlay,
                 ..
             })
-        ));
+        );
         drop(cancellation);
         let report = tasks
             .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
@@ -21694,13 +21692,13 @@ export function secondClone(value: number) {
             config_with_generation_limit(SERIAL_WORKERS, REJECTING_GENERATION_BYTES),
         )
         .await;
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(NativePipelineError::StageWithReason {
                 stage: PipelineStage::Parse,
                 reason: PipelineFailureReason::GenerationCapacityExceeded,
             })
-        ));
+        );
         drop(cancellation);
         let report = tasks
             .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
@@ -21910,19 +21908,19 @@ export function secondClone(value: number) {
                 .unwrap_or_else(|error| panic!("stage reservation failed: {error}")),
             TEST_GENERATION_BYTES * RESOLVE_WORKING_MULTIPLIER
         );
-        assert!(matches!(
+        assert_matches!(
             NativePipelineParallelism::new(
                 StageCapacity::new(0, 0),
                 StageCapacity::new(SERIAL_WORKERS, SERIAL_WORKERS),
             ),
             Err(error) if error == NativePipelineConfigError::invalid("read_capacity")
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             NativeRetainedLimits::new(
                 TEST_MANIFEST_BYTES,
                 MAX_PIPELINE_RETAINED_BYTES + 1,
             ),
             Err(error) if error == NativePipelineConfigError::invalid("max_generation_bytes")
-        ));
+        );
     }
 }

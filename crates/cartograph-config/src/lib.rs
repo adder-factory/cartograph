@@ -383,6 +383,8 @@ fn parse_bounded_nonzero_u64(input: &BoundedIntegerInput<'_, u64>) -> Result<u64
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use secrecy::ExposeSecret;
 
@@ -435,14 +437,14 @@ mod tests {
     fn rejects_zero_and_excessive_pool_limits() {
         for invalid in ["0", "65", "not-a-number"] {
             let error = DatabaseSettings::parse(VALID_URL, Some(invalid), None).err();
-            assert!(matches!(
+            assert_matches!(
                 error,
                 Some(ConfigError::InvalidBoundedInteger {
                     key: DATABASE_MAX_CONNECTIONS_ENV,
                     minimum: 1,
                     maximum: 64,
                 })
-            ));
+            );
         }
     }
 
@@ -457,7 +459,7 @@ mod tests {
     #[test]
     fn schema_names_are_canonical_and_cannot_change_sql_structure() {
         let schema = DatabaseSchema::parse("Team_Cartograph");
-        assert!(matches!(schema, Ok(value) if value.as_str() == "team_cartograph"));
+        assert_matches!(schema, Ok(value) if value.as_str() == "team_cartograph");
 
         for invalid in [
             "",
@@ -485,6 +487,6 @@ mod tests {
         assert_eq!(settings.schema().as_str(), "cartograph");
 
         let configured = settings.with_schema("Review_Worktree");
-        assert!(matches!(configured, Ok(value) if value.schema().as_str() == "review_worktree"));
+        assert_matches!(configured, Ok(value) if value.schema().as_str() == "review_worktree");
     }
 }

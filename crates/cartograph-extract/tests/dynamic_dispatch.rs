@@ -2,6 +2,8 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
+
 use cartograph_domain::{ReferenceKind, SourceLanguage};
 use cartograph_extract::{
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, ExtractedFile, NativeExtractor, SourceLimits,
@@ -107,13 +109,13 @@ WIDE['one']();
 fn extract(path: &str, source: &str) -> ExtractedFile {
     let snapshot = SourceSnapshot::from_bytes(path, source.as_bytes(), limits())
         .unwrap_or_else(|error| panic!("dispatch snapshot failed: {error}"));
-    assert!(matches!(
+    assert_matches!(
         snapshot.language(),
         SourceLanguage::TypeScript
             | SourceLanguage::Tsx
             | SourceLanguage::JavaScript
             | SourceLanguage::Jsx
-    ));
+    );
     let mut extractor = NativeExtractor::new(snapshot.language())
         .unwrap_or_else(|error| panic!("dispatch extractor failed: {error}"));
     extractor

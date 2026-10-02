@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env, process,
     sync::atomic::{AtomicU32, Ordering},
@@ -225,7 +226,7 @@ async fn assert_stale_takeover(fixture: &LeaseFixture<'_>) {
             LEASE_DURATION,
         ))
         .await;
-    assert!(matches!(blocked, Err(LeaseError::Busy)));
+    assert_matches!(blocked, Err(LeaseError::Busy));
     let cross_operation = fixture
         .database
         .acquire_lease(LeaseRequest::new(
@@ -234,7 +235,7 @@ async fn assert_stale_takeover(fixture: &LeaseFixture<'_>) {
             LEASE_DURATION,
         ))
         .await;
-    assert!(matches!(cross_operation, Err(LeaseError::Busy)));
+    assert_matches!(cross_operation, Err(LeaseError::Busy));
     let status = match fixture.database.lease_status(&target).await {
         Ok(Some(status)) => status,
         Ok(None) => panic!("active lease was not observable"),
@@ -263,10 +264,10 @@ async fn assert_stale_takeover(fixture: &LeaseFixture<'_>) {
         Err(error) => panic!("expired lease status failed: {error}"),
     };
     assert!(expired.expired());
-    assert!(matches!(
+    assert_matches!(
         fixture.database.heartbeat_lease(&mut first).await,
         Err(LeaseError::Lost)
-    ));
+    );
     let second = acquire(
         fixture.database,
         target.clone(),
@@ -274,21 +275,18 @@ async fn assert_stale_takeover(fixture: &LeaseFixture<'_>) {
     )
     .await;
     assert_ne!(first.lease_id(), second.lease_id());
-    assert!(matches!(
+    assert_matches!(
         fixture.database.heartbeat_lease(&mut first).await,
         Err(LeaseError::Lost)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         fixture.database.release_lease(&first).await,
         Err(LeaseError::Lost)
-    ));
+    );
     if let Err(error) = fixture.database.release_lease(&second).await {
         panic!("takeover owner could not release: {error}");
     }
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 }
 
 async fn assert_heartbeat_renewed(
@@ -316,7 +314,7 @@ async fn assert_heartbeat_renewed(
         Ok(row) => row.try_get::<bool, _>("renewed"),
         Err(error) => panic!("could not verify database-side lease renewal: {error}"),
     };
-    assert!(matches!(renewed, Ok(true)));
+    assert_matches!(renewed, Ok(true));
 }
 
 async fn shift_lease_timestamps_ahead(fixture: &LeaseFixture<'_>, target: &LeaseTarget) -> String {
@@ -370,7 +368,7 @@ async fn assert_backward_clock_heartbeat_is_monotonic(
         Ok(row) => row.try_get::<bool, _>("monotonic"),
         Err(error) => panic!("could not verify backward-clock heartbeat clamp: {error}"),
     };
-    assert!(matches!(monotonic, Ok(true)));
+    assert_matches!(monotonic, Ok(true));
 }
 
 async fn assert_v1_to_latest_upgrade(
@@ -418,22 +416,22 @@ async fn assert_v1_to_latest_upgrade(
         .bind(OPERATION_LEASES_MIGRATION_VERSION)
         .execute(pool)
         .await;
-    assert!(matches!(deleted, Ok(result) if result.rows_affected() == LATER_MIGRATION_COUNT));
+    assert_matches!(deleted, Ok(result) if result.rows_affected() == LATER_MIGRATION_COUNT);
     insert_v1_reference_fixture(pool, schema).await;
 
-    assert!(matches!(
+    assert_matches!(
         database.migrate().await,
         Ok(report)
             if report.applied_versions == EXPECTED_V1_UPGRADE_MIGRATIONS
                 && report.current_version == LATEST_MIGRATION_VERSION
-    ));
+    );
     assert_upgraded_v1_reference_fixture(database, pool, schema).await;
-    assert!(matches!(
+    assert_matches!(
         database.migrate().await,
         Ok(report)
             if report.applied_versions.is_empty()
                 && report.current_version == LATEST_MIGRATION_VERSION
-    ));
+    );
 }
 
 async fn remove_post_v12_schema(pool: &sqlx_postgres::PgPool, schema: &str) {
@@ -759,10 +757,7 @@ async fn assert_upgraded_v1_reference_fixture(
         row.try_get::<String, _>("content_digest").ok().as_deref(),
         Some(V1_HISTORICAL_DIGEST)
     );
-    assert!(matches!(
-        row.try_get::<i16, _>("content_digest_version"),
-        Ok(1)
-    ));
+    assert_matches!(row.try_get::<i16, _>("content_digest_version"), Ok(1));
     assert_eq!(
         row.try_get::<String, _>("reference_name").ok().as_deref(),
         Some("<legacy-unavailable>")
@@ -782,12 +777,12 @@ async fn assert_upgraded_v1_reference_fixture(
         .recover_generation(GenerationRecoveryRequest::new(&project, &generation))
         .await
         .unwrap_or_else(|error| panic!("v1 ready generation recovery failed: {error}"));
-    assert!(matches!(
+    assert_matches!(
         recovered,
         Some(RecoverableGeneration::Ready(ready))
             if ready.content_digest().as_str() == V1_HISTORICAL_DIGEST
                 && ready.digest_version() == GenerationDigestVersion::V1
-    ));
+    );
 }
 
 async fn assert_ledger_gap_is_refused(
@@ -800,14 +795,14 @@ async fn assert_ledger_gap_is_refused(
         .bind(INITIAL_MIGRATION_VERSION)
         .execute(pool)
         .await;
-    assert!(matches!(deleted, Ok(result) if result.rows_affected() == 1));
-    assert!(matches!(
+    assert_matches!(deleted, Ok(result) if result.rows_affected() == 1);
+    assert_matches!(
         database.migrate().await,
         Err(MigrationError::LedgerGap {
             missing_version: INITIAL_MIGRATION_VERSION,
             recorded_version: LATEST_MIGRATION_VERSION,
         })
-    ));
+    );
 }
 
 async fn assert_concurrent_exclusion(database: &CartographDatabase, project: &ProjectId) {
@@ -923,7 +918,7 @@ async fn expire_lease(pool: &sqlx_postgres::PgPool, schema: &str, target: &Lease
         .bind(target.operation().as_str())
         .execute(pool)
         .await;
-    assert!(matches!(result, Ok(result) if result.rows_affected() == 1));
+    assert_matches!(result, Ok(result) if result.rows_affected() == 1);
 }
 
 async fn drop_schema(pool: &sqlx_postgres::PgPool, schema: &str) {

@@ -1513,6 +1513,7 @@ async fn abort_and_reap<Key: 'static, Output: 'static>(
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::{
         future::pending,
         sync::{
@@ -1695,7 +1696,7 @@ mod tests {
         assert_eq!(consumed.load(Ordering::Acquire), window);
         release.send_replace(true);
         let result = handle.await;
-        assert!(matches!(result, Ok(Ok(TEST_ITEMS))));
+        assert_matches!(result, Ok(Ok(TEST_ITEMS)));
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
@@ -1778,10 +1779,7 @@ mod tests {
         wait_until(|| started.load(Ordering::Acquire)).await;
         assert!(started.load(Ordering::Acquire));
         cancellation.send_replace(true);
-        assert!(matches!(
-            handle.await,
-            Ok(Err(StageRunError::Cancelled { .. }))
-        ));
+        assert_matches!(handle.await, Ok(Err(StageRunError::Cancelled { .. })));
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
@@ -1805,10 +1803,10 @@ mod tests {
             StageFold::new((), |(): &mut (), _| Ok(())),
         );
         cancellation.send_replace(true);
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Cancelled { .. })
-        ));
+        );
         assert_eq!(consumed.load(Ordering::Acquire), 0);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
@@ -1827,14 +1825,14 @@ mod tests {
             StageWorkload::new(inputs, |_| pending::<Result<(), StageItemFailure>>()),
             StageFold::new((), |(): &mut (), _| Ok(())),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Item {
                 sequence,
                 kind: StageFailureKind::Deadline,
                 ..
             }) if sequence == StageSequence::new(0)
-        ));
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(stage_deadline).await;
         assert!(report.all_joined);
@@ -1901,12 +1899,12 @@ mod tests {
                     Ok(())
                 }),
             );
-            assert!(matches!(
+            assert_matches!(
                 runner.execute(execution).await,
                 Err(StageRunError::StageDeadline {
                     stage: PipelineStage::Parse
                 })
-            ));
+            );
             drop(cancellation);
             let report = tasks
                 .close_abort_and_reap(Instant::now() + CLEANUP_GRACE)
@@ -1941,10 +1939,10 @@ mod tests {
             }),
             StageFold::new((), |(): &mut (), _| Ok(())),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::StageDeadline { .. })
-        ));
+        );
         assert!(dropped.load(Ordering::Acquire));
         drop(cancellation);
         let report = tasks
@@ -2039,12 +2037,12 @@ mod tests {
         wait_until(|| started.load(Ordering::Acquire)).await;
         let result = handle.await;
         barrier.wait();
-        assert!(matches!(
+        assert_matches!(
             result,
             Ok(Err(StageRunError::Reap {
                 stage: PipelineStage::Parse
             }))
-        ));
+        );
         drop(cancellation);
         let report = tasks
             .close_abort_and_reap(Instant::now() + CLEANUP_GRACE)
@@ -2063,14 +2061,14 @@ mod tests {
             StageWorkload::new(inputs, |_| async { Ok::<_, StageItemFailure>(()) }),
             StageFold::new((), |(): &mut (), _| Ok(())),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::InputSequence {
                 expected,
                 actual,
                 ..
             }) if expected == StageSequence::new(0) && actual == StageSequence::new(1)
-        ));
+        );
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -2117,7 +2115,7 @@ mod tests {
         }
         assert_eq!(started.load(Ordering::Acquire), TEST_WORKERS);
         first_release.store(true, Ordering::Release);
-        assert!(matches!(handle.await, Ok(Ok(TEST_ITEMS))));
+        assert_matches!(handle.await, Ok(Ok(TEST_ITEMS)));
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
@@ -2146,14 +2144,14 @@ mod tests {
             StageFold::new((), |(): &mut (), _| Ok(())),
         )
         .with_metrics(metrics.clone());
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Item {
                 sequence,
                 kind: StageFailureKind::Worker,
                 ..
             }) if sequence == StageSequence::new(0)
-        ));
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
@@ -2187,13 +2185,13 @@ mod tests {
             StageFold::new((), |(): &mut (), _| Ok(())),
         )
         .with_metrics(metrics);
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Metrics {
                 source: StageMetricsError::Unavailable,
                 ..
             })
-        ));
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert_eq!(report.active_tasks, 0);
@@ -2237,11 +2235,11 @@ mod tests {
             }),
             StageFold::new((), |(): &mut (), _| Err(StageItemFailure)),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Reduce { sequence, .. })
                 if sequence == StageSequence::new(0)
-        ));
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
@@ -2261,14 +2259,14 @@ mod tests {
             }),
             StageFold::new((), |(): &mut (), _: StageOutput<usize, ()>| Ok(())),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Item {
                 sequence,
                 kind: StageFailureKind::UnexpectedTaskExit,
                 ..
             }) if sequence == StageSequence::new(0)
-        ));
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
         assert!(report.all_joined);
@@ -2292,14 +2290,14 @@ mod tests {
             }),
             StageFold::new((), |(): &mut (), _| Ok(())),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Item {
                 sequence,
                 kind: StageFailureKind::Deadline,
                 ..
             }) if sequence == StageSequence::new(0)
-        ));
+        );
         drop(cancellation);
         let report = tasks.close_abort_and_reap(stage_deadline).await;
         assert!(report.all_joined);
@@ -2338,14 +2336,14 @@ mod tests {
             }),
             StageFold::new((), |(): &mut (), _| Ok(())),
         );
-        assert!(matches!(
+        assert_matches!(
             runner.execute(execution).await,
             Err(StageRunError::Item {
                 sequence,
                 kind: StageFailureKind::Worker,
                 ..
             }) if sequence == StageSequence::new(0)
-        ));
+        );
         assert!(saw_stage_cancellation.load(Ordering::Acquire));
         drop(cancellation);
         let report = tasks.close_abort_and_reap(deadline).await;
@@ -2357,7 +2355,7 @@ mod tests {
     fn invalid_stage_policy_is_rejected_before_execution() {
         let future = Instant::now() + TEST_TIMEOUT;
         let expired = Instant::now();
-        assert!(matches!(
+        assert_matches!(
             validate_stage(
                 StageRunConfig::new(
                     PipelineStage::Publish,
@@ -2365,31 +2363,32 @@ mod tests {
                     StageDeadlinePolicy::new(future, CLEANUP_GRACE),
                 ),
                 1,
-            ),
-            Err(StageRunError::InvalidConfig { field: "stage", .. })
-        ));
-        assert!(matches!(
-            validate_stage(config(0, 0, future), 1),
-            Err(StageRunError::InvalidConfig {
+            )
+            .err(),
+            Some(StageRunError::InvalidConfig { field: "stage", .. })
+        );
+        assert_matches!(
+            validate_stage(config(0, 0, future), 1).err(),
+            Some(StageRunError::InvalidConfig {
                 field: "workers",
                 ..
             })
-        ));
-        assert!(matches!(
-            validate_stage(config(1, 1, future), 1),
-            Err(StageRunError::InvalidConfig {
+        );
+        assert_matches!(
+            validate_stage(config(1, 1, future), 1).err(),
+            Some(StageRunError::InvalidConfig {
                 field: "capacity",
                 ..
             })
-        ));
-        assert!(matches!(
-            validate_stage(config(1, 0, expired), 1),
-            Err(StageRunError::InvalidConfig {
+        );
+        assert_matches!(
+            validate_stage(config(1, 0, expired), 1).err(),
+            Some(StageRunError::InvalidConfig {
                 field: "deadline",
                 ..
             })
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             validate_stage(
                 StageRunConfig::new(
                     PipelineStage::Parse,
@@ -2397,11 +2396,12 @@ mod tests {
                     StageDeadlinePolicy::new(future, Duration::ZERO),
                 ),
                 1,
-            ),
-            Err(StageRunError::InvalidConfig {
+            )
+            .err(),
+            Some(StageRunError::InvalidConfig {
                 field: "cleanup_grace",
                 ..
             })
-        ));
+        );
     }
 }

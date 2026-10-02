@@ -1315,6 +1315,8 @@ pub(super) fn unused_test_loopback_port() -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use crate::migrations::expected_migration_versions;
 
@@ -1449,10 +1451,10 @@ mod tests {
             Err(error) => panic!("could not create test directory: {error}"),
         };
 
-        assert!(matches!(
-            ManagedDatabase::new(directory.path(), 0),
-            Err(ManagedDatabaseError::InvalidPort)
-        ));
+        assert_matches!(
+            ManagedDatabase::new(directory.path(), 0).err(),
+            Some(ManagedDatabaseError::InvalidPort)
+        );
     }
 
     #[test]
@@ -1466,10 +1468,10 @@ mod tests {
             Err(error) => panic!("could not build managed database: {error}"),
         };
 
-        assert!(matches!(
+        assert_matches!(
             database.connection_settings(),
             Err(ManagedDatabaseError::CredentialRead)
-        ));
+        );
         assert!(!database.credentials.path().exists());
     }
 
@@ -1484,15 +1486,17 @@ mod tests {
         let second_database = ManagedDatabase::new(second.path(), IDENTITY_TEST_PORT)
             .unwrap_or_else(|error| panic!("could not build second confirmation manager: {error}"));
 
-        assert!(matches!(
-            first_database.confirm_destructive_operation(
-                ManagedDestructiveOperation::Remove,
-                "remove-something-else",
-            ),
-            Err(ManagedDatabaseError::DestructiveConfirmationRequired {
+        assert_matches!(
+            first_database
+                .confirm_destructive_operation(
+                    ManagedDestructiveOperation::Remove,
+                    "remove-something-else",
+                )
+                .err(),
+            Some(ManagedDatabaseError::DestructiveConfirmationRequired {
                 operation: "remove"
             })
-        ));
+        );
         let confirmation = first_database
             .confirm_destructive_operation(
                 ManagedDestructiveOperation::Remove,
@@ -1507,22 +1511,22 @@ mod tests {
             )
             .is_ok()
         );
-        assert!(matches!(
+        assert_matches!(
             validate_destructive_confirmation(
                 &second_database,
                 &confirmation,
                 ManagedDestructiveOperation::Remove,
             ),
             Err(ManagedDatabaseError::DestructiveConfirmationMismatch)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             validate_destructive_confirmation(
                 &first_database,
                 &confirmation,
                 ManagedDestructiveOperation::Restore,
             ),
             Err(ManagedDatabaseError::DestructiveConfirmationMismatch)
-        ));
+        );
     }
 
     #[tokio::test]
@@ -1561,10 +1565,10 @@ mod tests {
             Ok(lock) => lock,
             Err(error) => panic!("could not hold lifecycle lock fixture: {error}"),
         };
-        assert!(matches!(
+        assert_matches!(
             database.lifecycle().start().await,
             Err(ManagedDatabaseError::LifecycleBusy)
-        ));
+        );
         drop(held_lock);
         assert!(!database.credentials.path().exists());
     }
@@ -1587,8 +1591,9 @@ mod tests {
         };
         assert!(foreign.status.success());
         let foreign_status = database.lifecycle().status().await;
-        assert!(
-            matches!(foreign_status, Err(ManagedDatabaseError::ForeignContainer)),
+        assert_matches!(
+            foreign_status,
+            Err(ManagedDatabaseError::ForeignContainer),
             "unexpected foreign-container result: {foreign_status:?}"
         );
         assert!(!database.credentials.path().exists());
@@ -1601,7 +1606,7 @@ mod tests {
                 &database.identity.container_name,
             ])
             .output();
-        assert!(matches!(removed, Ok(output) if output.status.success()));
+        assert_matches!(removed, Ok(output) if output.status.success());
     }
 
     async fn assert_foreign_volume_refusal(database: &ManagedDatabase) {
@@ -1614,18 +1619,16 @@ mod tests {
         };
         assert!(foreign_volume.status.success());
         let foreign_volume_start = database.lifecycle().start().await;
-        assert!(
-            matches!(
-                foreign_volume_start,
-                Err(ManagedDatabaseError::ForeignVolume)
-            ),
+        assert_matches!(
+            foreign_volume_start,
+            Err(ManagedDatabaseError::ForeignVolume),
             "unexpected foreign-volume result: {foreign_volume_start:?}"
         );
         assert!(!database.credentials.path().exists());
         let removed_volume = std::process::Command::new("docker")
             .args(["volume", "rm", "--force", &database.identity.volume_name])
             .output();
-        assert!(matches!(removed_volume, Ok(output) if output.status.success()));
+        assert_matches!(removed_volume, Ok(output) if output.status.success());
     }
 
     async fn assert_owned_container_without_data_mount_is_refused(database: &ManagedDatabase) {
@@ -1649,10 +1652,10 @@ mod tests {
             Err(error) => panic!("could not create missing-mount fixture: {error}"),
         };
         assert!(malformed.status.success());
-        assert!(matches!(
+        assert_matches!(
             database.lifecycle().status().await,
             Err(ManagedDatabaseError::InvalidManagedStorageMount)
-        ));
+        );
         assert!(!database.credentials.path().exists());
         let removed = std::process::Command::new("docker")
             .args([
@@ -1663,7 +1666,7 @@ mod tests {
                 &database.identity.container_name,
             ])
             .output();
-        assert!(matches!(removed, Ok(output) if output.status.success()));
+        assert_matches!(removed, Ok(output) if output.status.success());
     }
 
     async fn assert_restarting_container_can_be_stopped(database: &ManagedDatabase) {
@@ -1678,7 +1681,7 @@ mod tests {
                 &database.identity.volume_name,
             ])
             .output();
-        assert!(matches!(volume, Ok(output) if output.status.success()));
+        assert_matches!(volume, Ok(output) if output.status.success());
         let restarting = std::process::Command::new("docker")
             .args([
                 "run",
@@ -1726,7 +1729,7 @@ mod tests {
             std::thread::sleep(RESTART_POLL_INTERVAL);
         }
         assert!(observed_restarting);
-        assert!(matches!(database.lifecycle().stop().await, Ok(true)));
+        assert_matches!(database.lifecycle().stop().await, Ok(true));
         let removed_restarting = std::process::Command::new("docker")
             .args([
                 "container",
@@ -1736,11 +1739,11 @@ mod tests {
                 &database.identity.container_name,
             ])
             .output();
-        assert!(matches!(removed_restarting, Ok(output) if output.status.success()));
+        assert_matches!(removed_restarting, Ok(output) if output.status.success());
         let removed_volume = std::process::Command::new("docker")
             .args(["volume", "rm", "--force", &database.identity.volume_name])
             .output();
-        assert!(matches!(removed_volume, Ok(output) if output.status.success()));
+        assert_matches!(removed_volume, Ok(output) if output.status.success());
     }
 
     async fn assert_normal_lifecycle(database: &ManagedDatabase) {
@@ -1808,7 +1811,7 @@ mod tests {
         let paused = std::process::Command::new("docker")
             .args(["container", "pause", &database.identity.container_name])
             .output();
-        assert!(matches!(paused, Ok(output) if output.status.success()));
+        assert_matches!(paused, Ok(output) if output.status.success());
         let paused_status = match database.lifecycle().status().await {
             Ok(status) => status,
             Err(error) => panic!("paused status failed: {error}"),
@@ -1824,7 +1827,7 @@ mod tests {
         let paused = std::process::Command::new("docker")
             .args(["container", "pause", &database.identity.container_name])
             .output();
-        assert!(matches!(paused, Ok(output) if output.status.success()));
+        assert_matches!(paused, Ok(output) if output.status.success());
 
         let logs = match database.lifecycle().logs(LOG_TAIL_LINES).await {
             Ok(logs) => logs,
@@ -1882,11 +1885,9 @@ mod tests {
             ) {
                 continue;
             }
-            assert!(
-                matches!(
-                    timeout_result,
-                    Err(ManagedDatabaseError::DatabaseStartupTimeout)
-                ),
+            assert_matches!(
+                timeout_result,
+                Err(ManagedDatabaseError::DatabaseStartupTimeout),
                 "unexpected zero-timeout result: {timeout_result:?}"
             );
             let rolled_back = match zero_timeout.lifecycle().status().await {
@@ -1909,18 +1910,16 @@ mod tests {
                 &database.identity.container_name,
             ])
             .output();
-        assert!(matches!(removed_container, Ok(output) if output.status.success()));
+        assert_matches!(removed_container, Ok(output) if output.status.success());
         wait_for_loopback_port_release(database.port).await;
         if let Err(error) = std::fs::remove_file(database.credentials.path()) {
             panic!("could not remove password fixture: {error}");
         }
 
         let missing_credentials = database.lifecycle().start().await;
-        assert!(
-            matches!(
-                missing_credentials,
-                Err(ManagedDatabaseError::CredentialsMissingForVolume)
-            ),
+        assert_matches!(
+            missing_credentials,
+            Err(ManagedDatabaseError::CredentialsMissingForVolume),
             "unexpected missing-credentials result: {missing_credentials:?}"
         );
         let status = match database.lifecycle().status().await {
@@ -1987,11 +1986,9 @@ mod tests {
         };
 
         let occupied_start = database.lifecycle().start().await;
-        assert!(
-            matches!(
-                occupied_start,
-                Err(ManagedDatabaseError::PortUnavailable { port: failed_port }) if failed_port == port
-            ),
+        assert_matches!(
+            occupied_start,
+            Err(ManagedDatabaseError::PortUnavailable { port: failed_port }) if failed_port == port,
             "unexpected occupied-port result: {occupied_start:?}"
         );
         let status = match database.lifecycle().status().await {

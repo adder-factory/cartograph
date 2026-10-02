@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
@@ -152,22 +153,22 @@ fn source_snapshot_enforces_path_language_size_utf8_and_exact_blake3() {
         "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
     );
 
-    assert!(matches!(
+    assert_matches!(
         SourceSnapshot::from_bytes("../escape.ts", b"abc", limits),
         Err(SnapshotError::InvalidPath)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         SourceSnapshot::from_bytes("src/image.png", b"abc", limits),
         Err(SnapshotError::UnsupportedLanguage)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         SourceSnapshot::from_bytes("src/large.ts", &[0; 65], limits),
         Err(SnapshotError::SourceTooLarge)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         SourceSnapshot::from_bytes("src/bad.ts", &[0xff], limits),
         Err(SnapshotError::InvalidUtf8)
-    ));
+    );
     assert_eq!(
         snapshot(
             "src/view.tsx",
@@ -656,10 +657,7 @@ fn adversarial_qualified_names_stop_at_the_modeled_output_limit() {
     let snapshot = snapshot("src/adversarial.ts", source.as_bytes(), limits(1024 * 1024));
     let mut extractor = native(SourceLanguage::TypeScript);
 
-    assert!(matches!(
-        extractor.extract(&snapshot),
-        Err(ExtractError::OutputLimit)
-    ));
+    assert_matches!(extractor.extract(&snapshot), Err(ExtractError::OutputLimit));
 }
 
 #[test]
@@ -672,10 +670,7 @@ fn one_oversized_fact_string_stops_before_copying_the_reference() {
     );
     let mut extractor = native(SourceLanguage::TypeScript);
 
-    assert!(matches!(
-        extractor.extract(&snapshot),
-        Err(ExtractError::OutputLimit)
-    ));
+    assert_matches!(extractor.extract(&snapshot), Err(ExtractError::OutputLimit));
 }
 
 #[test]
@@ -686,10 +681,10 @@ fn cancellation_and_recoverable_syntax_damage_are_explicit() {
         limits(1024 * 1024),
     );
     let mut extractor = native(SourceLanguage::TypeScript);
-    assert!(matches!(
+    assert_matches!(
         extractor.extract_with_cancellation(&snapshot, || true),
         Err(ExtractError::Cancelled)
-    ));
+    );
 
     let damaged = extract(
         "src/damaged.ts",

@@ -642,6 +642,8 @@ fn normalize_uuid(raw: &str) -> Result<String, InvalidId> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::{
         BLAKE3_BYTE_LENGTH, BLAKE3_HEX_LENGTH, ContentDigest, DocumentKind, EdgeKind, FileId,
         FileParseStatus, GenerationDigestVersion, GenerationId, GenerationState, LeaseId,
@@ -799,7 +801,7 @@ mod tests {
     fn generation_digests_canonicalize_but_reject_malformed_content() {
         let uppercase = "A".repeat(BLAKE3_HEX_LENGTH);
         let digest = ContentDigest::parse(&uppercase);
-        assert!(matches!(digest, Ok(value) if value.as_str() == "a".repeat(BLAKE3_HEX_LENGTH)));
+        assert_matches!(digest, Ok(value) if value.as_str() == "a".repeat(BLAKE3_HEX_LENGTH));
         assert!(ContentDigest::parse("abc").is_err());
         assert!(ContentDigest::parse(&"z".repeat(BLAKE3_HEX_LENGTH)).is_err());
         assert_eq!(

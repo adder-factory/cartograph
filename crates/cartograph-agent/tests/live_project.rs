@@ -16,6 +16,7 @@ mod scip_spill;
 #[path = "live_project/architecture_workload.rs"]
 mod architecture_workload;
 
+use std::assert_matches;
 use std::{
     env,
     fmt::Write as _,
@@ -119,16 +120,16 @@ async fn blocked_latest_migration_reports_exact_older_schema_versions() {
     let connection_result = ProjectRuntime::connect(project.path(), &blocked_settings).await;
     let expected_required = latest_schema_version();
     let expected_database = expected_required - 1;
-    assert!(matches!(
-        connection_result,
-        Err(ProjectError::SchemaMigrationBlocked {
+    assert_matches!(
+        connection_result.err(),
+        Some(ProjectError::SchemaMigrationBlocked {
             database_schema_version,
             required_schema_version,
             pending_migration_version,
         }) if database_schema_version == expected_database
             && required_schema_version == expected_required
             && pending_migration_version == expected_required
-    ));
+    );
 
     lock_transaction
         .rollback()
@@ -279,13 +280,13 @@ async fn automatic_capacity_failure_cleans_its_terminal_generation() {
             .await
             .unwrap_or_else(|error| panic!("capacity runtime connect failed: {error}"));
         let indexed = runtime.index(IndexOptions::automatic()).await;
-        assert!(matches!(
+        assert_matches!(
             indexed,
             Err(ProjectError::IndexStageFailedWithReason {
                 reason: PipelineFailureReason::GenerationCapacityExceeded,
                 ..
             })
-        ));
+        );
         let status = runtime
             .status()
             .await
@@ -629,11 +630,11 @@ async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention()
             .await
             .unwrap_or_else(|error| panic!("multi-runtime recovery index failed: {error}"));
         assert!(published.published);
-        assert!(matches!(
+        assert_matches!(
             published.retention,
             GenerationRetentionStatus::Completed { report, .. }
                 if report.failed_removed == 4 && report.staging_remaining == 0
-        ));
+        );
         let status = coordinator
             .status()
             .await
@@ -958,8 +959,9 @@ async fn unchanged_index_terminalizes_all_abandoned_staging_generations() {
             .generation_state(&first.project_id, abandoned.generation_id())
             .await
             .unwrap_or_else(|error| panic!("staging recovery state failed: {error}"));
-        assert!(
-            matches!(recovered_state, None | Some(GenerationState::Failed)),
+        assert_matches!(
+            recovered_state,
+            None | Some(GenerationState::Failed),
             "abandoned generation remained nonterminal: {recovered_state:?}"
         );
         runtime.close().await;
@@ -1135,13 +1137,13 @@ async fn assert_incremental_contract_upgrade(
         .await
         .unwrap_or_else(|error| panic!("upgraded-contract status failed: {error}"));
     assert!(status.fresh);
-    assert!(matches!(
+    assert_matches!(
         status
             .snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.current.as_ref()),
         Some(current) if current.digest_version == GenerationDigestVersion::CURRENT
-    ));
+    );
     assert_eq!(first.source_revision, upgraded.source_revision);
     assert_ne!(first.generation_id, upgraded.generation_id);
     let unchanged = runtime
@@ -1925,12 +1927,12 @@ async fn assert_semantic_model_selection(
                 .unwrap_or_else(|error| panic!("ambiguous similar request failed: {error}")),
         )
         .await;
-    assert!(matches!(
+    assert_matches!(
         ambiguous,
         Err(RetrievalError::Semantic(
             SemanticStorageError::AmbiguousActiveModels
         ))
-    ));
+    );
     let selected = retriever
         .similar(
             &SimilarRequest::new(first.project_id.clone(), symbol_id.clone(), 2)

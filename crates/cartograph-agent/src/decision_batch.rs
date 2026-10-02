@@ -146,6 +146,7 @@ pub(crate) fn truncated(text: &str, limit: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::sync::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -323,10 +324,7 @@ mod tests {
         let rejected = Provider::failing(vec![(1, JevError::BackendRejected, 2)]);
         let outcomes = decide_batches(&rejected, echo(&items, 1)).await;
         assert_eq!(outcomes.stopped, None);
-        assert!(matches!(
-            outcomes.batches[1].1,
-            Err(JevError::BackendRejected)
-        ));
+        assert_matches!(outcomes.batches[1].1, Err(JevError::BackendRejected));
         assert_eq!(answers(&outcomes)[2], Some(0.02));
     }
 

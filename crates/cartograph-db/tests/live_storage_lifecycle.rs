@@ -10,6 +10,7 @@ mod retention_progress;
 #[path = "live_storage_lifecycle/statistics.rs"]
 mod statistics;
 
+use std::assert_matches;
 use std::{env, process, time::Duration};
 
 use cartograph_config::DatabaseSettings;
@@ -223,7 +224,7 @@ async fn assert_heap_storage_compaction(
                     LEASE_DURATION,
                 ))
                 .await;
-            assert!(matches!(attempted, Err(LeaseError::Busy)));
+            assert_matches!(attempted, Err(LeaseError::Busy));
         })
         .await
         .unwrap_or_else(|error| panic!("heap compaction apply failed: {error}"));
@@ -792,12 +793,12 @@ async fn assert_cascade_row_limit_is_exact(
             STATEMENT_TIMEOUT,
         ))
         .await;
-    assert!(matches!(
+    assert_matches!(
         drift,
         Err(cartograph_db::GenerationRetentionError::DatabaseOperation {
             operation: "cascade-catalog-mismatch"
         })
-    ));
+    );
     query(AssertSqlSafe(format!(
         r#"DROP TABLE "{schema}"."storage_unknown_generation_child""#
     )))
@@ -935,12 +936,12 @@ async fn assert_cross_schema_preservation(
             STATEMENT_TIMEOUT,
         ))
         .await;
-    assert!(matches!(
+    assert_matches!(
         rejected,
         Err(cartograph_db::GenerationRetentionError::DatabaseOperation {
             operation: "cascade-catalog-mismatch"
         })
-    ));
+    );
     let preserved = query(AssertSqlSafe(format!(
         r#"SELECT
                 EXISTS (

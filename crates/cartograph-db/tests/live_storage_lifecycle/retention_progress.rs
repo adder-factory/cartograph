@@ -398,8 +398,9 @@ async fn finish_retirement(
             LEASE_DURATION,
         ))
         .await;
-    assert!(
-        matches!(blocked, Err(LeaseError::Busy)),
+    assert_matches!(
+        blocked,
+        Err(LeaseError::Busy),
         "a retired generation admitted a writer"
     );
     query(AssertSqlSafe(format!(

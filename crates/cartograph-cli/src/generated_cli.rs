@@ -1822,6 +1822,8 @@ fn render_quiet_affected(result: &ToolResult) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     const ASK_ENDPOINT: &str = "http://127.0.0.1:8082";
@@ -2181,7 +2183,7 @@ mod tests {
         assert_eq!(find.render_mode, CliRenderMode::FindText);
         assert_eq!(find.arguments["compact"], true);
         assert!(!find.arguments.contains_key("format"));
-        assert!(matches!(
+        assert_matches!(
             parse_from([
                 "cartograph",
                 "find",
@@ -2190,9 +2192,10 @@ mod tests {
                 "name",
                 "--format",
                 "yaml",
-            ]),
-            Err(ParseFailure::Clap(_))
-        ));
+            ])
+            .err(),
+            Some(ParseFailure::Clap(_))
+        );
     }
 
     #[test]

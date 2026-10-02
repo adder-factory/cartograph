@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, process,
@@ -1191,7 +1192,7 @@ async fn assert_summary_digest_fence(
         .unwrap_or_else(|error| panic!("could not refresh pending summaries: {error}"));
     assert_eq!(after.len() + 1, fixture.pending_count);
     let stale_digest = digest("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-    assert!(matches!(
+    assert_matches!(
         database
             .save_symbol_summary(
                 SymbolSummarySaveInput::new(project, &fixture.symbol_id, &stale_digest)
@@ -1200,7 +1201,7 @@ async fn assert_summary_digest_fence(
             )
             .await,
         Err(StorageError::CurrentGenerationChanged)
-    ));
+    );
 }
 #[tokio::test]
 #[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
@@ -1449,10 +1450,10 @@ async fn assert_post_prune_state(
         .await
         .unwrap_or_else(|error| panic!("could not read post-prune notes: {error}"));
     assert_eq!(notes.len(), 1);
-    assert!(matches!(
+    assert_matches!(
         database.current_generation_record(project).await,
         Ok(Some(current)) if current.generation_id() == current_generation
-    ));
+    );
     let old_vectors = query(AssertSqlSafe(format!(
         r#"SELECT count(*)::bigint FROM "{schema}"."document_embeddings"
             WHERE project_id = CAST($1 AS uuid) AND generation_id = CAST($2 AS uuid)"#
@@ -1841,13 +1842,11 @@ async fn failed_generation_search_build_never_reaches_ready_or_publication() {
         .await;
     let staged = match result {
         Err(error) => {
-            assert!(
-                matches!(
-                    error.error(),
-                    StorageError::DatabaseOperation {
-                        operation: "search-relation-drop"
-                    }
-                ),
+            assert_matches!(
+                error.error(),
+                StorageError::DatabaseOperation {
+                    operation: "search-relation-drop"
+                },
                 "blocked search-relation build returned an unexpected error: {:?}",
                 error.error()
             );
@@ -1964,7 +1963,7 @@ async fn stale_fences_cannot_prepare_or_publish_after_exact_token_takeover() {
         Err(error) => panic!("current publish fence failed: {error}"),
     };
     assert_eq!(current.generation_id(), &generation_id);
-    assert!(matches!(database.lease_status(&target).await, Ok(None)));
+    assert_matches!(database.lease_status(&target).await, Ok(None));
 
     drop(database);
     drop_schema(&pool, &schema).await;
@@ -2055,11 +2054,11 @@ async fn concurrent_prepare_and_cleanup_share_one_pre_copy_lock_order() {
     });
     assert!(prepare.is_ok());
     assert!(cleanup.is_ok());
-    assert!(matches!(
+    assert_matches!(
         database.generation_state(&project, &generation_id).await,
         Ok(Some(GenerationState::Failed))
-    ));
-    assert!(matches!(database.lease_status(&target).await, Ok(None)));
+    );
+    assert_matches!(database.lease_status(&target).await, Ok(None));
 
     drop(barrier);
     drop(database);
@@ -2294,10 +2293,10 @@ async fn assert_publish_retention_lock_order(
         Ok(publish) => publish,
         Err(error) => panic!("stale publication task failed: {error}"),
     };
-    assert!(matches!(
+    assert_matches!(
         publish,
         Err(error) if *error.error() == StorageError::LeaseFenceLost
-    ));
+    );
     joined
         .1
         .unwrap_or_else(|error| panic!("post-index retention task failed: {error}"))
@@ -2711,12 +2710,12 @@ async fn assert_migration_ledger(database: &CartographDatabase) {
     };
     assert_eq!(first.applied_versions, EXPECTED_MIGRATIONS);
     assert_eq!(first.current_version, LATEST_MIGRATION_VERSION);
-    assert!(matches!(
+    assert_matches!(
         database.migrate().await,
         Ok(report)
             if report.applied_versions.is_empty()
                 && report.current_version == LATEST_MIGRATION_VERSION
-    ));
+    );
 }
 
 async fn register_project(database: &CartographDatabase) -> ProjectId {
@@ -2755,10 +2754,7 @@ async fn publish_initial_generation(
         },
     )
     .await;
-    assert!(matches!(
-        database.current_generation_record(project).await,
-        Ok(None)
-    ));
+    assert_matches!(database.current_generation_record(project).await, Ok(None));
     let current = match publish_fenced(database, ready).await {
         Ok(generation) => generation,
         Err(error) => panic!("first generation did not publish: {error}"),
@@ -2878,14 +2874,14 @@ async fn prepare_rollback_retry(
         documents: vec![duplicate.clone(), conflicting],
         ..GenerationFacts::default()
     });
-    assert!(matches!(
-        invalid,
-        Err(GenerationValidationError::Storage(
+    assert_matches!(
+        invalid.err(),
+        Some(GenerationValidationError::Storage(
             StorageError::InvalidInput {
                 field: "duplicate_document_id"
             }
         ))
-    ));
+    );
     assert_state(
         database,
         StateExpectation::new(project, &generation_id, GenerationState::Staging),
@@ -3213,10 +3209,10 @@ async fn assert_deterministic_retrieval(
     generation_id: &GenerationId,
 ) {
     let generation = database.current_generation_record(project).await;
-    assert!(matches!(
+    assert_matches!(
         generation,
         Ok(Some(generation)) if generation.generation_id() == generation_id
-    ));
+    );
     let path = NormalizedPath::parse("src/json_decoder.rs")
         .unwrap_or_else(|error| panic!("retrieval path fixture is invalid: {error}"));
     assert_current_file_retrieval(database, project, generation_id, &path).await;
@@ -3245,7 +3241,7 @@ async fn assert_current_numerical_retrieval(
     assert_eq!(page.generation_id(), generation_id);
     assert_eq!(page.total(), 1);
     assert!(!page.truncated());
-    assert!(matches!(
+    assert_matches!(
         page.sites(),
         [site]
             if site.numerical_site_id().as_str() == RETRIEVAL_NUMERICAL_SITE
@@ -3256,7 +3252,7 @@ async fn assert_current_numerical_retrieval(
                 && site.precision() == "f64"
                 && site.evidence_level() == "heuristic"
                 && site.unknowns() == ["relative_scale", "input_range"]
-    ));
+    );
 
     let stats = database
         .current_numerical_site_stats(CurrentGenerationLookup::new(project, generation_id))
@@ -3280,10 +3276,10 @@ async fn assert_current_file_retrieval(
     let file = database
         .exact_current_file_by_path(CurrentFileLookup::new(project, generation_id, path))
         .await;
-    assert!(matches!(
+    assert_matches!(
         file,
         Ok(Some(file)) if file.file_id().as_str() == RETRIEVAL_FILE
-    ));
+    );
 
     let directory = NormalizedPath::parse("src")
         .unwrap_or_else(|error| panic!("retrieval directory fixture is invalid: {error}"));
@@ -3294,12 +3290,12 @@ async fn assert_current_file_retrieval(
                 .with_language(cartograph_domain::SourceLanguage::Rust),
         )
         .await;
-    assert!(matches!(
+    assert_matches!(
         files,
         Ok(files)
             if files.len() == 1
                 && files[0].path().as_str() == "src/json_decoder.rs"
-    ));
+    );
 }
 
 async fn assert_current_symbol_retrieval(
@@ -3315,7 +3311,7 @@ async fn assert_current_symbol_retrieval(
             SEARCH_LIMIT,
         ))
         .await;
-    assert!(matches!(
+    assert_matches!(
         symbols_at_range,
         Ok(symbols)
             if symbols.len() == 1
@@ -3323,7 +3319,7 @@ async fn assert_current_symbol_retrieval(
                 && symbols[0].visibility() == Some(Visibility::Private)
                 && symbols[0].async_symbol()
                 && !symbols[0].exported()
-    ));
+    );
 
     let named = database
         .exact_current_symbols_by_name(ExactTextLookup::new(
@@ -3332,7 +3328,7 @@ async fn assert_current_symbol_retrieval(
             SEARCH_LIMIT,
         ))
         .await;
-    assert!(matches!(
+    assert_matches!(
         named,
         Ok(symbols)
             if symbols.len() == 1
@@ -3342,7 +3338,7 @@ async fn assert_current_symbol_retrieval(
                 && !symbols[0].default_export()
                 && !symbols[0].static_member()
                 && !symbols[0].declaration_only()
-    ));
+    );
 
     let references = database
         .exact_current_references_by_name(ExactTextLookup::new(
@@ -3351,13 +3347,13 @@ async fn assert_current_symbol_retrieval(
             SEARCH_LIMIT,
         ))
         .await;
-    assert!(matches!(
+    assert_matches!(
         references,
         Ok(references)
             if references.len() == 1
                 && references[0].target_symbol_id().map(SymbolId::as_str)
                     == Some(RETRIEVAL_TARGET)
-    ));
+    );
 
     let target_id = parse_symbol_id(RETRIEVAL_TARGET);
     let caller_id = parse_symbol_id(RETRIEVAL_CALLER);
@@ -3371,13 +3367,13 @@ async fn assert_current_symbol_retrieval(
             .with_limit(SEARCH_LIMIT),
         )
         .await;
-    assert!(matches!(
+    assert_matches!(
         incoming,
         Ok(edges)
             if edges.len() == 1
                 && edges[0].source_symbol_id() == &caller_id
                 && edges[0].target_symbol_id() == &target_id
-    ));
+    );
     let hydrated = database
         .current_symbols_by_ids(CurrentSymbolSetLookup::new(
             project,
@@ -3385,7 +3381,7 @@ async fn assert_current_symbol_retrieval(
             &[caller_id, target_id],
         ))
         .await;
-    assert!(matches!(hydrated, Ok(symbols) if symbols.len() == 2));
+    assert_matches!(hydrated, Ok(symbols) if symbols.len() == 2);
 }
 
 async fn assert_interactive_reads_timeout_and_pool_recovers(
@@ -3407,12 +3403,12 @@ async fn assert_interactive_reads_timeout_and_pool_recovers(
     let generation = database
         .current_generation_record_bounded(project, INTERACTIVE_STALL_TIMEOUT)
         .await;
-    assert!(matches!(
+    assert_matches!(
         generation,
         Err(StorageError::DatabaseOperation {
             operation: "current-generation-read"
         })
-    ));
+    );
     let search = database
         .search_current_code_bounded(
             SearchQuery::new(
@@ -3423,21 +3419,21 @@ async fn assert_interactive_reads_timeout_and_pool_recovers(
             INTERACTIVE_STALL_TIMEOUT,
         )
         .await;
-    assert!(matches!(
+    assert_matches!(
         search,
         Err(StorageError::DatabaseOperation {
             operation: "expected-generation-read"
         })
-    ));
+    );
     if let Err(error) = blocker.rollback().await {
         panic!("could not release interactive-read blocker: {error}");
     }
 
-    assert!(matches!(
+    assert_matches!(
         database.current_generation_record(project).await,
         Ok(Some(_))
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         database
             .search_current_code(SearchQuery::new(
                 CurrentGenerationLookup::new(project, generation_id),
@@ -3446,16 +3442,13 @@ async fn assert_interactive_reads_timeout_and_pool_recovers(
             ))
             .await,
         Ok(hits) if hits.len() == 1
-    ));
+    );
 }
 
 async fn reject_stale_publication(database: &CartographDatabase, ready: ReadyGeneration) {
     let ready = match publish_fenced(database, ready).await {
         Err(error) => {
-            assert!(matches!(
-                error.error(),
-                StorageError::StaleGeneration { .. }
-            ));
+            assert_matches!(error.error(), StorageError::StaleGeneration { .. });
             error.into_parts().0
         }
         Ok(_) => panic!("older ready generation replaced a newer current generation"),
@@ -3520,14 +3513,14 @@ async fn assert_validation_token_return(database: &CartographDatabase, project: 
         documents: vec![invalid],
         ..GenerationFacts::default()
     });
-    assert!(matches!(
-        invalid,
-        Err(GenerationValidationError::Storage(
+    assert_matches!(
+        invalid.err(),
+        Some(GenerationValidationError::Storage(
             StorageError::InvalidInput {
                 field: "searchable_text"
             }
         ))
-    ));
+    );
     assert!(
         fail_fenced(database, RecoverableGeneration::Staged(staged))
             .await
@@ -3713,12 +3706,12 @@ async fn assert_ledger_tampering_is_refused(
     schema: &str,
 ) {
     tamper_migration_checksum(pool, schema).await;
-    assert!(matches!(
+    assert_matches!(
         database.migrate().await,
         Err(MigrationError::LedgerConflict {
             version: INITIAL_MIGRATION_VERSION
         })
-    ));
+    );
 }
 
 struct GuardedSchema {

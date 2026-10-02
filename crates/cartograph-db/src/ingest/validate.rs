@@ -1205,6 +1205,8 @@ const fn invalid(field: &'static str) -> StorageError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use cartograph_domain::{
         ContentDigest, DocumentId, DocumentKind, FileParseStatus, NumericalSiteId,
@@ -1357,10 +1359,10 @@ mod tests {
             files: vec![base.clone(), equal],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Ok(facts) if facts.tables.files.len() == 1
-        ));
+        assert_matches!(
+            validate_and_reduce(facts).map(|facts| facts.tables.files.len()),
+            Ok(1)
+        );
 
         let mut conflicting = base.clone();
         conflicting.normalized_path = "src/other.rs".to_owned();
@@ -1368,12 +1370,12 @@ mod tests {
             files: vec![base, conflicting],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "duplicate_file_id"
             })
-        ));
+        );
     }
 
     #[test]
@@ -1383,12 +1385,12 @@ mod tests {
             documents: vec![document.clone()],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(missing_file),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(missing_file).err(),
+            Some(StorageError::InvalidInput {
                 field: "document_file_id"
             })
-        ));
+        );
 
         let facts = GenerationFacts {
             files: vec![file()],
@@ -1414,12 +1416,12 @@ mod tests {
             symbols: vec![outside_symbol],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "symbol_byte_span"
             })
-        ));
+        );
 
         let facts = GenerationFacts {
             files: vec![file()],
@@ -1429,12 +1431,12 @@ mod tests {
             }],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "reference_byte_span"
             })
-        ));
+        );
     }
 
     #[test]
@@ -1454,19 +1456,19 @@ mod tests {
         };
 
         assert!(validate("x".repeat(MAX_REFERENCE_NAME_BYTES)).is_ok());
-        assert!(matches!(
-            validate("x".repeat(MAX_REFERENCE_NAME_BYTES + 1)),
-            Err(GenerationValidationError::ReferenceNameTooLong)
-        ));
+        assert_matches!(
+            validate("x".repeat(MAX_REFERENCE_NAME_BYTES + 1)).err(),
+            Some(GenerationValidationError::ReferenceNameTooLong)
+        );
         for invalid_name in [String::new(), "valid\0name".to_owned()] {
-            assert!(matches!(
-                validate(invalid_name),
-                Err(GenerationValidationError::Storage(
+            assert_matches!(
+                validate(invalid_name).err(),
+                Some(GenerationValidationError::Storage(
                     StorageError::InvalidInput {
                         field: "reference_name"
                     }
                 ))
-            ));
+            );
         }
     }
 
@@ -1479,12 +1481,12 @@ mod tests {
             symbols: vec![symbol()],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "symbol_file_parse_status"
             })
-        ));
+        );
 
         let mut skipped = file();
         skipped.parse_status = FileParseStatus::Skipped;
@@ -1493,12 +1495,12 @@ mod tests {
             references: vec![reference()],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "reference_file_parse_status"
             })
-        ));
+        );
 
         let mut partial = file();
         partial.parse_status = FileParseStatus::Partial;
@@ -1545,31 +1547,33 @@ mod tests {
 
         let mut outside_owner = symbol();
         outside_owner.start_byte = 2;
-        assert!(matches!(
+        assert_matches!(
             validate_and_reduce(GenerationFacts {
                 files: vec![file()],
                 symbols: vec![outside_owner],
                 numerical_sites: vec![site.clone()],
                 ..GenerationFacts::default()
-            }),
-            Err(StorageError::InvalidInput {
+            })
+            .err(),
+            Some(StorageError::InvalidInput {
                 field: "numerical_site_owner_span"
             })
-        ));
+        );
 
         let mut invalid_unknowns = site;
         invalid_unknowns.unknowns = "operand_precision,".to_owned();
-        assert!(matches!(
+        assert_matches!(
             validate_and_reduce(GenerationFacts {
                 files: vec![file()],
                 symbols: vec![symbol()],
                 numerical_sites: vec![invalid_unknowns],
                 ..GenerationFacts::default()
-            }),
-            Err(StorageError::InvalidInput {
+            })
+            .err(),
+            Some(StorageError::InvalidInput {
                 field: "numerical_site"
             })
-        ));
+        );
     }
 
     #[test]
@@ -1585,7 +1589,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("legacy fact mapping was rejected: {error}"));
         assert_eq!(legacy.digest_version(), GenerationDigestVersion::V6);
 
-        assert!(matches!(
+        assert_matches!(
             validate_generation_facts_for_v1_import(
                 GenerationFacts {
                     files: vec![file()],
@@ -1595,13 +1599,14 @@ mod tests {
                 },
                 validation_limits(),
                 || false,
-            ),
-            Err(GenerationValidationError::Storage(
+            )
+            .err(),
+            Some(GenerationValidationError::Storage(
                 StorageError::InvalidInput {
                     field: "v1_import_numerical_sites"
                 }
             ))
-        ));
+        );
     }
 
     #[test]
@@ -1613,12 +1618,12 @@ mod tests {
             documents: vec![wrong_path],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "document_path"
             })
-        ));
+        );
 
         let mut symbol_document = document();
         symbol_document.file_id = None;
@@ -1630,42 +1635,42 @@ mod tests {
             documents: vec![symbol_document],
             ..GenerationFacts::default()
         };
-        assert!(matches!(
-            validate_and_reduce(facts),
-            Err(StorageError::InvalidInput {
+        assert_matches!(
+            validate_and_reduce(facts).err(),
+            Some(StorageError::InvalidInput {
                 field: "document_language"
             })
-        ));
+        );
     }
 
     #[test]
     fn search_document_validation_preserves_bounded_searchable_contract() {
         let mut non_object = document();
         non_object.metadata = serde_json::json!(["not", "an", "object"]);
-        assert!(matches!(
+        assert_matches!(
             validate_test_document(non_object),
             Err(GenerationValidationError::Storage(
                 StorageError::InvalidInput { field: "metadata" }
             ))
-        ));
+        );
 
         let mut unbounded = document();
         unbounded.code = "x".repeat(MAX_CODE_BYTES + 1);
-        assert!(matches!(
+        assert_matches!(
             validate_test_document(unbounded),
             Err(GenerationValidationError::Storage(
                 StorageError::InvalidInput { field: "code" }
             ))
-        ));
+        );
 
         let mut oversized_metadata = document();
         oversized_metadata.metadata = serde_json::json!({"large": "x".repeat(MAX_METADATA_BYTES)});
-        assert!(matches!(
+        assert_matches!(
             validate_test_document(oversized_metadata),
             Err(GenerationValidationError::Storage(
                 StorageError::InvalidInput { field: "metadata" }
             ))
-        ));
+        );
 
         let mut wide = serde_json::Map::new();
         let excessive_entries = MAX_METADATA_BYTES / MIN_CANONICAL_OBJECT_ENTRY_BYTES + 1;
@@ -1674,23 +1679,23 @@ mod tests {
         }
         let mut wide_metadata = document();
         wide_metadata.metadata = Value::Object(wide);
-        assert!(matches!(
+        assert_matches!(
             validate_test_document(wide_metadata),
             Err(GenerationValidationError::Storage(
                 StorageError::InvalidInput { field: "metadata" }
             ))
-        ));
+        );
 
         let mut empty = document();
         empty.code.clear();
-        assert!(matches!(
+        assert_matches!(
             validate_test_document(empty),
             Err(GenerationValidationError::Storage(
                 StorageError::InvalidInput {
                     field: "searchable_text"
                 }
             ))
-        ));
+        );
     }
 
     #[test]
@@ -1736,7 +1741,7 @@ mod tests {
             polls.set(next);
             next >= MODEL_SCAN_CANCELLATION_POLLS
         });
-        assert!(matches!(result, Err(GenerationValidationError::Cancelled)));
+        assert_matches!(result.err(), Some(GenerationValidationError::Cancelled));
         assert_eq!(polls.get(), MODEL_SCAN_CANCELLATION_POLLS);
     }
 
@@ -1752,10 +1757,10 @@ mod tests {
             collection_polls.set(next);
             next >= RELATION_CANCELLATION_POLLS
         });
-        assert!(matches!(
+        assert_matches!(
             collect_values(values, &mut collection_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
         assert_eq!(collection_polls.get(), RELATION_CANCELLATION_POLLS);
 
         let files = (u8::MIN..RELATION_FILE_COUNT)
@@ -1783,10 +1788,10 @@ mod tests {
             relation_polls.set(next);
             next >= RELATION_CANCELLATION_POLLS
         });
-        assert!(matches!(
+        assert_matches!(
             validate_relations(&tables, &mut relation_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
         assert_eq!(relation_polls.get(), RELATION_CANCELLATION_POLLS);
     }
 
@@ -1799,19 +1804,19 @@ mod tests {
         .unwrap_or_else(|error| panic!("test validation limits were invalid: {error}"));
 
         let mut files_control = ValidationControl::new(limits, || true);
-        assert!(matches!(
+        assert_matches!(
             reduce_files(vec![file()], &mut files_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
 
         let mut symbols_control = ValidationControl::new(limits, || true);
-        assert!(matches!(
+        assert_matches!(
             reduce_symbols(vec![symbol()], &mut symbols_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
 
         let mut edges_control = ValidationControl::new(limits, || true);
-        assert!(matches!(
+        assert_matches!(
             reduce_edges(
                 vec![EdgeInput {
                     source_symbol_id: symbol_id(),
@@ -1824,25 +1829,25 @@ mod tests {
                 &mut edges_control,
             ),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
 
         let mut references_control = ValidationControl::new(limits, || true);
-        assert!(matches!(
+        assert_matches!(
             reduce_references(vec![reference()], &mut references_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
 
         let mut numerical_control = ValidationControl::new(limits, || true);
-        assert!(matches!(
+        assert_matches!(
             reduce_numerical_sites(vec![numerical_site()], &mut numerical_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
 
         let mut documents_control = ValidationControl::new(limits, || true);
-        assert!(matches!(
+        assert_matches!(
             reduce_documents(vec![document()], &mut documents_control),
             Err(GenerationValidationError::Cancelled)
-        ));
+        );
     }
 
     #[test]

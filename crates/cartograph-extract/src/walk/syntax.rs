@@ -3038,6 +3038,7 @@ fn text_for<'source>(source: &'source str, node: Node<'_>) -> &'source str {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::fmt::Write as _;
 
     use tree_sitter::Parser;
@@ -3077,7 +3078,7 @@ mod tests {
             polls > FLAT_CANCEL_AFTER_POLLS
         });
 
-        assert!(matches!(result, Err(ExtractError::Cancelled)));
+        assert_matches!(result, Err(ExtractError::Cancelled));
         assert_eq!(polls, FLAT_EXPECTED_POLLS);
     }
 
@@ -3098,7 +3099,7 @@ mod tests {
             polls > LARGE_CANCEL_AFTER_POLLS
         });
 
-        assert!(matches!(result, Err(ExtractError::Cancelled)));
+        assert_matches!(result, Err(ExtractError::Cancelled));
         assert_eq!(polls, LARGE_EXPECTED_POLLS);
     }
 

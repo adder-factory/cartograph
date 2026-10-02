@@ -25281,6 +25281,7 @@ fn safe_error(code: ToolErrorCode, message: impl Into<String>) -> ToolError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::{
         env,
         fmt::Write as _,
@@ -28100,11 +28101,11 @@ app.get('/orders', forward);
         assert!(!cached.source_changed());
         let cancelled = ProjectCancellation::new();
         cancelled.cancel();
-        assert!(matches!(
+        assert_matches!(
             cartograph_agent::run_structural_summary_sweep(runtime.clone(), policy, cancelled)
                 .await,
             Err(ProjectError::RequestCancelled)
-        ));
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -29338,7 +29339,7 @@ pub fn target(value: u32) -> u32 {
                 "similar_to"
             ])
         );
-        assert!(matches!(parse_edge_kind("calls"), Ok(EdgeKind::Calls)));
+        assert_matches!(parse_edge_kind("calls"), Ok(EdgeKind::Calls));
         assert!(parse_edge_kind("similar_to").is_err());
         assert_eq!(graph["inputSchema"]["properties"]["minScore"]["maximum"], 1);
         for mode in ["auto", "bm25", "hybrid"] {
@@ -29347,7 +29348,7 @@ pub fn target(value: u32) -> u32 {
         for mode in ["name", "path", "reference"] {
             assert_eq!(find_query_maximum_bytes(mode), CONTEXT_ANCHOR_MAXIMUM_BYTES);
         }
-        assert!(matches!(parse_search_mode("auto"), Ok(SearchMode::Auto)));
+        assert_matches!(parse_search_mode("auto"), Ok(SearchMode::Auto));
         assert!(parse_search_mode("semantic-only").is_err());
 
         let exact = Map::from_iter([(
@@ -29671,7 +29672,7 @@ pub fn target(value: u32) -> u32 {
             .unwrap_or_else(|_| panic!("cancelled maintenance operation did not stop"))
             .unwrap_or_else(|error| panic!("maintenance cancellation task failed: {error}"));
 
-        assert!(matches!(result, Err(ProjectError::RequestCancelled)));
+        assert_matches!(result, Err(ProjectError::RequestCancelled));
         assert!(dropped.load(Ordering::SeqCst));
     }
 
@@ -30065,10 +30066,10 @@ pub fn target(value: u32) -> u32 {
         )
         .await;
         let low_token_find_evidence = &low_token_find["structuredContent"]["evidence"];
-        assert!(matches!(
+        assert_matches!(
             low_token_find_evidence["execution"].as_str(),
             Some("lexical" | "hybrid")
-        ));
+        );
         assert!(
             low_token_find_evidence["items"]
                 .as_array()
@@ -31212,11 +31213,9 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
                 if view.status == expected {
                     return view;
                 }
-                assert!(
-                    matches!(
-                        view.status,
-                        AdminJobStatus::Running | AdminJobStatus::Cancelling
-                    ),
+                assert_matches!(
+                    view.status,
+                    AdminJobStatus::Running | AdminJobStatus::Cancelling,
                     "admin job reached unexpected terminal state: expected {expected:?}, got {:?} ({:?})",
                     view.status,
                     view.failure

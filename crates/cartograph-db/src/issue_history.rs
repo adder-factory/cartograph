@@ -938,6 +938,8 @@ const fn database_error(operation: &'static str) -> IssueHistoryError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     #[test]
@@ -975,7 +977,7 @@ mod tests {
 
     #[test]
     fn refresh_request_rejects_skip_counts_larger_than_tagged_history() {
-        assert!(matches!(
+        assert_matches!(
             IssueHistoryRefreshMetadata::new(IssueHistoryRefreshMetadataInput {
                 head_commit: "a".repeat(40),
                 commits_scanned: 1,
@@ -985,6 +987,6 @@ mod tests {
                 truncated: false,
             }),
             Err(IssueHistoryError::InvalidInput)
-        ));
+        );
     }
 }

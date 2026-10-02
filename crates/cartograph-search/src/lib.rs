@@ -80,6 +80,8 @@ fn fixture_retrieval() -> HybridSearchPacket {
 
 #[cfg(test)]
 mod contract_tests {
+    use std::assert_matches;
+
     use cartograph_domain::{DocumentKind, NormalizedPath, ProjectId, SourceLanguage, SymbolId};
 
     use super::*;
@@ -575,14 +577,14 @@ mod contract_tests {
             vec![(1, f64::NAN)],
             vec![(1, 1.5)],
         ] {
-            assert!(matches!(
+            assert_matches!(
                 packet
                     .clone()
                     .with_decision_relevance("explain the lookup", &invalid),
                 Err(RetrievalError::InvalidInput {
                     field: "decision_relevance"
                 })
-            ));
+            );
         }
     }
 

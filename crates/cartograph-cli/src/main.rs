@@ -5825,6 +5825,8 @@ fn render_doctor_report(report: &DoctorReport) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use clap::Parser;
 
@@ -6681,18 +6683,18 @@ mod tests {
                 assert_eq!(exclude, [] as [String; 0]);
                 assert!(!preserve_current_excludes);
                 assert!(!supervised);
-                assert!(matches!(format, OutputFormat::Json));
+                assert_matches!(format, OutputFormat::Json);
             }
             _ => panic!("index parsed as the wrong command"),
         }
 
         let status = Cli::try_parse_from(["cartograph", "status", "workspace"])
             .unwrap_or_else(|error| panic!("status CLI did not parse: {error}"));
-        assert!(matches!(status.command, Command::Status { .. }));
+        assert_matches!(status.command, Command::Status { .. });
 
         let guide = Cli::try_parse_from(["cartograph", "guide"])
             .unwrap_or_else(|error| panic!("guide CLI did not parse: {error}"));
-        assert!(matches!(guide.command, Command::Guide));
+        assert_matches!(guide.command, Command::Guide);
 
         let serve = Cli::try_parse_from([
             "cartograph",
@@ -6707,7 +6709,7 @@ mod tests {
             "--no-auto-sync",
         ])
         .unwrap_or_else(|error| panic!("serve CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             serve.command,
             Command::Serve {
                 mcp: true,
@@ -6716,7 +6718,7 @@ mod tests {
                 no_auto_sync: true,
                 ..
             }
-        ));
+        );
     }
 
     #[test]
@@ -6807,7 +6809,7 @@ mod tests {
         })
         .await;
 
-        assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
+        assert_matches!(result, Ok(code) if code == ExitCode::SUCCESS);
     }
 
     #[test]
@@ -6851,7 +6853,7 @@ mod tests {
             "workspace",
         ])
         .unwrap_or_else(|error| panic!("show CLI did not parse: {error}"));
-        assert!(matches!(show.command, Command::Show { .. }));
+        assert_matches!(show.command, Command::Show { .. });
 
         let graph_path = generated_cli::parse_from([
             "cartograph",
@@ -6944,7 +6946,7 @@ mod tests {
             "55435",
         ])
         .unwrap_or_else(|error| panic!("install CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             install.command,
             Command::Install {
                 target: Some(ref target),
@@ -6952,7 +6954,7 @@ mod tests {
                 yes: true,
                 ..
             } if target == "codex"
-        ));
+        );
 
         let llm_install = Cli::try_parse_from([
             "cartograph",
@@ -6977,24 +6979,24 @@ mod tests {
             "--database-ssl",
         ])
         .unwrap_or_else(|error| panic!("LLM install compatibility CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             llm_install.command,
             Command::Llm {
                 command: llm_commands::LlmCommand::Install(_)
             }
-        ));
+        );
     }
 
     #[test]
     fn cli_parses_database_lifecycle_and_maintenance_commands() {
         let database = Cli::try_parse_from(["cartograph", "db", "start"])
             .unwrap_or_else(|error| panic!("database start CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             database.command,
             Command::Db {
                 command: DatabaseCommand::Start(DatabaseStartArguments { port: None, .. })
             }
-        ));
+        );
 
         let import = Cli::try_parse_from([
             "cartograph",
@@ -7005,7 +7007,7 @@ mod tests {
             "--dry-run",
         ])
         .unwrap_or_else(|error| panic!("database import CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             import.command,
             Command::Db {
                 command: DatabaseCommand::ImportV1(V1ImportArguments {
@@ -7015,7 +7017,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
         assert!(
             Cli::try_parse_from([
                 "cartograph",
@@ -7042,12 +7044,12 @@ mod tests {
             "json",
         ])
         .unwrap_or_else(|error| panic!("database usage CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             usage.command,
             Command::Db {
                 command: DatabaseCommand::Usage(DatabaseUsageArguments { limit: 32, .. })
             }
-        ));
+        );
 
         let compact = Cli::try_parse_from([
             "cartograph",
@@ -7060,7 +7062,7 @@ mod tests {
             "1073741824",
         ])
         .unwrap_or_else(|error| panic!("database compact CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             compact.command,
             Command::Db {
                 command: DatabaseCommand::Compact(DatabaseCompactArguments {
@@ -7070,7 +7072,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
         assert!(
             Cli::try_parse_from([
                 "cartograph",
@@ -7097,7 +7099,7 @@ mod tests {
             RETENTION_CONFIRMATION,
         ])
         .unwrap_or_else(|error| panic!("database prune CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             prune.command,
             Command::Db {
                 command: DatabaseCommand::Prune(PruneArguments {
@@ -7106,7 +7108,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
         for invalid in ["0", "68719476737"] {
             assert!(
                 Cli::try_parse_from([
@@ -7149,7 +7151,7 @@ mod tests {
             "1073741824",
         ])
         .unwrap_or_else(|error| panic!("database heap compact CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             heap.command,
             Command::Db {
                 command: DatabaseCommand::Compact(DatabaseCompactArguments {
@@ -7160,7 +7162,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
     }
 
     #[test]
@@ -7174,12 +7176,12 @@ mod tests {
             "summarize=CARTOGRAPH_CHAT_KEY",
         ])
         .unwrap_or_else(|error| panic!("credential migration CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             credential_migration.command,
             Command::Llm {
                 command: llm_commands::LlmCommand::MigrateCredentials(_)
             }
-        ));
+        );
 
         let backend_cleanup = Cli::try_parse_from([
             "cartograph",
@@ -7190,12 +7192,12 @@ mod tests {
             "48",
         ])
         .unwrap_or_else(|error| panic!("backend cleanup CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             backend_cleanup.command,
             Command::Backend {
                 command: backend::BackendCommand::Cleanup(_)
             }
-        ));
+        );
     }
 
     #[test]

@@ -2,6 +2,8 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
+
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
 use cartograph_extract::{ExtractedFile, NativeExtractor, SourceLimits, SourceSnapshot};
 
@@ -216,10 +218,10 @@ model Post {
 fn extract(path: &str, source: &str) -> ExtractedFile {
     let snapshot = SourceSnapshot::from_bytes(path, source.as_bytes(), limits())
         .unwrap_or_else(|error| panic!("declarative schema snapshot failed: {error}"));
-    assert!(matches!(
+    assert_matches!(
         snapshot.language(),
         SourceLanguage::GraphQl | SourceLanguage::Prisma
-    ));
+    );
     let mut extractor = NativeExtractor::new(snapshot.language())
         .unwrap_or_else(|error| panic!("declarative schema extractor failed: {error}"));
     extractor
