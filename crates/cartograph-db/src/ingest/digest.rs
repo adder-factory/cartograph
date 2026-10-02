@@ -22,6 +22,7 @@ const DIGEST_V16_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v14";
 const DIGEST_V17_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v15";
 const DIGEST_V18_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v16";
 const DIGEST_V19_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v17";
+const DIGEST_V20_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v18";
 
 /// Each digest contract's hash domain, in [`GenerationDigestVersion::ALL`]
 /// order. The length follows `ALL`, so a new contract does not compile until
@@ -46,6 +47,7 @@ const DIGEST_DOMAINS: [&[u8]; GenerationDigestVersion::ALL.len()] = [
     DIGEST_V17_DOMAIN,
     DIGEST_V18_DOMAIN,
     DIGEST_V19_DOMAIN,
+    DIGEST_V20_DOMAIN,
 ];
 
 pub(super) fn logical_digest<Cancel>(
@@ -124,6 +126,7 @@ const fn digest_includes_numerical_sites(version: GenerationDigestVersion) -> bo
             | GenerationDigestVersion::V17
             | GenerationDigestVersion::V18
             | GenerationDigestVersion::V19
+            | GenerationDigestVersion::V20
     )
 }
 

@@ -15864,24 +15864,24 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V19 changes only these digest domains; the independently frozen projections stay fixed.
+    // V20 changes only these digest domains; the independently frozen projections stay fixed.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "f92a86dd2dfb91c21839ba0c4c7fc68c5aa9552bbe7054690508ec0159bd6794";
+        "1d3beeb0f840efb17a84516daf7acbc1ecad71768b0ceff4db8bdbb1c8a43ebe";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "70c014301409716bf7cff14bade328b1d813d6be30d637df46fb9cefe1f848d3";
+        "f4e534285c01c8faea1c885afb08c9f9253286577d631c92751a3a86af4e6819";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "7b5881e49a2359d5c5bc1d7bd3359e4a7c39dffc917a3af168176548178c1e64";
+        "f77a991e7c6b2e8df0794af6be859648fd1e084e0511f1fbf675acb363eb3f6f";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 220, 213, 64, 220);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "ef95dec8ea82134715a89b6bb4128546eedf5a40f5680e4519adfae112b46fcc";
+        "461cec8cccf24f4374a440ca7c8884d547b82653a89427859197af63ff968573";
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (13, 49, 44, 32, 49);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [

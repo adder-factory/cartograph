@@ -98,8 +98,9 @@ const GRAMMAR_REFRESH_DIGEST_V17_MIGRATION_VERSION: i64 = 43;
 const CUDA_UNICODE_DIGEST_V18_MIGRATION_VERSION: i64 = 44;
 const GENERATION_FACT_COUNTS_MIGRATION_VERSION: i64 = 45;
 const RUST_MACRO_REFERENCES_DIGEST_V19_MIGRATION_VERSION: i64 = 46;
-const LATEST_MIGRATION_VERSION: i64 = RUST_MACRO_REFERENCES_DIGEST_V19_MIGRATION_VERSION;
-const EXPECTED_MIGRATIONS: [i64; 46] = [
+const RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION: i64 = 47;
+const LATEST_MIGRATION_VERSION: i64 = RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION;
+const EXPECTED_MIGRATIONS: [i64; 47] = [
     INITIAL_MIGRATION_VERSION,
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
@@ -146,6 +147,7 @@ const EXPECTED_MIGRATIONS: [i64; 46] = [
     CUDA_UNICODE_DIGEST_V18_MIGRATION_VERSION,
     GENERATION_FACT_COUNTS_MIGRATION_VERSION,
     RUST_MACRO_REFERENCES_DIGEST_V19_MIGRATION_VERSION,
+    RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION,
 ];
 const INITIAL_WORKERS: u16 = 4;
 const REPLACEMENT_WORKERS: u16 = 8;
@@ -4028,6 +4030,11 @@ async fn assert_deterministic_cochange_order_migration(pool: &sqlx_postgres::PgP
         "66741be677ed1d875aa33683023a840190a842e99fd1b57ad1a567f863f5d4b7"
     );
 
+    assert_eq!(
+        schema_migration_checksum(pool, schema, 47).await,
+        "358af6d9ec5dd7a5fc8e3c894006f6ac28de28f1f66dabbc78b932db8035a08e"
+    );
+
     let definition = query(
         r"SELECT pg_get_constraintdef(constraints.oid) AS definition
             FROM pg_catalog.pg_constraint AS constraints
@@ -4116,10 +4123,11 @@ async fn assert_native_index_digest_migrations(pool: &sqlx_postgres::PgPool, sch
     .fetch_one(pool)
     .await
     .and_then(|row| row.try_get::<String, _>("definition"))
-    .unwrap_or_else(|error| panic!("could not inspect digest-v19 constraint: {error}"));
+    .unwrap_or_else(|error| panic!("could not inspect digest-v20 constraint: {error}"));
     assert!(
-        definition
-            .contains("ARRAY[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]"),
+        definition.contains(
+            "ARRAY[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]"
+        ),
         "{definition}"
     );
 }

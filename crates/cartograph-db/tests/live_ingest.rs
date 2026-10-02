@@ -59,9 +59,9 @@ const STRUCTURAL_HASH_ONE: &str =
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const STRUCTURAL_HASH_TWO: &str =
     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-// V19 changes the digest domain; the fixture facts and independent row assertions are unchanged.
+// V20 changes the digest domain; the fixture facts and independent row assertions are unchanged.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "567daa757c983e52a0ae09bfd905cf6400b26c58ce175ab059a9328afdf4228e";
+    "d36c3e69fa377c205008c0a377c737b84ce7af6848e3c18175a5d23874a9e5d4";
 const SINGLE_WORKER: u16 = 1;
 const TEST_VALIDATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 const TEST_VALIDATION_WORKING_BYTES: u64 = 256 * 1024 * 1024;

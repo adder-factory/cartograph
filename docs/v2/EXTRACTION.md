@@ -87,7 +87,11 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V19 fences Rust references inside macro arguments (calls,
+contract. Contract V20 fences Rust turbofish calls (`f::<T>(..)`,
+`a::f::<T>(..)`, `x.f::<T>(..)`), which name and resolve their function rather
+than keeping the type arguments, inside macro arguments too, forcing an
+unchanged V19 project to publish new facts.
+Contract V19 fences Rust references inside macro arguments (calls,
 paths, receiver calls, nested invocations, and std format-string captures),
 forcing an unchanged V18 project to publish new facts.
 Contract V18 fences the CUDA 0.21.2 grammar and updated Unicode
