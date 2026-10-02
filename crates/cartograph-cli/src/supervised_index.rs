@@ -120,8 +120,9 @@ pub(crate) struct CancellableIndex<'request> {
     /// Direct or supervised mode.
     pub(crate) supervision: IndexSupervision,
     /// The process's interrupt forwarding, told when the request starts and
-    /// ends.
-    pub(crate) interrupts: &'request InterruptForwarding,
+    /// ends. `None` for an MCP admin job: its job cancellation stops it, and
+    /// the server process keeps its own signal handling.
+    pub(crate) interrupts: Option<&'request InterruptForwarding>,
 }
 
 /// Await the startup of one index request: resolving its database settings,
@@ -182,7 +183,8 @@ async fn report_startup_liveness(emit: &mut impl FnMut(&StartupProgress)) {
 
 /// Run one index request under its cancellation signal.
 ///
-/// Interrupts become cooperative stops only while the request runs (see
+/// For a request that carries the process's interrupt forwarding, interrupts
+/// become cooperative stops only while the request runs (see
 /// [`InterruptForwarding`]); before it starts, nothing would act on a
 /// cancellation yet, so they end the process.
 /// A failure keeps the attempt's primary error and whether cleanup of what
@@ -192,9 +194,13 @@ pub(crate) async fn run_cancellable_index(
     request: CancellableIndex<'_>,
 ) -> Result<IndexReport, IndexFailure> {
     let interrupts = request.interrupts;
-    interrupts.request_started();
+    if let Some(interrupts) = interrupts {
+        interrupts.request_started();
+    }
     let result = run_request(request).await;
-    interrupts.request_finished();
+    if let Some(interrupts) = interrupts {
+        interrupts.request_finished();
+    }
     result
 }
 

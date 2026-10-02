@@ -12011,6 +12011,7 @@ impl AdminCoreTools<'_> {
                     options,
                     cancellation: operation_cancellation.clone(),
                     supervision: IndexSupervision::Direct,
+                    interrupts: None,
                 })
                 .await?;
                 let enrichment = Box::pin(run_post_index_enrichment(
@@ -12615,6 +12616,7 @@ impl AdminLifecycleTools<'_> {
                         options,
                         cancellation: operation_cancellation.clone(),
                         supervision: IndexSupervision::Direct,
+                        interrupts: None,
                     })
                     .await?;
                     let enrichment = Box::pin(run_post_index_enrichment(
@@ -12777,6 +12779,7 @@ impl AdminLifecycleTools<'_> {
                         options: index_options,
                         cancellation: operation_cancellation.clone(),
                         supervision: IndexSupervision::Direct,
+                        interrupts: None,
                     })
                     .await?;
                     let graph_reused = !index.published;

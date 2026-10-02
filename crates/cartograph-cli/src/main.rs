@@ -3187,7 +3187,7 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
         options,
         cancellation,
         supervision,
-        interrupts: &interrupts,
+        interrupts: Some(&interrupts),
     })
     .await;
     match result {

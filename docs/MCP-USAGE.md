@@ -85,8 +85,10 @@ failed-generation backlog (`retention_backlog`) schedule recovery after 2–30
 seconds.
 They do not exhaust the persistent-failure circuit. A retry timer runs even
 when no new filesystem event arrives; it does not wait for the 30-second
-missed-event reconciliation. Actual lease loss (`lease_failed`, including a
-lost or unconfirmed heartbeat) and database errors, including a read of the
+missed-event reconciliation. A lease the attempt could not establish, keep,
+or confirm (`lease_failed`: an acquisition that failed for a reason other than
+contention, or a lost or unconfirmed heartbeat) and database errors, including
+a read of the
 project's leases that fails for another reason (`status_failed`), retain their
 separate failure handling. When an attempt's own staging cleanup fails after
 another failure, `lastErrorCode` keeps the first failure's code and its retry

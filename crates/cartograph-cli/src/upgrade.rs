@@ -149,7 +149,9 @@ struct ProjectReconciliation {
     /// publication), or `blocked`.
     state: &'static str,
     /// Rerunning the same upgrade command, without another action, is the
-    /// next step: a bounded wait or timeout ended without a failure verdict.
+    /// next step: a bounded wait or timeout ended without a failure verdict,
+    /// or another writer replaced the generation this upgrade published
+    /// before verification could prove it fresh.
     retryable: bool,
     database: UpgradeStep,
     index: UpgradeStep,
@@ -772,7 +774,7 @@ fn add_project_reconciliation_steps(
     }
     if reconciliation.retryable {
         next_steps.push(
-            "A verification step ended without a failure verdict (see `projectReconciliation.doctor` and `projectReconciliation.verification`); rerun `cartograph upgrade --apply --project-path <path>` to retry it."
+            "A verification step ended without a failure verdict, or another writer replaced the generation this upgrade published (see `projectReconciliation.doctor` and `projectReconciliation.verification`); rerun `cartograph upgrade --apply --project-path <path>` to retry it once no other writer is active."
                 .to_owned(),
         );
         return;

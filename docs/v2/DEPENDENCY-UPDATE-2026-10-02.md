@@ -17,8 +17,9 @@ Every required gate still uses this exact stable compiler. The Linux build
 helper still installs the pinned compiler into the build image and checks
 `rustc --version` before building. The parse-cache fingerprint includes the
 pinned toolchain, so existing parse caches are rebuilt once. The generation
-contract stays at **V18** and the schema is unchanged. No dependency, lockfile,
-or ParadeDB change is part of this update.
+contract stays at **V18** and the schema is unchanged. The only lockfile
+change is the new `signal-hook` dependency described below; ParadeDB is
+unchanged.
 
 ## Build images
 
@@ -44,9 +45,10 @@ The Linux build helper and the release workflow contract test now require the
 Rust 1.99.0 and its Clippy report three new kinds of finding in the workspace.
 Each is fixed in the code, without suppressions:
 
-- `AtomicU64::fetch_update` is deprecated in favor of `try_update`. Two
-  saturating counters always produced a new value, so they now call the
-  infallible `update`. Their behavior is unchanged.
+- `AtomicU64::fetch_update` is deprecated in favor of `try_update`. The
+  saturating counters (agent observation counts, prepare-transaction progress,
+  and the supervisor's heartbeat count) always produce a new value, so they
+  call the infallible `update`. Their behavior is unchanged.
 - The new pedantic lint `clippy::assert_is_empty` flags `assert!` checks of
   `is_empty()` because they hide the value when they fail. The 90 flagged test
   assertions now use `assert_eq!` or `assert_ne!` against an empty literal, so
@@ -60,6 +62,23 @@ The other 1.99 lint changes do not fire in this workspace: deprecated legacy
 integer modules, `semicolon_in_expressions_from_non_local_macros` for macros
 from other crates, unused `#[path]` attributes on inline modules, and
 `unreachable_cfg_select_predicates`.
+
+## New dependency
+
+| Crate | Version | Scope |
+| --- | --- | --- |
+| `signal-hook` | 0.4.4 (latest) | `cartograph-cli`, Unix targets only, default features off |
+
+The workspace forbids `unsafe` code. Restoring a signal's default disposition
+and re-raising it needs `sigaction` and `raise`, so the CLI uses
+`signal_hook::low_level::emulate_default_handler` for that one step: a second
+interrupt, an interrupt before or after a cancellable index request, or one
+the process inherited as ignored now ends the process by that signal, the way
+the default disposition would. Windows keeps exiting with
+`STATUS_CONTROL_C_EXIT` and needs no new crate. The crate shares the
+`signal-hook-registry` and `libc` versions already in the lockfile (through
+Tokio), and `cargo deny` accepts its Apache-2.0/MIT license. The 0.4 line
+changed only the `low_level::pipe` API, which Cartograph does not use.
 
 Sources: [Rust releases](https://blog.rust-lang.org/releases/) and the
 [official Rust images](https://hub.docker.com/_/rust).
