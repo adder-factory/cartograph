@@ -6,7 +6,7 @@ use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgConnection, PgRow};
 use thiserror::Error;
 
-use crate::{CartographDatabase, database::audited_query};
+use crate::{CartographDatabase, StorageError, database::audited_query};
 
 const LEASE_LOCK_NAMESPACE: &str = "cartograph-v2-operation";
 const SCHEMA_MAINTENANCE_LOCK_NAMESPACE: &str = "cartograph-v2-schema-maintenance";
@@ -691,6 +691,48 @@ impl CartographDatabase {
             .await
             .map_err(|_| database_error("status"))?;
         row.map(|row| decode_status(&row, target)).transpose()
+    }
+
+    /// Report whether any operation currently holds an unexpired lease on the project.
+    ///
+    /// Lease acquisition admits one live lease per project across every
+    /// operation, so a `true` answer means a new acquisition would be `Busy`.
+    /// Index admission reads it before reserving a generation; acquisition
+    /// remains the authority, so a lease taken after this read is still rejected.
+    /// The read runs under the transaction-local `statement_timeout`, so the
+    /// bounded admission preflight that calls it stays bounded.
+    /// # Errors
+    ///
+    /// Returns an error if the timeout is invalid, or PostgreSQL cannot evaluate
+    /// the database-clock check within `statement_timeout`.
+    pub async fn has_live_lease(
+        &self,
+        project_id: &ProjectId,
+        statement_timeout: Duration,
+    ) -> Result<bool, StorageError> {
+        let schema = crate::database::quoted_schema(&self.schema);
+        let statement = format!(
+            r#"SELECT EXISTS (
+                    SELECT 1 FROM {schema}."project_operation_leases"
+                    WHERE project_id = CAST($1 AS uuid)
+                      AND expires_at > clock_timestamp()
+                )"#
+        );
+        let rows = crate::database::read_project_rows(
+            self,
+            crate::database::ProjectReadRequest {
+                statement,
+                project_id,
+                operation: "live-lease",
+                statement_timeout,
+            },
+            |statement| statement,
+        )
+        .await?;
+        rows.first().map_or(
+            Err(crate::database::stored_value_error("live_lease")),
+            |row| crate::database::read_stored_bool(row, 0, "live_lease"),
+        )
     }
 
     /// Recover only the exact opaque acquisition attempt after an ambiguous response.

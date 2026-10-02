@@ -57,7 +57,7 @@ pub enum StorageError {
         /// Stable operation identifier.
         operation: &'static str,
     },
-    /// A bounded read exceeded its transaction-local PostgreSQL statement timeout.
+    /// A bounded statement exceeded its transaction-local PostgreSQL statement timeout.
     #[error("Cartograph PostgreSQL operation timed out during {operation}")]
     StatementTimeout {
         /// Stable operation identifier.
@@ -267,12 +267,15 @@ where
     let rows = bind(query(AssertSqlSafe(statement)))
         .fetch_all(&mut *transaction)
         .await
-        .map_err(|error| classify_read_error(&error, operation))?;
+        .map_err(|error| classify_statement_error(&error, operation))?;
     transaction.commit().await.map_err(|_| database_error())?;
     Ok(rows)
 }
 
-fn classify_read_error(error: &SqlxError, operation: &'static str) -> StorageError {
+/// Classify a failed bounded statement: a transaction-local statement-timeout
+/// cancellation (SQLSTATE 57014) stays distinguishable from every other driver
+/// failure so callers can treat lock or I/O contention as retryable.
+pub(crate) fn classify_statement_error(error: &SqlxError, operation: &'static str) -> StorageError {
     if matches!(
         error,
         SqlxError::Database(database) if database.code().as_deref() == Some("57014")

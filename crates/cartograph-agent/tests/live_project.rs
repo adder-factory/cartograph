@@ -1,6 +1,8 @@
 //! Integration coverage for Cartograph project-runtime and agent evidence contracts.
 
 mod dependency_ownership;
+#[path = "live_project/lease_contention.rs"]
+mod lease_contention;
 #[path = "live_project/retention.rs"]
 mod retention;
 #[path = "live_project/rust_receivers.rs"]
@@ -508,15 +510,10 @@ async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention()
             .register_agent_state_project()
             .await
             .unwrap_or_else(|error| panic!("multi-runtime project registration failed: {error}"));
-        let blocker = coordinator
-            .database()
-            .acquire_lease(LeaseRequest::new(
-                LeaseTarget::new(project_id.clone(), ProjectOperation::Migration, None),
-                LeaseOwner::new(process::id(), "multi-runtime-index-blocker"),
-                Duration::from_mins(1),
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime blocker lease failed: {error}"));
+        // A live project lease is now rejected before any reservation, so the
+        // schema maintenance gate stands in for a writer that wins only after
+        // each contender has reserved its generation.
+        let blocker = lease_contention::hold_schema_maintenance_lock(&settings, &schema).await;
 
         let options = IndexOptions::default()
             .with_force(true)
@@ -558,11 +555,7 @@ async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention()
         assert_eq!(counts.try_get::<i64, _>("staging").ok(), Some(0));
         assert_eq!(counts.try_get::<i64, _>("failed").ok(), Some(4));
 
-        coordinator
-            .database()
-            .release_lease(&blocker)
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime blocker lease did not release: {error}"));
+        blocker.release().await;
         let published = coordinator
             .index(options.clone())
             .await

@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use crate::{
     CartographDatabase, CurrentGenerationLookup, LeaseFence, StorageError,
-    database::audited_query,
+    database::{audited_query, classify_statement_error},
     ingest::{
         CanonicalGenerationFacts, CopyGenerationAttempt, CopyGenerationContext,
         CopyGenerationRequest, CopyTableDurations, copy_generation_facts,
@@ -914,6 +914,9 @@ impl CartographDatabase {
     ///
     /// Returns an error if the deadline is invalid, the advisory lock fails,
     /// or PostgreSQL cannot prove and terminalize the exact unleased staging row.
+    /// A project lock wait that exceeds `statement_timeout` is
+    /// [`StorageError::StatementTimeout`]: another project writer still holds
+    /// the project lock, so the row is left for a later bounded retry.
     pub async fn fail_unleased_staging_generation_bounded(
         &self,
         request: GenerationRecoveryRequest<'_>,
@@ -939,9 +942,12 @@ impl CartographDatabase {
             .bind(project_lock_key(&self.schema, request.project_id))
             .execute(&mut *transaction)
             .await;
-        if lock.is_err() {
+        if let Err(error) = lock {
             return match transaction.rollback().await {
-                Ok(()) => Err(database_error("fail-unleased-staging-lock")),
+                Ok(()) => Err(classify_statement_error(
+                    &error,
+                    "fail-unleased-staging-lock",
+                )),
                 Err(_) => Err(database_error("fail-unleased-staging-rollback")),
             };
         }
@@ -989,7 +995,10 @@ impl CartographDatabase {
     /// # Errors
     ///
     /// Returns an error if the timeout is invalid, the project lock cannot be
-    /// acquired, or the exact guarded update cannot commit.
+    /// acquired, or the exact guarded update cannot commit. A project lock wait
+    /// that exceeds `statement_timeout` is [`StorageError::StatementTimeout`]:
+    /// another project writer still holds the project lock, which callers
+    /// report as contention rather than as a cleanup failure.
     pub async fn fail_abandoned_staging_generations_bounded(
         &self,
         project_id: &ProjectId,
@@ -1015,9 +1024,12 @@ impl CartographDatabase {
             .bind(project_lock_key(&self.schema, project_id))
             .execute(&mut *transaction)
             .await;
-        if lock.is_err() {
+        if let Err(error) = lock {
             return match transaction.rollback().await {
-                Ok(()) => Err(database_error("fail-abandoned-staging-lock")),
+                Ok(()) => Err(classify_statement_error(
+                    &error,
+                    "fail-abandoned-staging-lock",
+                )),
                 Err(_) => Err(database_error("fail-abandoned-staging-rollback")),
             };
         }

@@ -17,6 +17,15 @@ use cartograph_domain::{ProjectId, ProjectOperation};
 use serde_json::Value;
 use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
 
+/// Connection pool size of the competing writer's own database session.
+const COMPETING_WRITER_POOL_SIZE: &str = "2";
+/// Query timeout, in milliseconds, of the competing writer's session.
+const COMPETING_WRITER_QUERY_TIMEOUT_MS: &str = "10000";
+/// The competing writer's lease outlives the contended CLI index.
+const COMPETING_WRITER_LEASE: Duration = Duration::from_mins(2);
+/// Bound on the competing writer taking its lease and project lock.
+const COMPETING_WRITER_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[test]
 #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 fn public_cli_exercises_native_agent_backend_and_optional_llm_routes() {
@@ -291,6 +300,172 @@ fn parse_failure_json_names_relative_input_and_preserves_the_current_generation(
     cleanup_schema(&database_url, &schema);
     if let Err(payload) = outcome {
         resume_unwind(payload);
+    }
+}
+
+#[test]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+fn index_json_reports_retryable_lease_busy_under_a_live_competing_writer() {
+    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let schema = format!("cg_cli_lease_busy_{}_{}", std::process::id(), nanos);
+    let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+    write_project_fixture(project.path());
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        run_competing_writer_index_scenario(&project, &database_url, &schema);
+    }));
+
+    cleanup_schema(&database_url, &schema);
+    if let Err(payload) = outcome {
+        resume_unwind(payload);
+    }
+}
+
+fn run_competing_writer_index_scenario(
+    project: &tempfile::TempDir,
+    database_url: &str,
+    schema: &str,
+) {
+    let project_path = project.path().to_string_lossy().into_owned();
+    let project_path = project_path.as_str();
+    let indexed = json_success(
+        project.path(),
+        database_url,
+        schema,
+        &["index", project_path, "--format", "json"],
+    );
+    let generation = indexed["generation_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("index report omitted its generation: {indexed}"))
+        .to_owned();
+    let project_id = indexed["project_id"]
+        .as_str()
+        .and_then(|project_id| ProjectId::parse(project_id).ok())
+        .unwrap_or_else(|| panic!("index report omitted a valid project identity: {indexed}"));
+    std::fs::write(
+        project.path().join("src/index.ts"),
+        "export const marker = 3;\n",
+    )
+    .unwrap_or_else(|error| panic!("contended source fixture write failed: {error}"));
+
+    let writer = CompetingIndexWriter::start(database_url, schema, project_id);
+    let output = failure(
+        project.path(),
+        database_url,
+        schema,
+        &["index", project_path, "--format", "json"],
+    );
+    writer.finish();
+    let report: Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
+        panic!(
+            "contended index stderr was not standalone JSON: {error}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
+    assert_eq!(report["error"]["code"], "lease_busy", "{report}");
+    assert_eq!(report["error"]["previous_generation_visible"], true);
+    assert!(report["error"].get("cleanup_failure").is_none());
+    assert!(
+        report["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("waiting for another project operation"))
+    );
+
+    let status = json_success(
+        project.path(),
+        database_url,
+        schema,
+        &["status", project_path, "--format", "json"],
+    );
+    assert_eq!(
+        status["project"]["snapshot"]["current"]["generation_id"],
+        generation.as_str()
+    );
+    let storage = &status["project"]["snapshot"]["generation_storage"];
+    assert_eq!(storage["staging"], 0, "contention reserved a generation");
+    assert_eq!(storage["failed"], 0, "contention abandoned a generation");
+}
+
+/// Another session's index: a live index lease plus the project operation lock
+/// its long prepare transaction holds, kept until [`Self::finish`].
+struct CompetingIndexWriter {
+    release: mpsc::SyncSender<()>,
+    holder: thread::JoinHandle<()>,
+}
+
+impl CompetingIndexWriter {
+    fn start(database_url: &str, schema: &str, project_id: ProjectId) -> Self {
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        let (release, release_receiver) = mpsc::sync_channel::<()>(1);
+        let database_url = database_url.to_owned();
+        let schema = schema.to_owned();
+        let holder = thread::spawn(move || {
+            let settings = cartograph_config::DatabaseSettings::parse(
+                &database_url,
+                Some(COMPETING_WRITER_POOL_SIZE),
+                Some(COMPETING_WRITER_QUERY_TIMEOUT_MS),
+            )
+            .and_then(|settings| settings.with_schema(&schema))
+            .unwrap_or_else(|error| panic!("writer settings failed: {error}"));
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap_or_else(|error| panic!("writer runtime failed: {error}"));
+            runtime.block_on(async {
+                let pool = cartograph_db::connect(&settings)
+                    .await
+                    .unwrap_or_else(|error| panic!("writer connection failed: {error}"));
+                let database = CartographDatabase::new(pool.clone(), settings.schema().clone());
+                let lease = database
+                    .acquire_lease(LeaseRequest::new(
+                        LeaseTarget::new(project_id.clone(), ProjectOperation::Index, None),
+                        LeaseOwner::new(std::process::id(), "live-cli-competing-index"),
+                        COMPETING_WRITER_LEASE,
+                    ))
+                    .await
+                    .unwrap_or_else(|error| panic!("competing index lease failed: {error}"));
+                let mut prepare = pool
+                    .begin()
+                    .await
+                    .unwrap_or_else(|error| panic!("writer prepare transaction failed: {error}"));
+                query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                    .bind(format!("cartograph-v2-operation:{schema}:{project_id}"))
+                    .execute(&mut *prepare)
+                    .await
+                    .unwrap_or_else(|error| panic!("writer project lock failed: {error}"));
+                ready_sender
+                    .send(())
+                    .unwrap_or_else(|error| panic!("writer ready signal failed: {error}"));
+                let _released = release_receiver.recv();
+                prepare
+                    .rollback()
+                    .await
+                    .unwrap_or_else(|error| panic!("writer prepare rollback failed: {error}"));
+                database
+                    .release_lease(&lease)
+                    .await
+                    .unwrap_or_else(|error| {
+                        panic!("competing index lease release failed: {error}")
+                    });
+                database.close().await;
+            });
+        });
+        ready_receiver
+            .recv_timeout(COMPETING_WRITER_READY_TIMEOUT)
+            .unwrap_or_else(|error| panic!("competing writer did not become ready: {error}"));
+        Self { release, holder }
+    }
+
+    fn finish(self) {
+        let _released = self.release.send(());
+        self.holder
+            .join()
+            .unwrap_or_else(|payload| resume_unwind(payload));
     }
 }
 

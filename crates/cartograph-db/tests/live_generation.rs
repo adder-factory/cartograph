@@ -150,6 +150,9 @@ const RECOVERY_WORKERS: u16 = 2;
 const SEARCH_LIMIT: u16 = 10;
 const TEST_LEASE_DURATION: Duration = Duration::from_secs(30);
 const LOCK_ORDER_TIMEOUT: Duration = Duration::from_secs(5);
+/// Short enough to keep the held-lock probes fast, long enough to be a real wait.
+const CONTENDED_LOCK_TIMEOUT: Duration = Duration::from_millis(250);
+const PROJECT_ROOT: &str = "workspace/cartograph";
 const FAILED_SEARCH_BUILD_TIMEOUT: Duration = Duration::from_secs(5);
 const LOCK_OBSERVATION_ATTEMPTS: usize = 100;
 const TEST_VALIDATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
@@ -221,6 +224,149 @@ async fn unleased_staging_cleanup_is_exact_lease_safe_and_retention_collects_sta
     drop(database);
     drop_schema(&pool, &schema).await;
     pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn staging_cleanup_reports_a_held_project_lock_as_a_lock_timeout() {
+    let (database, pool, schema) = open_isolated_database().await;
+    database
+        .migrate()
+        .await
+        .unwrap_or_else(|error| panic!("contended cleanup fixture migration failed: {error}"));
+    assert!(
+        !root_visible(&database).await,
+        "an unknown root was visible"
+    );
+    let project = register_project(&database).await;
+    assert!(
+        !root_visible(&database).await,
+        "an unpublished project was visible"
+    );
+    let abandoned = begin(
+        &database,
+        GenerationFixture {
+            project: &project,
+            revision: REVISION_ONE,
+            workers: INITIAL_WORKERS,
+        },
+    )
+    .await;
+    let abandoned_id = abandoned.generation_id().clone();
+
+    // Another writer's prepare transaction holds the project operation lock.
+    let project_key = format!("cartograph-v2-operation:{schema}:{project}");
+    let mut writer = pool
+        .acquire()
+        .await
+        .unwrap_or_else(|error| panic!("contended cleanup writer connection failed: {error}"));
+    query("SELECT pg_advisory_lock(hashtextextended($1, 0))")
+        .bind(&project_key)
+        .execute(&mut *writer)
+        .await
+        .unwrap_or_else(|error| panic!("contended cleanup writer lock failed: {error}"));
+    assert_eq!(
+        database
+            .fail_abandoned_staging_generations_bounded(&project, CONTENDED_LOCK_TIMEOUT)
+            .await,
+        Err(StorageError::StatementTimeout {
+            operation: "fail-abandoned-staging-lock"
+        })
+    );
+    assert_eq!(
+        database
+            .fail_unleased_staging_generation_bounded(
+                GenerationRecoveryRequest::new(&project, &abandoned_id),
+                CONTENDED_LOCK_TIMEOUT,
+            )
+            .await,
+        Err(StorageError::StatementTimeout {
+            operation: "fail-unleased-staging-lock"
+        })
+    );
+    assert_state(
+        &database,
+        StateExpectation::new(&project, &abandoned_id, GenerationState::Staging),
+    )
+    .await;
+    query("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
+        .bind(&project_key)
+        .execute(&mut *writer)
+        .await
+        .unwrap_or_else(|error| panic!("contended cleanup writer unlock failed: {error}"));
+    drop(writer);
+
+    assert_live_lease_observation(&database, &project, &abandoned_id).await;
+    assert_eq!(
+        database
+            .fail_abandoned_staging_generations_bounded(&project, CONTENDED_LOCK_TIMEOUT)
+            .await,
+        Ok(1)
+    );
+    publish_initial_generation(&database, &project).await;
+    assert!(
+        root_visible(&database).await,
+        "a published project was not visible"
+    );
+
+    drop(database);
+    drop_schema(&pool, &schema).await;
+    pool.close().await;
+}
+
+async fn root_visible(database: &CartographDatabase) -> bool {
+    database
+        .root_has_current_generation(PROJECT_ROOT, CONTENDED_LOCK_TIMEOUT)
+        .await
+        .unwrap_or_else(|error| panic!("current generation visibility failed: {error}"))
+}
+
+/// A held lease of any operation is observed as live; a released one is not.
+async fn assert_live_lease_observation(
+    database: &CartographDatabase,
+    project: &ProjectId,
+    generation: &GenerationId,
+) {
+    assert!(
+        !live_lease(database, project).await,
+        "no lease was reported live"
+    );
+    let index = acquire_generation_lease(database, project, generation).await;
+    assert!(
+        live_lease(database, project).await,
+        "a held index lease was not live"
+    );
+    database
+        .release_lease(&index)
+        .await
+        .unwrap_or_else(|error| panic!("observed index lease did not release: {error}"));
+    let migration = database
+        .acquire_lease(LeaseRequest::new(
+            LeaseTarget::new(project.clone(), ProjectOperation::Migration, None),
+            LeaseOwner::new(process::id(), "live-lease-observation"),
+            TEST_LEASE_DURATION,
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("observed migration lease failed: {error}"));
+    assert!(
+        live_lease(database, project).await,
+        "a held migration lease was not live"
+    );
+    database
+        .release_lease(&migration)
+        .await
+        .unwrap_or_else(|error| panic!("observed migration lease did not release: {error}"));
+    assert!(
+        !live_lease(database, project).await,
+        "a released lease was reported live"
+    );
+}
+
+async fn live_lease(database: &CartographDatabase, project: &ProjectId) -> bool {
+    database
+        .has_live_lease(project, LOCK_ORDER_TIMEOUT)
+        .await
+        .unwrap_or_else(|error| panic!("live lease probe failed: {error}"))
 }
 
 async fn assert_unleased_staging_cleanup(
@@ -2575,7 +2721,7 @@ async fn assert_migration_ledger(database: &CartographDatabase) {
 
 async fn register_project(database: &CartographDatabase) -> ProjectId {
     match database
-        .register_project(NewProject::new("workspace/cartograph", digest(DIGEST_ONE)))
+        .register_project(NewProject::new(PROJECT_ROOT, digest(DIGEST_ONE)))
         .await
     {
         Ok(project) => project,

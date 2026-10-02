@@ -22,6 +22,7 @@ MCP call is the control evidence.
 | Database capability or extension check fails | [PostgreSQL capability failure](#postgresql-capability-failure) |
 | Shell commands work but the agent cannot connect | [Doctor works in a shell but MCP cannot connect](#doctor-works-in-a-shell-but-mcp-cannot-connect) |
 | Status reports stale source | [Index is stale](#index-is-stale) |
+| Index reports `lease_busy` or `index_cleanup_failed` | [Index reports `lease_busy` or `index_cleanup_failed`](#index-reports-lease_busy-or-index_cleanup_failed) |
 | A large index reaches a hard bound | [Native generation reaches its capacity bound](#native-generation-reaches-its-capacity-bound) |
 | Hybrid retrieval skips semantic search | [Semantic search is skipped](#semantic-search-is-skipped) |
 | Doctor warns that an LLM credential is not set | [An LLM credential is missing from doctor's shell](#an-llm-credential-is-missing-from-doctors-shell) |
@@ -145,7 +146,38 @@ Before that no-op decision, index/sync also terminalizes every unleased
 `staging` generation for the project under a bounded project lock. A staging
 generation protected by a live lease is preserved. This lets an unchanged
 retry recover work abandoned by an interrupted client without forcing a full
-re-index; normal retention may subsequently remove the failed row.
+re-index; normal retention may subsequently remove the failed row. While
+another operation holds a live project lease, or still holds the project lock
+after the bounded five-second wait, that recovery is deferred to a later
+attempt: an unchanged checkout still returns its no-op, and a changed checkout
+returns `lease_busy` without reserving a generation.
+
+## Index reports `lease_busy` or `index_cleanup_failed`
+
+`lease_busy` is retryable contention. Another operation owns a live project
+lease, or another writer (for example, an MCP server's automatic sync inside
+its long prepare/COPY transaction) still holds the project lock. Contention
+seen before reservation reserves no generation; a writer that wins after that
+check is still rejected at lease acquisition and the attempt's reserved
+generation is cleaned up. The current generation stays published. Wait for
+the writer to finish and retry; `sync-if-dirty` and automatic sync already
+wait or schedule the retry. `admin unlock` removes only database-clock-expired
+leases and cannot clear a live writer.
+
+When an attempt fails and the bounded cleanup of its own staging generation
+also fails afterward (for example, because its own interrupted transaction
+still holds the project lock), `index --format json` keeps the first failure as
+`code` and reports the cleanup as `cleanup_failure` with
+`index_cleanup_failed`. The next index retries that cleanup. A lost or
+unconfirmed lease heartbeat is `lease_failed`. `code: index_cleanup_failed` on
+its own means the pre-reservation staging recovery failed for a reason other
+than contention; inspect PostgreSQL health and generation retention before
+retrying.
+
+`previous_generation_visible` reports what PostgreSQL shows after the failure:
+`true` when a published generation is still current, `false` when the project
+has none yet, and `null` when that bounded lookup failed. Index failures never
+unpublish the current generation.
 
 ## Index fails during the parse stage
 

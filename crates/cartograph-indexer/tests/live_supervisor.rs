@@ -3907,25 +3907,7 @@ async fn blocked_cleanup_is_aborted_reaped_and_leaves_no_active_query() {
     });
     let hold_generation_lock = async {
         wait_for_lease(&fixture.database, &target).await;
-        let generation_lock_statement = format!(
-            r#"SELECT state FROM "{}"."index_generations"
-                WHERE project_id = CAST($1 AS uuid)
-                  AND generation_id = CAST($2 AS uuid)
-                FOR UPDATE"#,
-            fixture.schema
-        );
-        let mut generation_lock = match fixture.pool.begin().await {
-            Ok(transaction) => transaction,
-            Err(error) => panic!("cleanup abort lock transaction failed: {error}"),
-        };
-        if let Err(error) = query(AssertSqlSafe(generation_lock_statement))
-            .bind(fixture.project.as_str())
-            .bind(generation_id.as_str())
-            .fetch_one(&mut *generation_lock)
-            .await
-        {
-            panic!("cleanup abort generation lock failed: {error}");
-        }
+        let generation_lock = lock_generation_row(&fixture, &generation_id).await;
         assert!(
             release_work.send(()).is_ok(),
             "cleanup abort work release was not observed"
@@ -3942,19 +3924,121 @@ async fn blocked_cleanup_is_aborted_reaped_and_leaves_no_active_query() {
     let (result, ()) = joined.unwrap_or_else(|error| {
         panic!("blocked cleanup exceeded its absolute supervisor deadline: {error}")
     });
+    // The read failure ended the run; the blocked cleanup is secondary detail
+    // and must not replace the primary failure that callers classify.
+    let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
+        panic!("blocked cleanup replaced or dropped the primary failure: {result:?}");
+    };
     assert!(
         matches!(
-            result,
-            Err(SupervisorError::AmbiguousOutcome {
-                operation: "cleanup-generation"
-            })
+            **primary,
+            SupervisorError::Pipeline {
+                stage: PipelineStage::Read
+            }
         ),
-        "unexpected blocked cleanup result: {result:?}"
+        "unexpected primary failure: {primary:?}"
+    );
+    assert!(
+        matches!(
+            **cleanup,
+            SupervisorError::AmbiguousOutcome {
+                operation: "cleanup-generation"
+            }
+        ),
+        "unexpected secondary cleanup failure: {cleanup:?}"
     );
     expire_lease(&fixture, &target).await;
     fail_recoverable_generation(&fixture, &generation_id).await;
 
     fixture.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn blocked_cleanup_after_cancellation_keeps_the_cancellation_primary() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocked_cleanup_config());
+    let run = supervisor.run(request(target.clone()), move |context| async move {
+        drop(staged);
+        let mut cancellation = context.cancellation();
+        cancellation.cancelled().await;
+        Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Read))
+    });
+    let cancel_with_cleanup_blocked = async {
+        wait_for_lease(&fixture.database, &target).await;
+        let generation_lock = lock_generation_row(&fixture, &generation_id).await;
+        assert!(supervisor.cancel(), "cancellation was not newly requested");
+        wait_for_supervisor_state(&supervisor, SupervisorState::Failed).await;
+        assert_no_active_schema_work(&fixture).await;
+        assert_generation_advisories_available(&fixture, &target).await;
+        assert!(generation_lock.rollback().await.is_ok());
+    };
+    let joined = tokio::time::timeout(ABORT_RESULT_BOUND, async {
+        tokio::join!(run, cancel_with_cleanup_blocked)
+    })
+    .await;
+    let (result, ()) = joined.unwrap_or_else(|error| {
+        panic!("cancelled blocked cleanup exceeded its absolute supervisor deadline: {error}")
+    });
+    // The requested cancellation ended the run; the blocked cleanup that
+    // followed is secondary detail and must not replace it.
+    let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
+        panic!("blocked cleanup replaced or dropped the cancellation: {result:?}");
+    };
+    assert!(
+        matches!(
+            **primary,
+            SupervisorError::Cancelled {
+                reason: CancellationReason::Requested,
+                grace_exceeded: false,
+            }
+        ),
+        "unexpected primary failure: {primary:?}"
+    );
+    assert!(
+        matches!(
+            **cleanup,
+            SupervisorError::AmbiguousOutcome {
+                operation: "cleanup-generation"
+            }
+        ),
+        "unexpected secondary cleanup failure: {cleanup:?}"
+    );
+    expire_lease(&fixture, &target).await;
+    fail_recoverable_generation(&fixture, &generation_id).await;
+
+    fixture.close().await;
+}
+
+/// Hold the generation row lock that owned cleanup must take, as a
+/// concurrent writer would, until the returned transaction ends.
+async fn lock_generation_row(
+    fixture: &DatabaseFixture,
+    generation_id: &GenerationId,
+) -> sqlx_core::transaction::Transaction<'static, sqlx_postgres::Postgres> {
+    let generation_lock_statement = format!(
+        r#"SELECT state FROM "{}"."index_generations"
+            WHERE project_id = CAST($1 AS uuid)
+              AND generation_id = CAST($2 AS uuid)
+            FOR UPDATE"#,
+        fixture.schema
+    );
+    let mut generation_lock = match fixture.pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => panic!("cleanup block lock transaction failed: {error}"),
+    };
+    if let Err(error) = query(AssertSqlSafe(generation_lock_statement))
+        .bind(fixture.project.as_str())
+        .bind(generation_id.as_str())
+        .fetch_one(&mut *generation_lock)
+        .await
+    {
+        panic!("cleanup block generation lock failed: {error}");
+    }
+    generation_lock
 }
 
 #[tokio::test]

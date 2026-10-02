@@ -50,9 +50,9 @@ use cartograph_indexer::{
     IndexerSupervisor, NativeGenerationBuild, NativeGenerationStorage, NativeParseCache,
     NativePipelineConfig, NativePipelineDeadlines, NativePipelineLimits, NativePipelineParallelism,
     NativePipelineReport, NativeRetainedLimits, PipelineFailure, PipelineStageTiming,
-    ScipOverlayInput, StageCapacity, SupervisorConfig, SupervisorContext, SupervisorError,
-    SupervisorRequest, build_native_generation_spilled,
-    build_native_generation_with_scip_and_cache, native_parse_cache_contract_digest,
+    ScipOverlayInput, StageCapacity, SupervisorConfig, SupervisorContext, SupervisorRequest,
+    build_native_generation_spilled, build_native_generation_with_scip_and_cache,
+    native_parse_cache_contract_digest,
 };
 pub use cartograph_indexer::{
     PipelineFailureReason, PipelineFileFailure, PipelineStage, SupervisorStatus,
@@ -62,6 +62,10 @@ use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::{Semaphore, oneshot, watch};
 use tokio::task::JoinHandle;
+
+use index_failure::{
+    StagingPreflight, SupervisorFailureContext, recover_abandoned_staging, supervisor_index_failure,
+};
 
 mod compare;
 mod coverage;
@@ -78,6 +82,7 @@ mod git_intelligence;
 mod history;
 mod imports;
 mod index_admission;
+mod index_failure;
 mod issue_history;
 mod layering;
 mod navigation;
@@ -134,6 +139,7 @@ pub use imports::{
     ImportAuditError, ImportAuditOptions, ImportAuditReport, ImportAuditRequest, ImportAuditSource,
     ImportAuditTarget, ImportHit, ImportOrigin,
 };
+pub use index_failure::IndexFailure;
 pub use issue_history::{
     IssueHistoryIndexError, IssueHistoryIndexOptions, IssueHistoryIndexRequest,
 };
@@ -942,7 +948,7 @@ async fn run_core_index(
     runtime: &ProjectRuntime,
     options: IndexOptions,
     cancellation: ProjectCancellation,
-) -> Result<IndexReport, ProjectError> {
+) -> Result<IndexReport, IndexFailure> {
     for attempt in 0..=MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS {
         let mut report =
             match run_core_index_attempt(runtime, &options, cancellation.clone()).await? {
@@ -968,20 +974,20 @@ async fn run_core_index(
             return Ok(report);
         }
         if cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled);
+            return Err(ProjectError::RequestCancelled.into());
         }
         if attempt == MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS {
-            return Err(ProjectError::SourceChangedDuringIndex);
+            return Err(ProjectError::SourceChangedDuringIndex.into());
         }
     }
-    Err(ProjectError::SourceChangedDuringIndex)
+    Err(ProjectError::SourceChangedDuringIndex.into())
 }
 
 async fn run_core_index_attempt(
     runtime: &ProjectRuntime,
     options: &IndexOptions,
     cancellation: ProjectCancellation,
-) -> Result<IndexAttemptOutcome, ProjectError> {
+) -> Result<IndexAttemptOutcome, IndexFailure> {
     let preparation_started = Instant::now();
     let preparation = runtime
         .prepare_index(options.clone(), cancellation.clone())
@@ -1259,9 +1265,10 @@ async fn index_project_with_cancellation(
     runtime: &ProjectRuntime,
     options: IndexOptions,
     cancellation: ProjectCancellation,
-) -> Result<IndexReport, ProjectError> {
+) -> Result<IndexReport, IndexFailure> {
     let operation_started = Instant::now();
-    let source_settings = load_project_source_settings(&runtime.root)?;
+    let source_settings =
+        load_project_source_settings(&runtime.root).map_err(ProjectError::from)?;
     let policy = index_enrichment_policy(&options, &source_settings);
     let index = run_core_index(runtime, options, cancellation.clone());
     let history = prepare_optional_history(runtime, policy, cancellation.clone());
@@ -1780,7 +1787,29 @@ impl ProjectRuntime {
         options: IndexOptions,
         cancellation: ProjectCancellation,
     ) -> Result<IndexReport, ProjectError> {
-        Box::pin(index_project_with_cancellation(self, options, cancellation)).await
+        Box::pin(index_project_with_cancellation(self, options, cancellation))
+            .await
+            .map_err(IndexFailure::into_error)
+    }
+
+    /// Build and publish one generation, keeping a secondary cleanup failure.
+    ///
+    /// The returned [`IndexFailure`] carries the same primary error as
+    /// [`Self::index`] plus whether bounded cleanup of the attempt's own
+    /// staging generation also failed, for surfaces that report both.
+    /// # Errors
+    ///
+    /// Returns the primary failure under the same conditions as [`Self::index`].
+    pub async fn index_with_failure_detail(
+        &self,
+        options: IndexOptions,
+    ) -> Result<IndexReport, IndexFailure> {
+        Box::pin(index_project_with_cancellation(
+            self,
+            options,
+            ProjectCancellation::new(),
+        ))
+        .await
     }
 
     async fn attach_history(
@@ -1815,6 +1844,11 @@ impl ProjectRuntime {
             maximum_ast_depth: source.index_policy.maximum_ast_depth,
         }) {
             return Ok(unchanged);
+        }
+        // An unchanged checkout needs no lease; a changed one must not reserve
+        // a generation that another live writer's lease would reject.
+        if source.staging == StagingPreflight::ProjectBusy {
+            return Err(ProjectError::IndexLeaseBusy);
         }
         self.admit_automatic_generation(&source, &options).await?;
         let reservation = self.reserve_index_generation(&mut source, &options).await?;
@@ -1884,17 +1918,20 @@ impl ProjectRuntime {
         if cancellation.is_cancelled() {
             return Err(ProjectError::RequestCancelled);
         }
-        if let Some(prior) = prior.as_ref() {
-            self.database
-                .fail_abandoned_staging_generations_bounded(
+        let staging = match prior.as_ref() {
+            Some(prior) => {
+                recover_abandoned_staging(
+                    &self.database,
                     &prior.project_id,
                     DEFAULT_STAGING_CLEANUP_TIMEOUT,
                 )
-                .await
-                .map_err(|_| ProjectError::IndexCleanupFailed)?;
-        }
+                .await?
+            }
+            None => StagingPreflight::Recovered,
+        };
         Ok(PreparedIndexSource {
             prior,
+            staging,
             source,
             effective_run_excludes,
             max_source_bytes,
@@ -1932,14 +1969,16 @@ impl ProjectRuntime {
             ))
             .await
             .map_err(|_| ProjectError::RegisterFailed)?;
-        if source.prior.is_none() {
-            self.database
-                .fail_abandoned_staging_generations_bounded(
-                    &project_id,
-                    DEFAULT_STAGING_CLEANUP_TIMEOUT,
-                )
-                .await
-                .map_err(|_| ProjectError::IndexCleanupFailed)?;
+        if source.prior.is_none()
+            && recover_abandoned_staging(
+                &self.database,
+                &project_id,
+                DEFAULT_STAGING_CLEANUP_TIMEOUT,
+            )
+            .await?
+                == StagingPreflight::ProjectBusy
+        {
+            return Err(ProjectError::IndexLeaseBusy);
         }
         let staged = self
             .database
@@ -1964,25 +2003,26 @@ impl ProjectRuntime {
         pending: PendingIndex,
         cancellation: ProjectCancellation,
         profile_requested: bool,
-    ) -> Result<IndexReport, ProjectError> {
+    ) -> Result<IndexReport, IndexFailure> {
         let project_id = pending.project_id.clone();
         let generation_id = pending.generation_id.clone();
-        let result = self
+        let failure = match self
             .publish_index_inner(pending, cancellation, profile_requested)
-            .await;
-        if result.is_err()
-            && self
-                .database
-                .fail_unleased_staging_generation_bounded(
-                    GenerationRecoveryRequest::new(&project_id, &generation_id),
-                    DEFAULT_STAGING_CLEANUP_TIMEOUT,
-                )
-                .await
-                .is_err()
+            .await
         {
-            return Err(ProjectError::IndexCleanupFailed);
-        }
-        result
+            Ok(report) => return Ok(report),
+            Err(failure) => failure,
+        };
+        // The primary failure stays authoritative: an unfinished cleanup only
+        // leaves this attempt's staging row for the next bounded preflight.
+        let cleanup = self
+            .database
+            .fail_unleased_staging_generation_bounded(
+                GenerationRecoveryRequest::new(&project_id, &generation_id),
+                DEFAULT_STAGING_CLEANUP_TIMEOUT,
+            )
+            .await;
+        Err(failure.after_staging_cleanup(&cleanup))
     }
 
     async fn publish_index_inner(
@@ -1990,7 +2030,7 @@ impl ProjectRuntime {
         pending: PendingIndex,
         cancellation: ProjectCancellation,
         profile_requested: bool,
-    ) -> Result<IndexReport, ProjectError> {
+    ) -> Result<IndexReport, IndexFailure> {
         self.prepare_index_publication(pending, cancellation)?
             .execute(profile_requested)
             .await
@@ -2189,6 +2229,8 @@ enum IndexPreparation {
 
 struct PreparedIndexSource {
     prior: Option<ProjectSnapshot>,
+    /// Whether staging recovery ran or found another live project writer.
+    staging: StagingPreflight,
     source: SourceRevision,
     effective_run_excludes: Vec<String>,
     max_source_bytes: usize,
@@ -2301,17 +2343,8 @@ struct PreparedIndexPublication {
     report_receiver: oneshot::Receiver<NativePipelineReport>,
 }
 
-fn progress_stalled_project_error(stage: Option<PipelineStage>) -> ProjectError {
-    stage.map_or(ProjectError::IndexFailed, |stage| {
-        ProjectError::IndexStageFailedWithReason {
-            stage,
-            reason: PipelineFailureReason::ProgressStalled,
-        }
-    })
-}
-
 impl PreparedIndexPublication {
-    async fn execute(self, profile_requested: bool) -> Result<IndexReport, ProjectError> {
+    async fn execute(self, profile_requested: bool) -> Result<IndexReport, IndexFailure> {
         let current_result = self
             .supervisor
             .run(self.request, move |context| {
@@ -2320,40 +2353,15 @@ impl PreparedIndexPublication {
             .await;
         self.cancellation_task.abort_and_reap().await;
         let supervisor_status = self.supervisor.status().await;
-        let current = match current_result {
-            Ok(current) => current,
-            Err(_) if self.cancellation.is_cancelled() => {
-                return Err(ProjectError::RequestCancelled);
-            }
-            Err(SupervisorError::Pipeline { stage }) => {
-                return Err(ProjectError::IndexStageFailed { stage });
-            }
-            Err(SupervisorError::PipelineWithReason { stage, reason }) => {
-                return Err(ProjectError::IndexStageFailedWithReason { stage, reason });
-            }
-            Err(SupervisorError::PipelineWithFileFailure { stage, failure }) => {
-                return Err(ProjectError::IndexStageFileFailed { stage, failure });
-            }
-            Err(SupervisorError::Cancelled {
-                reason: cartograph_indexer::CancellationReason::ProgressStalled,
-                ..
-            }) => {
-                return Err(progress_stalled_project_error(supervisor_status.stage()));
-            }
-            Err(SupervisorError::Lease {
-                operation: "acquire",
-                source: LeaseError::Busy,
-            }) => return Err(ProjectError::IndexLeaseBusy),
-            Err(SupervisorError::Lease { .. } | SupervisorError::OwnershipLost { .. }) => {
-                return Err(ProjectError::IndexLeaseFailed);
-            }
-            Err(
-                SupervisorError::Storage { .. }
-                | SupervisorError::AmbiguousOutcome { .. }
-                | SupervisorError::GenerationMismatch,
-            ) => return Err(ProjectError::IndexPublicationFailed),
-            Err(_) => return Err(ProjectError::IndexFailed),
-        };
+        let current = current_result.map_err(|error| {
+            supervisor_index_failure(
+                error,
+                &SupervisorFailureContext {
+                    cancelled: self.cancellation.is_cancelled(),
+                    stage: supervisor_status.stage(),
+                },
+            )
+        })?;
         let native = self
             .report_receiver
             .await
@@ -3360,7 +3368,10 @@ pub enum ProjectError {
         /// Validated project-relative path plus an allowlisted failure reason.
         failure: PipelineFileFailure,
     },
-    /// Another live operation owns the lease; retry after it finishes.
+    /// Another live operation owns the project lease, or another writer still
+    /// holds the project lock. Contention detected before reservation reserves
+    /// no generation; a writer that wins after that check is still rejected at
+    /// lease acquisition. Retry after it finishes.
     #[error(
         "Cartograph index is waiting for another project operation; the previous generation remains visible"
     )]
@@ -3380,7 +3391,9 @@ pub enum ProjectError {
         "Cartograph index operation failed during the publication stage; the previous generation remains visible"
     )]
     IndexPublicationFailed,
-    /// A failed pre-publication generation could not be terminalized safely.
+    /// Bounded recovery of abandoned staging generations failed before this
+    /// attempt reserved one. A cleanup that fails after another failure is
+    /// reported through [`IndexFailure::cleanup_failed`] instead.
     #[error("Cartograph index cleanup failed; inspect generation retention before retrying")]
     IndexCleanupFailed,
     /// Persistent SCIP bytes were missing, unsafe, changed while read, or exceeded bounds.
@@ -3541,26 +3554,6 @@ mod tests {
         assert_eq!(
             public.to_string(),
             "Cartograph index operation failed during parse/extraction_parser_stopped at project-relative path \"src/broken.rs\"; the previous generation remains visible"
-        );
-    }
-
-    #[test]
-    fn progress_stalls_preserve_the_observed_stage_and_stable_reason() {
-        let error = progress_stalled_project_error(Some(PipelineStage::Resolve));
-        assert_eq!(
-            error,
-            ProjectError::IndexStageFailedWithReason {
-                stage: PipelineStage::Resolve,
-                reason: PipelineFailureReason::ProgressStalled,
-            }
-        );
-        assert_eq!(
-            error.to_string(),
-            "Cartograph index operation failed during resolve/progress_stalled; the previous generation remains visible"
-        );
-        assert_eq!(
-            progress_stalled_project_error(None),
-            ProjectError::IndexFailed
         );
     }
 

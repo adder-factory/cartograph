@@ -87,6 +87,23 @@ recovers the staging generation. Run index work expected to exceed the deadline
 through `cartograph index` or the `cartograph_admin` job API of a long-lived
 `cartograph serve`.
 
+`code` is always the failure that ended the attempt. When bounded cleanup of
+the attempt's own staging generation also fails afterward, and the attempt's
+final unleased-staging cleanup does not terminalize that generation either, the
+object adds a separate `cleanup_failure` (`code: index_cleanup_failed`,
+`message`) instead of replacing `code`; the next index retries that cleanup. `code:
+index_cleanup_failed` alone means the pre-reservation staging recovery itself
+failed. `previous_generation_visible` is read from PostgreSQL after the
+failure: `true` when a published generation is still current, `false` when the
+project has none (for example, before its first successful index), and `null`
+when that bounded lookup itself failed. Another live project lease, or another
+writer still holding the project lock past the bounded five-second wait,
+returns the retryable `lease_busy` before any generation is reserved; an
+unchanged checkout still returns its no-op report. A writer that takes the
+lease after that check is still rejected at lease acquisition with
+`lease_busy`, and the attempt's reserved generation is cleaned up. A lost or
+unconfirmed lease heartbeat reports `lease_failed`.
+
 Invalid parser-recovery spans and parser stops without cancellation are instead
 retained as partial files and listed in a successful index report with degraded
 reason `extraction_invalid_span` or `extraction_parser_stopped`.

@@ -97,6 +97,8 @@ const MAINTENANCE_LEASE_DURATION: Duration = Duration::from_mins(5);
 const MAINTENANCE_STATEMENT_TIMEOUT: Duration = Duration::from_mins(4);
 const SYNC_IF_DIRTY_LEASE_WAIT: Duration = Duration::from_mins(5);
 const SYNC_IF_DIRTY_LEASE_POLL: Duration = Duration::from_millis(200);
+/// Bound on the post-failure lookup of whether a generation is still current.
+const FAILURE_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAXIMUM_TRANSIENT_FILE_BYTES: usize = 10 * 1024 * 1024;
 const KIBIBYTE: usize = 1_024;
 const MEBIBYTE: usize = KIBIBYTE * KIBIBYTE;
@@ -3126,7 +3128,7 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
             .with_max_workers(workers)
             .map_err(|error| error.to_string())?;
     }
-    let result = runtime.index(options).await;
+    let result = runtime.index_with_failure_detail(options).await;
     match result {
         Ok(report) => {
             let rendered = print_index_report(&report, format);
@@ -3134,19 +3136,40 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
             rendered?;
             Ok(ExitCode::SUCCESS)
         }
-        Err(error) if matches!(format, OutputFormat::Json) => {
-            let rendered = error_codes::direct_index_failure_json(&error)
+        Err(failure) if matches!(format, OutputFormat::Json) => {
+            let previous_generation_visible = observed_generation_visibility(&runtime).await;
+            let rendered =
+                error_codes::direct_index_failure_json(error_codes::DirectIndexFailureInput {
+                    failure: &failure,
+                    previous_generation_visible,
+                })
                 .map_err(|_| "could not serialize the index failure".to_owned())?;
             runtime.close().await;
             eprintln!("{rendered}");
             Ok(ExitCode::FAILURE)
         }
-        Err(error) => {
-            let rendered = error_codes::direct_index_failure_message(&error);
+        Err(failure) => {
+            let rendered = error_codes::direct_index_attempt_failure_message(&failure);
             runtime.close().await;
             Err(rendered)
         }
     }
+}
+
+/// Whether readers still see a published generation after a failed index.
+///
+/// `None` means the lookup failed or missed its deadline, so the report says
+/// unknown instead of guessing from the failure kind. The client deadline also
+/// covers connection acquisition, which the statement timeout cannot bound, so
+/// this diagnostic never holds back the already-known primary failure.
+async fn observed_generation_visibility(runtime: &ProjectRuntime) -> Option<bool> {
+    let lookup = runtime
+        .database()
+        .root_has_current_generation(runtime.root_identity(), FAILURE_VISIBILITY_TIMEOUT);
+    tokio::time::timeout(FAILURE_VISIBILITY_TIMEOUT, lookup)
+        .await
+        .ok()
+        .and_then(Result::ok)
 }
 
 async fn run_sync_if_dirty(

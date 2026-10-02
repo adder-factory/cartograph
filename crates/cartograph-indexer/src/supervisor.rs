@@ -883,10 +883,13 @@ impl RunCoordinator<'_> {
         cancellation: CancelledWork,
     ) -> Result<CurrentGeneration, SupervisorError> {
         if !cancellation.reason.is_authority_uncertain()
-            && let Err(error) = self.durable().cleanup_owned_failure(operation).await
+            && let Err(cleanup) = self.durable().cleanup_owned_failure(operation).await
         {
             self.progress.mark_failed().await;
-            return Err(error);
+            return Err(cleanup_failed(
+                cancelled(cancellation.reason, cancellation.grace_exceeded),
+                cleanup,
+            ));
         }
         self.progress
             .mark_cancelled(cancellation.reason, cancellation.grace_exceeded)
@@ -907,7 +910,7 @@ impl RunCoordinator<'_> {
         self.progress.mark_failed().await;
         match cleanup {
             Ok(()) => Err(error),
-            Err(cleanup) => Err(cleanup),
+            Err(cleanup) => Err(cleanup_failed(error, cleanup)),
         }
     }
 
@@ -2297,6 +2300,17 @@ pub enum SupervisorError {
     /// The in-process lifecycle gate became unavailable.
     #[error("Cartograph indexer lifecycle gate is unavailable")]
     LifecycleUnavailable,
+    /// Owned cleanup failed after the failure that ended the run.
+    ///
+    /// The primary failure stays authoritative for classification and retry;
+    /// the cleanup failure is secondary detail about the owned generation.
+    #[error("{primary}; owned generation cleanup also failed: {cleanup}")]
+    CleanupFailed {
+        /// The failure or cancellation that ended the run.
+        primary: Box<SupervisorError>,
+        /// The owned-generation cleanup failure observed afterward.
+        cleanup: Box<SupervisorError>,
+    },
 }
 
 impl SupervisorError {
@@ -2316,6 +2330,13 @@ const fn cancelled(reason: CancellationReason, grace_exceeded: bool) -> Supervis
     SupervisorError::Cancelled {
         reason,
         grace_exceeded,
+    }
+}
+
+fn cleanup_failed(primary: SupervisorError, cleanup: SupervisorError) -> SupervisorError {
+    SupervisorError::CleanupFailed {
+        primary: Box::new(primary),
+        cleanup: Box::new(cleanup),
     }
 }
 
