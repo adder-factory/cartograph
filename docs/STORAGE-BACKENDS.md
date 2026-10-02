@@ -518,10 +518,19 @@ measures its validated data volume; external PostgreSQL must supply
 `--available-headroom-bytes`. Partial completion names the table and stable
 stop reason and can be resumed with a fresh plan.
 
-Failed generation cleanup now deletes its exact spill root and cascaded staging
-payload in the same fenced terminal transaction. PostgreSQL can therefore reuse
-those pages before another attempt; heap compaction remains the explicit path
-for returning an already-allocated high-water file to the filesystem.
+Failed generation cleanup deletes its exact spill root and cascaded staging
+payload in the same fenced terminal transaction when that cascade fits the
+cleanup statement deadline, so PostgreSQL can reuse those pages before another
+attempt. A larger spill, such as a full rebuild of a large project, rolls back
+only that delete: the generation is still failed and its lease released, and
+the spill rows stay with it, like its already-staged canonical rows, until the
+bounded retention drain removes them. That drain runs right after a failed
+automatic index, after the next successful index, or through `db prune`; a
+failed manual `cartograph index` therefore leaves a large spill in place until
+one of those runs. Before, the timed-out cascade failed the cleanup too and left
+the generation staging with its lease held until the lease expired. Heap
+compaction remains the explicit path for returning an already-allocated
+high-water file to the filesystem.
 
 ## Distribution boundary
 

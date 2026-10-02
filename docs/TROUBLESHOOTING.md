@@ -416,8 +416,10 @@ auto-sync output retain a qualified privacy-safe reason such as
 `parse_progress_stalled`, `resolve_progress_stalled`, or
 `relational_merge_progress_stalled`; source paths, SQL, database URLs, and
 driver text are not included. This differs from `*_deadline_exceeded`: a
-deadline is an item or whole-stage execution horizon, while a progress stall
-means the watchdog observed no completed work checkpoint.
+deadline is an item or whole-stage execution horizon, or a stage database
+statement that outlived its statement timeout (for example a spilled
+`reduce_deadline_exceeded`), while a progress stall means the watchdog observed
+no completed work checkpoint.
 
 Inspect the named stage, bounded database logs, host memory/CPU, and PostgreSQL
 I/O or lock pressure. Retry only after identifying transient resource pressure

@@ -2593,13 +2593,21 @@ fn spill_pipeline_error(
     stage: PipelineStage,
     error: &cartograph_db::StorageError,
 ) -> NativePipelineError {
+    match spill_failure_reason(error) {
+        Some(reason) => NativePipelineError::StageWithReason { stage, reason },
+        None => NativePipelineError::Spill { stage },
+    }
+}
+
+/// Actionable reason for a spill failure. A spill statement that outlives its
+/// bounded statement timeout is that stage's deadline, not an opaque failure.
+fn spill_failure_reason(error: &cartograph_db::StorageError) -> Option<PipelineFailureReason> {
     if spill_capacity_error(error) {
-        NativePipelineError::StageWithReason {
-            stage,
-            reason: PipelineFailureReason::GenerationCapacityExceeded,
-        }
+        Some(PipelineFailureReason::GenerationCapacityExceeded)
+    } else if matches!(error, cartograph_db::StorageError::StatementTimeout { .. }) {
+        Some(PipelineFailureReason::DeadlineExceeded)
     } else {
-        NativePipelineError::Spill { stage }
+        None
     }
 }
 
@@ -4189,12 +4197,15 @@ async fn run_spilled_reduce_stage(
         spill,
     )];
     let progress = stages.runner.clone();
+    let failure = SpilledReduceFailure::default();
+    let worker_failure = failure.clone();
     let execution = StageExecution::new(
         StageRunConfig::new(PipelineStage::Reduce, StageCapacity::new(1, 0), deadline),
         StageWorkload::new(
             inputs,
             move |item: StageWorkItem<u8, NativeGenerationSpill>| {
                 let progress = progress.clone();
+                let failure = worker_failure.clone();
                 async move {
                     let cancellation = item.cancellation();
                     let (_, _, spill) = item.into_parts();
@@ -4205,7 +4216,7 @@ async fn run_spilled_reduce_stage(
                         let partition = spill
                             .canonicalize_next()
                             .await
-                            .map_err(|_| StageItemFailure)?;
+                            .map_err(|error| failure.record(error))?;
                         progress
                             .advance_progress(1, 0)
                             .await
@@ -4223,7 +4234,7 @@ async fn run_spilled_reduce_stage(
                             }
                         })
                         .await
-                        .map_err(|_| StageItemFailure)
+                        .map_err(|error| failure.record(error))
                 }
             },
         ),
@@ -4240,10 +4251,45 @@ async fn run_spilled_reduce_stage(
     stages
         .runner
         .execute(execution)
-        .await?
+        .await
+        .map_err(|error| failure.classify(error))?
         .ok_or(NativePipelineError::Incomplete {
             stage: PipelineStage::Reduce,
         })
+}
+
+/// The storage failure that ended the spilled reduce item.
+///
+/// The stage runner only learns that the item failed; retaining the storage
+/// error lets the stage report a statement timeout or capacity rejection as
+/// its actionable reason instead of an opaque item failure.
+#[derive(Clone, Default)]
+struct SpilledReduceFailure(Arc<Mutex<Option<StorageError>>>);
+
+impl SpilledReduceFailure {
+    fn record(&self, error: StorageError) -> StageItemFailure {
+        if let Ok(mut retained) = self.0.lock() {
+            retained.get_or_insert(error);
+        }
+        StageItemFailure
+    }
+
+    fn classify(&self, error: StageRunError) -> NativePipelineError {
+        let worker_failed = matches!(
+            error,
+            StageRunError::Item {
+                stage: PipelineStage::Reduce,
+                kind: StageFailureKind::Worker,
+                ..
+            }
+        );
+        let retained = worker_failed
+            .then(|| self.0.lock().ok().and_then(|mut retained| retained.take()))
+            .flatten();
+        retained.map_or(NativePipelineError::Stage(error), |storage| {
+            spill_pipeline_error(PipelineStage::Reduce, &storage)
+        })
+    }
 }
 
 fn generation_validation_failure_reason(
@@ -21433,6 +21479,50 @@ export function secondClone(value: number) {
         );
         assert!(error.file_failure().is_none());
         assert_eq!(error.reason(), None);
+    }
+
+    /// The spilled reduce runs as one stage item, so the runner only learns
+    /// that the item failed. A spill statement that outlived its timeout used
+    /// to surface as a reason-less `reduce_failed`; it is the reduce deadline.
+    #[test]
+    fn spilled_reduce_statement_timeout_reports_the_reduce_deadline() {
+        let worker_failure = || StageRunError::Item {
+            stage: PipelineStage::Reduce,
+            sequence: StageSequence::new(0),
+            kind: StageFailureKind::Worker,
+        };
+        let timed_out = SpilledReduceFailure::default();
+        let _ = timed_out.record(StorageError::StatementTimeout {
+            operation: "spill-detect-canonical-conflict",
+        });
+        assert_matches!(
+            timed_out.classify(worker_failure()),
+            NativePipelineError::StageWithReason {
+                stage: PipelineStage::Reduce,
+                reason: PipelineFailureReason::DeadlineExceeded,
+            }
+        );
+
+        let failed = SpilledReduceFailure::default();
+        let _ = failed.record(StorageError::GenerationSpillConflict);
+        let error = failed.classify(worker_failure());
+        assert_matches!(
+            error,
+            NativePipelineError::Spill {
+                stage: PipelineStage::Reduce
+            }
+        );
+        assert_eq!(error.reason(), None);
+
+        let unrecorded = SpilledReduceFailure::default().classify(worker_failure());
+        assert_matches!(
+            unrecorded,
+            NativePipelineError::Stage(StageRunError::Item {
+                stage: PipelineStage::Reduce,
+                kind: StageFailureKind::Worker,
+                ..
+            })
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

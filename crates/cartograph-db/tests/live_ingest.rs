@@ -13,16 +13,17 @@ use cartograph_config::DatabaseSettings;
 use cartograph_db::{
     CachedRowPayload, CanonicalGenerationFacts, CartographDatabase, EdgeInput, FactBatchInput,
     FileInput, GenerationContents, GenerationFacts, GenerationRecoveryRequest,
-    GenerationValidationLimits, LeaseOwner, LeaseRequest, LeaseTarget,
-    NativeGenerationExtractedCursor, NativeGenerationSpill, NativeGenerationSpillCachedRow,
+    GenerationRetentionPolicy, GenerationRetentionRequest, GenerationValidationLimits, LeaseOwner,
+    LeaseRequest, LeaseTarget, NativeGenerationExtractedCursor, NativeGenerationSpill,
+    NativeGenerationSpillCachedRow, NativeGenerationSpillCanonicalProgress,
     NativeGenerationSpillExtractedBatch, NativeGenerationSpillFactBatch,
-    NativeGenerationSpillFactCounts, NativeGenerationSpillPolicy, NativeGenerationSpillRequest,
-    NativeGenerationSpillRow, NativeGenerationSpillState, NativeGenerationSpillWrite,
-    NativeParseCacheBatchWrite, NativeParseCacheEntry, NativeParseCacheKey,
-    NativeParseCacheKeyInput, NewGeneration, NewProject, NumericalSiteInput,
+    NativeGenerationSpillFactCounts, NativeGenerationSpillPolicy, NativeGenerationSpillRelation,
+    NativeGenerationSpillRequest, NativeGenerationSpillRow, NativeGenerationSpillState,
+    NativeGenerationSpillWrite, NativeParseCacheBatchWrite, NativeParseCacheEntry,
+    NativeParseCacheKey, NativeParseCacheKeyInput, NewGeneration, NewProject, NumericalSiteInput,
     PrepareGenerationMetrics, ProjectLease, ReadyGeneration, RecoverableGeneration, ReferenceInput,
     SearchDocumentInput, SpilledGenerationContents, StagedGeneration, StorageError, SymbolInput,
-    validate_generation_facts,
+    TerminalGenerationMutation, validate_generation_facts,
 };
 use cartograph_domain::{
     ContentDigest, DocumentId, DocumentKind, EdgeKind, FileId, FileParseStatus,
@@ -78,6 +79,11 @@ const CHUNK_DOCUMENT_COUNT: i64 = 3;
 const CUMULATIVE_COPY_ROW_COUNT: i64 = 2;
 const INDIVIDUAL_COPY_ROW_COUNT: i64 = 1;
 const TEST_LEASE_DURATION: Duration = Duration::from_secs(30);
+const DENSE_SPILL_FILES: u64 = 20;
+const DENSE_SPILL_SYMBOLS_PER_FILE: u64 = 200;
+const DENSE_SPILL_SYMBOL_BYTES: u64 = 16;
+const CANONICAL_TRANSACTION_BOUND: usize = 64;
+const BLOCKED_STATEMENT_TIMEOUT: Duration = Duration::from_secs(1);
 
 static SCHEMA_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -112,6 +118,398 @@ async fn native_generation_spill_rechecks_lease_immediately_before_commit() {
     drop(cursor_fixture.database);
     drop_schema(&cursor_fixture.pool, &cursor_fixture.schema).await;
     cursor_fixture.pool.close().await;
+}
+
+/// A full rebuild reduces this generation's spilled rows and validates its
+/// edges, references, numerical sites, and documents against the files and
+/// symbols it loaded moments earlier. Every one of those partition queries must
+/// be planned from statistics that include this generation. A never-analyzed
+/// table, or one whose sample saw only earlier or failed generations, makes
+/// PostgreSQL estimate the generation at about one row; the queries then probe
+/// an index matching only the generation prefix and walk the whole generation
+/// once per row. On a real TypeScript project that outlived the spill statement
+/// timeout on the first edge partition of a fresh rebuild, and on the first
+/// document partition of a retry next to a failed generation's spill.
+/// Autovacuum is disabled here so nothing but the reduce itself can refresh the
+/// statistics.
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn native_generation_spill_plans_partitions_from_this_generations_statistics() {
+    let fixture = open_fixture().await;
+    disable_planner_autovacuum(&fixture).await;
+    let run = begin_spill_test(&fixture).await;
+    stage_dense_symbol_spill(&run).await;
+    let generation_id = run.staged.generation_id().clone();
+    canonicalize_until_relation(&fixture, &run, "edges").await;
+    let symbols = DENSE_SPILL_FILES * DENSE_SPILL_SYMBOLS_PER_FILE;
+    assert_planned_rows(&fixture, &generation_id, ("files", DENSE_SPILL_FILES)).await;
+    assert_planned_rows(&fixture, &generation_id, ("symbols", symbols)).await;
+    let first_edges = run
+        .spill
+        .canonicalize_next()
+        .await
+        .unwrap_or_else(|error| panic!("first dense edge partition failed: {error}"));
+    assert_eq!(
+        (first_edges.relation, first_edges.partition),
+        (NativeGenerationSpillRelation::Edges, 0)
+    );
+    let edges = symbols - DENSE_SPILL_FILES;
+    assert_planned_rows(
+        &fixture,
+        &generation_id,
+        ("native_generation_spill_edges", edges),
+    )
+    .await;
+    let mut complete = false;
+    for _ in 0..CANONICAL_TRANSACTION_BOUND {
+        let progress = run
+            .spill
+            .canonicalize_next()
+            .await
+            .unwrap_or_else(|error| panic!("dense spill did not canonicalize: {error}"));
+        if progress.complete {
+            complete = true;
+            break;
+        }
+    }
+    assert!(complete, "dense spill never finished canonicalization");
+    fail_spill_test_run(&fixture, run).await;
+    drop(fixture.database);
+    drop_schema(&fixture.pool, &fixture.schema).await;
+    fixture.pool.close().await;
+}
+
+/// A failed reduce must clean up its own staging generation however large its
+/// spill is. Deleting the spill run cascades through every spilled row, which
+/// for a full rebuild cannot finish inside the short failure-cleanup deadline,
+/// so the cleanup failed too and left the generation staging and its lease
+/// held. Another session's lock on the spilled rows stands in for that size:
+/// any delete of them waits past the deadline. The generation must still fail
+/// and release its lease, and the rows stay with it until retention drains
+/// them in bounded batches. A spill that does fit the deadline is reclaimed at
+/// once, which the supervisor's SCIP spill fault test covers.
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn failed_generation_cleanup_defers_an_oversized_spill_to_retention() {
+    let fixture = open_fixture().await;
+    let run = begin_spill_test(&fixture).await;
+    run.spill
+        .append_extracted_batch(extracted_spill_batch())
+        .await
+        .unwrap_or_else(|error| panic!("cleanup fixture parse batch failed: {error}"));
+    let generation_id = run.staged.generation_id().clone();
+    let mut blocker = fixture
+        .pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("could not open the spill lock holder: {error}"));
+    query(AssertSqlSafe(format!(
+        r#"LOCK TABLE "{}".native_generation_spill_rows IN SHARE MODE"#,
+        fixture.schema
+    )))
+    .execute(&mut *blocker)
+    .await
+    .unwrap_or_else(|error| panic!("could not lock the spilled rows: {error}"));
+    let fence = run.lease.fence();
+    let cleanup = fixture
+        .database
+        .fail_generation_and_release_bounded(TerminalGenerationMutation::new(
+            &fence,
+            BLOCKED_STATEMENT_TIMEOUT,
+        ))
+        .await;
+    blocker
+        .rollback()
+        .await
+        .unwrap_or_else(|error| panic!("could not release the spill lock: {error}"));
+    assert_eq!(cleanup, Ok(()));
+    assert_eq!(generation_state(&fixture, &generation_id).await, "failed");
+    assert!(
+        !fixture
+            .database
+            .has_live_lease(&fixture.project, TEST_LEASE_DURATION)
+            .await
+            .unwrap_or_else(|error| panic!("lease state was unavailable: {error}"))
+    );
+    assert_eq!(spill_opaque_counts(&fixture, &generation_id).await, (1, 1));
+    let migration = fixture
+        .database
+        .acquire_lease(LeaseRequest::new(
+            LeaseTarget::new(fixture.project.clone(), ProjectOperation::Migration, None),
+            LeaseOwner::new(process::id(), "ingest-test-retention".to_owned()),
+            TEST_LEASE_DURATION,
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("retention lease acquisition failed: {error}"));
+    let retention = fixture
+        .database
+        .cleanup_generations(GenerationRetentionRequest::new(
+            GenerationRetentionPolicy::new(0, 8)
+                .unwrap_or_else(|error| panic!("retention policy failed: {error}")),
+            &migration.fence(),
+            TEST_LEASE_DURATION,
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("retention did not drain the failed spill: {error}"));
+    assert_eq!(retention.failed_removed, 1);
+    assert_eq!(spill_opaque_counts(&fixture, &generation_id).await, (0, 0));
+    assert!(fixture.database.release_lease(&migration).await.is_ok());
+    drop(fixture.database);
+    drop_schema(&fixture.pool, &fixture.schema).await;
+    fixture.pool.close().await;
+}
+
+/// A canonical partition that outlives the spill statement timeout must say so,
+/// because the reduce stage reports that as its deadline. Every failed
+/// canonical insert used to be reported as a fact conflict, and the pipeline
+/// then surfaced a reason-less `reduce_failed`. Another session's locks hold
+/// the first partition past the deadline twice: a `VACUUM`-strength lock on the
+/// raw spill files makes the planner-statistics refresh wait, and a share lock
+/// on the canonical files makes the insert wait. Neither commits a partial
+/// group, so the retry still starts at the first partition.
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn spill_canonicalization_reports_statement_timeouts_as_timeouts() {
+    let fixture = open_fixture().await;
+    let run = begin_spill_test(&fixture).await;
+    stage_dense_symbol_spill(&run).await;
+    let bounded = NativeGenerationSpill::new(
+        fixture.database.clone(),
+        &run.staged,
+        NativeGenerationSpillRequest {
+            fence: run.lease.fence(),
+            policy: run.policy,
+            statement_timeout: BLOCKED_STATEMENT_TIMEOUT,
+        },
+    )
+    .unwrap_or_else(|error| panic!("bounded spill authority was invalid: {error}"));
+    for (lock, operation) in [
+        (
+            "native_generation_spill_files IN SHARE UPDATE EXCLUSIVE MODE",
+            "spill-analyze-planner-statistics",
+        ),
+        ("files IN SHARE MODE", "spill-insert-canonical-partition"),
+    ] {
+        let timed_out = canonicalize_while_locked(&fixture, &bounded, lock).await;
+        assert_eq!(timed_out, Err(StorageError::StatementTimeout { operation }));
+    }
+    let progress = bounded
+        .canonicalize_next()
+        .await
+        .unwrap_or_else(|error| panic!("timed-out partition did not retry: {error}"));
+    assert_eq!(progress.partition, 0);
+    fail_spill_test_run(&fixture, run).await;
+    drop(fixture.database);
+    drop_schema(&fixture.pool, &fixture.schema).await;
+    fixture.pool.close().await;
+}
+
+/// Reduce one partition group while another session holds `lock`, given as a
+/// schema-relative `LOCK TABLE` target and mode.
+async fn canonicalize_while_locked(
+    fixture: &DatabaseFixture,
+    spill: &NativeGenerationSpill,
+    lock: &str,
+) -> Result<NativeGenerationSpillCanonicalProgress, StorageError> {
+    let mut blocker = fixture
+        .pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("could not open the lock holder: {error}"));
+    query(AssertSqlSafe(format!(
+        r#"LOCK TABLE "{}".{lock}"#,
+        fixture.schema
+    )))
+    .execute(&mut *blocker)
+    .await
+    .unwrap_or_else(|error| panic!("could not take {lock}: {error}"));
+    let result = spill.canonicalize_next().await;
+    blocker
+        .rollback()
+        .await
+        .unwrap_or_else(|error| panic!("could not release {lock}: {error}"));
+    result
+}
+
+/// Leave planner statistics for the tables the dense reduce reads and fills to
+/// the code under test.
+async fn disable_planner_autovacuum(fixture: &DatabaseFixture) {
+    for table in ["files", "symbols", "native_generation_spill_edges"] {
+        query(AssertSqlSafe(format!(
+            r#"ALTER TABLE "{}"."{table}" SET (autovacuum_enabled = false)"#,
+            fixture.schema
+        )))
+        .execute(&fixture.pool)
+        .await
+        .unwrap_or_else(|error| panic!("could not pin {table} statistics: {error}"));
+    }
+}
+
+/// Assert the planner expects at least half of this generation's `rows` in `table`.
+async fn assert_planned_rows(
+    fixture: &DatabaseFixture,
+    generation_id: &GenerationId,
+    (table, rows): (&str, u64),
+) {
+    let estimated = planner_generation_rows(fixture, table, generation_id).await;
+    assert!(
+        estimated.saturating_mul(2) >= rows,
+        "{table} was planned for {estimated} of {rows} rows of this generation"
+    );
+}
+
+/// Stage files whose symbols each call the next symbol in the same file.
+async fn stage_dense_symbol_spill(run: &SpillTestRun) {
+    run.spill
+        .append_extracted_batch(extracted_spill_batch())
+        .await
+        .unwrap_or_else(|error| panic!("dense spill parse batch failed: {error}"));
+    run.spill
+        .finish_parsing(1)
+        .await
+        .unwrap_or_else(|error| panic!("dense spill parse phase did not seal: {error}"));
+    let limits = GenerationValidationLimits::new(
+        TEST_VALIDATION_OUTPUT_BYTES,
+        TEST_VALIDATION_WORKING_BYTES,
+    )
+    .unwrap_or_else(|error| panic!("dense spill limits were invalid: {error}"));
+    let batch = NativeGenerationSpillFactBatch::new(
+        FactBatchInput {
+            sequence: 0,
+            facts: dense_symbol_facts(),
+            limits,
+        },
+        || false,
+    )
+    .unwrap_or_else(|error| panic!("dense spill facts were invalid: {error}"));
+    let counts = batch.counts();
+    run.spill
+        .append_fact_batch(batch)
+        .await
+        .unwrap_or_else(|error| panic!("dense spill facts did not stage: {error}"));
+    run.spill
+        .seal_resolution(counts)
+        .await
+        .unwrap_or_else(|error| panic!("dense spill facts did not seal: {error}"));
+}
+
+fn dense_symbol_facts() -> GenerationFacts {
+    let mut facts = GenerationFacts::default();
+    for file in 0..DENSE_SPILL_FILES {
+        let file_id = FileId::from_uuid_v8(fixture_uuid(&format!("dense-file-{file}")));
+        facts.files.push(FileInput {
+            file_id: file_id.clone(),
+            normalized_path: format!("src/dense_{file}.rs"),
+            language: "rust".to_owned(),
+            content_hash: fixture_digest(&format!("dense-content-{file}")),
+            byte_size: DENSE_SPILL_SYMBOLS_PER_FILE * DENSE_SPILL_SYMBOL_BYTES,
+            parse_status: FileParseStatus::Parsed,
+        });
+        let mut caller: Option<SymbolId> = None;
+        for index in 0..DENSE_SPILL_SYMBOLS_PER_FILE {
+            let symbol = dense_symbol(&file_id, file, index);
+            if let Some(source_symbol_id) = caller.replace(symbol.symbol_id.clone()) {
+                facts.edges.push(EdgeInput {
+                    source_symbol_id,
+                    target_symbol_id: symbol.symbol_id.clone(),
+                    kind: EdgeKind::Calls,
+                    confidence: 1.0,
+                    provenance: "tree-sitter".to_owned(),
+                    site_count: 1,
+                });
+            }
+            facts.symbols.push(symbol);
+        }
+    }
+    facts
+}
+
+fn dense_symbol(file_id: &FileId, file: u64, index: u64) -> SymbolInput {
+    let line = u32::try_from(index + 1)
+        .unwrap_or_else(|error| panic!("dense symbol line overflowed: {error}"));
+    SymbolInput {
+        symbol_id: SymbolId::from_uuid_v8(fixture_uuid(&format!("dense-symbol-{file}-{index}"))),
+        file_id: file_id.clone(),
+        qualified_name: format!("dense_{file}::symbol_{index}"),
+        start_byte: index * DENSE_SPILL_SYMBOL_BYTES,
+        end_byte: (index + 1) * DENSE_SPILL_SYMBOL_BYTES,
+        start_line: line,
+        end_line: line,
+        structural_digest: fixture_digest(&format!("dense-structure-{file}-{index}")),
+        ..symbol_one()
+    }
+}
+
+fn fixture_uuid(seed: &str) -> [u8; 16] {
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&blake3::hash(seed.as_bytes()).as_bytes()[..16]);
+    bytes
+}
+
+fn fixture_digest(seed: &str) -> ContentDigest {
+    ContentDigest::from_bytes(*blake3::hash(seed.as_bytes()).as_bytes())
+}
+
+/// Reduce partition groups until the durable cursor reaches `relation`, so no
+/// partition of that relation has been validated yet.
+async fn canonicalize_until_relation(
+    fixture: &DatabaseFixture,
+    run: &SpillTestRun,
+    relation: &str,
+) {
+    let generation_id = run.staged.generation_id();
+    for _ in 0..CANONICAL_TRANSACTION_BOUND {
+        let (_, current, ..) = spill_cursor_snapshot(fixture, generation_id).await;
+        if current.as_deref() == Some(relation) {
+            return;
+        }
+        run.spill
+            .canonicalize_next()
+            .await
+            .unwrap_or_else(|error| panic!("dense spill partition failed: {error}"));
+    }
+    panic!("dense spill never reached the {relation} relation");
+}
+
+/// Rows the planner expects one generation of `table` to hold.
+async fn planner_generation_rows(
+    fixture: &DatabaseFixture,
+    table: &str,
+    generation_id: &GenerationId,
+) -> u64 {
+    let statement = format!(
+        r#"EXPLAIN SELECT 1 FROM "{schema}"."{table}"
+            WHERE project_id = CAST($1 AS uuid)
+              AND generation_id = CAST($2 AS uuid)"#,
+        schema = fixture.schema,
+    );
+    let plan = query(AssertSqlSafe(statement))
+        .bind(fixture.project.as_str())
+        .bind(generation_id.as_str())
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap_or_else(|error| panic!("could not plan the {table} generation scan: {error}"))
+        .try_get::<String, _>(0)
+        .unwrap_or_else(|error| panic!("{table} plan was not text: {error}"));
+    plan.split_once(" rows=")
+        .and_then(|(_, rest)| rest.split_once(' '))
+        .and_then(|(rows, _)| rows.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("{table} plan carried no row estimate: {plan}"))
+}
+
+async fn generation_state(fixture: &DatabaseFixture, generation_id: &GenerationId) -> String {
+    query(AssertSqlSafe(format!(
+        r#"SELECT state FROM "{}".index_generations
+            WHERE project_id = CAST($1 AS uuid) AND generation_id = CAST($2 AS uuid)"#,
+        fixture.schema
+    )))
+    .bind(fixture.project.as_str())
+    .bind(generation_id.as_str())
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap_or_else(|error| panic!("generation state was unavailable: {error}"))
+    .try_get::<String, _>(0)
+    .unwrap_or_else(|error| panic!("generation state was invalid: {error}"))
 }
 
 async fn assert_expired_lease_rolls_back_spill_append(fixture: &DatabaseFixture) {

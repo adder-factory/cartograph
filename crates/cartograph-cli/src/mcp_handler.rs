@@ -2658,6 +2658,7 @@ enum AdminJobFailure {
     OverlayFailed,
     OverlayProgressStalled,
     ReduceFailed,
+    ReduceDeadlineExceeded,
     ReduceGenerationCapacityExceeded,
     ReduceReferenceNameTooLong,
     ReduceProgressStalled,
@@ -3181,6 +3182,9 @@ const fn admin_job_reason_failure(
         }
         (PipelineStage::Resolve, PipelineFailureReason::DeadlineExceeded) => {
             AdminJobFailure::ResolveDeadlineExceeded
+        }
+        (PipelineStage::Reduce, PipelineFailureReason::DeadlineExceeded) => {
+            AdminJobFailure::ReduceDeadlineExceeded
         }
         (PipelineStage::Reduce, PipelineFailureReason::GenerationCapacityExceeded) => {
             AdminJobFailure::ReduceGenerationCapacityExceeded
@@ -26680,6 +26684,29 @@ mod tests {
 
         let invalid = Map::from_iter([("allowStale".to_owned(), json!("true"))]);
         assert!(parse_context_review_controls(&invalid).is_err());
+    }
+
+    /// A spilled reduce statement that outlives its timeout is the reduce
+    /// deadline. Admin jobs used to collapse it into `reduce_failed`, while the
+    /// CLI reported `reduce_deadline_exceeded` for the same failure.
+    #[test]
+    fn admin_jobs_report_the_reduce_deadline_with_the_cli_code() {
+        let reduce_deadline = ProjectError::IndexStageFailedWithReason {
+            stage: PipelineStage::Reduce,
+            reason: PipelineFailureReason::DeadlineExceeded,
+        };
+        assert_eq!(
+            admin_job_failure(&reduce_deadline),
+            AdminJobFailure::ReduceDeadlineExceeded
+        );
+        assert_eq!(
+            serde_json::to_value(admin_job_failure(&reduce_deadline)).ok(),
+            Some(json!(project_error_reason(&reduce_deadline)))
+        );
+        assert_eq!(
+            project_error_reason(&reduce_deadline),
+            "reduce_deadline_exceeded"
+        );
     }
 
     #[test]
