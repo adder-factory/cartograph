@@ -673,13 +673,18 @@ impl RunCoordinator<'_> {
     ///
     /// Abort cannot interrupt a synchronous section of the root work, which the
     /// former inline monitor waited out before it dropped the work. The root
-    /// wait is therefore bounded only by the operation's reap ceiling, so
-    /// cleanup is not abandoned while the work finishes such a section. When
-    /// publication or owned cleanup may follow, the lease is renewed for the
-    /// whole wait so that they still hold authority. As the inline future was
-    /// dropped when its monitor returned, children and the prepare task are
-    /// reaped only once the root is gone, but without waiting for that renewal
-    /// to settle. A root task that outlives the ceiling is reported as unreaped.
+    /// wait therefore has its own bounded allowance (see
+    /// `OperationBudget::root_reap_deadline`), so cleanup is not abandoned
+    /// while the work finishes such a section, yet a wedged root neither keeps
+    /// the lease renewed nor holds the run itself until the operation's reap
+    /// ceiling; the prepare task keeps its own reap bounds. When publication or
+    /// owned cleanup may follow, the lease is renewed during that wait so that
+    /// they still hold authority: no heartbeat starts after it, though one
+    /// already running settles within its own bounded horizon. As the inline
+    /// future was dropped when its monitor returned, children and the prepare
+    /// task are reaped only once the root is gone, but without waiting for that
+    /// renewal to settle. A root task still running when its allowance ends is
+    /// reported as unreaped.
     async fn reap_work(
         &self,
         operation: &mut OwnedOperation,
@@ -693,17 +698,18 @@ impl RunCoordinator<'_> {
         } = reaping;
         let budget = operation.budget;
         let ceiling = budget.reap_ceiling(self.config);
+        let root_deadline = budget.root_reap_deadline(self.config);
         let mut renewal = if work.has_ended() || !outcome.keeps_authority() {
             None
         } else {
             operation.lease.take().map(|lease| {
                 LeaseKeeper::spawn(
-                    self.lease_renewal(budget, RenewalWindow::reaping(ceiling)),
+                    self.lease_renewal(budget, RenewalWindow::reaping(root_deadline)),
                     lease,
                 )
             })
         };
-        let work_reaped = work.abort_and_reap(ceiling).await;
+        let work_reaped = work.abort_and_reap(root_deadline).await;
         let children_deadline = self.children_reap_deadline(&outcome, ceiling);
         let registered = async {
             let reap = tasks.close_abort_and_reap(children_deadline).await;
@@ -719,10 +725,9 @@ impl RunCoordinator<'_> {
             }
         };
         let ((reap, prepare), settled) = tokio::join!(registered, settlement);
-        let outcome = match settled {
-            Some(exit) => settle_reap_renewal(operation, outcome, exit),
-            None => outcome,
-        };
+        if let Some(exit) = settled {
+            settle_reap_renewal(operation, exit);
+        }
         MonitoredWork {
             outcome,
             work_reaped,
@@ -1557,23 +1562,20 @@ struct WorkReap<'a> {
     prepares: &'a PrepareScope,
 }
 
-/// Return the lease token recovered from reap-time renewal and fold its
-/// verdict into the outcome.
+/// Return the lease token recovered from reap-time renewal.
 ///
-/// A heartbeat that lost or failed to renew the token leaves the outcome to
-/// the cleanup heartbeat, which re-verifies ownership before any mutation;
-/// renewal that cannot vouch for the token ends the run.
-fn settle_reap_renewal(
-    operation: &mut OwnedOperation,
-    outcome: MonitorOutcome,
-    exit: KeeperExit,
-) -> MonitorOutcome {
+/// The outcome that ended the work stays primary whatever renewal reports.
+/// A heartbeat that lost or failed to renew the token hands it back, so the
+/// cleanup heartbeat re-verifies ownership before any mutation. Renewal that
+/// could not vouch for the token leaves none, so owned cleanup can only
+/// reconcile and report its failure beside the primary outcome: it never
+/// mutates without a confirmed lease.
+fn settle_reap_renewal(operation: &mut OwnedOperation, exit: KeeperExit) {
     let KeeperExit { lease, verdict } = exit;
-    operation.lease = lease;
-    match verdict {
-        Some(LeaseVerdict::Failed(error)) => MonitorOutcome::SupervisorFailed(error),
-        Some(LeaseVerdict::Cancel(_)) | None => outcome,
-    }
+    operation.lease = match verdict {
+        Some(LeaseVerdict::Failed(_)) => None,
+        Some(LeaseVerdict::Cancel(_)) | None => lease,
+    };
 }
 
 struct WorkMonitor<'a> {
@@ -1640,10 +1642,13 @@ impl WorkMonitor<'_> {
             MonitorEvent::KeeperExited(exit) => (exit, None),
             event => {
                 // Accepting the event freezes renewal: no heartbeat can start
-                // afterwards, and one already in flight is reported exactly.
-                let renewing = tasks.keeper.freeze_renewal();
+                // afterwards. Any heartbeat in flight since the select
+                // iteration that selected it began is reported, even one that
+                // finished before this freeze; the stop below waits out one
+                // still running.
+                let renewal_overlapped = tasks.keeper.freeze_renewal();
                 let exit = tasks.keeper.stop(self.keeper_stop_deadline()).await;
-                let event = if renewing {
+                let event = if renewal_overlapped {
                     self.supersede(event, &mut watchdog).await
                 } else {
                     event
@@ -1685,6 +1690,10 @@ impl WorkMonitor<'_> {
         tokio::pin!(progress_deadline);
 
         loop {
+            // Record renewal before this iteration can select an event, so the
+            // freeze that accepts it also sees a heartbeat that was in flight
+            // at the selection but finished before the freeze.
+            tasks.keeper.observe_renewal();
             tokio::select! {
                 biased;
                 changed = self.receiver.changed() => {
@@ -1741,9 +1750,10 @@ impl WorkMonitor<'_> {
     /// The former inline monitor finished a running heartbeat before it polled
     /// any other branch, so a cancellation request, the work deadline, or a
     /// progress stall that arrived during that heartbeat outranked the event,
-    /// in that order. Only used when a heartbeat was in flight as the event was
-    /// accepted; otherwise the event stands, as it did when the inline monitor
-    /// acted on it immediately.
+    /// in that order. Only used when a heartbeat was in flight at some moment
+    /// of the select iteration that accepted the event, which over-approximates
+    /// one in flight at its selection; otherwise the event stands, as it did
+    /// when the inline monitor acted on it immediately.
     async fn supersede(
         &mut self,
         event: MonitorEvent,
@@ -1916,6 +1926,21 @@ impl OperationBudget {
     /// reserve for owned cleanup.
     fn reap_ceiling(self, config: SupervisorConfig) -> Instant {
         self.final_deadline - config.deadlines.database_finish_reserve()
+    }
+
+    /// Latest instant to wait, from now, for stopped root work to leave a
+    /// synchronous section that abort cannot interrupt, renewing the lease
+    /// meanwhile when cleanup can follow.
+    ///
+    /// The wait gets one COPY timeout, capped at the reap ceiling: the reap
+    /// allowance the finish reserve keeps after the cancellation grace, which a
+    /// cancellation at the work deadline always had. Validation keeps the grace,
+    /// that allowance, one heartbeat interval, and the database finish reserve
+    /// inside one lease duration, so a wedged section is renewed for less than
+    /// one lease duration, and cleanup after a section that ends in time still
+    /// fits the budget the lease was sized for.
+    fn root_reap_deadline(self, config: SupervisorConfig) -> Instant {
+        Self::request_deadline(config.deadlines.copy_timeout(), self.reap_ceiling(config))
     }
 }
 
@@ -2285,7 +2310,7 @@ pub enum SupervisorError {
     #[error("Cartograph indexing registered worker result was not observed")]
     UnobservedWorkers,
     /// An aborted registered worker or root pipeline task could not be joined by
-    /// the absolute deadline.
+    /// its bounded reap deadline.
     #[error("Cartograph indexing could not reap all registered workers by its deadline")]
     UnreapedWorkers,
     /// An acquisition, heartbeat, publication, or cleanup task could not be reaped.

@@ -147,11 +147,12 @@ status poll. When the deadline elapses, or the wait fails for any other reason,
 the command cancels the job and waits up to four minutes for its cleanup before
 it exits nonzero. Cleanup normally fails the staging generation and releases
 the project's index lease. A job cancelled inside a long synchronous stage
-section first finishes that section, keeping its lease renewed meanwhile. If
-lease ownership is lost or its outcome is ambiguous, the work is still running
-at the operation deadline, or cleanup outlasts the four-minute wait, the lease
-is not released by this command: it expires on its own and the next writer
-recovers the staging generation. Run index work expected to exceed the deadline
+section first waits up to three minutes past its 10-second cancellation grace
+for that section to finish, keeping its lease renewed meanwhile. If lease
+ownership is lost or its outcome is ambiguous, the section is still running
+when that wait ends, or cleanup outlasts the four-minute wait, the lease is not
+released by this command: it expires on its own and the next writer recovers
+the staging generation. Run index work expected to exceed the deadline
 through `cartograph index` or the `cartograph_admin` job API of a long-lived
 `cartograph serve`.
 

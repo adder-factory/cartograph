@@ -351,9 +351,11 @@ points at PostgreSQL or lease trouble, or a starved host, rather than a busy
 stage. Renewal pauses during a cancellation grace period, so a supervisor state
 that stays `cancelling` (or `wedged`, after a progress stall) while the
 heartbeat count advances means the cancelled work is still finishing a long
-synchronous section. The job then fails its staging generation and releases
-the lease, or, if the section outlasts the operation deadline, ends unreaped
-and leaves both for lease expiry and recovery.
+synchronous section. The job waits for that section for at most one COPY
+timeout after the grace, three minutes for index jobs. It then fails its
+staging generation and releases the lease, or, if the section is still
+running, ends unreaped: renewal stops, and the job leaves both for lease expiry
+and recovery.
 
 ## Semantic search is skipped
 

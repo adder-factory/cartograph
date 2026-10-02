@@ -2,7 +2,7 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -43,7 +43,7 @@ impl RenewalWindow {
 
     /// Renewal while an aborted root task finishes a synchronous section: a
     /// heartbeat right away, because renewal paused for the cancellation grace,
-    /// and none at or after `ceiling`.
+    /// and none at or after `ceiling`, the end of the root work's bounded reap.
     pub(super) fn reaping(ceiling: Instant) -> Self {
         Self {
             first: Instant::now(),
@@ -109,6 +109,8 @@ pub(super) struct LeaseKeeper {
     stop: Option<oneshot::Sender<()>>,
     handle: Option<JoinHandle<KeeperExit>>,
     gate: Arc<RenewalGate>,
+    /// Renewal activity when the monitor last began waiting for an event.
+    observed: RenewalEpoch,
 }
 
 /// Stop signal and renewal gate shared between a keeper and its owner.
@@ -120,45 +122,70 @@ struct KeeperControl {
 /// Arbitrates between a keeper starting a heartbeat and the monitor accepting
 /// an event.
 ///
-/// The monitor's freeze atomically reports whether a heartbeat was in flight at
-/// the moment it accepted an event and stops any later heartbeat from starting,
-/// so the acceptance point of the event is well defined.
-struct RenewalGate(AtomicU8);
+/// One atomic word holds the in-flight and frozen flags beside a count of
+/// started heartbeats. The monitor's freeze stops any later heartbeat from
+/// starting, so the acceptance point of an event is well defined, and returns
+/// the renewal epoch at that point. Comparing it with the epoch the monitor
+/// recorded before it selected the event reveals any heartbeat that overlapped
+/// the selection, even one that finished between the selection and the freeze.
+struct RenewalGate(AtomicU64);
+
+/// Renewal activity at one instant: heartbeats started so far and whether one
+/// is in flight. The frozen flag is not part of an epoch.
+#[derive(Clone, Copy)]
+struct RenewalEpoch(u64);
 
 impl RenewalGate {
-    const IDLE: u8 = 0;
-    const RENEWING: u8 = 1;
-    const FROZEN: u8 = 2;
+    /// A heartbeat is in flight.
+    const RENEWING: u64 = 1;
+    /// The monitor accepted an event; no heartbeat may start.
+    const FROZEN: u64 = 1 << 1;
+    /// One started heartbeat in the count kept above the two flags.
+    const STARTED: u64 = 1 << 2;
 
     const fn new() -> Self {
-        Self(AtomicU8::new(Self::IDLE))
+        Self(AtomicU64::new(0))
     }
 
     /// Start one heartbeat unless renewal is frozen; true when it may start.
+    ///
+    /// A start that would overflow the count is refused like a frozen gate,
+    /// which no keeper reaches at any supported heartbeat interval.
     fn begin(&self) -> bool {
         self.0
-            .compare_exchange(
-                Self::IDLE,
-                Self::RENEWING,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                if state & (Self::RENEWING | Self::FROZEN) == 0 {
+                    state
+                        .checked_add(Self::STARTED)
+                        .map(|counted| counted | Self::RENEWING)
+                } else {
+                    None
+                }
+            })
             .is_ok()
     }
 
     /// Finish one heartbeat; a freeze that arrived meanwhile stays in force.
     fn end(&self) {
-        let _ = self.0.compare_exchange(
-            Self::RENEWING,
-            Self::IDLE,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
+        self.0.fetch_and(!Self::RENEWING, Ordering::AcqRel);
     }
 
-    /// Freeze renewal; true when a heartbeat was in flight.
-    fn freeze(&self) -> bool {
-        self.0.swap(Self::FROZEN, Ordering::AcqRel) == Self::RENEWING
+    /// Renewal activity now.
+    fn epoch(&self) -> RenewalEpoch {
+        RenewalEpoch(self.0.load(Ordering::Acquire) & !Self::FROZEN)
+    }
+
+    /// Freeze renewal and return the activity at that moment.
+    fn freeze(&self) -> RenewalEpoch {
+        RenewalEpoch(self.0.fetch_or(Self::FROZEN, Ordering::AcqRel) & !Self::FROZEN)
+    }
+}
+
+impl RenewalEpoch {
+    /// Whether a heartbeat was in flight at any moment from `earlier` until
+    /// this epoch: one is still in flight, or one started or finished since.
+    const fn overlaps_since(self, earlier: Self) -> bool {
+        self.0 & RenewalGate::RENEWING != 0 || self.0 != earlier.0
     }
 }
 
@@ -199,6 +226,7 @@ impl LeaseKeeper {
     pub(super) fn spawn(renewal: LeaseRenewal, lease: ProjectLease) -> Self {
         let (stop, stopped) = oneshot::channel();
         let gate = Arc::new(RenewalGate::new());
+        let observed = gate.epoch();
         let control = KeeperControl {
             stopped,
             gate: Arc::clone(&gate),
@@ -207,13 +235,25 @@ impl LeaseKeeper {
             stop: Some(stop),
             handle: Some(tokio::spawn(keep_lease(renewal, lease, control))),
             gate,
+            observed,
         }
     }
 
+    /// Record renewal activity as the monitor begins waiting for an event.
+    pub(super) fn observe_renewal(&mut self) {
+        self.observed = self.gate.epoch();
+    }
+
     /// Accept an event: prevent further heartbeats and report whether one was
-    /// in flight at that moment.
+    /// in flight at any moment since the monitor last recorded renewal.
+    ///
+    /// A heartbeat in flight as the event was selected can finish before this
+    /// freeze, so its in-flight flag alone cannot be trusted; the epoch still
+    /// moved. Reporting heartbeats that started after the selection too is a
+    /// deliberate over-approximation toward the monitor's former conservative
+    /// priority.
     pub(super) fn freeze_renewal(&self) -> bool {
-        self.gate.freeze()
+        self.gate.freeze().overlaps_since(self.observed)
     }
 
     /// Wait for renewal to end on its own with a verdict. Cancel-safe.
@@ -436,20 +476,45 @@ mod tests {
     #[test]
     fn renewal_gate_reports_inflight_heartbeats_and_blocks_later_starts() {
         let idle = RenewalGate::new();
-        assert!(!idle.freeze());
+        let observed = idle.epoch();
+        assert!(!idle.freeze().overlaps_since(observed));
         assert!(!idle.begin());
 
         let renewing = RenewalGate::new();
+        let observed = renewing.epoch();
         assert!(renewing.begin());
-        assert!(renewing.freeze());
+        assert!(renewing.freeze().overlaps_since(observed));
         // A heartbeat that finishes after the freeze must not reopen renewal.
         renewing.end();
         assert!(!renewing.begin());
-        assert!(!renewing.freeze());
 
+        // A heartbeat that finished before the monitor began waiting is not
+        // part of the event it later accepts.
         let finished = RenewalGate::new();
         assert!(finished.begin());
         finished.end();
-        assert!(!finished.freeze());
+        let observed = finished.epoch();
+        assert!(!finished.freeze().overlaps_since(observed));
+    }
+
+    #[test]
+    fn freeze_reports_a_heartbeat_that_finished_after_the_event_was_selected() {
+        // A heartbeat is in flight as the monitor begins waiting and as it
+        // selects an event, then finishes before the monitor freezes renewal.
+        // The gate is idle at the freeze, yet the heartbeat overlapped the
+        // event, so the monitor must still re-apply its priority.
+        let finished_late = RenewalGate::new();
+        assert!(finished_late.begin());
+        let observed = finished_late.epoch();
+        finished_late.end();
+        assert!(finished_late.freeze().overlaps_since(observed));
+
+        // One that started and finished after the monitor began waiting is
+        // reported too, the deliberate over-approximation.
+        let started_later = RenewalGate::new();
+        let observed = started_later.epoch();
+        assert!(started_later.begin());
+        started_later.end();
+        assert!(started_later.freeze().overlaps_since(observed));
     }
 }

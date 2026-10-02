@@ -372,20 +372,30 @@ cannot delay the heartbeat. The monitor never polls work inline, so none of its
 branches can wait on progress state that a suspended work future already holds
 a pending acquisition for. An in-flight heartbeat verdict, a cancellation
 request, the work deadline, and a progress stall still take precedence over
-work completion, as before. Whole-graph CPU sections of the spilled resolver
-run under `block_in_place` so they do not hold an async worker.
+work completion, as before: whenever a heartbeat overlapped the monitor's wait
+for the event it accepts, even one that finished just before the acceptance,
+the monitor re-checks them once that heartbeat is done. Whole-graph CPU
+sections of the spilled resolver run under `block_in_place` so they do not hold
+an async worker.
 
 Aborting a task cannot interrupt such a synchronous section. Cancelled work
 gets the cooperative signal and its grace; if the work is still inside a
-section after that, the supervisor waits for the section to end, up to the
-operation's reap ceiling (the operation deadline minus the database finish
-reserve), before it reaps registered workers and runs the normal owned cleanup.
-While it waits, the lease keeps being renewed when publication or owned cleanup
-can still follow, but not after lease loss or an uncertain heartbeat;
-registered workers are reaped as soon as the work is gone, without waiting for
-that renewal to settle. Work that is still running at the reap ceiling is
-reported as unreaped and its owned cleanup is skipped, so the lease expires and
-the next writer recovers the staging generation.
+section after that, the supervisor waits up to one COPY timeout for the section
+to end, never past the operation's reap ceiling (the operation deadline minus
+the database finish reserve), before it reaps registered workers and runs the
+normal owned cleanup. That is the reap allowance the
+finish reserve keeps after the grace, and configuration validation keeps it,
+with the grace, one heartbeat interval, and the database finish reserve, inside
+one lease duration. While it waits, the lease keeps being renewed when
+publication or owned cleanup can still follow, but not after lease loss or an
+uncertain heartbeat; registered workers are reaped as soon as the work is gone,
+without waiting for that renewal to settle. If that renewal loses the lease or
+cannot vouch for it, the cancellation stays the primary outcome: the cleanup
+heartbeat re-verifies ownership before any mutation and, without a confirmed
+token, cleanup only reconciles and reports its failure beside the cancellation.
+Work that is still running when the allowance ends is reported as unreaped and
+its owned cleanup is skipped, so renewal stops, the lease expires, and the next
+writer recovers the staging generation.
 
 ## BM25 and exact retrieval
 
