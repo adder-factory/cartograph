@@ -103,6 +103,75 @@ fn macro_patterns_publish_the_same_references_as_match_arms() {
     assert_eq!(sugar, [(ReferenceKind::Calls, "dispatch".to_owned(), None)]);
 }
 
+/// Turbofish calls written directly and as macro arguments, and macro
+/// arguments that follow a turbofish's commas.
+const TURBOFISH_SHAPES: &str = r#"
+mod helpers;
+
+pub fn direct(items: Items) {
+    let _ = (
+        convert::<u8, u16>(1),
+        helpers::parse::<Vec<u8>, fn(u8) -> u16>(2),
+        items.collect::<Vec<_>>(),
+    );
+}
+
+pub fn wrapped(items: Items) {
+    let _ = vec![
+        convert::<u8, u16>(1),
+        helpers::parse::<Vec<u8>, fn(u8) -> u16>(2),
+        items.collect::<Vec<_>>(),
+    ];
+}
+
+pub fn shifted(flag: bool) {
+    assert!(matches!(build::<A, B>(), Shape::Circle(_)));
+    assert!(check::<A, B>(flag), "{LIMIT}");
+    assert!(1 < 2, "{COMPARED}");
+}
+"#;
+
+#[test]
+fn turbofish_type_arguments_neither_hide_calls_nor_shift_macro_arguments() {
+    let file = extract("src/generic.rs", TURBOFISH_SHAPES);
+    // A turbofish names no callee: each call names and resolves its function,
+    // and a method call dispatches on the member, not on `collect::<..>`.
+    assert!(
+        file.references
+            .iter()
+            .all(|reference| !reference.name.contains("::<")),
+        "{:?}",
+        file.references
+    );
+    let direct = comparable_references(&file, "direct");
+    let calls = direct
+        .iter()
+        .map(|(kind, name, _)| (*kind, name.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        [
+            (ReferenceKind::Calls, "convert"),
+            (ReferenceKind::Calls, "helpers::parse"),
+            (ReferenceKind::Calls, "items.collect"),
+        ]
+    );
+    assert!(direct[2].2.is_some(), "{direct:?}");
+    assert_eq!(comparable_references(&file, "wrapped"), direct);
+    // The commas inside `::<A, B>` separate type arguments, so the pattern is
+    // still `matches!`'s second argument and the format string `assert!`'s;
+    // a bare `<` is a comparison and opens nothing.
+    let mut expected = vec![
+        (ReferenceKind::Calls, "build".to_owned(), None),
+        (ReferenceKind::Calls, "check".to_owned(), None),
+        (ReferenceKind::References, "COMPARED".to_owned(), None),
+        (ReferenceKind::References, "LIMIT".to_owned(), None),
+        (ReferenceKind::References, "Shape::Circle".to_owned(), None),
+    ];
+    expected.sort();
+    assert_eq!(comparable_references(&file, "shifted"), expected);
+}
+
 #[test]
 fn std_format_strings_record_constant_captures_only() {
     let source = r##"

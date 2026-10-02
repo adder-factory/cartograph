@@ -9,8 +9,8 @@ use crate::{
 use super::{
     ExtractionBuilder, PendingReference, module_system,
     syntax::{
-        descendants_including_root, is_call_or_construction_target, named_children,
-        reference_type_node, span_for, starts_uppercase,
+        descendants_including_root, is_call_or_construction_target, is_rust_turbofish_callee,
+        named_children, reference_type_node, span_for, starts_uppercase,
     },
 };
 
@@ -425,7 +425,7 @@ impl<'tree> InvocationCapture<'tree> {
             InvocationKind::Call => ("function", ReferenceKind::Calls),
             InvocationKind::Construction => ("constructor", ReferenceKind::Instantiates),
         };
-        let target = expression.child_by_field_name(target_field)?;
+        let target = rust_turbofish_callee(language, expression.child_by_field_name(target_field)?);
         Some(Self {
             expression,
             target,
@@ -435,6 +435,18 @@ impl<'tree> InvocationCapture<'tree> {
             },
             reference_kind,
         })
+    }
+}
+
+/// The callee of a Rust turbofish call: `f::<T>(..)`, `a::f::<T>(..)`, and
+/// `x.f::<T>(..)` call `f`, whose type arguments name no callee, so the
+/// reference names and resolves the function the way an unparameterized
+/// call does.
+fn rust_turbofish_callee(language: SourceLanguage, target: Node<'_>) -> Node<'_> {
+    if language == SourceLanguage::Rust && target.kind() == "generic_function" {
+        target.child_by_field_name("function").unwrap_or(target)
+    } else {
+        target
     }
 }
 
@@ -940,7 +952,10 @@ pub(super) fn capture_member_field(
     node: Node<'_>,
     field_name: &str,
 ) -> Result<(), ExtractError> {
-    if is_call_or_construction_target(node) || is_commonjs_require_selection(builder, node) {
+    if is_call_or_construction_target(node)
+        || is_rust_turbofish_callee(node)
+        || is_commonjs_require_selection(builder, node)
+    {
         return Ok(());
     }
     let Some(property) = node.child_by_field_name(field_name) else {

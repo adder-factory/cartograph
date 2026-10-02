@@ -14,7 +14,9 @@
 //! qualified tuple-struct or variant path such as `Shape::Circle(r)` is a
 //! path reference, not a call, and a single-segment `Some(x)`, binding, or
 //! constant pattern publishes nothing. `Fn(..)`, `FnMut(..)`, and `FnOnce(..)`
-//! are trait sugar in a type, never calls.
+//! are trait sugar in a type, never calls. Turbofish type arguments (`::<..>`)
+//! name types: their commas separate no macro arguments, their tokens publish
+//! nothing, and `f::<T>(..)` or `x.f::<T>(..)` calls `f`, as in direct code.
 //!
 //! A bare identifier that is not called is usually a local binding, which the
 //! resolver cannot tell apart from a project declaration, so it stays
@@ -273,16 +275,64 @@ struct FrameCursor<'tree> {
     next_tree: Option<(usize, TreeReading)>,
     /// A top-level `if` began the pattern argument's guard expression.
     guarded: bool,
+    /// The `::<..>` type arguments the next token sits in, if any.
+    turbofish: TurbofishDepth,
 }
 
 impl<'tree> FrameCursor<'tree> {
     fn advance(&mut self, token: Node<'tree>) {
         let kind = token.kind();
-        if kind == "," {
+        let in_type_arguments = self.turbofish.is_open();
+        self.turbofish = self
+            .turbofish
+            .after(kind, self.previous.map(|previous| previous.kind()));
+        // A comma between type arguments, as in `f::<A, B>()`, separates no
+        // macro arguments.
+        if kind == "," && !in_type_arguments {
             self.argument = self.argument.saturating_add(1);
         }
-        self.argument_start = opens_argument(kind);
+        self.argument_start = !in_type_arguments && opens_argument(kind);
         self.before_previous = self.previous.replace(token);
+    }
+}
+
+/// How deep the scan is inside turbofish type arguments.
+///
+/// Only `::<` opens them: in an expression a bare `<` is a comparison, so the
+/// comma of `assert!(a < b, "..")` still separates two arguments. Inside, `<`
+/// and `<<` open and `>` and `>>` close nested arguments; `->` in
+/// `Fn(A) -> B` is one token and closes nothing.
+#[derive(Clone, Copy, Default)]
+struct TurbofishDepth(usize);
+
+impl TurbofishDepth {
+    fn after(self, kind: &str, previous: Option<&str>) -> Self {
+        let opening = angle_run(kind, b'<');
+        if !self.is_open() {
+            return if previous == Some("::") {
+                Self(opening)
+            } else {
+                self
+            };
+        }
+        Self(
+            self.0
+                .saturating_add(opening)
+                .saturating_sub(angle_run(kind, b'>')),
+        )
+    }
+
+    const fn is_open(self) -> bool {
+        self.0 > 0
+    }
+}
+
+/// How many `angle` brackets a token made only of them holds (`<`, `<<`).
+fn angle_run(kind: &str, angle: u8) -> usize {
+    if !kind.is_empty() && kind.bytes().all(|byte| byte == angle) {
+        kind.len()
+    } else {
+        0
     }
 }
 
@@ -355,12 +405,44 @@ impl TokenShape {
             end = component_end;
             segments = segments.saturating_add(1);
         }
+        // `f::<A, B>(..)` calls `f`: its type arguments name no reference.
+        let arguments_end = turbofish_end(bytes, end, limit).unwrap_or(end);
         Self {
             end,
             segments,
-            follower: Follower::read(bytes, end, limit),
+            follower: Follower::read(bytes, arguments_end, limit),
         }
     }
+}
+
+/// End of the `::<..>` turbofish that starts at `start`, when one does.
+/// Brackets balance, and the `>` of a `->` closes nothing.
+fn turbofish_end(bytes: &[u8], start: usize, limit: usize) -> Option<usize> {
+    let separator = skip_ascii_whitespace(bytes, start, limit);
+    let after_separator = separator.checked_add(RUST_PATH_SEPARATOR.len())?;
+    if after_separator > limit || bytes.get(separator..after_separator) != Some(RUST_PATH_SEPARATOR)
+    {
+        return None;
+    }
+    let open = skip_ascii_whitespace(bytes, after_separator, limit);
+    if bytes.get(open) != Some(&b'<') {
+        return None;
+    }
+    let mut depth = 0_usize;
+    for (cursor, byte) in bytes.get(open..limit)?.iter().enumerate() {
+        match byte {
+            b'<' => depth = depth.saturating_add(1),
+            b'>' if cursor > 0 && bytes.get(open.saturating_add(cursor - 1)) == Some(&b'-') => {}
+            b'>' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return open.checked_add(cursor)?.checked_add(1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 struct MacroTokenScan<'builder, 'source, 'cancel> {
@@ -431,7 +513,9 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
         frame: &mut TokenFrame<'_>,
         token: Node<'_>,
     ) -> Result<(), ExtractError> {
-        if continues_previous(self.source, &frame.cursor) {
+        // Turbofish type arguments name types, which direct code does not
+        // publish as references either.
+        if frame.cursor.turbofish.is_open() || continues_previous(self.source, &frame.cursor) {
             return Ok(());
         }
         let shape = TokenShape::read(self.source.as_bytes(), token, self.limit);
@@ -791,7 +875,9 @@ fn rust_receiver_call_end(bytes: &[u8], start: usize, limit: usize) -> Option<us
     if components == 0 {
         return None;
     }
-    let call = skip_ascii_whitespace(bytes, cursor, limit);
+    // `x.f::<T>(..)` calls `f`; the turbofish is not part of the member.
+    let arguments = turbofish_end(bytes, cursor, limit).unwrap_or(cursor);
+    let call = skip_ascii_whitespace(bytes, arguments, limit);
     (call < limit && bytes.get(call) == Some(&b'(')).then_some(cursor)
 }
 

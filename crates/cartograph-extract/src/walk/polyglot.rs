@@ -7,7 +7,7 @@ use super::{
     ExtractionBuilder, PendingReference, PendingSymbol, SingleChildUnwrap, references, rust_macro,
     syntax::{
         children, descendants_including_root, has_child_kind, is_call_or_construction_target,
-        named_children, span_for,
+        is_rust_turbofish_callee, named_children, span_for,
     },
 };
 
@@ -1142,6 +1142,7 @@ fn capture_rust_value_path(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     if is_call_or_construction_target(node)
+        || is_rust_turbofish_callee(node)
         || node.parent().is_some_and(|parent| {
             matches!(
                 parent.kind(),
