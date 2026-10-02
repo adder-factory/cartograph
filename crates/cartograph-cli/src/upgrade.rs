@@ -1007,10 +1007,10 @@ fn index_step(outcome: &IndexChildOutcome) -> (UpgradeStep, bool) {
 
 fn timed_out_message(timeout: IndexChildTimeout) -> String {
     let bound = match timeout.trigger {
-        index_child::DeadlineTrigger::NoProgress => format!(
-            "reported no progress for {} minutes",
-            whole_minutes(index_child::INDEX_INACTIVITY_TIMEOUT)
-        ),
+        index_child::DeadlineTrigger::NoProgress => {
+            let minutes = whole_minutes(index_child::INDEX_INACTIVITY_TIMEOUT);
+            format!("reported no progress for {minutes} minutes")
+        }
         index_child::DeadlineTrigger::Ceiling => format!(
             "reached its {}-minute absolute ceiling",
             whole_minutes(index_child::INDEX_ABSOLUTE_CEILING)
@@ -1023,10 +1023,12 @@ fn timed_out_message(timeout: IndexChildTimeout) -> String {
         ChildStop::Unconfirmed => {
             "it exited after the cooperative stop request without confirming its cleanup, so its project lease may remain until its 5-minute TTL; a rerun waits for that".to_owned()
         }
-        ChildStop::Forced => format!(
-            "it did not exit within the {}-minute cooperative stop grace and was killed, so its project lease expires on its own 5-minute TTL; a rerun waits for that",
-            whole_minutes(index_child::INDEX_TERMINATION_GRACE)
-        ),
+        ChildStop::Forced => {
+            let minutes = whole_minutes(index_child::INDEX_TERMINATION_GRACE);
+            format!(
+                "it did not exit within the {minutes}-minute cooperative stop grace and was killed, so its project lease expires on its own 5-minute TTL; a rerun waits for that"
+            )
+        }
     };
     format!(
         "The index {bound}; {stop}. Rerun the same upgrade command to resume, or run `cartograph index <path>` directly to see the stage that is not advancing."

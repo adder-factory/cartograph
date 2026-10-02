@@ -1043,6 +1043,49 @@ fn index_enrichment_policy(
     }
 }
 
+/// The answer an index attempt gives before reserving a generation, if any:
+/// an unchanged checkout returns its no-op without needing a lease, and a
+/// changed one must not reserve a generation that another live writer's lease
+/// would reject.
+fn index_preflight_outcome(
+    source: &PreparedIndexSource,
+    options: &IndexOptions,
+) -> Option<Result<IndexPreparation, ProjectError>> {
+    if let Some(unchanged) = unchanged_index_preparation(UnchangedIndexInput {
+        prior: source.prior.as_ref(),
+        source: &source.source,
+        options,
+        effective_run_excludes: &source.effective_run_excludes,
+        maximum_ast_depth: source.index_policy.maximum_ast_depth,
+    }) {
+        return Some(Ok(unchanged));
+    }
+    (source.staging == StagingPreflight::ProjectBusy).then_some(Err(ProjectError::IndexLeaseBusy))
+}
+
+/// A project's first index, before any generation is published.
+struct FirstIndexStaging<'a> {
+    database: &'a CartographDatabase,
+    project_id: &'a ProjectId,
+    /// Whether a prior snapshot already ran the abandoned-staging preflight.
+    has_prior: bool,
+}
+
+/// Recover abandoned staging rows before a project's first reservation;
+/// another live writer makes the attempt `IndexLeaseBusy` instead.
+async fn recover_first_index_staging(input: FirstIndexStaging<'_>) -> Result<(), ProjectError> {
+    if input.has_prior {
+        return Ok(());
+    }
+    let preflight = recover_abandoned_staging(
+        input.database,
+        input.project_id,
+        DEFAULT_STAGING_CLEANUP_TIMEOUT,
+    )
+    .await?;
+    (preflight != StagingPreflight::ProjectBusy).ok_or(ProjectError::IndexLeaseBusy)
+}
+
 async fn run_core_index(
     runtime: &ProjectRuntime,
     options: IndexOptions,
@@ -2018,19 +2061,8 @@ impl ProjectRuntime {
         let mut source = self
             .prepare_index_source(&options, cancellation.clone())
             .await?;
-        if let Some(unchanged) = unchanged_index_preparation(UnchangedIndexInput {
-            prior: source.prior.as_ref(),
-            source: &source.source,
-            options: &options,
-            effective_run_excludes: &source.effective_run_excludes,
-            maximum_ast_depth: source.index_policy.maximum_ast_depth,
-        }) {
-            return Ok(unchanged);
-        }
-        // An unchanged checkout needs no lease; a changed one must not reserve
-        // a generation that another live writer's lease would reject.
-        if source.staging == StagingPreflight::ProjectBusy {
-            return Err(ProjectError::IndexLeaseBusy);
+        if let Some(early) = index_preflight_outcome(&source, &options) {
+            return early;
         }
         self.admit_automatic_generation(&source, &options).await?;
         let run_excludes = source.effective_run_excludes.clone();
@@ -2153,17 +2185,12 @@ impl ProjectRuntime {
             ))
             .await
             .map_err(|_| ProjectError::RegisterFailed)?;
-        if source.prior.is_none()
-            && recover_abandoned_staging(
-                &self.database,
-                &project_id,
-                DEFAULT_STAGING_CLEANUP_TIMEOUT,
-            )
-            .await?
-                == StagingPreflight::ProjectBusy
-        {
-            return Err(ProjectError::IndexLeaseBusy);
-        }
+        recover_first_index_staging(FirstIndexStaging {
+            database: &self.database,
+            project_id: &project_id,
+            has_prior: source.prior.is_some(),
+        })
+        .await?;
         let staged = self
             .database
             .begin_generation(
