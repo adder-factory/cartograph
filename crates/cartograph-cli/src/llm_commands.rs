@@ -52,7 +52,7 @@ pub(super) enum LlmCommand {
     MigrateCredentials(MigrateCredentialsArguments),
 }
 
-#[derive(Debug, Args)]
+#[derive(Args)]
 pub(super) struct SetupArguments {
     /// Existing project root.
     #[arg(default_value = ".")]
@@ -105,6 +105,32 @@ pub(super) struct SetupArguments {
     /// Print structured JSON.
     #[arg(long)]
     json: bool,
+}
+
+/// Redacts the endpoint, which may carry URL credentials, and counts the CLI
+/// bridge's argv template, which may carry a secret; every other field prints.
+impl fmt::Debug for SetupArguments {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SetupArguments")
+            .field("path", &self.path)
+            .field("preset", &self.preset)
+            .field("tier", &self.tier)
+            .field("endpoint", &self.endpoint.as_ref().map(|_| "<redacted>"))
+            .field("model", &self.model)
+            .field("command", &self.command)
+            .field("command_argument_count", &self.command_args.len())
+            .field("input", &self.input)
+            .field("prompt_template", &self.prompt_template)
+            .field("response_format", &self.response_format)
+            .field("response_path", &self.response_path)
+            .field("credentials", &self.credentials)
+            .field("jev_features", &self.jev_features)
+            .field("minimal", &self.minimal)
+            .field("yes", &self.yes)
+            .field("json", &self.json)
+            .finish()
+    }
 }
 
 #[derive(Args)]
@@ -2358,6 +2384,11 @@ mod tests {
             #[command(flatten)]
             credentials: SetupCredentialArguments,
         }
+        #[derive(clap::Parser)]
+        struct SetupHarness {
+            #[command(flatten)]
+            setup: SetupArguments,
+        }
         let parsed = <Harness as clap::Parser>::try_parse_from([
             "install",
             "--database-url",
@@ -2376,6 +2407,21 @@ mod tests {
             parsed.install.database_url.as_deref(),
             Some("postgresql://cartograph:debug-secret@127.0.0.1:1/cartograph")
         );
+        let setup = <SetupHarness as clap::Parser>::try_parse_from([
+            "setup",
+            ".",
+            "--endpoint",
+            "https://user:endpoint-secret@llm.example/v1",
+            "--command",
+            "/opt/bridge",
+            "--arg",
+            "token=bridge-secret",
+        ])
+        .unwrap_or_else(|error| panic!("setup flags failed: {error}"));
+        let rendered = format!("{:?}", setup.setup);
+        assert!(!rendered.contains("endpoint-secret"), "{rendered}");
+        assert!(!rendered.contains("bridge-secret"), "{rendered}");
+        assert!(rendered.contains("command_argument_count: 1"), "{rendered}");
     }
 
     #[test]

@@ -9,6 +9,13 @@
 //! - `a::B` and `Self::LIMIT` paths that are not called;
 //! - nested `name!(..)` invocations, recorded as macro calls.
 //!
+//! The pattern of `matches!`, `assert_matches!`, and `debug_assert_matches!`
+//! (up to a top-level `if` guard) publishes what a `match` arm publishes: a
+//! qualified tuple-struct or variant path such as `Shape::Circle(r)` is a
+//! path reference, not a call, and a single-segment `Some(x)`, binding, or
+//! constant pattern publishes nothing. `Fn(..)`, `FnMut(..)`, and `FnOnce(..)`
+//! are trait sugar in a type, never calls.
+//!
 //! A bare identifier that is not called is usually a local binding, which the
 //! resolver cannot tell apart from a project declaration, so it stays
 //! unrecorded as it does outside macros. The one exception is a
@@ -69,6 +76,13 @@ const RUST_FORMAT_MACROS: [(&str, usize); 20] = [
     ("debug_assert_matches", 2),
 ];
 
+/// Pattern-matching macros, whose pattern argument holds a pattern, not expressions.
+const RUST_PATTERN_MACROS: [&str; 3] = ["matches", "assert_matches", "debug_assert_matches"];
+/// Zero-based argument of a pattern-matching macro that holds its pattern.
+const RUST_PATTERN_ARGUMENT: usize = 1;
+/// Callable-trait sugar: `Fn(u32) -> u8` names a type, never a call.
+const RUST_FN_TRAITS: [&str; 3] = ["Fn", "FnMut", "FnOnce"];
+
 /// Reserved words a token tree lexes as identifiers; none names a value or callable.
 const RUST_RESERVED_IDENTIFIERS: [&str; 19] = [
     "abstract",
@@ -111,7 +125,7 @@ pub(super) fn capture_invocation(
         return Ok(());
     };
     let name = builder.context.owned_text(target)?;
-    let role = macro_role(&name);
+    let reading = TreeReading::of_macro(&name);
     let reference = macro_call_reference(builder, name, span_for(target)?)?;
     builder.emit_reference(reference)?;
     let Some(tokens) = named_children(node).find(|child| child.kind() == "token_tree") else {
@@ -125,7 +139,7 @@ pub(super) fn capture_invocation(
         emitted: 0,
         visited: 0,
     }
-    .scan(tokens, role)
+    .scan(tokens, reading)
 }
 
 fn macro_call_reference(
@@ -167,7 +181,7 @@ enum TreeRole {
 }
 
 fn macro_role(macro_name: &str) -> TreeRole {
-    let last_segment = macro_name.rsplit("::").next().unwrap_or(macro_name).trim();
+    let last_segment = last_path_segment(macro_name);
     RUST_FORMAT_MACROS
         .iter()
         .find(|(name, _)| *name == last_segment)
@@ -176,11 +190,72 @@ fn macro_role(macro_name: &str) -> TreeRole {
         })
 }
 
+/// Where a macro's own token tree holds a pattern.
+fn pattern_scope(macro_name: &str) -> PatternScope {
+    if RUST_PATTERN_MACROS.contains(&last_path_segment(macro_name)) {
+        PatternScope::Argument(RUST_PATTERN_ARGUMENT)
+    } else {
+        PatternScope::None
+    }
+}
+
+fn last_path_segment(path: &str) -> &str {
+    path.rsplit("::").next().unwrap_or(path).trim()
+}
+
+/// How the scan reads one token tree: its syntax and where patterns sit in it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TreeReading {
+    role: TreeRole,
+    pattern: PatternScope,
+}
+
+impl TreeReading {
+    /// The reading of a `name!` invocation's own token tree.
+    fn of_macro(macro_name: &str) -> Self {
+        Self {
+            role: macro_role(macro_name),
+            pattern: pattern_scope(macro_name),
+        }
+    }
+
+    const SKIPPED: Self = Self {
+        role: TreeRole::Skipped,
+        pattern: PatternScope::None,
+    };
+}
+
+/// Where patterns sit in one token tree.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum PatternScope {
+    /// The tree holds expressions or tokens of unknown syntax.
+    #[default]
+    None,
+    /// This top-level argument is a pattern up to a top-level `if` guard.
+    Argument(usize),
+    /// The whole tree is a group nested inside a pattern.
+    Whole,
+}
+
 struct TokenFrame<'tree> {
     tree: Node<'tree>,
     children: DirectChildren<'tree>,
     role: TreeRole,
+    pattern: PatternScope,
     cursor: FrameCursor<'tree>,
+}
+
+impl TokenFrame<'_> {
+    /// Whether the next token sits in a pattern rather than an expression.
+    const fn in_pattern(&self) -> bool {
+        match self.pattern {
+            PatternScope::None => false,
+            PatternScope::Whole => true,
+            PatternScope::Argument(argument) => {
+                argument == self.cursor.argument && !self.cursor.guarded
+            }
+        }
+    }
 }
 
 /// Where the scan stands among one token tree's direct children.
@@ -194,8 +269,10 @@ struct FrameCursor<'tree> {
     before_previous: Option<Node<'tree>>,
     /// A literal that is the format string if its argument ends right after it.
     format_candidate: Option<Node<'tree>>,
-    /// Start byte of the token tree that a preceding `name!` invokes, and its role.
-    next_tree: Option<(usize, TreeRole)>,
+    /// Start byte of the token tree that a preceding `name!` invokes, and its reading.
+    next_tree: Option<(usize, TreeReading)>,
+    /// A top-level `if` began the pattern argument's guard expression.
+    guarded: bool,
 }
 
 impl<'tree> FrameCursor<'tree> {
@@ -296,20 +373,20 @@ struct MacroTokenScan<'builder, 'source, 'cancel> {
 }
 
 impl<'source> MacroTokenScan<'_, 'source, '_> {
-    fn scan(mut self, tokens: Node<'_>, role: TreeRole) -> Result<(), ExtractError> {
+    fn scan(mut self, tokens: Node<'_>, reading: TreeReading) -> Result<(), ExtractError> {
         let mut frames = Vec::new();
-        push_frame(&mut frames, tokens, role)?;
+        push_frame(&mut frames, tokens, reading)?;
         while let Some(frame) = frames.last_mut() {
             let Some(child) = frame.children.next() else {
                 frames.pop();
                 continue;
             };
             self.poll_token()?;
-            if let Some((tree, role)) = self.visit(frame, child)? {
+            if let Some((tree, reading)) = self.visit(frame, child)? {
                 if frames.len() > self.builder.maximum_ast_depth {
                     return Err(ExtractError::NestingLimit);
                 }
-                push_frame(&mut frames, tree, role)?;
+                push_frame(&mut frames, tree, reading)?;
             }
         }
         Ok(())
@@ -320,11 +397,14 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
         &mut self,
         frame: &mut TokenFrame<'tree>,
         token: Node<'tree>,
-    ) -> Result<Option<(Node<'tree>, TreeRole)>, ExtractError> {
+    ) -> Result<Option<(Node<'tree>, TreeReading)>, ExtractError> {
         if token.is_extra() {
             return Ok(None);
         }
         let kind = token.kind();
+        if frame.in_pattern() && token_text(self.source, token) == "if" {
+            frame.cursor.guarded = true;
+        }
         if let Some(candidate) = frame.cursor.format_candidate.take()
             && closes_argument(kind)
         {
@@ -362,13 +442,21 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
             };
             return self.capture_nested_macro(frame, token, path);
         }
+        let in_pattern = frame.in_pattern();
         if shape.segments > 0 {
-            let kind = if shape.follower == Follower::Call {
+            // A qualified tuple-struct or variant pattern names its path, as a
+            // `match` arm does; it calls nothing.
+            let kind = if shape.follower == Follower::Call && !in_pattern {
                 ReferenceKind::Calls
             } else {
                 ReferenceKind::References
             };
             return self.emit_path(token, shape.end, kind);
+        }
+        if in_pattern {
+            // A single-segment pattern, binding, or constant publishes nothing in
+            // a `match` arm either.
+            return Ok(());
         }
         self.capture_single_token(token, shape.follower, frame.role)
     }
@@ -386,11 +474,11 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
             frame.cursor.next_tree =
                 rust_component_end(bytes, path.arguments, self.limit).map(|name_end| {
                     let body = skip_ascii_whitespace(bytes, name_end, self.limit);
-                    (body, TreeRole::Skipped)
+                    (body, TreeReading::SKIPPED)
                 });
             return Ok(());
         }
-        frame.cursor.next_tree = Some((path.arguments, macro_role(&name)));
+        frame.cursor.next_tree = Some((path.arguments, TreeReading::of_macro(&name)));
         let span = SourceCursor::at(self.source, token)?.span(token.start_byte(), path.end)?;
         let reference = macro_call_reference(self.builder, name, span)?;
         self.emit(reference)
@@ -413,6 +501,9 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
             return Ok(());
         }
         if follower == Follower::Call {
+            if RUST_FN_TRAITS.contains(&text) {
+                return Ok(());
+            }
             return self.emit_token(token, ReferenceKind::Calls);
         }
         self.capture_receiver_call(token)?;
@@ -620,25 +711,37 @@ fn token_text<'source>(source: &'source str, token: Node<'_>) -> &'source str {
 fn nested_tree<'tree>(
     frame: &TokenFrame<'tree>,
     tree: Node<'tree>,
-) -> Option<(Node<'tree>, TreeRole)> {
+) -> Option<(Node<'tree>, TreeReading)> {
     let cursor = &frame.cursor;
     let previous = cursor.previous.map(|token| token.kind());
     let before_previous = cursor.before_previous.map(|token| token.kind());
     let attribute =
         previous == Some("#") || (previous == Some("!") && before_previous == Some("#"));
-    let role = match (cursor.next_tree, frame.role) {
-        _ if attribute => TreeRole::Skipped,
-        (Some((start, role)), _) if start == tree.start_byte() => role,
-        (_, TreeRole::Expressions(_)) => TreeRole::Expressions(None),
-        _ => TreeRole::Tokens,
+    // A group inside a pattern, such as `Some(Shape::Circle(_))`, is pattern too.
+    let inherited = if frame.in_pattern() {
+        PatternScope::Whole
+    } else {
+        PatternScope::None
     };
-    (role != TreeRole::Skipped).then_some((tree, role))
+    let reading = match (cursor.next_tree, frame.role) {
+        _ if attribute => TreeReading::SKIPPED,
+        (Some((start, reading)), _) if start == tree.start_byte() => reading,
+        (_, TreeRole::Expressions(_)) => TreeReading {
+            role: TreeRole::Expressions(None),
+            pattern: inherited,
+        },
+        _ => TreeReading {
+            role: TreeRole::Tokens,
+            pattern: inherited,
+        },
+    };
+    (reading.role != TreeRole::Skipped).then_some((tree, reading))
 }
 
 fn push_frame<'tree>(
     frames: &mut Vec<TokenFrame<'tree>>,
     tree: Node<'tree>,
-    role: TreeRole,
+    reading: TreeReading,
 ) -> Result<(), ExtractError> {
     frames
         .try_reserve(1)
@@ -646,7 +749,8 @@ fn push_frame<'tree>(
     frames.push(TokenFrame {
         tree,
         children: children(tree),
-        role,
+        role: reading.role,
+        pattern: reading.pattern,
         cursor: FrameCursor::default(),
     });
     Ok(())

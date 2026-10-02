@@ -61,6 +61,48 @@ fn macro_arguments_publish_the_same_references_as_direct_code() {
     assert_eq!(wrapped, direct);
 }
 
+/// The same patterns as `match` arms and as `matches!`/`assert_matches!` arguments.
+const EQUIVALENT_PATTERNS: &str = r"
+pub fn direct(value: Option<Shape>) -> bool {
+    match value {
+        Some(Shape::Circle(r)) if radius(r) > 1 => true,
+        Some(Shape::Unit) | None => false,
+        _ => false,
+    }
+}
+
+pub fn wrapped(value: Option<Shape>) -> bool {
+    assert_matches!(value, Some(Shape::Unit) | None);
+    matches!(value, Some(Shape::Circle(r)) if radius(r) > 1)
+}
+
+pub fn sugar(callback: Box<dyn Fn(u32) -> u32>) {
+    register!(callback as Box<dyn FnMut(u8)>, FnOnce(), dispatch(1));
+}
+";
+
+#[test]
+fn macro_patterns_publish_the_same_references_as_match_arms() {
+    let file = extract("src/shapes.rs", EQUIVALENT_PATTERNS);
+    let direct = comparable_references(&file, "direct");
+    let wrapped = comparable_references(&file, "wrapped");
+    // A pattern's tuple-struct or variant path is a path reference, not a
+    // call; single-segment patterns such as `Some(r)` publish nothing; the
+    // guard after `if` is an ordinary expression.
+    assert_eq!(
+        direct,
+        [
+            (ReferenceKind::Calls, "radius".to_owned(), None),
+            (ReferenceKind::References, "Shape::Circle".to_owned(), None),
+            (ReferenceKind::References, "Shape::Unit".to_owned(), None),
+        ]
+    );
+    assert_eq!(wrapped, direct);
+    // `Fn(..)` sugar names a trait in a type; only the real call remains.
+    let sugar = comparable_references(&file, "sugar");
+    assert_eq!(sugar, [(ReferenceKind::Calls, "dispatch".to_owned(), None)]);
+}
+
 #[test]
 fn std_format_strings_record_constant_captures_only() {
     let source = r##"
