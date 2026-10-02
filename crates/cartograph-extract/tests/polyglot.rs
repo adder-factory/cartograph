@@ -277,7 +277,8 @@ fn rust_extracts_receiver_and_macro_calls_with_resolution_hints() {
     let generic_receiver_call = file
         .references
         .iter()
-        .find(|reference| reference.name == "worker.try_get::<bool, _>")
+        // The turbofish names no callee: the call is `worker.try_get`.
+        .find(|reference| reference.name == "worker.try_get")
         .unwrap_or_else(|| {
             panic!(
                 "generic Rust receiver call was not extracted: {:?}",
@@ -288,6 +289,14 @@ fn rust_extracts_receiver_and_macro_calls_with_resolution_hints() {
     assert_eq!(
         generic_receiver_call.resolution_name.as_deref(),
         Some(expected_generic_resolution.as_str())
+    );
+    // Its member is the callee, as `worker.finish()`'s is, not a field read.
+    assert!(
+        !file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::FieldAccess && reference.name == "try_get"
+        }),
+        "{:?}",
+        file.references
     );
     let macro_call = file
         .references

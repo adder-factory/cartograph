@@ -2322,6 +2322,19 @@ pub(super) fn is_call_or_construction_target(node: Node<'_>) -> bool {
     })
 }
 
+/// Whether `node` is the callee of a called Rust turbofish (`f::<T>(..)`,
+/// `a::f::<T>(..)`, or `x.f::<T>(..)`), which the call reference names, so it
+/// is no separate path or field use.
+pub(super) fn is_rust_turbofish_callee(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "generic_function"
+            && parent
+                .child_by_field_name("function")
+                .is_some_and(|function| function.id() == node.id())
+            && is_call_or_construction_target(parent)
+    })
+}
+
 pub(super) fn export_flags(node: Node<'_>) -> (bool, bool) {
     let mut current = node.parent();
     while let Some(parent) = current {
