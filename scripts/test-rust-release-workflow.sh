@@ -465,6 +465,18 @@ for marker in TBD TODO PLACEHOLDER; do
   grep -Eiq "$release_note_marker_pattern" <<<"Release note $marker: replace before publishing." || \
     fail "release-note marker validation misses $marker"
 done
+# The current version's tracked notes must already pass the publish job's
+# checks; otherwise a green release commit reaches a tag whose publication fails.
+release_version="$(cargo metadata --no-deps --format-version 1 --manifest-path "$ROOT/Cargo.toml" |
+  jq -r '.packages[] | select(.name == "cartograph-cli") | .version')"
+release_notes="$ROOT/docs/releases/v$release_version.md"
+if [[ -f "$release_notes" ]]; then
+  grep -Fq "# Cartograph v$release_version" "$release_notes" || \
+    fail "docs/releases/v$release_version.md does not identify v$release_version"
+  if grep -Eiq "$release_note_marker_pattern" "$release_notes"; then
+    fail "docs/releases/v$release_version.md contains a marker the publish job rejects"
+  fi
+fi
 if grep -Fq -- '--generate-notes' "$RELEASE"; then
   fail 'release publication can still replace detailed notes with generated changelog text'
 fi
