@@ -2038,31 +2038,16 @@ fn replace_executable(staged: TempPath, executable: &Path) -> Result<(), String>
     })
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-darwin-arm64");
-
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const ASSET_NAME: Result<&str, &str> =
-    Err("Intel macOS is not supported; use Apple Silicon with macOS 26 or newer");
-
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-linux-arm64");
-
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-linux-x64");
-
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-windows-x64.exe");
-
-#[cfg(not(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "macos", target_arch = "x86_64"),
-    all(target_os = "linux", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "x86_64"),
-    all(target_os = "windows", target_arch = "x86_64")
-)))]
-const ASSET_NAME: Result<&str, &str> =
-    Err("no native release asset exists for this operating system and architecture");
+const ASSET_NAME: Result<&str, &str> = cfg_select! {
+    all(target_os = "macos", target_arch = "aarch64") => Ok("cartograph-darwin-arm64"),
+    all(target_os = "macos", target_arch = "x86_64") => {
+        Err("Intel macOS is not supported; use Apple Silicon with macOS 26 or newer")
+    }
+    all(target_os = "linux", target_arch = "aarch64") => Ok("cartograph-linux-arm64"),
+    all(target_os = "linux", target_arch = "x86_64") => Ok("cartograph-linux-x64"),
+    all(target_os = "windows", target_arch = "x86_64") => Ok("cartograph-windows-x64.exe"),
+    _ => Err("no native release asset exists for this operating system and architecture"),
+};
 
 fn parse_version(raw: &str) -> Option<Version> {
     let raw = raw.trim().strip_prefix('v').unwrap_or(raw.trim());
