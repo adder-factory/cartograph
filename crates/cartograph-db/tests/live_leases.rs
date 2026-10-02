@@ -233,7 +233,7 @@ async fn a_contended_migration_fails_fast_retries_and_reports_a_busy_schema() {
     roll_back_latest_migration(&pool, &schema).await;
 
     // A long transaction that has read `index_generations`, as an MCP
-    // server's sync or status query does, blocks migration 46's ALTER TABLE.
+    // server's sync or status query does, blocks the latest migration's ALTER TABLE.
     let mut holder = pool
         .begin()
         .await

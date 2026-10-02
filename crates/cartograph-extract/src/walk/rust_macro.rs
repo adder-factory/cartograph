@@ -53,6 +53,10 @@ const TOKEN_CANCELLATION_INTERVAL: usize = 256;
 /// Single uppercase letters are usually generic or const parameters, not constants.
 const MINIMUM_CONSTANT_NAME_BYTES: usize = 2;
 const RUST_PATH_SEPARATOR: &[u8] = b"::";
+/// Longest turbofish type-argument list scanned for its closing `>`: real
+/// lists are far shorter, and the bound keeps an unbalanced `::<` from making
+/// every candidate identifier scan to the end of the macro.
+const MAXIMUM_TURBOFISH_BYTES: usize = 1_024;
 
 /// Std formatting macros and the zero-based argument that holds their format string.
 const RUST_FORMAT_MACROS: [(&str, usize); 20] = [
@@ -415,8 +419,9 @@ impl TokenShape {
     }
 }
 
-/// End of the `::<..>` turbofish that starts at `start`, when one does.
-/// Brackets balance, and the `>` of a `->` closes nothing.
+/// End of the `::<..>` turbofish that starts at `start`, when one does within
+/// [`MAXIMUM_TURBOFISH_BYTES`]. Brackets balance, and the `>` of a `->` closes
+/// nothing.
 fn turbofish_end(bytes: &[u8], start: usize, limit: usize) -> Option<usize> {
     let separator = skip_ascii_whitespace(bytes, start, limit);
     let after_separator = separator.checked_add(RUST_PATH_SEPARATOR.len())?;
@@ -429,7 +434,8 @@ fn turbofish_end(bytes: &[u8], start: usize, limit: usize) -> Option<usize> {
         return None;
     }
     let mut depth = 0_usize;
-    for (cursor, byte) in bytes.get(open..limit)?.iter().enumerate() {
+    let scan_end = limit.min(open.saturating_add(MAXIMUM_TURBOFISH_BYTES));
+    for (cursor, byte) in bytes.get(open..scan_end)?.iter().enumerate() {
         match byte {
             b'<' => depth = depth.saturating_add(1),
             b'>' if cursor > 0 && bytes.get(open.saturating_add(cursor - 1)) == Some(&b'-') => {}
