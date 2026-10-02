@@ -641,7 +641,7 @@ async fn verify_cancel_and_deadline(
         .acquire_owned()
         .await
         .unwrap_or_else(|e| panic!("scan admission: {e}"));
-    let observations = runtime.source_scan_observations.load(Ordering::Relaxed);
+    let observations = runtime.source_scan_observations();
     let mut nav = navigator(runtime, project, packet);
     let result = tokio::time::timeout(
         Duration::from_secs(1),
@@ -654,10 +654,7 @@ async fn verify_cancel_and_deadline(
     ));
     assert!(nav.cancellation.is_cancelled());
     assert!(!nav.caller_cancellation.is_cancelled());
-    assert_eq!(
-        runtime.source_scan_observations.load(Ordering::Relaxed),
-        observations
-    );
+    assert_eq!(runtime.source_scan_observations(), observations);
     drop(held);
     assert_eq!(runtime.source_scan_permits.available_permits(), 1);
 }

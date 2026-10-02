@@ -297,10 +297,9 @@ impl SharedProgress {
     }
 
     pub(crate) fn mark_heartbeat(&self) {
-        let _ = self
-            .heartbeats
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                Some(count.saturating_add(1))
+        self.heartbeats
+            .update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                count.saturating_add(1)
             });
     }
 

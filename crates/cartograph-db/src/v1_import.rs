@@ -3043,6 +3043,7 @@ async fn rebuild_bm25(
             project_id: rebuild.fence.target().project_id(),
             generation_id,
             content_digest: rebuild.content_digest,
+            progress: None,
         },
     )
     .await

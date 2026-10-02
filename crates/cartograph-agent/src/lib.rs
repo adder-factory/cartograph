@@ -55,7 +55,7 @@ use cartograph_indexer::{
     native_parse_cache_contract_digest,
 };
 pub use cartograph_indexer::{
-    PipelineFailureReason, PipelineFileFailure, PipelineStage, SupervisorStatus,
+    PipelineFailureReason, PipelineFileFailure, PipelineStage, SupervisorState, SupervisorStatus,
 };
 use cartograph_scip::ScipOverlayReport;
 use serde::Serialize;
@@ -251,6 +251,16 @@ pub struct IndexOptions {
     failure_retention: IndexFailureRetention,
     additional_excludes: Vec<String>,
     admission_reconciliation: IndexAdmissionReconciliation,
+    source_drift: SourceDriftPolicy,
+}
+
+/// How an index request reacts when the live checkout changed after it published.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceDriftPolicy {
+    /// Rebuild up to the bounded reconciliation attempts, then fail.
+    Rebuild,
+    /// Return the first published generation flagged as changed after publication.
+    ReportPublished,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -276,6 +286,7 @@ impl Default for IndexOptions {
             failure_retention: IndexFailureRetention::SuccessfulRequestsOnly,
             additional_excludes: Vec::new(),
             admission_reconciliation: IndexAdmissionReconciliation::Replace,
+            source_drift: SourceDriftPolicy::Rebuild,
         }
     }
 }
@@ -374,6 +385,23 @@ impl IndexOptions {
     #[must_use]
     pub const fn with_history_refresh(mut self, refresh_history: bool) -> Self {
         self.refresh_history = refresh_history;
+        self
+    }
+
+    /// Return the first generation this request publishes even when the live
+    /// checkout changes again before the request finishes, reporting
+    /// [`IndexLiveSource::ChangedAfterPublication`] instead of rebuilding.
+    ///
+    /// By default a changed checkout is rebuilt a bounded number of times and
+    /// then fails. Upgrade reconciliation publishes once so a continuously
+    /// edited checkout cannot keep it rebuilding until its deadline.
+    #[must_use]
+    pub const fn with_single_publication(mut self, single_publication: bool) -> Self {
+        self.source_drift = if single_publication {
+            SourceDriftPolicy::ReportPublished
+        } else {
+            SourceDriftPolicy::Rebuild
+        };
         self
     }
 }
@@ -631,6 +659,26 @@ pub struct IndexReport {
     pub profile: Option<IndexProfile>,
     /// Bounded post-index generation retention outcome.
     pub retention: GenerationRetentionStatus,
+    /// Whether the live checkout still matched `source_revision` at this
+    /// request's final source observation.
+    pub live_source: IndexLiveSource,
+}
+
+/// Agreement between a returned generation and the live checkout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexLiveSource {
+    /// The final observation matched; an unchanged no-op compares at preparation.
+    Matched,
+    /// This request published a complete generation, but the checkout changed
+    /// before the request finished, so that current generation is not fresh.
+    /// Only requests built with [`IndexOptions::with_single_publication`]
+    /// report it; others rebuild or fail instead.
+    ChangedAfterPublication,
+    /// This request published a complete generation, but cancellation or a
+    /// scan failure prevented the post-publication source check; a later
+    /// status decides freshness. Only single-publication requests report it.
+    Unverified,
 }
 
 /// Unambiguous publication outcome for an index or sync request.
@@ -772,6 +820,17 @@ pub struct ProjectSourceIdentity {
 pub struct ProjectCancellation {
     sender: watch::Sender<bool>,
     index_supervisor: Arc<RwLock<Option<IndexerSupervisor>>>,
+    reserved_generation: Arc<RwLock<Option<ReservedIndexGeneration>>>,
+}
+
+/// A staging generation that index work under one [`ProjectCancellation`]
+/// reserved for itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReservedIndexGeneration {
+    /// Project that owns the generation.
+    pub project_id: ProjectId,
+    /// The reserved generation; its lease, while held, names it.
+    pub generation_id: cartograph_domain::GenerationId,
 }
 
 impl std::fmt::Debug for ProjectCancellation {
@@ -798,6 +857,7 @@ impl ProjectCancellation {
         Self {
             sender,
             index_supervisor: Arc::new(RwLock::new(None)),
+            reserved_generation: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -837,6 +897,24 @@ impl ProjectCancellation {
             *attached = Some(supervisor);
         }
     }
+
+    /// The generation that index work under this signal reserved most
+    /// recently, if any. After cancelling, a caller can check exactly that
+    /// generation's cleanup instead of every writer's state on the project;
+    /// a new reservation always carries a new generation identifier.
+    #[must_use]
+    pub fn reserved_index_generation(&self) -> Option<ReservedIndexGeneration> {
+        self.reserved_generation
+            .read()
+            .ok()
+            .and_then(|reserved| reserved.clone())
+    }
+
+    fn record_reserved_generation(&self, reserved: ReservedIndexGeneration) {
+        if let Ok(mut recorded) = self.reserved_generation.write() {
+            *recorded = Some(reserved);
+        }
+    }
 }
 
 impl Default for ProjectCancellation {
@@ -852,9 +930,24 @@ pub struct ProjectRuntime {
     repository_fingerprint: ContentDigest,
     database: CartographDatabase,
     source_scan_permits: Arc<Semaphore>,
-    source_scan_observations: Arc<AtomicU64>,
+    source_scans: Arc<SourceScanCounters>,
     /// Set once this runtime attempted to backfill legacy generation counts.
     fact_count_backfill_attempted: Arc<AtomicBool>,
+}
+
+/// Saturating counters shared by every source scan of one runtime.
+#[derive(Default)]
+struct SourceScanCounters {
+    /// Admitted full source-manifest observations.
+    observations: AtomicU64,
+    /// Cancellation checkpoints passed while discovering and hashing files.
+    checkpoints: AtomicU64,
+}
+
+fn saturating_increment(counter: &AtomicU64) {
+    counter.update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        value.saturating_add(1)
+    });
 }
 
 struct AbortTaskOnDrop {
@@ -918,13 +1011,19 @@ struct IndexCompletion {
 
 struct IndexSourceReconciliation<'report> {
     options: &'report IndexOptions,
-    report: &'report IndexReport,
+    published: &'report PublishedAttempt,
     cancellation: ProjectCancellation,
+}
+
+/// One attempt's newly published generation and the run-scoped exclusions it recorded.
+struct PublishedAttempt {
+    report: IndexReport,
+    run_excludes: Vec<String>,
 }
 
 enum IndexAttemptOutcome {
     Complete(IndexReport),
-    Published(IndexReport),
+    Published(PublishedAttempt),
 }
 
 fn index_enrichment_policy(
@@ -950,37 +1049,95 @@ async fn run_core_index(
     cancellation: ProjectCancellation,
 ) -> Result<IndexReport, IndexFailure> {
     for attempt in 0..=MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS {
-        let mut report =
+        let published =
             match run_core_index_attempt(runtime, &options, cancellation.clone()).await? {
                 IndexAttemptOutcome::Complete(report) => return Ok(report),
-                IndexAttemptOutcome::Published(report) => report,
+                IndexAttemptOutcome::Published(published) => published,
             };
-        if index_report_matches_live_source(
+        let observation = index_report_matches_live_source(
             runtime,
             IndexSourceReconciliation {
                 options: &options,
-                report: &report,
+                published: &published,
                 cancellation: cancellation.clone(),
             },
         )
-        .await?
-        {
-            report.retention = runtime
-                .maintain_generation_retention(
-                    &report.project_id,
-                    &report.parse_cache_contract_digest,
-                )
-                .await;
-            return Ok(report);
-        }
-        if cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled.into());
-        }
-        if attempt == MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS {
-            return Err(ProjectError::SourceChangedDuringIndex.into());
+        .await;
+        let observed = match observation {
+            Ok(matched) => Some(matched),
+            Err(_) if options.source_drift == SourceDriftPolicy::ReportPublished => None,
+            Err(error) => return Err(error.into()),
+        };
+        let mut report = published.report;
+        match source_reconciliation_step(SourceReconciliationInput {
+            policy: options.source_drift,
+            observed,
+            cancelled: cancellation.is_cancelled(),
+            final_attempt: attempt == MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS,
+        }) {
+            SourceReconciliationStep::Finish(live_source) => {
+                report.live_source = live_source;
+                report.retention = runtime
+                    .maintain_generation_retention(
+                        &report.project_id,
+                        &report.parse_cache_contract_digest,
+                    )
+                    .await;
+                return Ok(report);
+            }
+            SourceReconciliationStep::Cancelled => {
+                return Err(ProjectError::RequestCancelled.into());
+            }
+            SourceReconciliationStep::Exhausted => {
+                return Err(ProjectError::SourceChangedDuringIndex.into());
+            }
+            SourceReconciliationStep::Rebuild => {}
         }
     }
     Err(ProjectError::SourceChangedDuringIndex.into())
+}
+
+/// Evidence gathered after one attempt published a generation.
+#[derive(Clone, Copy)]
+struct SourceReconciliationInput {
+    policy: SourceDriftPolicy,
+    /// Whether the live checkout matched; `None` when the single-publication
+    /// check could not run to completion.
+    observed: Option<bool>,
+    cancelled: bool,
+    final_attempt: bool,
+}
+
+/// What a published attempt does next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceReconciliationStep {
+    /// Return the published report with this live-source agreement.
+    Finish(IndexLiveSource),
+    /// Cancellation won before a rebuild could start.
+    Cancelled,
+    /// Every bounded rebuild observed another change.
+    Exhausted,
+    /// Rebuild from the changed checkout.
+    Rebuild,
+}
+
+/// Decide whether a published attempt returns, rebuilds, or fails. A
+/// single-publication request never rebuilds: the generation it published
+/// stays current, so reporting it, with whatever the post-publication check
+/// observed, is the truthful terminal state even when cancellation arrived
+/// after publication.
+const fn source_reconciliation_step(input: SourceReconciliationInput) -> SourceReconciliationStep {
+    let single_publication = matches!(input.policy, SourceDriftPolicy::ReportPublished);
+    match (input.observed, single_publication) {
+        (Some(true), _) => SourceReconciliationStep::Finish(IndexLiveSource::Matched),
+        (Some(false), true) => {
+            SourceReconciliationStep::Finish(IndexLiveSource::ChangedAfterPublication)
+        }
+        (None, true) => SourceReconciliationStep::Finish(IndexLiveSource::Unverified),
+        _ if input.cancelled => SourceReconciliationStep::Cancelled,
+        _ if input.final_attempt => SourceReconciliationStep::Exhausted,
+        _ => SourceReconciliationStep::Rebuild,
+    }
 }
 
 async fn run_core_index_attempt(
@@ -993,17 +1150,17 @@ async fn run_core_index_attempt(
         .prepare_index(options.clone(), cancellation.clone())
         .await?;
     let preparation_millis = monotonic_millis(preparation_started.elapsed());
-    let unchanged = matches!(&preparation, IndexPreparation::Unchanged(_));
-    let mut report = match preparation {
-        IndexPreparation::Unchanged(report) => *report,
-        IndexPreparation::Pending(pending) => {
+    let (mut report, published_run_excludes) = match preparation {
+        IndexPreparation::Unchanged(report) => (*report, None),
+        IndexPreparation::Pending(mut pending) => {
             let cache_contract =
                 native_parse_cache_contract_digest(pending.index_policy.maximum_ast_depth);
+            let run_excludes = std::mem::take(&mut pending.run_excludes);
             match runtime
                 .publish_index(*pending, cancellation, options.profile)
                 .await
             {
-                Ok(report) => report,
+                Ok(report) => (report, Some(run_excludes)),
                 Err(error) => {
                     if options.failure_retention == IndexFailureRetention::AutomaticFailures {
                         maintain_failed_generation_retention(runtime, &cache_contract).await;
@@ -1016,37 +1173,45 @@ async fn run_core_index_attempt(
     if let Some(profile) = report.profile.as_mut() {
         profile.preparation_millis = preparation_millis;
     }
-    if unchanged {
-        // Generations published before counts were persisted gain them once
-        // per process; failure only leaves status on its counting fallback.
-        if !runtime
-            .fact_count_backfill_attempted
-            .swap(true, Ordering::Relaxed)
-        {
-            let _backfilled = runtime
-                .database
-                .backfill_generation_fact_counts(&report.project_id, &report.generation_id)
-                .await;
-        }
-        report.retention = runtime
-            .maintain_generation_retention(&report.project_id, &report.parse_cache_contract_digest)
-            .await;
-        return Ok(IndexAttemptOutcome::Complete(report));
+    if let Some(run_excludes) = published_run_excludes {
+        return Ok(IndexAttemptOutcome::Published(PublishedAttempt {
+            report,
+            run_excludes,
+        }));
     }
-    Ok(IndexAttemptOutcome::Published(report))
+    // Generations published before counts were persisted gain them once
+    // per process; failure only leaves status on its counting fallback.
+    if !runtime
+        .fact_count_backfill_attempted
+        .swap(true, Ordering::Relaxed)
+    {
+        let _backfilled = runtime
+            .database
+            .backfill_generation_fact_counts(&report.project_id, &report.generation_id)
+            .await;
+    }
+    report.retention = runtime
+        .maintain_generation_retention(&report.project_id, &report.parse_cache_contract_digest)
+        .await;
+    Ok(IndexAttemptOutcome::Complete(report))
 }
 
+/// Rescan with the admission policy the published generation recorded. An
+/// inherited (`PreserveCurrent`) exclusion list is part of that policy even
+/// when this request supplied no exclusions itself; scanning without it would
+/// report every excluded file as a source change.
 async fn index_report_matches_live_source(
     runtime: &ProjectRuntime,
     reconciliation: IndexSourceReconciliation<'_>,
 ) -> Result<bool, ProjectError> {
     let IndexSourceReconciliation {
         options,
-        report,
+        published,
         cancellation,
     } = reconciliation;
+    let report = &published.report;
     let source_policy =
-        project_source_policy_with_excludes(&runtime.root, options.additional_excludes())?;
+        project_source_policy_with_excludes(&runtime.root, &published.run_excludes)?;
     let max_source_bytes = options
         .max_source_bytes
         .or(source_policy.maximum_file_bytes)
@@ -1612,7 +1777,7 @@ impl ProjectRuntime {
             repository_fingerprint,
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-            source_scan_observations: Arc::new(AtomicU64::new(0)),
+            source_scans: Arc::default(),
             fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -1646,7 +1811,7 @@ impl ProjectRuntime {
             repository_fingerprint,
             database: CartographDatabase::new(pool, settings.schema().clone()),
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-            source_scan_observations: Arc::new(AtomicU64::new(0)),
+            source_scans: Arc::default(),
             fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -1678,7 +1843,7 @@ impl ProjectRuntime {
             repository_fingerprint,
             database,
             source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-            source_scan_observations: Arc::new(AtomicU64::new(0)),
+            source_scans: Arc::default(),
             fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -1851,10 +2016,12 @@ impl ProjectRuntime {
             return Err(ProjectError::IndexLeaseBusy);
         }
         self.admit_automatic_generation(&source, &options).await?;
+        let run_excludes = source.effective_run_excludes.clone();
         let reservation = self.reserve_index_generation(&mut source, &options).await?;
         Ok(IndexPreparation::Pending(Box::new(PendingIndex {
             project_id: reservation.project_id,
             generation_id: reservation.generation_id,
+            run_excludes,
             source_revision: source.source.digest,
             scip_overlay: source.source.scip_overlay,
             workers: reservation.workers,
@@ -2006,6 +2173,10 @@ impl ProjectRuntime {
     ) -> Result<IndexReport, IndexFailure> {
         let project_id = pending.project_id.clone();
         let generation_id = pending.generation_id.clone();
+        cancellation.record_reserved_generation(ReservedIndexGeneration {
+            project_id: project_id.clone(),
+            generation_id: generation_id.clone(),
+        });
         let failure = match self
             .publish_index_inner(pending, cancellation, profile_requested)
             .await
@@ -2044,6 +2215,7 @@ impl ProjectRuntime {
         let PendingIndex {
             project_id,
             generation_id,
+            run_excludes: _,
             source_revision,
             scip_overlay,
             workers,
@@ -2130,7 +2302,17 @@ impl ProjectRuntime {
     /// increment it. The counter saturates and contains no source or query data.
     #[must_use]
     pub fn source_scan_observations(&self) -> u64 {
-        self.source_scan_observations.load(Ordering::Relaxed)
+        self.source_scans.observations.load(Ordering::Relaxed)
+    }
+
+    /// Bounded units of source-scan work completed by this runtime: the
+    /// cancellation checkpoints its scans pass while discovering and hashing
+    /// files. It advances throughout a long scan, so a supervisor can tell a
+    /// slow scan from a stalled one. The counter saturates and contains no
+    /// source data.
+    #[must_use]
+    pub fn source_scan_checkpoints(&self) -> u64 {
+        self.source_scans.checkpoints.load(Ordering::Relaxed)
     }
 
     /// Close all PostgreSQL connections owned by this project runtime.
@@ -2168,7 +2350,7 @@ impl ProjectRuntime {
         scan_source_path(SourceScanRequest {
             root: self.root.clone(),
             permits: self.source_scan_permits.clone(),
-            observations: self.source_scan_observations.clone(),
+            counters: self.source_scans.clone(),
             capture_paths,
             retain_scip_overlay: false,
             max_source_bytes,
@@ -2210,7 +2392,7 @@ impl ProjectRuntime {
         scan_source_path(SourceScanRequest {
             root: self.root.clone(),
             permits: self.source_scan_permits.clone(),
-            observations: self.source_scan_observations.clone(),
+            counters: self.source_scans.clone(),
             capture_paths: BTreeSet::new(),
             retain_scip_overlay: true,
             max_source_bytes,
@@ -2311,12 +2493,16 @@ fn unchanged_index_preparation(input: UnchangedIndexInput<'_>) -> Option<IndexPr
             unlock_applicable: false,
             next_action: "none",
         },
+        live_source: IndexLiveSource::Matched,
     })))
 }
 
 struct PendingIndex {
     project_id: ProjectId,
     generation_id: cartograph_domain::GenerationId,
+    /// Run-scoped exclusions the reserved generation records; post-publication
+    /// verification must scan under the same admission policy.
+    run_excludes: Vec<String>,
     source_revision: ContentDigest,
     scip_overlay: Option<ScipOverlayInput>,
     workers: u16,
@@ -2393,6 +2579,7 @@ impl PreparedIndexPublication {
                 unlock_applicable: false,
                 next_action: "none",
             },
+            live_source: IndexLiveSource::Matched,
         })
     }
 }
@@ -2466,7 +2653,7 @@ fn native_pipeline_failure(error: &cartograph_indexer::NativePipelineError) -> P
 struct SourceScanRequest {
     root: PathBuf,
     permits: Arc<Semaphore>,
-    observations: Arc<AtomicU64>,
+    counters: Arc<SourceScanCounters>,
     capture_paths: BTreeSet<NormalizedPath>,
     retain_scip_overlay: bool,
     max_source_bytes: usize,
@@ -2486,7 +2673,7 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
     let SourceScanRequest {
         root,
         permits,
-        observations,
+        counters,
         capture_paths,
         retain_scip_overlay,
         max_source_bytes,
@@ -2509,9 +2696,7 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
         // permit in the async caller would allow a dropped request to start a
         // second scan while the first worker was still unwinding.
         let _permit = permit;
-        observations.update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            value.saturating_add(1)
-        });
+        saturating_increment(&counters.observations);
         source_revision_with_options(
             SourceRevisionRequest {
                 root: &root,
@@ -2521,7 +2706,10 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
                 discovery_policy,
                 index_policy,
             },
-            || worker_cancellation.is_cancelled(),
+            || {
+                saturating_increment(&counters.checkpoints);
+                worker_cancellation.is_cancelled()
+            },
         )
     })
     .await;
@@ -4235,6 +4423,87 @@ mod tests {
         assert_eq!(semantic.max_source_bytes, None);
     }
 
+    #[test]
+    fn single_publication_reports_a_changed_checkout_instead_of_rebuilding() {
+        assert_eq!(
+            IndexOptions::default().source_drift,
+            SourceDriftPolicy::Rebuild
+        );
+        assert_eq!(
+            IndexOptions::reconciliation().source_drift,
+            SourceDriftPolicy::Rebuild
+        );
+        let single = IndexOptions::reconciliation().with_single_publication(true);
+        assert_eq!(single.source_drift, SourceDriftPolicy::ReportPublished);
+        assert_eq!(
+            single.with_single_publication(false).source_drift,
+            SourceDriftPolicy::Rebuild
+        );
+
+        let changed = |policy, cancelled, final_attempt| {
+            source_reconciliation_step(SourceReconciliationInput {
+                policy,
+                observed: Some(false),
+                cancelled,
+                final_attempt,
+            })
+        };
+        // A published single-publication attempt is terminal on its first
+        // attempt, and cancellation after publication cannot relabel the
+        // generation it already made current as a failure.
+        for (cancelled, final_attempt) in [(false, false), (true, false), (false, true)] {
+            assert_eq!(
+                changed(SourceDriftPolicy::ReportPublished, cancelled, final_attempt),
+                SourceReconciliationStep::Finish(IndexLiveSource::ChangedAfterPublication)
+            );
+        }
+        assert_eq!(
+            changed(SourceDriftPolicy::Rebuild, false, false),
+            SourceReconciliationStep::Rebuild
+        );
+        assert_eq!(
+            changed(SourceDriftPolicy::Rebuild, false, true),
+            SourceReconciliationStep::Exhausted
+        );
+        assert_eq!(
+            changed(SourceDriftPolicy::Rebuild, true, false),
+            SourceReconciliationStep::Cancelled
+        );
+        for policy in [
+            SourceDriftPolicy::Rebuild,
+            SourceDriftPolicy::ReportPublished,
+        ] {
+            assert_eq!(
+                source_reconciliation_step(SourceReconciliationInput {
+                    policy,
+                    observed: Some(true),
+                    cancelled: true,
+                    final_attempt: true,
+                }),
+                SourceReconciliationStep::Finish(IndexLiveSource::Matched)
+            );
+        }
+        // A published single-publication generation whose check was cut
+        // short (for example by the parent's stop request) is still reported,
+        // never invented as matched or changed.
+        let unobserved = |policy| {
+            source_reconciliation_step(SourceReconciliationInput {
+                policy,
+                observed: None,
+                cancelled: true,
+                final_attempt: false,
+            })
+        };
+        assert_eq!(
+            unobserved(SourceDriftPolicy::ReportPublished),
+            SourceReconciliationStep::Finish(IndexLiveSource::Unverified)
+        );
+        assert_eq!(
+            unobserved(SourceDriftPolicy::Rebuild),
+            SourceReconciliationStep::Cancelled
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn queued_source_scans_cancel_without_starving_runtime_timers() {
         const REQUESTS: usize = 32;
@@ -4260,7 +4529,7 @@ mod tests {
             scans.push(tokio::spawn(scan_source_path(SourceScanRequest {
                 root: root.clone(),
                 permits: permits.clone(),
-                observations: Arc::new(AtomicU64::new(0)),
+                counters: Arc::default(),
                 capture_paths: BTreeSet::new(),
                 retain_scip_overlay: false,
                 max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
@@ -4294,5 +4563,52 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("cancelled source scans were not reaped"));
         drop(held);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn scan_checkpoints_advance_with_every_file_a_scan_hashes() {
+        const FILES: u64 = 12;
+        let directory =
+            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let root = directory
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|error| panic!("fixture canonicalize failed: {error}"));
+        let scan = |counters: Arc<SourceScanCounters>| {
+            scan_source_path(SourceScanRequest {
+                root: root.clone(),
+                permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
+                counters,
+                capture_paths: BTreeSet::new(),
+                retain_scip_overlay: false,
+                max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
+                discovery_policy: DiscoveryPolicy::v1_defaults()
+                    .unwrap_or_else(|error| panic!("default discovery policy failed: {error}")),
+                index_policy: SourceIndexPolicy::full(duplicate_code_allowlist_digest(&[])),
+                cancellation: ProjectCancellation::new(),
+            })
+        };
+        let empty = Arc::<SourceScanCounters>::default();
+        scan(empty.clone())
+            .await
+            .unwrap_or_else(|error| panic!("empty scan failed: {error}"));
+        let baseline = empty.checkpoints.load(Ordering::Relaxed);
+
+        for index in 0..FILES {
+            std::fs::write(
+                directory.path().join(format!("service_{index}.rs")),
+                format!("pub fn ready_{index}() {{}}\n"),
+            )
+            .unwrap_or_else(|error| panic!("fixture write failed: {error}"));
+        }
+        let counters = Arc::<SourceScanCounters>::default();
+        let source = scan(counters.clone())
+            .await
+            .unwrap_or_else(|error| panic!("fixture scan failed: {error}"));
+        assert_eq!(source.files, 12);
+        assert_eq!(counters.observations.load(Ordering::Relaxed), 1);
+        // Work units grow with the corpus, so a long scan keeps reporting
+        // progress instead of looking idle until it finishes.
+        assert!(counters.checkpoints.load(Ordering::Relaxed) >= baseline + FILES);
     }
 }

@@ -233,6 +233,14 @@ impl PrepareScope {
         })
     }
 
+    /// Close admission and join the one prepare task.
+    ///
+    /// A prepare still running here belongs to work the supervisor has
+    /// already stopped (cancellation, a deadline, or a failure); a completed
+    /// one has already delivered its result. So the in-flight transaction is
+    /// asked to roll back at its next cancellation check instead of running
+    /// every remaining COPY and derived-relation step before the supervisor
+    /// can fail the generation and release its lease.
     pub(crate) async fn close_and_reap(
         &self,
         reap_deadline: Instant,
@@ -241,6 +249,7 @@ impl PrepareScope {
         let Ok(handle) = self.close_and_take() else {
             return PrepareReap { all_joined: false };
         };
+        self.progress.cancel();
         let Some(mut handle) = handle else {
             return PrepareReap { all_joined: true };
         };

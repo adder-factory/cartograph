@@ -383,14 +383,19 @@ cartograph upgrade --apply --project-path <project> --json
 ```
 
 It installs the verified release when needed, reconciles safe database
-migrations and a fresh current generation, runs `doctor`, proves status through
-the installed binary, and repairs stale owned host pins. Require
+migrations and a complete current generation, runs `doctor`, proves status
+through the installed binary, and repairs stale owned host pins. Require
 `completed: true`; do not mistake `applied: false` for failure when
-`installedVersion` was already current. If `projectReconciliation` requests
-`upgrade-managed-database`, run only its backup and exact confirmed replacement
-steps, then rerun the same command to resume. A failure after the extension
-update retains the new image for that retry and keeps the old image stopped; do
-not manually restart the old container against the possibly newer catalog. An
+`installedVersion` was already current. `projectReconciliation.state:
+source_changed` is a completed upgrade whose checkout was edited after
+publication; run `cartograph index <project>` once edits pause. When
+`projectReconciliation.retryable` is true (`another_writer_active` or a
+`timed_out` step), rerun the same command after the other writer finishes. If
+`projectReconciliation` requests `upgrade-managed-database`, run only its
+backup and exact confirmed replacement steps, then rerun the same command to
+resume. A failure after the extension update retains the new image for that
+retry and keeps the old image stopped; do not manually restart the old
+container against the possibly newer catalog. An
 interruption between renaming the stopped old container and creating the
 candidate is also resumed by the same confirmed command; do not rename the
 rollback slot by hand.

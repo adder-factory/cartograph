@@ -17,9 +17,10 @@ use std::{
 };
 
 use cartograph_agent::{
-    EmbeddingOptions, IndexOptions, IndexReport, ProjectError, ProjectRuntime, ProjectStatus,
-    RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport, SourceContextOptions,
-    SourceContextRequest, WorkingTreeOverlayRequest, semantic_readiness_from_database,
+    EmbeddingOptions, IndexOptions, IndexReport, ProjectCancellation, ProjectError, ProjectRuntime,
+    ProjectStatus, RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport,
+    SourceContextOptions, SourceContextRequest, WorkingTreeOverlayRequest,
+    semantic_readiness_from_database,
 };
 use cartograph_config::{DATABASE_URL_ENV, DatabaseSettings};
 use cartograph_db::{
@@ -75,10 +76,12 @@ mod install;
 mod llm_commands;
 mod mcp_budget;
 mod mcp_handler;
+mod supervised_index;
 mod upgrade;
 
 use byte_format::format_binary_bytes;
 use graph_export::{DEFAULT_NODE_LIMIT, GraphExportFormat, GraphExportRequest};
+use supervised_index::{CancellableIndex, IndexSupervision, InterruptForwarding};
 
 const MANAGED_DATABASE_PORT_ENV: &str = "CARTOGRAPH_MANAGED_DATABASE_PORT";
 const V1_IMPORT_CONFIRMATION: &str = "import-v1-postgres";
@@ -152,6 +155,13 @@ enum Command {
         /// reconciliation call does not supply replacements.
         #[arg(long, hide = true)]
         preserve_current_excludes: bool,
+        /// Run as the supervised child of `upgrade --apply`: stdin EOF requests
+        /// cooperative cancellation, changed progress is written as JSON lines
+        /// on stderr, other live project writers are awaited within a bound, a
+        /// checkout change after publication is reported instead of rebuilt,
+        /// and the optional Git history refresh is left to the next index.
+        #[arg(long, hide = true)]
+        supervised: bool,
         /// Output format for humans or automation.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
@@ -1059,6 +1069,7 @@ struct IndexArguments {
     force: bool,
     exclude: Vec<String>,
     preserve_current_excludes: bool,
+    supervised: bool,
     format: OutputFormat,
     managed_database_port: Option<u16>,
 }
@@ -1325,17 +1336,22 @@ async fn run_index_command(command: Command) -> Result<ExitCode, String> {
             force,
             exclude,
             preserve_current_excludes,
+            supervised,
             format,
         } => {
-            run_index(IndexArguments {
-                project_path,
-                workers,
-                force,
-                exclude,
-                preserve_current_excludes,
-                format,
-                managed_database_port: None,
-            })
+            run_index(
+                IndexArguments {
+                    project_path,
+                    workers,
+                    force,
+                    exclude,
+                    preserve_current_excludes,
+                    supervised,
+                    format,
+                    managed_database_port: None,
+                },
+                IndexFailureOutput::PrintAsCommand,
+            )
             .await
         }
         Command::Status {
@@ -2731,17 +2747,21 @@ impl AgentInstallContext {
             })
             .await?;
         }
-        run_index(IndexArguments {
-            project_path: self.project_path.clone(),
-            workers: None,
-            force: false,
-            exclude: Vec::new(),
-            preserve_current_excludes: false,
-            format: self.format,
-            managed_database_port: self.managed_database_port,
-        })
+        run_index(
+            IndexArguments {
+                project_path: self.project_path.clone(),
+                workers: None,
+                force: false,
+                exclude: Vec::new(),
+                preserve_current_excludes: false,
+                supervised: false,
+                format: self.format,
+                managed_database_port: self.managed_database_port,
+            },
+            IndexFailureOutput::ReturnToCaller,
+        )
         .await
-        .map(|_| ())
+        .and_then(local_index_outcome)
     }
 
     fn install_hooks(&self) {
@@ -3101,16 +3121,77 @@ fn managed_mcp_preflight_error(status: &ManagedDatabaseStatus) -> Option<String>
     ))
 }
 
-async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
+/// Message when `install`'s initial index failed after reporting its own
+/// failure (JSON format) or was cancelled.
+const LOCAL_INDEX_INCOMPLETE: &str = "the initial project index did not complete (see the index failure above); install stopped before Git hooks. Rerun `cartograph index <path>`, then rerun install";
+
+/// `install` continues only after its initial index succeeded. A JSON-format
+/// index reports its failure itself and returns a failing exit code instead
+/// of an error, which must stop `install` too.
+fn local_index_outcome(code: ExitCode) -> Result<(), String> {
+    if code == ExitCode::SUCCESS {
+        Ok(())
+    } else {
+        Err(LOCAL_INDEX_INCOMPLETE.to_owned())
+    }
+}
+
+/// Where an index failure message is written.
+#[derive(Clone, Copy)]
+enum IndexFailureOutput {
+    /// Return it to a caller that reports it in its own context.
+    ReturnToCaller,
+    /// Print it as the command's final output, as `main` would, while
+    /// interrupts are still forwarded.
+    PrintAsCommand,
+}
+
+async fn run_index(
+    arguments: IndexArguments,
+    failure_output: IndexFailureOutput,
+) -> Result<ExitCode, String> {
+    let cancellation = ProjectCancellation::new();
+    // Installed before any work and kept for the rest of the process, so an
+    // interrupt is never silently ignored once tokio owns the signal.
+    let interrupts = InterruptForwarding::install(
+        cancellation.clone(),
+        !arguments.supervised && matches!(arguments.format, OutputFormat::Text),
+    );
+    let outcome = match (
+        run_index_request(arguments, cancellation, &interrupts).await,
+        failure_output,
+    ) {
+        (Err(message), IndexFailureOutput::PrintAsCommand) => {
+            eprintln!("cartograph: {message}");
+            Ok(ExitCode::FAILURE)
+        }
+        (outcome, _) => outcome,
+    };
+    interrupts.request_finished();
+    outcome
+}
+
+async fn run_index_request(
+    arguments: IndexArguments,
+    cancellation: ProjectCancellation,
+    interrupts: &InterruptForwarding,
+) -> Result<ExitCode, String> {
     let IndexArguments {
         project_path,
         workers,
         force,
         exclude,
         preserve_current_excludes,
+        supervised,
         format,
         managed_database_port,
     } = arguments;
+    let supervision = if supervised {
+        supervised_index::cancel_on_stdin_eof(cancellation.clone())?;
+        IndexSupervision::Supervised
+    } else {
+        IndexSupervision::Direct
+    };
     let settings =
         resolve_database_settings_with_port(&project_path, managed_database_port).await?;
     let runtime = ProjectRuntime::connect(&project_path, &settings)
@@ -3122,13 +3203,27 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
         IndexOptions::default()
     }
     .with_force(force)
-    .with_additional_excludes(exclude);
+    .with_additional_excludes(exclude)
+    .with_single_publication(supervised);
+    if supervised {
+        // Upgrade reconciliation leaves the optional Git history passes to the
+        // next explicit index, as automatic sync does: their persistence is
+        // unsupervised work that would otherwise extend the supervised run.
+        options = options.with_history_refresh(false);
+    }
     if let Some(workers) = workers {
         options = options
             .with_max_workers(workers)
             .map_err(|error| error.to_string())?;
     }
-    let result = runtime.index_with_failure_detail(options).await;
+    let result = supervised_index::run_cancellable_index(CancellableIndex {
+        runtime: &runtime,
+        options,
+        cancellation,
+        supervision,
+    })
+    .await;
+    interrupts.request_finished();
     match result {
         Ok(report) => {
             let rendered = print_index_report(&report, format);
@@ -6581,6 +6676,7 @@ mod tests {
                 force,
                 exclude,
                 preserve_current_excludes,
+                supervised,
                 format,
             } => {
                 assert_eq!(project_path, PathBuf::from("workspace"));
@@ -6588,6 +6684,7 @@ mod tests {
                 assert!(force);
                 assert_eq!(exclude, [] as [String; 0]);
                 assert!(!preserve_current_excludes);
+                assert!(!supervised);
                 assert!(matches!(format, OutputFormat::Json));
             }
             _ => panic!("index parsed as the wrong command"),

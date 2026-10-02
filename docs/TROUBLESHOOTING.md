@@ -95,6 +95,42 @@ open across an earlier upgrade has been inspected. A database step with
 not that incompatibility was detected; rerun the same command without invoking
 the destructive database replacement path.
 
+On a large or continuously edited project, read `projectReconciliation.index`:
+
+- `source_changed` (with `projectReconciliation.state: source_changed` and
+  `completed: true`): the installed binary published a complete generation, but
+  another session kept editing the checkout. The upgrade is done; the index is
+  not fresh. Run `cartograph index <path>` once edits pause, or let MCP
+  auto-sync reconcile it.
+- `another_writer_active` (`retryable: true`): another Cartograph operation,
+  usually an MCP server's auto-sync in another session (or a schema maintenance
+  step), kept the project busy for the whole 30-minute wait and this run
+  published nothing. Rerun the same upgrade command
+  after it finishes. A writer that starts during the index's source scan is
+  awaited too, but each such collision repeats the scan, so an auto-sync that
+  re-syncs continuously can use up the whole wait; pause edits in the other
+  session (or stop its MCP server) before rerunning.
+- `timed_out` (`retryable: true`, `reason: no_progress` or `ceiling`): the index
+  reported no progress for 15 minutes, or reached the 180-minute ceiling. Its
+  stdin was closed so that it stopped cooperatively. The message says whether it
+  confirmed releasing its lease, exited without confirming it, or was killed
+  after 4 minutes; in the last two cases the lease can remain for up to its
+  5-minute TTL. A rerun waits for that instead of failing with `lease_busy`. If
+  the timeout repeats, run `cartograph index <path>` directly to see the stage
+  that is not advancing.
+- `blocked` with a `reason`: the index failed with that stable code. Run
+  `cartograph index <path> --format json` for the full failure.
+
+A `doctor` or `verification` step with `state: timed_out` means that rescan of
+the checkout exceeded its 10-minute budget; it is retryable and says nothing
+about the project's health.
+
+`cartograph index` itself stops cooperatively on SIGINT or SIGTERM and releases
+its lease before exiting with `request_cancelled`; a second interrupt exits at
+once and leaves the lease to expire. `request_cancelled` confirms only this
+index's own cleanup: another session's lease or staging generation on the same
+project does not turn it into `index_cleanup_failed`.
+
 If startup says the database schema is newer than the binary, do not retry the
 old process. The error reports the running binary version, database schema
 version, and maximum supported schema version. Upgrade the native binary,

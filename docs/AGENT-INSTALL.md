@@ -77,8 +77,14 @@ cartograph upgrade --apply --project-path . --json
 ```
 
 Require `completed: true`. The operation verifies and smoke-tests the release,
-applies safe schema migrations, reconciles a fresh current generation, runs
-`doctor`, and repairs stale owned host pins. A registration that launches
+applies safe schema migrations, reconciles a current generation, runs
+`doctor`, and repairs stale owned host pins. `completed` does not require a
+fresh index: `projectReconciliation.state: source_changed` means the installed
+binary published a complete generation and only later edits make it stale, so
+run `cartograph index .` once edits pause instead of rerunning the upgrade. When
+`projectReconciliation.retryable` is true (for example `index.state:
+another_writer_active` or `timed_out`), rerun the same command after the other
+writer finishes. A registration that launches
 Cartograph through a wrapper (`commandState: wrapped`) keeps its wrapper,
 arguments, and `env`; only its embedded absolute Cartograph path is repinned,
 and `registrationRepair.changes` lists every changed entry. If it reports that

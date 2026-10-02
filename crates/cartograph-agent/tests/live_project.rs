@@ -31,7 +31,7 @@ use cartograph_agent::{
     DiffReviewOptions, EmbeddingClientRequest, EmbeddingOptions, FileDriftOptions,
     FileSourceOptions, FileSourceRequest, GenerationRetentionStatus, HistoryIndexOptions,
     ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
-    IndexOptions, IndexReport, LcovLoadOptions, NativeGenerationStorageMetrics,
+    IndexLiveSource, IndexOptions, IndexReport, LcovLoadOptions, NativeGenerationStorageMetrics,
     PipelineFailureReason, ProjectCancellation, ProjectError, ProjectRuntime, RenamePlanError,
     RenamePlanOptions, RenamePlanRequest, RetrievalClientRequest, RetrievalOptions,
     RetrievalRequest, ReviewOptions, ScipExportRequest, ScipImportLimits, ScipImportRequest,
@@ -393,6 +393,74 @@ async fn run_excludes_define_freshness_drift_and_reconciliation_until_explicitly
                 .and_then(|snapshot| snapshot.current.as_ref())
                 .map(|current| current.source_admission.run_exclude_patterns()),
             Some(0)
+        );
+        runtime.close().await;
+    }
+
+    drop_schema(&settings, &schema).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn inherited_run_excludes_verify_a_reconciliation_publication_under_the_same_policy() {
+    let (schema, settings, project) = live_project_fixture("8");
+    let write = |name: &str, contents: &str| {
+        std::fs::write(project.path().join(name), contents)
+            .unwrap_or_else(|error| panic!("{name} fixture write failed: {error}"));
+    };
+    write("service.rs", "pub fn admitted_source() -> bool { true }\n");
+    write("generated.rs", "pub fn generated_source() -> usize { 1 }\n");
+
+    {
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("inherited-exclusion runtime connect failed: {error}"));
+        let first = runtime
+            .index(
+                IndexOptions::default()
+                    .with_history_refresh(false)
+                    .with_additional_excludes(vec!["generated.rs".to_owned()]),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("excluded index failed: {error}"));
+        assert!(first.published);
+
+        // An admitted edit makes reconciliation publish. It inherits the
+        // exclusion without restating it, and its post-publication check
+        // must scan under that same policy instead of counting the excluded
+        // file as a change and rebuilding until SourceChangedDuringIndex.
+        write("service.rs", "pub fn admitted_source() -> bool { false }\n");
+        let reconciled = runtime
+            .index(IndexOptions::reconciliation().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("inherited-exclusion reconciliation failed: {error}"));
+        assert!(reconciled.published);
+        assert_eq!(reconciled.live_source, IndexLiveSource::Matched);
+
+        write("service.rs", "pub fn admitted_source() -> u8 { 3 }\n");
+        let single = runtime
+            .index(
+                IndexOptions::reconciliation()
+                    .with_history_refresh(false)
+                    .with_single_publication(true),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("single-publication reconciliation failed: {error}"));
+        assert!(single.published);
+        assert_eq!(single.live_source, IndexLiveSource::Matched);
+
+        let status = runtime
+            .status()
+            .await
+            .unwrap_or_else(|error| panic!("inherited-exclusion status failed: {error}"));
+        assert!(status.fresh);
+        assert_eq!(
+            status
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.current.as_ref())
+                .map(|current| current.source_admission.run_exclude_patterns()),
+            Some(1)
         );
         runtime.close().await;
     }
