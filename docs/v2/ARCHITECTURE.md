@@ -622,21 +622,23 @@ maintenance step and report whether it completed or was deferred.
 Terminal failure cleanup also deletes the exact generation's PostgreSQL spill
 root in the same fenced transaction. Its cascaded staging payload becomes
 reusable immediately instead of remaining live until a later prune.
-Pre-supervisor failures terminalize
-their exact staging generation under the same project advisory lock used by
-lease acquisition. A later batch can collect staging only when it is old,
-unleased, and not referenced by an incomplete import. Ready work becomes
-eligible only after a longer age floor when it is unleased, non-current, and
-outside import recovery. `db prune` uses the same bounded engine for larger
-explicit batches of stale staging/ready, failed, and old superseded generations,
-always preserving current, recent/leased work, import recovery state, and
-configured recent histories. Its generation-count limit is independent from
-the 64-derived-relation DDL cap, so relation-free failed backlogs can use the
-full requested bounded batch. Retention locks
-publication, rechecks its exact migration lease before commit, drops selected
-derived BM25 relations transactionally, and reports admitted cascade rows,
-relation count, and physical relation bytes. Status and doctor expose all
-generation-state counts and a conservative retained-byte estimate.
+Pre-supervisor failures attempt to
+terminalize their exact staging generation under the same project advisory lock
+used by lease acquisition; when that lock stays held past the bounded cleanup
+wait, the generation stays `staging` and the next writer's recovery fails it.
+A later batch can collect staging only when it is old, unleased, and not
+referenced by an incomplete import. Ready work becomes eligible only after a
+longer age floor when it is unleased, non-current, and outside import recovery.
+`db prune` uses the same bounded engine for larger explicit batches of stale
+staging/ready, failed, and old superseded generations, always preserving
+current, recent/leased work, import recovery state, and configured recent
+histories. Its generation-count limit is independent from the
+64-derived-relation DDL cap, so relation-free failed backlogs can use the full
+requested bounded batch. Retention locks publication, rechecks its exact
+migration lease before commit, drops selected derived BM25 relations
+transactionally, and reports admitted cascade rows, relation count, and physical
+relation bytes. Status and doctor expose all generation-state counts and a
+conservative retained-byte estimate.
 
 Routine status reads compact whole-database and schema heap/index/TOAST totals
 under a separate five-second bound and preserves the rest of status if those

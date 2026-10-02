@@ -83,22 +83,22 @@ fresh index: `projectReconciliation.state: source_changed` means the installed
 binary published a complete generation and only later edits make it stale, so
 run `cartograph index .` once edits pause instead of rerunning the upgrade. When
 `projectReconciliation.retryable` is true (for example `index.state:
-another_writer_active` or `timed_out`), rerun the same command; for
-`another_writer_active`, wait until the other writer finishes. A registration
-that launches
-Cartograph through a wrapper (`commandState: wrapped`) keeps its wrapper,
-arguments, and `env`; only its embedded absolute Cartograph path is repinned,
-and `registrationRepair.changes` lists every changed entry. If it reports that
-the managed database must be replaced, perform only the exact backup and confirmed upgrade
-steps it prints, then rerun the same command. If the database command fails
-after attempting the extension update, the new image remains the resumable
+another_writer_active` or `timed_out`, or a `blocked` verification because
+another writer replaced the generation this upgrade published or confirmed),
+rerun the same command; for `another_writer_active` or a replaced generation,
+wait until the other writer finishes. A registration that launches Cartograph
+through a wrapper (`commandState: wrapped`) keeps its wrapper, arguments, and
+`env`; only its embedded absolute Cartograph path is repinned, and
+`registrationRepair.changes` lists every changed entry. If it reports that the
+managed database must be replaced, perform only the exact backup and confirmed
+upgrade steps it prints, then rerun the same command. If the database command
+fails after attempting the extension update, the new image remains the resumable
 candidate and the old image remains stopped; do not start the old container by
 hand. An interruption after the old container is renamed but before the new
 candidate exists is resumed by repeating the same confirmed command; do not
 rename the rollback slot manually. Reopen the agent host only when
-`restartRequired` is true; a process
-already attached to an older MCP child cannot hot-load the new binary. That flag
-describes changes made by the current
+`restartRequired` is true; a process already attached to an older MCP child
+cannot hot-load the new binary. That flag describes changes made by the current
 invocation; `false` on a later no-op rerun does not prove that a host left open
 across an earlier upgrade loaded the replacement child.
 

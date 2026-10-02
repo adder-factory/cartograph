@@ -102,11 +102,18 @@ writer still holding the project lock past the bounded five-second wait, or a
 lock that keeps the read of the project's leases waiting past that same bound
 returns the retryable `lease_busy` before any generation is reserved; an
 unchanged checkout still returns its no-op report. A writer that takes the
-lease after that check is still rejected at lease acquisition with
-`lease_busy`, and the attempt's reserved generation is cleaned up. A lost or
-unconfirmed lease heartbeat reports `lease_failed`. A read of the project's
-leases that fails for another reason reports `index_failed` with the message
-`Cartograph project status is unavailable`, never `lease_failed`: that
+lease or the project lock after that check is still rejected at lease
+acquisition with `lease_busy`. By then the attempt has reserved a generation,
+and it fails that reservation itself only if it gets the project lock within
+another five-second bound. When the other writer holds the lock longer, for
+example inside its prepare transaction, the failure adds `cleanup_failure` and
+the reservation stays `staging` (it never becomes current) until the project
+is free again: the next index's staging recovery, including a supervised
+retry's, then fails it. `lease_failed` means the attempt could not establish,
+keep, or confirm ownership of its own lease: an acquisition that failed for a
+reason other than contention, or a lost or unconfirmed heartbeat. A read of the
+project's leases that fails for another reason reports `index_failed` with the
+message `Cartograph project status is unavailable`, never `lease_failed`: that
 attempt held no lease to lose.
 
 A successful `index --format json` report includes `live_source`. `matched`
@@ -141,16 +148,22 @@ lease or staging generation on the same project does not affect this.
 Otherwise, for example when the lease expired instead of being released, the
 failure adds `cleanup_failure` (`index_cleanup_failed`), the next index retries
 the cleanup, and any remaining lease expires on its 5-minute TTL. An interrupt
-that arrives after a generation was already published, while the index
-rechecks the checkout, leaves that generation current and still reports
-`request_cancelled`. An interrupt that arrives earlier, while `index` resolves
-its database settings, connects, or applies schema migrations, ends the process
-at once; it holds no project lease or generation yet. So does a second
-interrupt, without cleanup, and any interrupt after the request has ended.
-These exits are the signal's default disposition: on Unix the process dies by
-the received signal, so its parent sees that signal rather than an exit status
-(a shell shows 130 for SIGINT or 143 for SIGTERM), and on Windows Ctrl-C exits
-with `STATUS_CONTROL_C_EXIT`.
+that arrives after a generation was already published leaves that generation
+current, and the index does not rebuild. The result depends on the
+post-publication recheck of the checkout: the index reports `request_cancelled`
+when the interrupt stopped that recheck or the recheck found a change, but
+still exits successfully with `live_source: matched` when the recheck had
+already finished and matched (an interrupt during the final retention step
+also leaves that success). The supervised child of `upgrade --apply` always
+reports its publication as a success, with `live_source` `matched`,
+`changed_after_publication`, or `unverified`. An interrupt that arrives
+earlier, while `index` resolves its database settings, connects, or applies
+schema migrations, ends the process at once; it holds no project lease or
+generation yet. So does a second interrupt, without cleanup, and any interrupt
+after the request has ended. These exits are the signal's default disposition:
+on Unix the process dies by the received signal, so its parent sees that
+signal rather than an exit status (a shell shows 130 for SIGINT or 143 for
+SIGTERM), and on Windows Ctrl-C exits with `STATUS_CONTROL_C_EXIT`.
 
 A generated `cartograph admin` command that starts a background job, such as
 `admin index`, runs the job in-process and polls its status until it finishes.
@@ -324,26 +337,29 @@ or waited five seconds behind that writer's prepare transaction) or at lease
 acquisition, and is retried after the writer's lease is gone. A `lease_busy`
 that no live lease explains (for example a schema-maintenance lock) is retried
 after a pause that grows from 15 seconds to 4 minutes, within the same 30
-minutes. Each such collision repeats the source scan. The step has no fixed wall-clock limit. Instead the
-child reports progress from its start: while it resolves its database,
-connects, and applies schema migrations, a startup line that changes every 2
-seconds for at most 30 minutes; then stage, item and byte counters, files
-discovered and hashed by source scans, lease renewals, and the other writer's
-renewals while it waits. The step stops only when no progress arrives for 15
-minutes (so a startup still running after its 30 minutes is stopped 15 minutes
-later) or after an absolute 210-minute ceiling (the 30-minute startup
-allowance, the 30-minute writer wait, and one generation build, whose own
-supervisor budget is 2 hours). To stop the child,
-the parent closes the child's stdin. The child treats that as a cooperative
-cancellation: it fails its staging generation, releases its lease, and reports
-`request_cancelled` without a `cleanup_failure` once PostgreSQL confirms that
-cleanup. A child that is still starting acts on the request when its index
-request begins, before it holds a lease or generation. The parent waits up to 4
-minutes for that before it kills the child.
-A killed child, or one that exited without confirming its cleanup, can leave
-its lease to the 5-minute TTL, and a rerun's writer wait absorbs that. These bounds apply when the binary that starts
-`upgrade --apply` contains them; an upgrade started from an older release uses
-that release's index orchestration until it is rerun from the new one.
+minutes. Each such collision repeats the source scan. The step has no fixed
+wall-clock limit. Instead the child reports progress from its start: while it
+resolves its database, connects, and applies schema migrations, a startup line
+that changes every 2 seconds for at most 30 minutes; then stage, item and byte
+counters, files discovered and hashed by source scans, lease renewals, and the
+other writer's renewals while it waits. The step stops only when no progress
+arrives for 15 minutes (so a startup still running after its 30 minutes is
+stopped 15 minutes later) or after an absolute 210-minute ceiling (the
+30-minute startup allowance, the 30-minute writer wait, and a 150-minute
+allowance for one generation build: the child's 2-hour supervisor budget plus
+the source scans and retention around it). To stop the child, the parent
+closes the child's stdin. The child treats that as a cooperative cancellation.
+Before publication it fails its staging generation, releases its lease, and
+reports `request_cancelled` without a `cleanup_failure` once PostgreSQL
+confirms that cleanup. After publication the generation stays current and the
+child still reports success, which the step accepts. A child that is still
+starting acts on the request when its index request begins, before it holds a
+lease or generation. The parent waits up to 4 minutes for the child to exit
+before it kills it. A killed child, or one that exited without confirming its
+cleanup, can leave its lease to the 5-minute TTL, and a rerun's writer wait
+absorbs that. These bounds apply when the binary that starts `upgrade --apply`
+contains them; an upgrade started from an older release uses that release's
+index orchestration until it is rerun from the new one.
 
 `completed: true` means the verified binary is installed (or was already
 current), the database step is ready, the installed binary published or
@@ -392,10 +408,14 @@ already-verified binary installed and report only the remaining repair.
 
 - `state`: `ready`, `source_changed`, or `blocked`.
 - `retryable`: true when rerunning the same command, with no other action, is
-  the next step because a bounded wait or timeout ended without a failure
-  verdict.
+  the next step. That is the case when a bounded wait or timeout ended without
+  a failure verdict (a `timed_out` database, index, doctor, or verification
+  step, or `index.state: another_writer_active`), and also when verification
+  is `blocked` because another writer replaced the generation this upgrade
+  published or confirmed and the checkout is not fresh.
 - `database`, `index`, `doctor`, `verification`: each `{state, message}` plus an
-  optional stable `reason`.
+  optional stable `reason`. A step that did not run because an earlier step
+  stopped the reconciliation reports `not_run`.
 - `fresh`, `generationId`, `managedDatabasePort`, `requiredConfirmation`.
 
 `index.state` is one of:
@@ -410,12 +430,18 @@ already-verified binary installed and report only the remaining repair.
   `parse_failed`, when one was reported; the next step then names that code and
   runs `cartograph index <path> --format json` for the full failure, while a
   `blocked` index without a code points to `cartograph doctor <path>`)
+- `not_run` (the database step did not finish as `ready`)
 
-`verification.state` is `ready`, `source_changed`, `timed_out` (retryable), or
-`blocked`. A `blocked` verification is retryable when another writer replaced
-the generation this upgrade published. `doctor` and the next-process `status`
-each rescan the checkout, so each gets a 10-minute budget. A `timed_out` doctor
-or verification step is retryable and draws no conclusion about the project.
+`verification.state` is `ready`, `source_changed`, `timed_out` (retryable),
+`blocked`, or `not_run` (the database or doctor step was not `ready`, or the
+index step did not end as `ready` or `source_changed`). A `blocked`
+verification is retryable only when the next-process status reports a
+different, non-fresh current generation, meaning another writer replaced the
+generation this upgrade published or confirmed. A status that fails, cannot be
+decoded, or reports another version is `blocked` and not retryable. `doctor`
+and the next-process `status` each rescan the checkout, so each gets a
+10-minute budget. A `timed_out` doctor or verification
+step is retryable and draws no conclusion about the project.
 
 `restartRequired` is deliberately run-local: it is true only when a completed
 invocation changed the installed binary or repaired a configured host pin. A
