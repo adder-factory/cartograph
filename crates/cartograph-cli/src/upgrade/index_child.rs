@@ -381,7 +381,7 @@ impl<Stderr> StderrScan<Stderr> {
     fn final_failure(&self) -> Option<ChildFailure> {
         let start = self
             .tail
-            .windows(2)
+            .array_windows()
             .rposition(|pair| pair == b"\n{")
             .map_or(0, |position| position + 1);
         let failure: FailureLine = serde_json::from_slice(&self.tail[start..]).ok()?;

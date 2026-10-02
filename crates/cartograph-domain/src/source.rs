@@ -2022,7 +2022,7 @@ mod tests {
     #[test]
     fn language_registry_preserves_v1_contract_and_tracks_v2_additions_separately() {
         let stable_ids = SourceLanguage::ALL.map(SourceLanguage::as_str);
-        assert!(stable_ids.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(stable_ids.is_sorted_by(|previous, next| previous < next));
         assert_eq!(stable_ids.into_iter().collect::<BTreeSet<_>>().len(), 132);
         assert_eq!(
             SourceLanguage::ALL

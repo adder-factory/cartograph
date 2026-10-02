@@ -908,7 +908,9 @@ impl ContextPacket {
         };
         let mut positions = judged.iter().map(|(index, _)| *index).collect::<Vec<_>>();
         positions.sort_unstable();
-        if positions.windows(2).any(|pair| pair[0] == pair[1])
+        if positions
+            .array_windows()
+            .any(|[previous, next]| previous == next)
             || judged.iter().any(|(index, relevance)| {
                 !relevance.is_finite()
                     || !(0.0..=1.0).contains(relevance)

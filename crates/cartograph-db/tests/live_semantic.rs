@@ -263,10 +263,7 @@ async fn assert_vector_similarity(fixture: &Fixture, scenario: &SemanticScenario
     assert_eq!(hits[0].document_id().as_str(), DOCUMENT_A);
     assert_eq!(hits[1].document_id().as_str(), DOCUMENT_B);
     assert_eq!(hits[2].document_id().as_str(), DOCUMENT_C);
-    assert!(
-        hits.windows(2)
-            .all(|pair| pair[0].distance() <= pair[1].distance())
-    );
+    assert!(hits.is_sorted_by_key(cartograph_db::VectorSearchHit::distance));
     let rerank_text = hits[0]
         .rerank_text()
         .unwrap_or_else(|| panic!("vector hit omitted bounded reranker text"));

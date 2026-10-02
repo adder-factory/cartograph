@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn every_admitted_native_grammar_is_unique_sorted_and_abi_compatible() {
         let ids = NativeGrammar::ALL.map(NativeGrammar::stable_id);
-        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(ids.is_sorted_by(|previous, next| previous < next));
         for (ordinal, grammar) in NativeGrammar::ALL.into_iter().enumerate() {
             assert_eq!(grammar as usize, ordinal, "grammar registry order drifted");
             let mut parser = tree_sitter::Parser::new();

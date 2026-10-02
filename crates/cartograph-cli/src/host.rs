@@ -793,8 +793,8 @@ pub(crate) fn wrapped_executable_index<'arg>(
     args: impl IntoIterator<Item = Option<&'arg str>>,
 ) -> Option<usize> {
     let args = args.into_iter().collect::<Vec<_>>();
-    args.windows(2).position(|pair| {
-        pair[1] == Some(SERVE_SUBCOMMAND) && pair[0].is_some_and(is_cartograph_executable)
+    args.array_windows().position(|&[executable, subcommand]| {
+        subcommand == Some(SERVE_SUBCOMMAND) && executable.is_some_and(is_cartograph_executable)
     })
 }
 

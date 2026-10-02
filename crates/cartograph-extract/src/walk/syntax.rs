@@ -1254,7 +1254,9 @@ const fn is_identifier_byte(byte: u8) -> bool {
 }
 
 fn contains_jwt_literal(text: &str) -> bool {
-    text.as_bytes().windows(3).any(|window| window == b"eyJ")
+    text.as_bytes()
+        .array_windows()
+        .any(|window| window == b"eyJ")
 }
 
 fn contains_aws_access_key_literal(text: &str) -> bool {

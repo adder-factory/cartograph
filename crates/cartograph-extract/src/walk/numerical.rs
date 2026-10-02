@@ -384,7 +384,7 @@ fn contains_abs_call(raw: &str) -> bool {
         .bytes()
         .filter(|byte| !byte.is_ascii_whitespace())
         .collect::<Vec<_>>();
-    compact.windows(5).any(|window| window == b".abs(")
+    compact.array_windows().any(|window| window == b".abs(")
 }
 
 fn is_epsilon_like_threshold(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> bool {
