@@ -818,12 +818,8 @@ fn literal_shell_node<'source>(
 
 fn literal_shell_text(raw: &str) -> Option<&str> {
     let unquoted = raw
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .or_else(|| {
-            raw.strip_prefix('\'')
-                .and_then(|value| value.strip_suffix('\''))
-        })
+        .strip_circumfix('"', '"')
+        .or_else(|| raw.strip_circumfix('\'', '\''))
         .unwrap_or(raw);
     (!unquoted.is_empty()
         && !unquoted.contains('$')

@@ -19901,7 +19901,7 @@ fn substitute_macro_value(
 }
 
 fn whole_macro_placeholder(value: &str) -> Option<usize> {
-    let index = value.strip_prefix("${")?.strip_suffix('}')?;
+    let index = value.strip_circumfix("${", '}')?;
     (!index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| index.parse().ok())
         .flatten()

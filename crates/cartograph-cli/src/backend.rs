@@ -598,10 +598,7 @@ fn local_endpoint(raw: &str) -> Result<Option<(String, String, u16)>, String> {
     let Some(raw_host) = url.host_str() else {
         return Err("configured LLM endpoint has no host".to_owned());
     };
-    let host = raw_host
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-        .unwrap_or(raw_host);
+    let host = raw_host.strip_circumfix('[', ']').unwrap_or(raw_host);
     if !is_loopback(host) {
         return Ok(None);
     }

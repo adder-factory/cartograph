@@ -1096,7 +1096,7 @@ fn alias_tail<'a>(specifier: &'a str, pattern: &str) -> Option<&'a str> {
     };
     let prefix = &pattern[..wildcard];
     let suffix = &pattern[wildcard + 1..];
-    specifier.strip_prefix(prefix)?.strip_suffix(suffix)
+    specifier.strip_circumfix(prefix, suffix)
 }
 
 fn read_small_file(path: &Path) -> Option<String> {

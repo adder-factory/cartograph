@@ -667,18 +667,9 @@ fn normalized_identifier(
 
 fn strip_identifier_quotes(value: &str) -> &str {
     value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .or_else(|| {
-            value
-                .strip_prefix('`')
-                .and_then(|value| value.strip_suffix('`'))
-        })
-        .or_else(|| {
-            value
-                .strip_prefix('[')
-                .and_then(|value| value.strip_suffix(']'))
-        })
+        .strip_circumfix('"', '"')
+        .or_else(|| value.strip_circumfix('`', '`'))
+        .or_else(|| value.strip_circumfix('[', ']'))
         .unwrap_or(value)
 }
 

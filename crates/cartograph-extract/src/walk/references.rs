@@ -789,16 +789,9 @@ fn javascript_dynamic_member_call_resolution<'tree>(
 fn static_javascript_dispatch_key(raw: &str) -> Option<&str> {
     let raw = raw.trim();
     let key = raw
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .or_else(|| {
-            raw.strip_prefix('\'')
-                .and_then(|value| value.strip_suffix('\''))
-        })
-        .or_else(|| {
-            raw.strip_prefix('`')
-                .and_then(|value| value.strip_suffix('`'))
-        })?;
+        .strip_circumfix('"', '"')
+        .or_else(|| raw.strip_circumfix('\'', '\''))
+        .or_else(|| raw.strip_circumfix('`', '`'))?;
     let mut characters = key.chars();
     let first = characters.next()?;
     (key.len() <= MAX_DURABLE_REFERENCE_NAME_BYTES

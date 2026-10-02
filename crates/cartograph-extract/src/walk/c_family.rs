@@ -297,13 +297,8 @@ fn visit_include(
     };
     let raw_path = builder.context.text(path_node).trim();
     let module_name = raw_path
-        .strip_prefix('<')
-        .and_then(|value| value.strip_suffix('>'))
-        .or_else(|| {
-            raw_path
-                .strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-        })
+        .strip_circumfix('<', '>')
+        .or_else(|| raw_path.strip_circumfix('"', '"'))
         .unwrap_or(raw_path);
     if module_name.is_empty() {
         return Ok(());

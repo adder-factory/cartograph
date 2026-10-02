@@ -2862,16 +2862,11 @@ fn push_cancellable(
 
 pub(super) fn unquote(raw: &str) -> &str {
     let trimmed = raw.trim();
-    let bytes = trimmed.as_bytes();
-    if bytes.len() >= 2
-        && matches!(
-            (bytes.first(), bytes.last()),
-            (Some(b'\''), Some(b'\'')) | (Some(b'"'), Some(b'"')) | (Some(b'`'), Some(b'`'))
-        )
-    {
-        return &trimmed[1..trimmed.len() - 1];
-    }
     trimmed
+        .strip_circumfix('\'', '\'')
+        .or_else(|| trimmed.strip_circumfix('"', '"'))
+        .or_else(|| trimmed.strip_circumfix('`', '`'))
+        .unwrap_or(trimmed)
 }
 
 pub(crate) fn collect_diagnostics(

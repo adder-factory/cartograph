@@ -561,13 +561,8 @@ fn tagged_iterator(line: &str) -> Option<(&str, usize, usize)> {
 
 fn unquote(value: &str) -> &str {
     value
-        .strip_prefix('\'')
-        .and_then(|value| value.strip_suffix('\''))
-        .or_else(|| {
-            value
-                .strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-        })
+        .strip_circumfix('\'', '\'')
+        .or_else(|| value.strip_circumfix('"', '"'))
         .unwrap_or(value)
 }
 

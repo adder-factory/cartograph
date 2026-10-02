@@ -1945,16 +1945,10 @@ fn strip_yaml_scalar(value: &str) -> &str {
         .find(" #")
         .map_or(value, |comment| &value[..comment])
         .trim();
-    if without_comment.len() >= 2 {
-        let bytes = without_comment.as_bytes();
-        if matches!(
-            (bytes[0], bytes[bytes.len() - 1]),
-            (b'"', b'"') | (b'\'', b'\'')
-        ) {
-            return &without_comment[1..without_comment.len() - 1];
-        }
-    }
     without_comment
+        .strip_circumfix('"', '"')
+        .or_else(|| without_comment.strip_circumfix('\'', '\''))
+        .unwrap_or(without_comment)
 }
 
 fn ensure_table(document: &mut DocumentMut, key: &str) -> Result<(), InstallError> {

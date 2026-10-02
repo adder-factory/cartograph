@@ -13782,12 +13782,10 @@ fn nearest_typescript_alias_config<'a>(
 }
 
 fn typescript_alias_tail<'a>(specifier: &'a str, pattern: &str) -> Option<&'a str> {
-    let Some(wildcard) = pattern.find('*') else {
+    let Some((prefix, suffix)) = pattern.split_once('*') else {
         return (specifier == pattern).then_some("");
     };
-    specifier
-        .strip_prefix(&pattern[..wildcard])?
-        .strip_suffix(&pattern[wildcard + 1..])
+    specifier.strip_circumfix(prefix, suffix)
 }
 
 fn normalize_typescript_alias_target(base_path: &str, substitution: &str) -> Option<String> {

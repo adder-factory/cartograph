@@ -651,8 +651,11 @@ fn compact_text(raw: &str) -> String {
 
 fn numeric_literal_value(raw: &str) -> Option<f64> {
     let mut raw = raw.trim();
-    while raw.starts_with('(') && raw.ends_with(')') && raw.len() > 2 {
-        raw = raw.get(1..raw.len().saturating_sub(1))?.trim();
+    while let Some(inner) = raw
+        .strip_circumfix('(', ')')
+        .filter(|inner| !inner.is_empty())
+    {
+        raw = inner.trim();
     }
     raw = raw
         .strip_suffix("_f32")
