@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-02 (`v2.1.35`).
+Last release audit: 2026-10-02 (`v2.1.36`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds and confirmation phrases in the installed version. This page
@@ -207,8 +207,12 @@ project. It emits standard SCIP plus a forward-compatible Cartograph extension
 for every exact edge kind and represented site count. `scip-import` validates a
 bounded project-local artifact, installs it at
 `.cartograph/scip/overlay.scip`, and forces a new generation. Covered files use
-SCIP facts; uncovered files retain native extraction. A failed publication
-restores the prior overlay when the importer still owns the installed bytes.
+SCIP facts; uncovered files retain native extraction. A forced index that fails
+or is cancelled restores the prior overlay when the importer still owns the
+installed bytes. If that restore fails as well, the job keeps its `failure` (or
+its `cancelled` status) and any `cleanupFailure`, and adds a separate
+`overlayRollbackFailure` (`code: scip_overlay_rollback_failed`, `message`):
+the requested artifact may still be installed, and the next index would use it.
 The overlay digest participates in freshness, so changing it cannot leave an
 apparently current generation.
 
@@ -233,7 +237,7 @@ or database settings.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.35 top-level command advertised
+This inventory contains every non-hidden v2.1.36 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 

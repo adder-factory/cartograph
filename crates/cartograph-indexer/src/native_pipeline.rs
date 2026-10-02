@@ -15818,24 +15818,24 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V18 changes only these digest domains; the independently frozen projections stay fixed.
+    // V19 changes only these digest domains; the independently frozen projections stay fixed.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "31380b638beb166ba2a3a130323d9541ebf87329f46311d002a3b22971910947";
+        "f92a86dd2dfb91c21839ba0c4c7fc68c5aa9552bbe7054690508ec0159bd6794";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "0834de6bb7bfe19fc269b1d93542e3d07bff05dc4f5f82bfc518d87e8afb32ee";
+        "70c014301409716bf7cff14bade328b1d813d6be30d637df46fb9cefe1f848d3";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "e5ba587b6e4d0707b41a3b575daf5c9e9e5bab4a491068fd69ab870273944c6e";
+        "7b5881e49a2359d5c5bc1d7bd3359e4a7c39dffc917a3af168176548178c1e64";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 220, 213, 64, 220);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "de5cf4fac07dea6314aca82b7310558526a00453e482da323a80e4fe0d45f685";
+        "ef95dec8ea82134715a89b6bb4128546eedf5a40f5680e4519adfae112b46fcc";
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (13, 49, 44, 32, 49);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [
@@ -20521,6 +20521,91 @@ export function secondClone(value: number) {
                 reference.target_symbol_id.is_none()
                     && reference.resolution_provenance == RUST_EXTERNAL_UNRESOLVED_PROVENANCE
             }));
+        }
+    }
+
+    #[test]
+    fn rust_macro_argument_references_resolve_to_cross_module_declarations() {
+        let fixtures = [
+            (
+                "src/lib.rs",
+                "mod checks;\nmod limits;\nmod math;\nmod report;\nmod upgrade;\n",
+            ),
+            (
+                "src/upgrade.rs",
+                "mod index_child;\nfn whole_minutes(seconds: u64) -> u64 { seconds / 60 }\npub fn timed_out_message() -> String {\n    format!(\"no progress for {} minutes\", whole_minutes(index_child::INDEX_INACTIVITY_TIMEOUT))\n}\n",
+            ),
+            (
+                "src/upgrade/index_child.rs",
+                "pub(super) const INDEX_INACTIVITY_TIMEOUT: u64 = 300;\npub(super) const INDEX_UNREAD_TIMEOUT: u64 = 60;\n",
+            ),
+            (
+                "src/math.rs",
+                "pub fn compute(value: u32) -> u32 { value * 2 }\npub fn uncalled(value: u32) -> u32 { value }\n",
+            ),
+            (
+                "src/checks.rs",
+                "use crate::math::*;\npub fn verify() { assert_eq!(compute(2), 4); }\n",
+            ),
+            ("src/limits.rs", "pub const ROW_LIMIT: usize = 10;\n"),
+            (
+                "src/report.rs",
+                "use crate::limits::*;\npub fn render() -> String { format!(\"at most {ROW_LIMIT} rows\") }\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let incoming = |facts: &CanonicalGenerationFacts, target: &SymbolInput| {
+            facts
+                .edges()
+                .iter()
+                .filter(|edge| {
+                    edge.target_symbol_id == target.symbol_id && edge.kind != EdgeKind::Contains
+                })
+                .map(|edge| edge.source_symbol_id.clone())
+                .collect::<Vec<_>>()
+        };
+        for facts in [&forward, &reversed] {
+            // Each target is used only inside macro arguments, which is what
+            // `unused_export` and the call graph previously could not see.
+            for (caller_path, caller, target_path, target) in [
+                (
+                    "src/upgrade.rs",
+                    "timed_out_message",
+                    "src/upgrade/index_child.rs",
+                    "INDEX_INACTIVITY_TIMEOUT",
+                ),
+                (
+                    "src/upgrade.rs",
+                    "timed_out_message",
+                    "src/upgrade.rs",
+                    "whole_minutes",
+                ),
+                ("src/checks.rs", "verify", "src/math.rs", "compute"),
+                ("src/report.rs", "render", "src/limits.rs", "ROW_LIMIT"),
+            ] {
+                let caller = capability_symbol(facts, caller_path, caller);
+                let target = capability_symbol(facts, target_path, target);
+                assert_eq!(
+                    incoming(facts, target),
+                    std::slice::from_ref(&caller.symbol_id),
+                    "{target_path}::{}",
+                    target.qualified_name
+                );
+            }
+            for (path, name) in [
+                ("src/upgrade/index_child.rs", "INDEX_UNREAD_TIMEOUT"),
+                ("src/math.rs", "uncalled"),
+            ] {
+                let unused = capability_symbol(facts, path, name);
+                assert_eq!(
+                    incoming(facts, unused),
+                    [] as [SymbolId; 0],
+                    "{path}::{name}"
+                );
+            }
         }
     }
 

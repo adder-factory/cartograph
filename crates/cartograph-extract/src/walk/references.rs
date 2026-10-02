@@ -503,39 +503,53 @@ fn rust_receiver_call_resolution(
     let Some(field) = target.child_by_field_name("field") else {
         return Ok(None);
     };
+    let snapshot = builder.context.snapshot;
+    let field = snapshot
+        .source()
+        .get(field.start_byte()..field.end_byte())
+        .unwrap_or_default()
+        .trim();
     if target
         .child_by_field_name("value")
         .is_some_and(|receiver| receiver.kind() == "self")
     {
-        let nominal = rust_self_nominal_type(builder, target)?;
-        let type_name = nominal.as_deref();
-        let field = builder.context.text(field).trim();
-        if field.is_empty() {
-            return Ok(None);
-        }
-        let capacity = RUST_SELF_RECEIVER_RESOLUTION_PREFIX
-            .len()
-            .checked_add(type_name.map_or(0, |name| name.len().saturating_add(2)))
-            .and_then(|bytes| bytes.checked_add(field.len()))
-            .ok_or(ExtractError::OutputLimit)?;
-        builder.context.budget.ensure_string_length(capacity)?;
-        let mut resolution = String::new();
-        resolution
-            .try_reserve_exact(capacity)
-            .map_err(|_| ExtractError::OutputLimit)?;
-        resolution.push_str(RUST_SELF_RECEIVER_RESOLUTION_PREFIX);
-        if let Some(type_name) = type_name {
-            resolution.push_str(type_name);
-            resolution.push_str("::");
-        }
-        resolution.push_str(field);
-        return Ok(Some(resolution));
+        return rust_self_receiver_resolution(builder, target, field);
     }
-    let field = builder.context.text(field).trim();
     if field.is_empty() {
         return Ok(None);
     }
     dynamic_dispatch_resolution(builder, field).map(Some)
+}
+
+/// Resolution hint for a `self.field(..)` call whose receiver sits at `anchor`,
+/// naming the enclosing impl's nominal type when syntax proves it.
+pub(super) fn rust_self_receiver_resolution(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    anchor: Node<'_>,
+    field: &str,
+) -> Result<Option<String>, ExtractError> {
+    let nominal = rust_self_nominal_type(builder, anchor)?;
+    let type_name = nominal.as_deref();
+    if field.is_empty() {
+        return Ok(None);
+    }
+    let capacity = RUST_SELF_RECEIVER_RESOLUTION_PREFIX
+        .len()
+        .checked_add(type_name.map_or(0, |name| name.len().saturating_add(2)))
+        .and_then(|bytes| bytes.checked_add(field.len()))
+        .ok_or(ExtractError::OutputLimit)?;
+    builder.context.budget.ensure_string_length(capacity)?;
+    let mut resolution = String::new();
+    resolution
+        .try_reserve_exact(capacity)
+        .map_err(|_| ExtractError::OutputLimit)?;
+    resolution.push_str(RUST_SELF_RECEIVER_RESOLUTION_PREFIX);
+    if let Some(type_name) = type_name {
+        resolution.push_str(type_name);
+        resolution.push_str("::");
+    }
+    resolution.push_str(field);
+    Ok(Some(resolution))
 }
 
 fn rust_self_nominal_type(

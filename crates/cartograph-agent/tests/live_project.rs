@@ -1094,7 +1094,7 @@ async fn assert_incremental_contract_upgrade(
            WHERE project_id = CAST($2 AS uuid) AND state = 'current'"#
     );
     let downgraded = query(AssertSqlSafe(downgrade_generation))
-        .bind(GenerationDigestVersion::V17.database_value())
+        .bind(GenerationDigestVersion::V18.database_value())
         .bind(first.project_id.as_str())
         .execute(&pool)
         .await
@@ -1454,10 +1454,49 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
             .unwrap_or_else(|error| panic!("SCIP status failed: {error}"));
         assert!(status.fresh);
         scip_spill::assert_overlay_storage_parity(&runtime, project.path()).await;
+        let maintenance = lease_contention::hold_schema_maintenance_lock(&settings, &schema).await;
+        assert_refused_import_restores_the_overlay(&runtime, project.path(), maintenance).await;
         runtime.close().await;
     }
 
     drop_schema(&settings, &schema).await;
+}
+
+/// Import `full.scip` while `maintenance` refuses the forced index's lease:
+/// the import must put the installed partial overlay back in place of the
+/// full artifact, and a restore that succeeded adds nothing to the failure.
+async fn assert_refused_import_restores_the_overlay(
+    runtime: &ProjectRuntime,
+    root: &Path,
+    maintenance: lease_contention::HeldLock,
+) {
+    let overlay = root.join(".cartograph/scip/overlay.scip");
+    let installed = std::fs::read(&overlay)
+        .unwrap_or_else(|error| panic!("installed overlay read failed: {error}"));
+    let refused = runtime
+        .import_scip_with_cancellation(
+            ScipImportRequest::new(
+                "full.scip",
+                ScipImportLimits::new(16 * 1024 * 1024, 1_000_000, 4)
+                    .unwrap_or_else(|error| panic!("SCIP import limits failed: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("SCIP import request failed: {error}")),
+            ProjectCancellation::new(),
+        )
+        .await
+        .map(|report| report.index.generation_id);
+    maintenance.release().await;
+    let Err(failure) = refused else {
+        panic!("schema maintenance did not refuse the forced index: {refused:?}");
+    };
+    assert_eq!(failure.error(), &ProjectError::IndexLeaseBusy);
+    assert!(!failure.cleanup_failed());
+    assert!(!failure.overlay_rollback_failed());
+    assert_eq!(
+        std::fs::read(&overlay)
+            .unwrap_or_else(|error| panic!("restored overlay read failed: {error}")),
+        installed
+    );
 }
 
 fn write_auth_checkout_fixture(root: &Path) -> std::path::PathBuf {

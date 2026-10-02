@@ -53,7 +53,8 @@ const RESUMABLE_RETENTION_SCHEMA_VERSION: i64 = 42;
 const GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION: i64 = 43;
 const CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION: i64 = 44;
 const GENERATION_FACT_COUNTS_SCHEMA_VERSION: i64 = 45;
-const LATEST_SCHEMA_VERSION: i64 = GENERATION_FACT_COUNTS_SCHEMA_VERSION;
+const RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION: i64 = 46;
+const LATEST_SCHEMA_VERSION: i64 = RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION;
 const MIGRATION_LOCK_NAMESPACE: &str = "cartograph-v2-schema-migration";
 
 /// Latest append-only schema version understood by this native binary.
@@ -1716,7 +1717,16 @@ const GENERATION_FACT_COUNTS_SCHEMA: Migration = Migration {
     ],
 };
 
-const MIGRATIONS: [&Migration; 45] = [
+const RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA: Migration = Migration {
+    version: RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION,
+    name: "rust_macro_references_digest_v19",
+    statements: &[r#"ALTER TABLE {schema}."index_generations"
+            DROP CONSTRAINT index_generations_digest_version_check,
+            ADD CONSTRAINT index_generations_digest_version_check
+                CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19))"#],
+};
+
+const MIGRATIONS: [&Migration; 46] = [
     &INITIAL_SCHEMA,
     &OPERATION_LEASES_SCHEMA,
     &COMPLETE_EDGE_KINDS_SCHEMA,
@@ -1762,6 +1772,7 @@ const MIGRATIONS: [&Migration; 45] = [
     &GRAMMAR_REFRESH_DIGEST_V17_SCHEMA,
     &CUDA_UNICODE_DIGEST_V18_SCHEMA,
     &GENERATION_FACT_COUNTS_SCHEMA,
+    &RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA,
 ];
 
 #[cfg(test)]
@@ -2158,7 +2169,7 @@ mod tests {
 
     const MIGRATION_CHECKSUM_HEX_LENGTH: usize = 64;
     const CHECKSUM_COMPARISON_WINDOW: usize = 2;
-    const EXPECTED_MIGRATION_VERSIONS: [i64; 45] = [
+    const EXPECTED_MIGRATION_VERSIONS: [i64; 46] = [
         INITIAL_SCHEMA_VERSION,
         OPERATION_LEASES_SCHEMA_VERSION,
         COMPLETE_EDGE_KINDS_SCHEMA_VERSION,
@@ -2204,9 +2215,10 @@ mod tests {
         GRAMMAR_REFRESH_DIGEST_V17_SCHEMA_VERSION,
         CUDA_UNICODE_DIGEST_V18_SCHEMA_VERSION,
         GENERATION_FACT_COUNTS_SCHEMA_VERSION,
+        RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION,
     ];
 
-    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 45] = [
+    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 46] = [
         (
             1,
             "47651685dfea852db86d644f0e777bd479a3926cfce9e7750887a61cfe4ddc8e",
@@ -2387,6 +2399,10 @@ mod tests {
             45,
             "99746f46572ebbe0238a725e1156e0410c4f5016bb2708a6ab1ff963bf70bdfd",
         ),
+        (
+            46,
+            "66741be677ed1d875aa33683023a840190a842e99fd1b57ad1a567f863f5d4b7",
+        ),
     ];
 
     #[test]
@@ -2430,7 +2446,10 @@ mod tests {
                 .windows(CHECKSUM_COMPARISON_WINDOW)
                 .all(|pair| pair[0] != pair[1])
         );
-        assert_eq!(LATEST_SCHEMA_VERSION, GENERATION_FACT_COUNTS_SCHEMA_VERSION);
+        assert_eq!(
+            LATEST_SCHEMA_VERSION,
+            RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION
+        );
     }
 
     #[test]

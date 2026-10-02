@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-02 (`v2.1.35`).
+Last release audit: 2026-10-02 (`v2.1.36`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -124,6 +124,15 @@ like a cancelled direct index, it adds `cleanupFailure` unless PostgreSQL
 confirms that no generation it reserved is still `staging` or `ready` and that
 its lease names none of them. A generation left `staging` is terminalized by the
 next index's staging preflight.
+
+A `scip-import` job whose forced index fails or is cancelled restores the
+project's previous SCIP overlay. When that restore fails too, its terminal
+status adds an optional `overlayRollbackFailure` object of the same shape, with
+`code: scip_overlay_rollback_failed` and `message`. It sits beside `failure`, or
+the cancellation, and any `cleanupFailure`, and replaces none of them; a
+cancelled import still gets the PostgreSQL cleanup check above. Nothing retries
+the restore: `.cartograph/scip/overlay.scip` may still hold the requested
+artifact, which the next index, including an automatic one, would use.
 
 An invalid parser-recovery span or parser stop without cancellation is a
 successful partial-file outcome with `extraction_invalid_span` or

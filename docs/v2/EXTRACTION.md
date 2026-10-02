@@ -87,7 +87,10 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V18 fences the CUDA 0.21.2 grammar and updated Unicode
+contract. Contract V19 fences Rust references inside macro arguments (calls,
+paths, receiver calls, nested invocations, and std format-string captures),
+forcing an unchanged V18 project to publish new facts.
+Contract V18 fences the CUDA 0.21.2 grammar and updated Unicode
 identifier semantics, forcing an unchanged V17 project to publish new facts.
 Contract V17 fences the refreshed ArkTS 0.3 and OCaml 0.26 grammar
 semantics, forcing an unchanged V16 project to publish new facts.
@@ -238,6 +241,15 @@ Implemented language-level behavior includes:
 - Cargo-workspace Rust crate roots, public inline-module paths, and named
   `pub use` facades, with package-scoped cross-crate resolution that preserves
   private-module and ambiguous-package boundaries;
+- Rust macro arguments, which the grammar keeps as an unexpanded token tree:
+  calls, receiver calls, and paths inside them publish the same references as
+  direct code, and nested invocations are macro calls. Inside std formatting
+  and assertion macros, whose arguments are known expressions, constant-shaped
+  names and inline `{NAME}`/`NAME$` format-string captures are also value
+  references. Other bare identifiers (usually locals), constant-shaped tokens
+  in other macros (which may be DSL keys or types), attribute bodies,
+  `macro_rules!` templates, metavariables, and string text publish nothing, and
+  one invocation exceeding its reference bound fails the file's output limit;
 - component/template, Salesforce markup, MyBatis, VB6, properties, Liquid, and
   BG3/Osiris domain semantics;
 - bounded npm/Composer/Cargo package and workspace manifest facts, including

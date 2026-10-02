@@ -23,6 +23,7 @@ MCP call is the control evidence.
 | Shell commands work but the agent cannot connect | [Doctor works in a shell but MCP cannot connect](#doctor-works-in-a-shell-but-mcp-cannot-connect) |
 | Status reports stale source | [Index is stale](#index-is-stale) |
 | Index reports `lease_busy` or `index_cleanup_failed` | [Index reports `lease_busy` or `index_cleanup_failed`](#index-reports-lease_busy-or-index_cleanup_failed) |
+| SCIP import reports `overlayRollbackFailure` | [SCIP import reports `overlayRollbackFailure`](#scip-import-reports-overlayrollbackfailure) |
 | A large index reaches a hard bound | [Native generation reaches its capacity bound](#native-generation-reaches-its-capacity-bound) |
 | Hybrid retrieval skips semantic search | [Semantic search is skipped](#semantic-search-is-skipped) |
 | Doctor warns that an LLM credential is not set | [An LLM credential is missing from doctor's shell](#an-llm-credential-is-missing-from-doctors-shell) |
@@ -250,6 +251,21 @@ contention; inspect PostgreSQL health and generation retention before retrying.
 `true` when a published generation is still current, `false` when the project
 has none yet, and `null` when that bounded lookup failed. Index failures never
 unpublish the current generation.
+
+## SCIP import reports `overlayRollbackFailure`
+
+`scip-import` installs the requested artifact at `.cartograph/scip/overlay.scip`
+before its forced index. When that index fails or is cancelled, the import puts
+the previous overlay back, or removes the new one if there was none.
+`overlayRollbackFailure` (`code: scip_overlay_rollback_failed`) in the admin job
+status means that restore failed too, for example because `.cartograph/scip/`
+is not writable or `overlay.scip` is no longer a regular file. The job's
+`failure`, or its `cancelled` status, and any `cleanupFailure` still describe
+the forced index; handle them as described above. Nothing retries the restore,
+so the requested artifact may still be installed and the next index, including
+an automatic sync, would use it. Fix the directory or path, then restore the
+overlay you want, delete `.cartograph/scip/overlay.scip` to return to native
+extraction, or run `scip-import` again.
 
 ## Index fails during the parse stage
 

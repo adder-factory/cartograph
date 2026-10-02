@@ -344,7 +344,8 @@ impl OwnedReservations {
 ///
 /// An MCP SCIP import, for example, forces one index under its job's
 /// cancellation, so its cancelled job reports the same PostgreSQL-confirmed
-/// `cleanupFailure` as a cancelled index job.
+/// `cleanupFailure` as a cancelled index job, and keeps the
+/// `overlayRollbackFailure` of an overlay restore that failed afterward.
 pub(crate) async fn with_cleanup_proof<Report>(
     runtime: &ProjectRuntime,
     cancellation: &ProjectCancellation,
@@ -389,7 +390,8 @@ struct FinishedRequest<'request, Report> {
 /// name none of them. Another writer's lease and generations, which a
 /// concurrent auto-sync may hold at the same moment, are not this request's
 /// and never count against it. An unreadable row is reported as a cleanup
-/// failure: conservative, never optimistic.
+/// failure: conservative, never optimistic. A secondary failure that the
+/// proof does not cover, a SCIP import's failed overlay rollback, is kept.
 async fn confirm_cancellation_cleanup<Report>(
     request: FinishedRequest<'_, Report>,
 ) -> Result<Report, IndexFailure> {
@@ -399,11 +401,11 @@ async fn confirm_cancellation_cleanup<Report>(
         cancelled,
         owned,
     } = request;
-    match &result {
-        Err(failure) if cancellation_outcome(failure.error(), cancelled) => {}
-        _ => return result,
-    }
-    let cancellation = IndexFailure::from(ProjectError::RequestCancelled);
+    let failure = match result {
+        Err(failure) if cancellation_outcome(failure.error(), cancelled) => failure,
+        other => return other,
+    };
+    let cancellation = failure.into_requested_cancellation();
     if owned_cleanup_proven(runtime, owned).await {
         Err(cancellation)
     } else {

@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [CLI reference](CLI-REFERENCE.md) ·
 [MCP usage](MCP-USAGE.md) · [Project overview](../README.md)
 
-Last release audit: 2026-10-02 (`v2.1.35`).
+Last release audit: 2026-10-02 (`v2.1.36`).
 
 Cartograph exposes one native Rust feature surface through human CLI commands
 and 36 bounded MCP tools. Shared schemas generate ordinary CLI adapters where
@@ -92,9 +92,11 @@ path and fixed reason across both surfaces: direct CLI JSON uses
 `error.file_failure`, while admin job status uses `fileFailure`. A failed
 cleanup of the attempt's own staging generation is the same secondary
 `code`/`message` object beside the primary failure: `error.cleanup_failure` in
-direct CLI JSON and `cleanupFailure` in admin job status. Invalid spans
-and non-cancelled parser stops instead publish an empty partial file with a
-stable degraded reason. Generation-capacity failures name
+direct CLI JSON and `cleanupFailure` in admin job status. A SCIP import whose
+overlay restore also failed adds the same-shaped `overlayRollbackFailure` to
+that one job status, which CLI `admin scip-import` and MCP `scip-import` share.
+Invalid spans and non-cancelled parser stops instead publish an empty partial
+file with a stable degraded reason. Generation-capacity failures name
 `maxGenerationBytes`, its Cartograph-process scope, and a bounded next action in
 direct CLI output and MCP `failureDetail`. Text rendering escapes control
 characters, and neither surface accepts arbitrary parser/driver text at that

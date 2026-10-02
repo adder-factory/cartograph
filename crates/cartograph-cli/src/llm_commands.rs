@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    env,
+    env, fmt,
     io::{self, IsTerminal as _, Write as _},
     path::{Path, PathBuf},
     process::ExitCode,
@@ -52,7 +52,7 @@ pub(super) enum LlmCommand {
     MigrateCredentials(MigrateCredentialsArguments),
 }
 
-#[derive(Debug, Args)]
+#[derive(Args)]
 pub(super) struct SetupArguments {
     /// Existing project root.
     #[arg(default_value = ".")]
@@ -107,7 +107,33 @@ pub(super) struct SetupArguments {
     json: bool,
 }
 
-#[derive(Debug, Args)]
+/// Redacts the endpoint, which may carry URL credentials, and counts the CLI
+/// bridge's argv template, which may carry a secret; every other field prints.
+impl fmt::Debug for SetupArguments {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SetupArguments")
+            .field("path", &self.path)
+            .field("preset", &self.preset)
+            .field("tier", &self.tier)
+            .field("endpoint", &self.endpoint.as_ref().map(|_| "<redacted>"))
+            .field("model", &self.model)
+            .field("command", &self.command)
+            .field("command_argument_count", &self.command_args.len())
+            .field("input", &self.input)
+            .field("prompt_template", &self.prompt_template)
+            .field("response_format", &self.response_format)
+            .field("response_path", &self.response_path)
+            .field("credentials", &self.credentials)
+            .field("jev_features", &self.jev_features)
+            .field("minimal", &self.minimal)
+            .field("yes", &self.yes)
+            .field("json", &self.json)
+            .finish()
+    }
+}
+
+#[derive(Args)]
 struct SetupCredentialArguments {
     /// Environment-variable name containing the provider credential.
     #[arg(long, conflicts_with = "api_key_command")]
@@ -129,6 +155,20 @@ struct SetupCredentialArguments {
     /// --api-key-command.
     #[arg(long, conflicts_with_all = ["api_key_env", "api_key_command"])]
     clear_credentials: bool,
+}
+
+/// Counts the credential helper's arguments instead of printing them: an
+/// argument can name or carry the secret itself.
+impl fmt::Debug for SetupCredentialArguments {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SetupCredentialArguments")
+            .field("api_key_env", &self.api_key_env)
+            .field("api_key_command", &self.api_key_command)
+            .field("api_key_argument_count", &self.api_key_args.len())
+            .field("clear_credentials", &self.clear_credentials)
+            .finish()
+    }
 }
 
 impl SetupCredentialArguments {
@@ -210,7 +250,7 @@ pub(super) struct SmokeArguments {
     json: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Args)]
 pub(super) struct InstallArguments {
     /// Existing project root.
     #[arg(default_value = ".")]
@@ -250,6 +290,34 @@ pub(super) struct InstallArguments {
     /// Print structured JSON.
     #[arg(long)]
     json: bool,
+}
+
+/// Redacts the secret-bearing `--database-url`; every other field prints.
+impl fmt::Debug for InstallArguments {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("InstallArguments")
+            .field("path", &self.path)
+            .field("models", &self.models)
+            .field("dir", &self.dir)
+            .field("concurrency", &self.concurrency)
+            .field("database_provider", &self.database_provider)
+            .field(
+                "database_url",
+                &self.database_url.as_ref().map(|_| "<redacted>"),
+            )
+            .field("database_schema", &self.database_schema)
+            .field("database_pgvector", &self.database_pgvector)
+            .field("database_max_connections", &self.database_max_connections)
+            .field("database_query_timeout_ms", &self.database_query_timeout_ms)
+            .field(
+                "database_connection_timeout_seconds",
+                &self.database_connection_timeout_seconds,
+            )
+            .field("database_ssl", &self.database_ssl)
+            .field("json", &self.json)
+            .finish()
+    }
 }
 
 #[derive(Debug, Args)]
@@ -2305,6 +2373,62 @@ mod tests {
         arguments.credentials.clear_credentials = false;
         arguments.credentials.api_key_command = None;
         assert!(setup_inputs(&arguments, SetupPreset::Custom).is_err());
+    }
+
+    #[test]
+    fn secret_bearing_arguments_never_print_in_debug_output() {
+        #[derive(clap::Parser)]
+        struct Harness {
+            #[command(flatten)]
+            install: InstallArguments,
+            #[command(flatten)]
+            credentials: SetupCredentialArguments,
+        }
+        #[derive(clap::Parser)]
+        struct SetupHarness {
+            #[command(flatten)]
+            setup: SetupArguments,
+        }
+        // Assembled at runtime so no source literal reads as a stored credential.
+        let database_url = [
+            "postgresql://cartograph:",
+            "debug-secret",
+            "@127.0.0.1:1/cartograph",
+        ]
+        .concat();
+        let parsed = <Harness as clap::Parser>::try_parse_from([
+            "install",
+            "--database-url",
+            database_url.as_str(),
+            "--api-key-command",
+            "/opt/helper",
+            "--api-key-arg",
+            "--token=helper-secret",
+        ])
+        .unwrap_or_else(|error| panic!("secret flags failed: {error}"));
+        let rendered = format!("{:?} {:?}", parsed.install, parsed.credentials);
+        assert!(!rendered.contains("debug-secret"), "{rendered}");
+        assert!(!rendered.contains("helper-secret"), "{rendered}");
+        assert!(rendered.contains("api_key_argument_count: 1"), "{rendered}");
+        assert_eq!(
+            parsed.install.database_url.as_deref(),
+            Some(database_url.as_str())
+        );
+        let setup = <SetupHarness as clap::Parser>::try_parse_from([
+            "setup",
+            ".",
+            "--endpoint",
+            "https://user:endpoint-secret@llm.example/v1",
+            "--command",
+            "/opt/bridge",
+            "--arg",
+            "token=bridge-secret",
+        ])
+        .unwrap_or_else(|error| panic!("setup flags failed: {error}"));
+        let rendered = format!("{:?}", setup.setup);
+        assert!(!rendered.contains("endpoint-secret"), "{rendered}");
+        assert!(!rendered.contains("bridge-secret"), "{rendered}");
+        assert!(rendered.contains("command_argument_count: 1"), "{rendered}");
     }
 
     #[test]
