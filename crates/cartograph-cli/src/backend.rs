@@ -1253,11 +1253,9 @@ fn signal_process(pid: u32, force: bool) -> Result<(), String> {
             .stderr(Stdio::null())
             .status()
     };
-    if status.is_ok_and(|status| status.success()) {
-        Ok(())
-    } else {
-        Err(format!("could not signal verified backend pid {pid}"))
-    }
+    status
+        .is_ok_and(|status| status.success())
+        .ok_or_else(|| format!("could not signal verified backend pid {pid}"))
 }
 
 async fn wait_for_exit(pid: u32, timeout: Duration) -> bool {

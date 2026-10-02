@@ -1091,9 +1091,7 @@ fn validate_uuid(value: &str, field: &'static str) -> Result<(), StorageError> {
                 byte.is_ascii_hexdigit()
             }
         });
-    valid
-        .then_some(())
-        .ok_or(StorageError::InvalidInput { field })
+    valid.ok_or(StorageError::InvalidInput { field })
 }
 
 const SESSION_KIND_COLUMN: usize = 3;

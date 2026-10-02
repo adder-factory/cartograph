@@ -7,11 +7,7 @@ pub(super) fn require_source_count(
     expected: u64,
     field: &'static str,
 ) -> Result<(), V1PostgresImportError> {
-    if usize_to_u64(observed)? == expected {
-        Ok(())
-    } else {
-        Err(invalid_source(field))
-    }
+    (usize_to_u64(observed)? == expected).ok_or(invalid_source(field))
 }
 
 struct FactMapping<'a> {

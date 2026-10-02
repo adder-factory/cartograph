@@ -860,11 +860,7 @@ fn require_within_file(
     file: &FileInput,
     field: &'static str,
 ) -> Result<(), StorageError> {
-    if end_byte <= file.byte_size {
-        Ok(())
-    } else {
-        Err(invalid(field))
-    }
+    (end_byte <= file.byte_size).ok_or(invalid(field))
 }
 
 fn require_structural_file(file: &FileInput, field: &'static str) -> Result<(), StorageError> {

@@ -794,11 +794,8 @@ impl ManagedDatabaseLifecycle<'_> {
             .inspect_container(&self.database.identity.container_name)
             .await?;
         let Some(inspection) = inspection else {
-            return if transition == StartTransition::Stop {
-                Ok(())
-            } else {
-                Err(ManagedDatabaseError::ManagedContainerMissing)
-            };
+            return (transition == StartTransition::Stop)
+                .ok_or(ManagedDatabaseError::ManagedContainerMissing);
         };
         validate_owned_container(&self.database.identity, &inspection, true)?;
         match (transition, inspection.process_state.as_str()) {

@@ -2429,11 +2429,7 @@ where
             .map_err(|_| StageItemFailure)?;
         cursor = page.next();
     }
-    if expected_sequence == source.files {
-        Ok(())
-    } else {
-        Err(StageItemFailure)
-    }
+    (expected_sequence == source.files).ok_or(StageItemFailure)
 }
 
 struct ParseStageAccumulator {
@@ -3467,11 +3463,7 @@ async fn spill_resolved_files(
         return Err(ResolveGenerationFailure::unclassified());
     }
     let resolved_files = fold.finish().await?;
-    if resolved_files == source.files {
-        Ok(())
-    } else {
-        Err(ResolveGenerationFailure::unclassified())
-    }
+    (resolved_files == source.files).ok_or(ResolveGenerationFailure::unclassified())
 }
 
 /// Fixed per-run scheduling policy for one spilled resolution pass.
@@ -11126,11 +11118,7 @@ fn insert_parent(
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
     if let Some(existing) = parents.get(&containment.child) {
-        return if existing == &containment.parent {
-            Ok(())
-        } else {
-            Err(StageItemFailure)
-        };
+        return (existing == &containment.parent).ok_or(StageItemFailure);
     }
     budget.charge(
         RESOLUTION_MAP_NODE_ALLOWANCE

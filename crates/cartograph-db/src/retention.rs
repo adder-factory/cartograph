@@ -961,11 +961,7 @@ async fn require_live_fence(
         .await
         .map_err(|_| database_error("lock-lease"))?
         .is_some();
-    if exists {
-        Ok(())
-    } else {
-        Err(GenerationRetentionError::LeaseFenceLost)
-    }
+    exists.ok_or(GenerationRetentionError::LeaseFenceLost)
 }
 
 fn read_named_count(

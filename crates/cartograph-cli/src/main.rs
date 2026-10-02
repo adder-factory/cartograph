@@ -3129,11 +3129,7 @@ const LOCAL_INDEX_INCOMPLETE: &str = "the initial project index did not complete
 /// index reports its failure itself and returns a failing exit code instead
 /// of an error, which must stop `install` too.
 fn local_index_outcome(code: ExitCode) -> Result<(), String> {
-    if code == ExitCode::SUCCESS {
-        Ok(())
-    } else {
-        Err(LOCAL_INDEX_INCOMPLETE.to_owned())
-    }
+    (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_INDEX_INCOMPLETE.to_owned())
 }
 
 /// Where an index failure message is written.

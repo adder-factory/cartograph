@@ -338,7 +338,7 @@ fn validate_name(name: &str) -> Result<(), ToolContractError> {
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'));
-    valid.then_some(()).ok_or(ToolContractError::InvalidName)
+    valid.ok_or(ToolContractError::InvalidName)
 }
 
 fn validate_input_schema(schema: &Value) -> Result<(), ToolContractError> {
@@ -353,7 +353,5 @@ fn validate_input_schema(schema: &Value) -> Result<(), ToolContractError> {
             .is_some_and(|items| items.iter().all(Value::is_string))
     });
     let valid = valid_type && valid_properties && valid_required;
-    valid
-        .then_some(())
-        .ok_or(ToolContractError::InvalidInputSchema)
+    valid.ok_or(ToolContractError::InvalidInputSchema)
 }

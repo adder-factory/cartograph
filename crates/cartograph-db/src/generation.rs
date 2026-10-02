@@ -2246,14 +2246,10 @@ async fn mark_generation_ready(
         .execute(&mut *connection)
         .await
         .map_err(|_| database_error("mark-generation-ready"))?;
-    if result.rows_affected() == 1 {
-        Ok(())
-    } else {
-        Err(StorageError::InvalidGenerationTransition {
-            actual: "changed concurrently".to_owned(),
-            requested: GenerationState::Ready.as_str(),
-        })
-    }
+    (result.rows_affected() == 1).ok_or_else(|| StorageError::InvalidGenerationTransition {
+        actual: "changed concurrently".to_owned(),
+        requested: GenerationState::Ready.as_str(),
+    })
 }
 
 async fn analyze_copied_relations(
@@ -2761,11 +2757,7 @@ pub(crate) async fn check_staging_generation_fence(
         .await
         .map_err(|_| database_error("check-staging-generation-fence"))?
         .is_some();
-    if live {
-        Ok(())
-    } else {
-        Err(StorageError::LeaseFenceLost)
-    }
+    live.ok_or(StorageError::LeaseFenceLost)
 }
 
 async fn require_generation_fence(
@@ -2795,11 +2787,7 @@ async fn require_generation_fence(
         .fetch_optional(connection)
         .await
         .map_err(|_| database_error(input.check.operation()))?;
-    if row.is_some() {
-        Ok(())
-    } else {
-        Err(StorageError::LeaseFenceLost)
-    }
+    row.is_some().ok_or(StorageError::LeaseFenceLost)
 }
 
 async fn lock_generation_mutation(
@@ -2856,11 +2844,7 @@ async fn delete_generation_fence(
         .execute(connection)
         .await
         .map_err(|_| database_error("delete-generation-fence"))?;
-    if deleted.rows_affected() == 1 {
-        Ok(())
-    } else {
-        Err(StorageError::LeaseFenceLost)
-    }
+    (deleted.rows_affected() == 1).ok_or(StorageError::LeaseFenceLost)
 }
 
 fn fence_matches_generation(

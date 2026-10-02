@@ -260,11 +260,7 @@ async fn require_live_fence(
         .await
         .map_err(|_| database_error("fence"))?
         .is_some();
-    if live {
-        Ok(())
-    } else {
-        Err(DerivedStorePruneError::LeaseFenceLost)
-    }
+    live.ok_or(DerivedStorePruneError::LeaseFenceLost)
 }
 
 async fn lock_project(
