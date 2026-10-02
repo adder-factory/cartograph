@@ -1,8 +1,14 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use cartograph_config::DatabaseSchema;
 use serde::Serialize;
-use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
+use sqlx_core::{
+    error::Error as SqlxError, query::query, query_scalar::query_scalar, row::Row,
+    sql_str::AssertSqlSafe,
+};
 use sqlx_postgres::PgConnection;
 use thiserror::Error;
 
@@ -56,6 +62,40 @@ const GENERATION_FACT_COUNTS_SCHEMA_VERSION: i64 = 45;
 const RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION: i64 = 46;
 const LATEST_SCHEMA_VERSION: i64 = RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION;
 const MIGRATION_LOCK_NAMESPACE: &str = "cartograph-v2-schema-migration";
+/// Longest one migration attempt waits for any single heavyweight lock: a
+/// table lock its DDL needs, or the advisory lock a concurrent migrator holds.
+///
+/// A DDL statement waiting for `ACCESS EXCLUSIVE` sits in PostgreSQL's lock
+/// queue, and every later reader of that table queues behind it, so this is
+/// also the longest one contended attempt stalls another session's new
+/// readers. Ordinary reads release their locks within milliseconds; a holder
+/// that is itself a long transaction is outwaited by retrying, never by
+/// queueing for it.
+const MIGRATION_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
+/// Pause between contended attempts. Readers queued behind the abandoned lock
+/// request drain during it before the next attempt queues again.
+const MIGRATION_CONTENTION_PAUSE: Duration = Duration::from_secs(1);
+/// An attempt's lock timeout is at most this fraction of the effective
+/// statement timeout, so a contended lock wait ends as `55P03`, which is
+/// retried, long before a statement-timeout cancellation could end it.
+const LOCK_TIMEOUT_STATEMENT_DIVISOR: u32 = 2;
+/// PostgreSQL's `lock_timeout` resolution; zero would disable the bound.
+const MINIMUM_LOCK_TIMEOUT: Duration = Duration::from_millis(1);
+/// SQLSTATE `55P03` (`lock_not_available`): a lock wait outlasted `lock_timeout`.
+const LOCK_NOT_AVAILABLE_SQLSTATE: &str = "55P03";
+/// SQLSTATE `40P01` (`deadlock_detected`): PostgreSQL broke a lock cycle by
+/// aborting this attempt's transaction.
+const DEADLOCK_DETECTED_SQLSTATE: &str = "40P01";
+
+/// How long one migration call keeps retrying lock contention before it
+/// reports [`MigrationError::SchemaBusy`].
+///
+/// An index's prepare and COPY transaction holds its table locks for minutes,
+/// so the budget outlasts such a transaction with room to catch the gap after
+/// it. It stays well inside the 15-minute budget that `cartograph upgrade
+/// --apply` gives a managed `db start`, which must also cover a cold image
+/// pull and the readiness wait.
+pub const SCHEMA_MIGRATION_CONTENTION_BUDGET: Duration = Duration::from_mins(5);
 
 /// Latest append-only schema version understood by this native binary.
 #[must_use]
@@ -1807,6 +1847,17 @@ pub enum MigrationError {
         /// Stable operation identifier.
         operation: &'static str,
     },
+    /// Another PostgreSQL session held a lock that every attempt needed (a
+    /// table lock, or the advisory lock of a concurrent migrator) for the
+    /// whole lock-contention budget. Each attempt rolled back whole, so
+    /// nothing was applied, and retrying once that session ends is safe.
+    #[error(
+        "Cartograph schema migration could not acquire a PostgreSQL lock during {operation} within its bounded lock-contention wait; another Cartograph process, often a long-running MCP server started from an older binary, is using the schema. Restart or stop that process, or retry"
+    )]
+    SchemaBusy {
+        /// Stable operation identifier of the last contended attempt.
+        operation: &'static str,
+    },
     /// An applied version's immutable name or checksum changed.
     #[error("migration ledger entry {version} does not match this Cartograph binary")]
     LedgerConflict {
@@ -1861,27 +1912,79 @@ impl CartographDatabase {
 
     /// Verify hard capabilities, then apply append-only migrations under a
     /// transaction-scoped advisory lock.
+    ///
+    /// Each attempt waits at most two seconds for any one lock, so it never
+    /// stalls other sessions' readers behind a queued schema change for
+    /// longer, and lock contention is retried as a whole new attempt for
+    /// [`SCHEMA_MIGRATION_CONTENTION_BUDGET`].
     /// # Errors
     ///
-    /// Returns an error if required capabilities fail, the advisory lock or
-    /// transaction cannot be acquired, or an append-only migration cannot commit.
+    /// Returns [`MigrationError::SchemaBusy`] if another session held a lock
+    /// every attempt needed for the whole contention budget, or another error
+    /// if required capabilities fail, the transaction cannot be opened, or an
+    /// append-only migration cannot commit.
     pub async fn migrate(&self) -> Result<MigrationReport, MigrationError> {
-        self.migrate_inner(None).await
+        self.migrate_with_contention_budget(None, SCHEMA_MIGRATION_CONTENTION_BUDGET)
+            .await
     }
 
-    /// Apply append-only migrations with a PostgreSQL-side statement deadline.
+    /// Apply append-only migrations with a PostgreSQL-side statement deadline,
+    /// retrying lock contention exactly as [`Self::migrate`] does.
     /// # Errors
     ///
-    /// Returns an error if the deadline cannot be installed, capability or
-    /// ledger validation fails, or a locked append-only migration cannot commit.
+    /// Returns [`MigrationError::SchemaBusy`] if lock contention outlasted the
+    /// contention budget, or another error if the deadline cannot be
+    /// installed, capability or ledger validation fails, or a locked
+    /// append-only migration cannot commit.
     pub async fn migrate_bounded(
         &self,
         statement_timeout: Duration,
     ) -> Result<MigrationReport, MigrationError> {
-        self.migrate_inner(Some(statement_timeout)).await
+        self.migrate_with_contention_budget(
+            Some(statement_timeout),
+            SCHEMA_MIGRATION_CONTENTION_BUDGET,
+        )
+        .await
     }
 
-    async fn migrate_inner(
+    /// Apply append-only migrations, retrying lock contention for an explicit
+    /// budget. Live contention tests use this to prove that a budget shorter
+    /// than the conflicting transaction ends in [`MigrationError::SchemaBusy`]
+    /// without waiting for the production budget.
+    /// # Errors
+    ///
+    /// As for [`Self::migrate_bounded`], with `contention_budget` in place of
+    /// [`SCHEMA_MIGRATION_CONTENTION_BUDGET`].
+    #[doc(hidden)]
+    pub async fn migrate_with_contention_budget(
+        &self,
+        statement_timeout: Option<Duration>,
+        contention_budget: Duration,
+    ) -> Result<MigrationReport, MigrationError> {
+        let started = Instant::now();
+        let report = loop {
+            match self.migrate_attempt(statement_timeout).await {
+                Err(MigrationError::SchemaBusy { .. })
+                    if started.elapsed().saturating_add(MIGRATION_CONTENTION_PAUSE)
+                        < contention_budget =>
+                {
+                    tokio::time::sleep(MIGRATION_CONTENTION_PAUSE).await;
+                }
+                result => break result?,
+            }
+        };
+        self.maintain_generation_search_relations(statement_timeout)
+            .await
+            .map_err(|_| MigrationError::DatabaseOperation {
+                operation: "search-relation-maintenance",
+            })?;
+        Ok(report)
+    }
+
+    /// One atomic attempt: a transaction that bounds its own lock waits,
+    /// proves capabilities, applies every pending migration under the
+    /// advisory lock, and then commits or rolls back whole.
+    async fn migrate_attempt(
         &self,
         statement_timeout: Option<Duration>,
     ) -> Result<MigrationReport, MigrationError> {
@@ -1890,15 +1993,10 @@ impl CartographDatabase {
             .begin()
             .await
             .map_err(|_| MigrationError::DatabaseOperation { operation: "begin" })?;
-        if let Some(statement_timeout) = statement_timeout
-            && crate::database::set_local_statement_timeout(&mut transaction, statement_timeout)
-                .await
-                .is_err()
+        if let Err(operation) = install_attempt_timeouts(&mut transaction, statement_timeout).await
         {
             let _ = transaction.rollback().await;
-            return Err(MigrationError::DatabaseOperation {
-                operation: "statement-timeout",
-            });
+            return Err(MigrationError::DatabaseOperation { operation });
         }
         let capabilities = probe_capabilities_connection(&mut transaction)
             .await
@@ -1917,8 +2015,7 @@ impl CartographDatabase {
                 checks: failed_checks,
             });
         }
-        let result = migrate_transaction(&mut transaction, &self.schema).await;
-        let report = match result {
+        match migrate_transaction(&mut transaction, &self.schema).await {
             Ok(report) => {
                 transaction
                     .commit()
@@ -1926,7 +2023,7 @@ impl CartographDatabase {
                     .map_err(|_| MigrationError::DatabaseOperation {
                         operation: "commit",
                     })?;
-                report
+                Ok(report)
             }
             Err(error) => {
                 transaction
@@ -1935,16 +2032,76 @@ impl CartographDatabase {
                     .map_err(|_| MigrationError::DatabaseOperation {
                         operation: "rollback",
                     })?;
-                return Err(error);
+                Err(error)
             }
-        };
-        self.maintain_generation_search_relations(statement_timeout)
-            .await
-            .map_err(|_| MigrationError::DatabaseOperation {
-                operation: "search-relation-maintenance",
-            })?;
-        Ok(report)
+        }
     }
+}
+
+/// Install one attempt's transaction-local bounds: the caller's statement
+/// timeout, if any, then a lock timeout derived from whichever statement
+/// timeout is now in effect (the caller's, or the pool's session default).
+/// Returns the stable operation that could not be installed.
+async fn install_attempt_timeouts(
+    connection: &mut PgConnection,
+    statement_timeout: Option<Duration>,
+) -> Result<(), &'static str> {
+    if let Some(statement_timeout) = statement_timeout {
+        crate::database::set_local_statement_timeout(connection, statement_timeout)
+            .await
+            .map_err(|()| "statement-timeout")?;
+    }
+    let effective_millis = query_scalar::<_, i64>(
+        "SELECT setting::bigint FROM pg_catalog.pg_settings WHERE name = 'statement_timeout'",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(|_| "lock-timeout")?;
+    let effective = u64::try_from(effective_millis)
+        .ok()
+        .filter(|millis| *millis > 0)
+        .map(Duration::from_millis);
+    crate::database::set_local_lock_timeout(connection, attempt_lock_timeout(effective))
+        .await
+        .map_err(|()| "lock-timeout")
+}
+
+/// The lock wait bound for one attempt under `statement_timeout` (`None` when
+/// statements are unbounded): [`MIGRATION_LOCK_TIMEOUT`], but never more than
+/// half the statement timeout. A contended lock wait therefore ends as
+/// SQLSTATE `55P03`, which is retried as contention, and not as a `57014`
+/// statement-timeout cancellation. A `57014` thus means that a statement
+/// exhausted its own deadline doing work, which a retry would only repeat, so
+/// it stays a hard failure.
+fn attempt_lock_timeout(statement_timeout: Option<Duration>) -> Duration {
+    statement_timeout.map_or(MIGRATION_LOCK_TIMEOUT, |statement_timeout| {
+        MIGRATION_LOCK_TIMEOUT
+            .min(statement_timeout / LOCK_TIMEOUT_STATEMENT_DIVISOR)
+            .max(MINIMUM_LOCK_TIMEOUT)
+    })
+}
+
+/// Classify one failed migration statement. Lock contention, meaning a wait
+/// that outlasted the attempt's lock timeout or a deadlock that PostgreSQL
+/// broke, is [`MigrationError::SchemaBusy`], which the caller retries as a new
+/// attempt; every other failure is final.
+fn migration_statement_error(error: &SqlxError, operation: &'static str) -> MigrationError {
+    let sqlstate = match error {
+        SqlxError::Database(database) => database.code(),
+        _ => None,
+    };
+    if is_lock_contention(sqlstate.as_deref()) {
+        MigrationError::SchemaBusy { operation }
+    } else {
+        MigrationError::DatabaseOperation { operation }
+    }
+}
+
+fn is_lock_contention(sqlstate: Option<&str>) -> bool {
+    matches!(
+        sqlstate,
+        Some(LOCK_NOT_AVAILABLE_SQLSTATE | DEADLOCK_DETECTED_SQLSTATE)
+    )
 }
 
 async fn migrate_transaction(
@@ -1955,9 +2112,7 @@ async fn migrate_transaction(
         .bind(migration_lock_key(schema))
         .execute(&mut *connection)
         .await
-        .map_err(|_| MigrationError::DatabaseOperation {
-            operation: "advisory-lock",
-        })?;
+        .map_err(|error| migration_statement_error(&error, "advisory-lock"))?;
 
     let quoted_schema = crate::database::quoted_schema(schema);
     execute_dynamic(
@@ -2041,9 +2196,7 @@ async fn load_ledger(
     let rows = query(AssertSqlSafe(sql))
         .fetch_all(connection)
         .await
-        .map_err(|_| MigrationError::DatabaseOperation {
-            operation: "read-ledger",
-        })?;
+        .map_err(|error| migration_statement_error(&error, "read-ledger"))?;
     let mut ledger = BTreeMap::new();
     for row in rows {
         let version = row
@@ -2131,9 +2284,7 @@ async fn apply_migration(
         .bind(input.checksum)
         .execute(connection)
         .await
-        .map_err(|_| MigrationError::DatabaseOperation {
-            operation: "record-version",
-        })?;
+        .map_err(|error| migration_statement_error(&error, "record-version"))?;
     Ok(())
 }
 
@@ -2148,7 +2299,7 @@ async fn execute_dynamic(
     query(AssertSqlSafe(sql))
         .execute(connection)
         .await
-        .map_err(|_| MigrationError::DatabaseOperation { operation })?;
+        .map_err(|error| migration_statement_error(&error, operation))?;
     Ok(())
 }
 
@@ -2464,6 +2615,50 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn only_lock_contention_is_retried_as_a_busy_schema() {
+        const QUERY_CANCELED_SQLSTATE: &str = "57014";
+        const DUPLICATE_TABLE_SQLSTATE: &str = "42P07";
+        assert!(is_lock_contention(Some(LOCK_NOT_AVAILABLE_SQLSTATE)));
+        assert!(is_lock_contention(Some(DEADLOCK_DETECTED_SQLSTATE)));
+        for sqlstate in [
+            Some(QUERY_CANCELED_SQLSTATE),
+            Some(DUPLICATE_TABLE_SQLSTATE),
+            None,
+        ] {
+            assert!(!is_lock_contention(sqlstate), "{sqlstate:?}");
+        }
+        assert_eq!(
+            migration_statement_error(&SqlxError::PoolTimedOut, "apply-version"),
+            MigrationError::DatabaseOperation {
+                operation: "apply-version"
+            }
+        );
+    }
+
+    #[test]
+    fn a_lock_wait_always_ends_before_the_statement_timeout_could_cancel_it() {
+        const MANAGED_STATEMENT_TIMEOUT: Duration = Duration::from_mins(1);
+        const SHORT_SESSION_TIMEOUT: Duration = Duration::from_secs(3);
+        const HALF_SHORT_SESSION_TIMEOUT: Duration = Duration::from_millis(1_500);
+        assert_eq!(attempt_lock_timeout(None), MIGRATION_LOCK_TIMEOUT);
+        assert_eq!(
+            attempt_lock_timeout(Some(MANAGED_STATEMENT_TIMEOUT)),
+            MIGRATION_LOCK_TIMEOUT
+        );
+        // A pool configured with a short query timeout must still see a lock
+        // wait end as retryable 55P03 rather than as a 57014 cancellation.
+        assert_eq!(
+            attempt_lock_timeout(Some(SHORT_SESSION_TIMEOUT)),
+            HALF_SHORT_SESSION_TIMEOUT
+        );
+        assert_eq!(
+            attempt_lock_timeout(Some(MINIMUM_LOCK_TIMEOUT)),
+            MINIMUM_LOCK_TIMEOUT,
+            "a zero lock_timeout would disable the bound entirely"
+        );
     }
 
     #[test]

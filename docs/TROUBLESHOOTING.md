@@ -23,6 +23,7 @@ MCP call is the control evidence.
 | Shell commands work but the agent cannot connect | [Doctor works in a shell but MCP cannot connect](#doctor-works-in-a-shell-but-mcp-cannot-connect) |
 | Status reports stale source | [Index is stale](#index-is-stale) |
 | Index reports `lease_busy` or `index_cleanup_failed` | [Index reports `lease_busy` or `index_cleanup_failed`](#index-reports-lease_busy-or-index_cleanup_failed) |
+| `db start`, `index`, or `upgrade --apply` reports `schema_busy` | [Schema migration reports `schema_busy`](#schema-migration-reports-schema_busy) |
 | SCIP import reports `overlayRollbackFailure` | [SCIP import reports `overlayRollbackFailure`](#scip-import-reports-overlayrollbackfailure) |
 | A large index reaches a hard bound | [Native generation reaches its capacity bound](#native-generation-reaches-its-capacity-bound) |
 | Hybrid retrieval skips semantic search | [Semantic search is skipped](#semantic-search-is-skipped) |
@@ -94,7 +95,11 @@ binary nor a host pin; that run-local result does not claim that a process left
 open across an earlier upgrade has been inspected. A database step with
 `state: timed_out` means the 15-minute cold image-pull/readiness budget expired,
 not that incompatibility was detected; rerun the same command without invoking
-the destructive database replacement path.
+the destructive database replacement path. A database step with
+`state: another_writer_active` and `reason: schema_busy` (`retryable: true`)
+means another Cartograph process held PostgreSQL locks that the pending schema
+migration needs for its whole 5-minute contention budget; see
+[Schema migration reports `schema_busy`](#schema-migration-reports-schema_busy).
 
 On a large or continuously edited project, read `projectReconciliation.index`:
 
@@ -114,7 +119,10 @@ On a large or continuously edited project, read `projectReconciliation.index`:
   index's attempt reports `lease_busy` and is retried), but each such
   collision repeats the scan, so an auto-sync that re-syncs continuously can
   use up the whole wait; pause edits in the other session (or stop its MCP
-  server) before rerunning.
+  server) before rerunning. With `reason: schema_busy` instead of `lease_busy`,
+  the index child itself had to apply a schema migration (an external
+  database) and another process's locks kept it from applying; see
+  [Schema migration reports `schema_busy`](#schema-migration-reports-schema_busy).
 - `timed_out` (`retryable: true`, `reason: no_progress` or `ceiling`): the index
   reported no progress for 15 minutes (its database connection and schema
   migration count as progress for their first 30 minutes), or reached the
@@ -251,6 +259,39 @@ contention; inspect PostgreSQL health and generation retention before retrying.
 `true` when a published generation is still current, `false` when the project
 has none yet, and `null` when that bounded lookup failed. Index failures never
 unpublish the current generation.
+
+## Schema migration reports `schema_busy`
+
+`schema_busy` is retryable contention, not an incompatible or damaged
+database. A pending append-only migration needs PostgreSQL locks that another
+session holds. Usually that session belongs to a long-running MCP server,
+often one still running an older binary in another agent session, whose
+automatic sync or status transactions keep reading the table the migration
+alters. It can also be another process that is applying the same migration.
+
+Each migration attempt waits at most two seconds for any one lock (less when
+the connection's statement timeout is under four seconds), so a queued schema
+change never stalls the other process's new readers for longer. A contended
+attempt rolls back whole, pauses for one second, and tries again, for up to
+five minutes in total. If the locks are still held after that, nothing was
+applied and the command reports `schema_busy`:
+
+- `cartograph db start` prints the message with `(reason: schema_busy)` and
+  exits with status 75. Every other `db start` failure exits with status 1.
+- `cartograph index --format json` reports `code: schema_busy`, and text
+  output ends with `(reason: schema_busy)`.
+- `cartograph upgrade --apply` reports the database step (managed database)
+  or the index step (external database) as `another_writer_active` with
+  `reason: schema_busy` and `retryable: true`.
+- MCP tools, including `admin migrate`, return `unavailable` with the same
+  next step, and the `db import-v1` destination migration reports that nothing
+  was imported.
+
+Restart or stop the other process (for example, close the agent host that runs
+the older MCP server, or let the other migration finish), then rerun the same
+command. A rerun without stopping it can also succeed once that process is
+idle. This error never calls for `doctor --fix` or the confirmed managed
+database upgrade.
 
 ## SCIP import reports `overlayRollbackFailure`
 

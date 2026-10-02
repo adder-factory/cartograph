@@ -19,6 +19,7 @@ use tempfile::{NamedTempFile, TempPath};
 use tokio::io::AsyncReadExt as _;
 use tokio::process::Command;
 
+use crate::error_codes::{SCHEMA_BUSY_CODE, SCHEMA_BUSY_EXIT_STATUS};
 use crate::host::{
     DiagnosticLocation, HostScope, InstallTargetDetection, detect_install_targets,
     detect_install_targets_in, host_home,
@@ -197,7 +198,11 @@ impl ProjectCommand {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectProcessOutcome {
     Succeeded,
-    Failed,
+    /// The child exited unsuccessfully; `exit_status` is its exit code, or
+    /// `None` when a signal ended it or it could not be started or awaited.
+    Failed {
+        exit_status: Option<i32>,
+    },
     TimedOut,
 }
 
@@ -209,10 +214,16 @@ const RECONCILED_FRESH: &str = "ready";
 const RECONCILED_SOURCE_CHANGED: &str = "source_changed";
 /// Index step state when another Cartograph operation (a project writer, or
 /// a schema maintenance step that refuses new leases) kept the project busy
-/// throughout the child's bounded wait.
+/// throughout the child's bounded wait (`reason: lease_busy`). The database
+/// or index step also reports it, with `reason: schema_busy`, when another
+/// process's PostgreSQL locks kept the pending schema migration from applying
+/// for its whole lock-contention budget.
 const ANOTHER_WRITER_ACTIVE: &str = "another_writer_active";
 /// Index child failure code for a project that stayed busy.
 const LEASE_BUSY_CODE: &str = "lease_busy";
+/// The next step after the database or index step reported
+/// [`ANOTHER_WRITER_ACTIVE`] because the schema stayed busy.
+const SCHEMA_BUSY_NEXT_STEP: &str = "Another Cartograph process, often a long-running MCP server started from an older binary in another agent session, kept the database schema busy; nothing is broken and nothing was applied. Restart or stop that process (for example, close the agent host that runs it), then rerun `cartograph upgrade --apply --project-path <path>`; the installed binary resumes the remaining steps. Rerunning without stopping it can also succeed once that process is idle.";
 
 struct ProjectProcessInput<'input> {
     executable: &'input Path,
@@ -765,6 +776,10 @@ fn add_project_reconciliation_steps(
         next_steps.push(step);
         return;
     }
+    if reconciliation.database.reason.as_deref() == Some(SCHEMA_BUSY_CODE) {
+        next_steps.push(SCHEMA_BUSY_NEXT_STEP.to_owned());
+        return;
+    }
     if reconciliation.database.state == "timed_out" {
         next_steps.push(
             "The managed start timed out without concluding that the database is incompatible; rerun `cartograph upgrade --apply --project-path <path>` to resume the cold image pull or readiness wait."
@@ -906,28 +921,13 @@ async fn reconcile_database(
         command: ProjectCommand::ManagedStart,
     })
     .await;
-    match outcome {
-        ProjectProcessOutcome::Succeeded => {
-            report.database = upgrade_step(
-                "ready",
-                "The owned managed database is healthy and safe append-only migrations are current.",
-            );
-            return true;
-        }
-        ProjectProcessOutcome::TimedOut => {
-            report.database = upgrade_step(
-                "timed_out",
-                "The managed database start exceeded its cold-image-pull and readiness budget; no compatibility conclusion was made.",
-            );
-            report.retryable = true;
-            return false;
-        }
-        ProjectProcessOutcome::Failed => {}
+    let (step, retryable) = database_step(outcome);
+    let state = step.state;
+    report.database = step;
+    report.retryable = retryable;
+    if state != "blocked" {
+        return state == "ready";
     }
-    report.database = upgrade_step(
-        "blocked",
-        "The owned managed database could not complete its idempotent start and migration step.",
-    );
     if managed_database_upgrade_required(ProjectProcessInput {
         executable: input.executable,
         project_path: input.project_path,
@@ -939,6 +939,54 @@ async fn reconcile_database(
         report.required_confirmation = Some("upgrade-managed-database");
     }
     false
+}
+
+/// The reported database step for one managed `db start` outcome, and whether
+/// rerunning the same command is the next action. A start that exits with
+/// [`SCHEMA_BUSY_EXIT_STATUS`] is retryable schema contention, never the
+/// `blocked` failure that sends the caller to doctor.
+fn database_step(outcome: ProjectProcessOutcome) -> (UpgradeStep, bool) {
+    match outcome {
+        ProjectProcessOutcome::Succeeded => (
+            upgrade_step(
+                "ready",
+                "The owned managed database is healthy and safe append-only migrations are current.",
+            ),
+            false,
+        ),
+        ProjectProcessOutcome::TimedOut => (
+            upgrade_step(
+                "timed_out",
+                "The managed database start exceeded its cold-image-pull and readiness budget; no compatibility conclusion was made.",
+            ),
+            true,
+        ),
+        ProjectProcessOutcome::Failed { exit_status }
+            if exit_status == Some(i32::from(SCHEMA_BUSY_EXIT_STATUS)) =>
+        {
+            (schema_busy_step(), true)
+        }
+        ProjectProcessOutcome::Failed { .. } => (
+            upgrade_step(
+                "blocked",
+                "The owned managed database could not complete its idempotent start and migration step.",
+            ),
+            false,
+        ),
+    }
+}
+
+/// The `another_writer_active` step, with reason `schema_busy`, for a schema
+/// migration that another process's PostgreSQL locks kept from applying.
+fn schema_busy_step() -> UpgradeStep {
+    reasoned_step(
+        ANOTHER_WRITER_ACTIVE,
+        format!(
+            "Another Cartograph process, often a long-running MCP server started from an older binary, held PostgreSQL locks that the pending schema migration needs for its whole {}-minute lock-contention budget; nothing was applied.",
+            whole_minutes(cartograph_db::SCHEMA_MIGRATION_CONTENTION_BUDGET)
+        ),
+        SCHEMA_BUSY_CODE,
+    )
 }
 
 /// Run the supervised index child; `Some` carries the generation it
@@ -987,6 +1035,9 @@ fn index_step(outcome: &IndexChildOutcome) -> (UpgradeStep, bool) {
             ),
             true,
         ),
+        IndexChildOutcome::Failed { code } if code.as_deref() == Some(SCHEMA_BUSY_CODE) => {
+            (schema_busy_step(), true)
+        }
         IndexChildOutcome::Failed { code } => (
             UpgradeStep {
                 state: "blocked",
@@ -1049,6 +1100,7 @@ const SECONDS_PER_MINUTE: u64 = 60;
 /// a code (the child crashed or never reported one) leaves the step to doctor.
 fn index_next_step(index: &UpgradeStep) -> Option<String> {
     match (index.state, index.reason.as_deref()) {
+        (ANOTHER_WRITER_ACTIVE, Some(SCHEMA_BUSY_CODE)) => Some(SCHEMA_BUSY_NEXT_STEP.to_owned()),
         (ANOTHER_WRITER_ACTIVE, _) => Some(
             "Another Cartograph operation kept this project busy; nothing is broken. Rerun `cartograph upgrade --apply --project-path <path>` after it finishes; the installed binary resumes the remaining steps."
                 .to_owned(),
@@ -1073,7 +1125,7 @@ async fn reconcile_doctor(
             "ready",
             "The new binary passed PostgreSQL, ParadeDB, pgvector, and project doctor checks.",
         ),
-        ProjectProcessOutcome::Failed => (
+        ProjectProcessOutcome::Failed { .. } => (
             "blocked",
             "The new binary's capability and project doctor did not pass.",
         ),
@@ -1217,7 +1269,10 @@ async fn run_project_process(input: ProjectProcessInput<'_>) -> ProjectProcessOu
     command.stdout(Stdio::null()).stderr(Stdio::null());
     match tokio::time::timeout(timeout, command.status()).await {
         Ok(Ok(status)) if status.success() => ProjectProcessOutcome::Succeeded,
-        Ok(_) => ProjectProcessOutcome::Failed,
+        Ok(Ok(status)) => ProjectProcessOutcome::Failed {
+            exit_status: status.code(),
+        },
+        Ok(Err(_)) => ProjectProcessOutcome::Failed { exit_status: None },
         Err(_) => ProjectProcessOutcome::TimedOut,
     }
 }
@@ -2610,6 +2665,117 @@ mod tests {
             index_policy: DEFAULT_INDEX_CHILD_POLICY,
         })
         .await)
+    }
+
+    /// A managed `db start` that exits with `exit_status`, and whether the
+    /// failure path then probed `db status` for an incompatible container.
+    #[cfg(unix)]
+    async fn reconcile_managed_start_exit(
+        exit_status: u8,
+    ) -> Result<(ProjectReconciliation, bool), Box<dyn std::error::Error>> {
+        let project = tempfile::tempdir()?;
+        let executable = fixture_cartograph(
+            project.path(),
+            &format!(
+                r#"#!/bin/sh
+case "$1 $2" in
+  "db start") exit {exit_status} ;;
+  "db status") : > "$PWD/.status-probed"; printf '%s\n' '{{"state":"healthy"}}' ;;
+  *) exit 23 ;;
+esac
+"#
+            ),
+        )?;
+        let report = reconcile_project_with(CompletionProjectInput {
+            executable: &executable,
+            project_path: project.path(),
+            installed_version: "2.1.7",
+            database_mode: ProjectDatabaseMode::Managed(55_433),
+            index_policy: DEFAULT_INDEX_CHILD_POLICY,
+        })
+        .await;
+        Ok((report, project.path().join(".status-probed").exists()))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_busy_schema_is_retryable_contention_and_never_sent_to_doctor()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (busy, probed) = reconcile_managed_start_exit(SCHEMA_BUSY_EXIT_STATUS).await?;
+        assert_eq!(busy.state, "blocked");
+        assert!(busy.retryable);
+        assert_eq!(busy.database.state, ANOTHER_WRITER_ACTIVE);
+        assert_eq!(busy.database.reason.as_deref(), Some(SCHEMA_BUSY_CODE));
+        let budget = format!(
+            "{}-minute lock-contention budget",
+            whole_minutes(cartograph_db::SCHEMA_MIGRATION_CONTENTION_BUDGET)
+        );
+        assert!(
+            busy.database.message.contains(&budget),
+            "{}",
+            busy.database.message
+        );
+        assert_eq!(busy.index.state, "not_run");
+        assert_eq!(busy.required_confirmation, None);
+        assert!(!probed, "contention must not probe for a replacement");
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&busy));
+        assert_eq!(steps, [SCHEMA_BUSY_NEXT_STEP]);
+        assert!(steps[0].contains("MCP server started from an older binary"));
+        assert!(steps[0].contains("Restart or stop that process"));
+        assert!(steps[0].contains("upgrade --apply"));
+        assert!(!steps[0].contains("doctor"));
+
+        // Every other nonzero start keeps the permanent failure and its probe.
+        let (failed, probed) = reconcile_managed_start_exit(1).await?;
+        assert_eq!(failed.database.state, "blocked");
+        assert_eq!(failed.database.reason, None);
+        assert!(!failed.retryable);
+        assert!(probed);
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&failed));
+        assert!(steps[0].contains("doctor <path>` for the exact failure"));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_index_child_whose_schema_stayed_busy_is_retryable_contention()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // With an external database the index child applies the migration.
+        let report = reconcile_with_fixture(
+            r#"#!/bin/sh
+case "$1" in
+  index)
+    printf '{\n  "error": {\n    "code": "schema_busy",\n    "message": "busy",\n    "previous_generation_visible": null\n  }\n}\n' >&2
+    exit 1
+    ;;
+  *)
+    exit 23
+    ;;
+esac
+"#,
+        )
+        .await?;
+        assert!(report.retryable);
+        assert_eq!(report.database.state, "ready");
+        assert_eq!(report.index.state, ANOTHER_WRITER_ACTIVE);
+        assert_eq!(report.index.reason.as_deref(), Some(SCHEMA_BUSY_CODE));
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps, [SCHEMA_BUSY_NEXT_STEP]);
+        Ok(())
+    }
+
+    #[test]
+    fn the_migration_contention_budget_leaves_the_managed_start_room_to_report_it() {
+        // A budget that consumed the managed start's own budget would turn a
+        // busy schema back into an inconclusive `timed_out` database step.
+        const MINIMUM_BUDGET_SHARE_LEFT: u32 = 2;
+        assert!(
+            cartograph_db::SCHEMA_MIGRATION_CONTENTION_BUDGET
+                < MANAGED_START_TIMEOUT / MINIMUM_BUDGET_SHARE_LEFT
+        );
     }
 
     #[cfg(unix)]

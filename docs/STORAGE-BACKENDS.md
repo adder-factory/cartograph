@@ -81,8 +81,13 @@ the configured schema's complete index allocation plus ten percent of the
 current database allocation. This reserves one replacement copy of every index
 plus bounded WAL/catalog scratch for extension upgrades. An unavailable storage
 snapshot or insufficient headroom fails before image or container cutover.
-Cartograph schema migrations run transactionally with a bounded 60-second
-PostgreSQL statement deadline. If an older ledger still cannot advance, runtime
+Cartograph schema migrations run transactionally; the managed start bounds
+each statement with a 60-second PostgreSQL deadline. Each attempt waits at most
+two seconds for any one lock, so a schema change queued behind another
+session's long transaction never stalls that session's new readers for longer.
+A contended attempt rolls back whole and is retried after a one-second pause
+for up to five minutes, after which the migration reports the retryable
+`schema_busy` with nothing applied. If an older ledger still cannot advance, runtime
 and doctor output name the recorded version, required version, and exact next
 pending migration; doctor does not run a project-status query against columns
 that migration has not yet proved.

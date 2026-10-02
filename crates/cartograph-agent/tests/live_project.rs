@@ -85,15 +85,17 @@ async fn blocked_latest_migration_reports_exact_older_schema_versions() {
     let pool = cartograph_db::connect(&settings)
         .await
         .unwrap_or_else(|error| panic!("older-schema fixture connection failed: {error}"));
-    let revert_latest_shape = format!(
+    // Without the constraint that the latest migration replaces, its DROP
+    // CONSTRAINT fails on every attempt. That is a permanent block, unlike a
+    // held lock, which is retried as contention and ends as `SchemaBusy`.
+    let break_latest_migration = format!(
         r#"ALTER TABLE "{schema}"."index_generations"
-                DROP CONSTRAINT index_generations_run_excludes_check,
-                DROP COLUMN run_excludes"#
+                DROP CONSTRAINT index_generations_digest_version_check"#
     );
-    query(AssertSqlSafe(revert_latest_shape))
+    query(AssertSqlSafe(break_latest_migration))
         .execute(&pool)
         .await
-        .unwrap_or_else(|error| panic!("could not restore the previous schema revision: {error}"));
+        .unwrap_or_else(|error| panic!("could not break the latest migration: {error}"));
     query(AssertSqlSafe(format!(
         r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#
     )))
@@ -102,22 +104,7 @@ async fn blocked_latest_migration_reports_exact_older_schema_versions() {
     .await
     .unwrap_or_else(|error| panic!("could not restore the previous migration ledger: {error}"));
 
-    let mut lock_transaction = pool
-        .begin()
-        .await
-        .unwrap_or_else(|error| panic!("could not begin migration blocker: {error}"));
-    query(AssertSqlSafe(format!(
-        r#"LOCK TABLE "{schema}"."index_generations" IN ACCESS EXCLUSIVE MODE"#
-    )))
-    .execute(&mut *lock_transaction)
-    .await
-    .unwrap_or_else(|error| panic!("could not lock the previous schema revision: {error}"));
-
-    let blocked_settings = settings
-        .clone()
-        .with_query_timeout_ms(Some("250"))
-        .unwrap_or_else(|error| panic!("could not bound the blocked migration: {error}"));
-    let connection_result = ProjectRuntime::connect(project.path(), &blocked_settings).await;
+    let connection_result = ProjectRuntime::connect(project.path(), &settings).await;
     let expected_required = latest_schema_version();
     let expected_database = expected_required - 1;
     assert_matches!(
@@ -131,10 +118,6 @@ async fn blocked_latest_migration_reports_exact_older_schema_versions() {
             && pending_migration_version == expected_required
     );
 
-    lock_transaction
-        .rollback()
-        .await
-        .unwrap_or_else(|error| panic!("could not release migration blocker: {error}"));
     pool.close().await;
     drop_schema(&settings, &schema).await;
 }

@@ -393,8 +393,10 @@ publication; run `cartograph index <project>` once edits pause. When
 `timed_out` step, or a `blocked` verification because another writer replaced
 the generation this upgrade published or confirmed), rerun the same command;
 for `another_writer_active` or a replaced generation, wait until the other
-writer finishes. A step reported as `not_run` was skipped because an earlier
-step stopped the reconciliation. If `projectReconciliation` requests
+writer finishes; with `reason: schema_busy`, another Cartograph process (often
+an MCP server started from an older binary) held the schema's PostgreSQL
+locks, so restart or stop it first. A step reported as `not_run` was skipped
+because an earlier step stopped the reconciliation. If `projectReconciliation` requests
 `upgrade-managed-database`, run only its backup and exact confirmed replacement
 steps, then rerun the same command to resume. A failure after the extension
 update retains the new image for that retry and keeps the old image stopped; do

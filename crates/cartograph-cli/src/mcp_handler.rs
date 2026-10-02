@@ -3040,9 +3040,9 @@ const fn project_error_class(error: &ProjectError) -> ProjectErrorClass {
         | ProjectError::IndexRetentionBacklog
         | ProjectError::IndexPublicationFailed
         | ProjectError::IndexCleanupFailed => ProjectErrorClass::Index,
-        ProjectError::SchemaMigrationBlocked { .. } | ProjectError::SchemaVersionAhead { .. } => {
-            ProjectErrorClass::Schema
-        }
+        ProjectError::SchemaMigrationBlocked { .. }
+        | ProjectError::SchemaBusy
+        | ProjectError::SchemaVersionAhead { .. } => ProjectErrorClass::Schema,
         ProjectError::RetrievalOperationFailed
         | ProjectError::SourceChangedDuringIndex
         | ProjectError::ScipOverlayInvalid
@@ -3097,6 +3097,7 @@ const fn admin_job_general_failure(error: &ProjectError) -> AdminJobFailure {
         ProjectError::DatabaseUnavailable
         | ProjectError::MigrationFailed
         | ProjectError::SchemaMigrationBlocked { .. }
+        | ProjectError::SchemaBusy
         | ProjectError::SchemaVersionAhead { .. }
         | ProjectError::RegisterFailed
         | ProjectError::BeginGenerationFailed
@@ -12052,7 +12053,12 @@ impl AdminCoreTools<'_> {
             .database()
             .migrate()
             .await
-            .map_err(internal_error)?;
+            .map_err(|error| match error {
+                cartograph_db::MigrationError::SchemaBusy { .. } => {
+                    project_error(&ProjectError::SchemaBusy)
+                }
+                other => internal_error(other),
+            })?;
         json_result(&json!({
             "report": report,
             "storage": "postgresql_only",
@@ -14264,6 +14270,7 @@ const fn project_setup_error_reason(error: &ProjectError) -> Option<&'static str
         ProjectError::DatabaseUnavailable => Some("database_unavailable"),
         ProjectError::MigrationFailed => Some("migration_failed"),
         ProjectError::SchemaMigrationBlocked { .. } => Some("schema_migration_blocked"),
+        ProjectError::SchemaBusy => Some(crate::error_codes::SCHEMA_BUSY_CODE),
         ProjectError::SchemaVersionAhead { .. } => Some("schema_version_ahead"),
         ProjectError::RegisterFailed => Some("project_registration_failed"),
         ProjectError::InvalidOptions => Some("invalid_options"),
@@ -25281,6 +25288,10 @@ fn project_actionable_index_error(error: &ProjectError) -> ToolError {
             ),
         )
         .unwrap_or_else(|_| ToolError::internal()),
+        ProjectError::SchemaBusy => safe_error(
+            ToolErrorCode::Unavailable,
+            "Another Cartograph process, often a long-running MCP server started from an older binary, held the PostgreSQL schema locks a pending migration needs for its whole bounded lock-contention wait; nothing was applied. Restart or stop that process, then retry",
+        ),
         ProjectError::SchemaVersionAhead {
             binary_version,
             database_schema_version,
@@ -26828,6 +26839,26 @@ mod tests {
             assert_eq!(public.code(), expected_code);
             assert!(public.wire_message().contains(expected_message));
         }
+    }
+
+    #[test]
+    fn a_busy_schema_is_actionable_contention_not_a_redacted_internal_failure() {
+        let public = project_error(&ProjectError::SchemaBusy);
+        assert_eq!(public.code(), ToolErrorCode::Unavailable);
+        assert!(
+            public
+                .wire_message()
+                .contains("MCP server started from an older binary")
+        );
+        assert!(
+            public
+                .wire_message()
+                .contains("Restart or stop that process")
+        );
+        assert_eq!(
+            project_error_reason(&ProjectError::SchemaBusy),
+            crate::error_codes::SCHEMA_BUSY_CODE
+        );
     }
 
     #[test]

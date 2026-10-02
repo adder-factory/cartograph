@@ -317,7 +317,9 @@ impl ManagedDatabase {
     }
 
     /// Override the bounded startup wait, primarily for integration tests and
-    /// slow first image starts.
+    /// slow first image starts. It covers readiness, extension initialization,
+    /// and capability proof; the schema migration that follows keeps its own
+    /// per-statement deadline and lock-contention budget.
     #[must_use]
     pub fn with_startup_timeout(mut self, startup_timeout: Duration) -> Self {
         self.timeouts.startup = startup_timeout;
@@ -407,7 +409,9 @@ impl ManagedDatabaseLifecycle<'_> {
     /// # Errors
     ///
     /// Returns an error if Docker/ownership/credential checks fail or startup,
-    /// readiness, migrations, capability proof, or rollback cannot complete.
+    /// readiness, migrations, capability proof, or rollback cannot complete;
+    /// [`ManagedDatabaseError::SchemaBusy`] when another session's locks kept
+    /// the pending migration from applying for its whole contention budget.
     pub async fn start(&self) -> Result<ManagedStartReport, ManagedDatabaseError> {
         self.database.docker.ensure_available().await?;
         let _lifecycle_lock = self.database.credentials.acquire_lifecycle_lock()?;
@@ -866,12 +870,17 @@ impl ManagedDatabaseLifecycle<'_> {
         }
     }
 
+    /// Prove readiness within the startup deadline, then migrate the schema
+    /// under its own bounds: a per-statement deadline and the migration's
+    /// lock-contention budget. A schema that another process keeps busy
+    /// therefore ends as [`ManagedDatabaseError::SchemaBusy`] instead of being
+    /// cut short as a readiness timeout.
     async fn finish_start(
         &self,
         credentials: &DatabaseCredentials,
         allow_unhealthy_recovery: bool,
     ) -> Result<ManagedInitialization, ManagedDatabaseError> {
-        timeout(self.database.timeouts.startup, async {
+        let prepared = timeout(self.database.timeouts.startup, async {
             self.wait_until_healthy(allow_unhealthy_recovery).await?;
             self.database
                 .docker
@@ -883,11 +892,11 @@ impl ManagedDatabaseLifecycle<'_> {
                 &self.database.identity.container_name,
             )
             .await?;
-            initialize_managed_database(credentials, self.database.port, &self.database.schema)
-                .await
+            prepare_managed_database(credentials, self.database.port, &self.database.schema).await
         })
         .await
-        .map_err(|_| ManagedDatabaseError::DatabaseStartupTimeout)?
+        .map_err(|_| ManagedDatabaseError::DatabaseStartupTimeout)??;
+        prepared.migrate().await
     }
 }
 
@@ -981,6 +990,24 @@ async fn initialize_managed_database(
     port: u16,
     schema: &DatabaseSchema,
 ) -> Result<ManagedInitialization, ManagedDatabaseError> {
+    prepare_managed_database(credentials, port, schema)
+        .await?
+        .migrate()
+        .await
+}
+
+/// A connected managed database whose hard capabilities passed and whose
+/// append-only schema migration has not run yet.
+struct PreparedManagedDatabase {
+    database: CartographDatabase,
+    capabilities: CapabilityReport,
+}
+
+async fn prepare_managed_database(
+    credentials: &DatabaseCredentials,
+    port: u16,
+    schema: &DatabaseSchema,
+) -> Result<PreparedManagedDatabase, ManagedDatabaseError> {
     let url = credentials.database_url(port)?;
     let settings = DatabaseSettings::parse(url.expose_secret(), Some("4"), Some("10000"))
         .and_then(|settings| settings.with_schema(schema.as_str()))
@@ -988,37 +1015,54 @@ async fn initialize_managed_database(
     let pool = connect(&settings)
         .await
         .map_err(|_| ManagedDatabaseError::DatabaseConnection)?;
-    let report = probe_capabilities(&pool)
+    let capabilities = probe_capabilities(&pool)
         .await
         .map_err(|_| ManagedDatabaseError::DatabaseCapabilityProbe)?;
-    if !report.ready {
+    if !capabilities.ready {
         pool.close().await;
         return Err(ManagedDatabaseError::CapabilitiesNotReady);
     }
-    let database = CartographDatabase::new(pool.clone(), settings.schema().clone());
-    let migrations = database
-        .migrate_bounded(MANAGED_SCHEMA_MIGRATION_TIMEOUT)
-        .await;
-    let Ok(migrations) = migrations else {
-        let error = match database.verify_current_schema().await {
-            Err(MigrationError::SchemaVersionBehind {
-                version,
-                required_version,
-            }) => ManagedDatabaseError::SchemaMigrationBlocked {
-                database_schema_version: version,
-                required_schema_version: required_version,
-                pending_migration_version: version.saturating_add(1),
-            },
-            _ => ManagedDatabaseError::SchemaMigration,
-        };
-        pool.close().await;
-        return Err(error);
-    };
-    pool.close().await;
-    Ok(ManagedInitialization {
-        capabilities: report,
-        migrations,
+    Ok(PreparedManagedDatabase {
+        database: CartographDatabase::new(pool, settings.schema().clone()),
+        capabilities,
     })
+}
+
+impl PreparedManagedDatabase {
+    /// Apply pending migrations, then close the connection pool either way.
+    async fn migrate(self) -> Result<ManagedInitialization, ManagedDatabaseError> {
+        let migrations = match self
+            .database
+            .migrate_bounded(MANAGED_SCHEMA_MIGRATION_TIMEOUT)
+            .await
+        {
+            Ok(migrations) => migrations,
+            Err(MigrationError::SchemaBusy { .. }) => {
+                self.database.close().await;
+                return Err(ManagedDatabaseError::SchemaBusy);
+            }
+            Err(_) => {
+                let error = match self.database.verify_current_schema().await {
+                    Err(MigrationError::SchemaVersionBehind {
+                        version,
+                        required_version,
+                    }) => ManagedDatabaseError::SchemaMigrationBlocked {
+                        database_schema_version: version,
+                        required_schema_version: required_version,
+                        pending_migration_version: version.saturating_add(1),
+                    },
+                    _ => ManagedDatabaseError::SchemaMigration,
+                };
+                self.database.close().await;
+                return Err(error);
+            }
+        };
+        self.database.close().await;
+        Ok(ManagedInitialization {
+            capabilities: self.capabilities,
+            migrations,
+        })
+    }
 }
 
 /// Safe lifecycle failures. No variant stores a database password or command
@@ -1204,6 +1248,13 @@ pub enum ManagedDatabaseError {
         /// First append-only migration that remains unapplied.
         pending_migration_version: i64,
     },
+    /// Another PostgreSQL session held a lock that the pending schema migration
+    /// needed for the migration's whole lock-contention budget. Nothing was
+    /// applied; this is retryable contention, not an incompatible database.
+    #[error(
+        "managed database Cartograph schema migration could not acquire its PostgreSQL locks within its bounded lock-contention wait; another Cartograph process, often a long-running MCP server started from an older binary, is using the schema. Restart or stop that process, or rerun the same command"
+    )]
+    SchemaBusy,
     /// A replacement was refused before cutover because the data mount lacked headroom.
     #[error(
         "managed database upgrade requires at least {required_bytes} bytes of data-volume headroom, but only {available_bytes} bytes are available"

@@ -27,9 +27,9 @@ use cartograph_db::{
     CapabilityReport, CartographDatabase, CheckStatus, DEFAULT_MANAGED_DATABASE_PORT,
     GenerationRetentionPolicy, GenerationRetentionRequest, GenerationStorageSummary,
     GenerationValidationLimits, HeapCompactionPolicy, HeapCompactionPolicyInput, LeaseOwner,
-    LeaseRequest, LeaseTarget, ManagedContainerState, ManagedDatabase, ManagedDatabaseStatus,
-    ManagedDestructiveConfirmation, ManagedDestructiveOperation, ManagedPostgresSettings,
-    ManagedStartReport, SemanticReadinessState, StorageCompactionPolicy,
+    LeaseRequest, LeaseTarget, ManagedContainerState, ManagedDatabase, ManagedDatabaseError,
+    ManagedDatabaseStatus, ManagedDestructiveConfirmation, ManagedDestructiveOperation,
+    ManagedPostgresSettings, ManagedStartReport, SemanticReadinessState, StorageCompactionPolicy,
     StorageCompactionPolicyInput, V1PostgresImportExecution, V1PostgresImportLimits,
     V1PostgresImportRequest, V1PostgresSource, V1PostgresSourceRevision,
 };
@@ -2742,7 +2742,8 @@ impl AgentInstallContext {
                 wait_seconds: 90,
                 format: self.format,
             })
-            .await?;
+            .await
+            .and_then(local_database_outcome)?;
         }
         run_index(IndexArguments {
             project_path: self.project_path.clone(),
@@ -3126,6 +3127,17 @@ fn local_index_outcome(code: ExitCode) -> Result<(), String> {
     (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_INDEX_INCOMPLETE.to_owned())
 }
 
+/// Message when `install`'s managed database start reported its own retryable
+/// failure (a schema that another process kept busy).
+const LOCAL_DATABASE_INCOMPLETE: &str = "the managed database start did not complete (see the failure above); install stopped before the initial index. Rerun install once the other Cartograph process is stopped or restarted";
+
+/// `install` indexes only after its managed database start succeeded. A start
+/// whose schema stayed busy reports that itself and returns its dedicated
+/// exit status instead of an error, which must stop `install` too.
+fn local_database_outcome(code: ExitCode) -> Result<(), String> {
+    (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_DATABASE_INCOMPLETE.to_owned())
+}
+
 /// Run one `cartograph index` request.
 ///
 /// An interrupt during the startup (settings, connection, schema migrations),
@@ -3158,11 +3170,15 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
     } else {
         IndexSupervision::Direct
     };
-    let runtime = supervised_index::start_up(
+    let runtime = match supervised_index::start_up(
         supervision,
         connect_index_runtime(&project_path, managed_database_port),
     )
-    .await?;
+    .await
+    {
+        Ok(runtime) => runtime,
+        Err(error) => return index_startup_failure(error, format),
+    };
     let mut options = if preserve_current_excludes {
         IndexOptions::reconciliation()
     } else {
@@ -3217,16 +3233,53 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
     }
 }
 
+/// Why one index request could not start.
+enum IndexStartupError {
+    /// The database settings could not be resolved.
+    Settings(String),
+    /// Connecting or applying the append-only schema migrations failed.
+    Connect(ProjectError),
+}
+
 /// The startup of one index request: resolve the database settings, then
 /// connect and apply the append-only schema migrations.
 async fn connect_index_runtime(
     project_path: &PathBuf,
     managed_database_port: Option<u16>,
-) -> Result<ProjectRuntime, String> {
-    let settings = resolve_database_settings_with_port(project_path, managed_database_port).await?;
+) -> Result<ProjectRuntime, IndexStartupError> {
+    let settings = resolve_database_settings_with_port(project_path, managed_database_port)
+        .await
+        .map_err(IndexStartupError::Settings)?;
     ProjectRuntime::connect(project_path, &settings)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(IndexStartupError::Connect)
+}
+
+/// Report an index request that could not start. A schema that another
+/// process kept busy is retryable contention, so `--format json` reports it
+/// like any other retryable index failure, with its stable `schema_busy` code
+/// on stderr, for a parent such as `upgrade --apply` to read; every other
+/// startup failure stays an error message.
+fn index_startup_failure(
+    error: IndexStartupError,
+    format: OutputFormat,
+) -> Result<ExitCode, String> {
+    match error {
+        IndexStartupError::Connect(error @ ProjectError::SchemaBusy)
+            if matches!(format, OutputFormat::Json) =>
+        {
+            let rendered =
+                error_codes::direct_index_failure_json(error_codes::DirectIndexFailureInput {
+                    failure: &IndexFailure::from(error),
+                    previous_generation_visible: None,
+                })
+                .map_err(|_| "could not serialize the index failure".to_owned())?;
+            eprintln!("{rendered}");
+            Ok(ExitCode::FAILURE)
+        }
+        IndexStartupError::Connect(error) => Err(error_codes::direct_index_failure_message(&error)),
+        IndexStartupError::Settings(message) => Err(message),
+    }
 }
 
 /// Whether readers still see a published generation after a failed index.
@@ -3745,11 +3798,17 @@ async fn run_database_start(arguments: DatabaseStartArguments) -> Result<ExitCod
     let database = managed_database_for_project(&arguments.project_path, arguments.port)
         .await?
         .with_startup_timeout(Duration::from_secs(arguments.wait_seconds));
-    let report = database
-        .lifecycle()
-        .start()
-        .await
-        .map_err(|error| error.to_string())?;
+    let report = match database.lifecycle().start().await {
+        Ok(report) => report,
+        Err(error @ ManagedDatabaseError::SchemaBusy) => {
+            eprintln!(
+                "cartograph: {error} (reason: {})",
+                error_codes::SCHEMA_BUSY_CODE
+            );
+            return Ok(ExitCode::from(error_codes::SCHEMA_BUSY_EXIT_STATUS));
+        }
+        Err(error) => return Err(error.to_string()),
+    };
     print_managed_start(&report, arguments.format)?;
     Ok(ExitCode::SUCCESS)
 }
@@ -4656,11 +4715,18 @@ async fn apply_managed_database_doctor_fix(
                 "managed PostgreSQL is ready; {} migration(s) applied",
                 report.migrations.applied_versions.len()
             )),
-            Err(error) => checks.push(doctor_fail(
-                "database-fix",
-                error.to_string(),
-                "Start Docker, then run `cartograph db start --project-path <path>`.".to_owned(),
-            )),
+            Err(error) => {
+                let remediation = if error == ManagedDatabaseError::SchemaBusy {
+                    "Restart or stop the other Cartograph process, then run `cartograph db start --project-path <path>`."
+                } else {
+                    "Start Docker, then run `cartograph db start --project-path <path>`."
+                };
+                checks.push(doctor_fail(
+                    "database-fix",
+                    error.to_string(),
+                    remediation.to_owned(),
+                ));
+            }
         },
         Err(error) => checks.push(doctor_fail(
             "database-fix",

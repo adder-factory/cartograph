@@ -86,7 +86,10 @@ run `cartograph index .` once edits pause instead of rerunning the upgrade. When
 another_writer_active` or `timed_out`, or a `blocked` verification because
 another writer replaced the generation this upgrade published or confirmed),
 rerun the same command; for `another_writer_active` or a replaced generation,
-wait until the other writer finishes. A registration that launches Cartograph
+wait until the other writer finishes. With `reason: schema_busy` on the
+database or index step, another Cartograph process (often an MCP server
+started from an older binary) held the schema's PostgreSQL locks; restart or
+stop it before rerunning. A registration that launches Cartograph
 through a wrapper (`commandState: wrapped`) keeps its wrapper, arguments, and
 `env`; only its embedded absolute Cartograph path is repinned, and
 `registrationRepair.changes` lists every changed entry. If it reports that the
