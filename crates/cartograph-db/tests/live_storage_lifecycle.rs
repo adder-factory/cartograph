@@ -35,6 +35,10 @@ const STATEMENT_TIMEOUT: Duration = Duration::from_mins(1);
 const CASCADE_CHILD_ROWS: u64 = 1_024;
 const CASCADE_FIXTURE_ROWS: u64 = CASCADE_CHILD_ROWS + 6;
 const COMPACTION_LOCK_NAMESPACE: &str = "cartograph-v2-online-compaction";
+/// VACUUM passes allowed for the emptied fixture's index pages to be deleted.
+const EMPTIED_VACUUM_ATTEMPTS: usize = 40;
+/// Pause between those passes while another backend's snapshot ages out.
+const EMPTIED_VACUUM_PAUSE: Duration = Duration::from_millis(250);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
@@ -397,6 +401,35 @@ async fn assert_parse_cache_and_ready_retention(
     assert_ne!(first_ready, second_ready);
 }
 
+/// VACUUM the emptied fixture until its index pages are deleted.
+///
+/// Another backend's snapshot (an autovacuum worker on another table, for
+/// example) can hold back the removal horizon, and one VACUUM then leaves the
+/// deleted rows, and so every index page, in place. Deleted pages are this
+/// fixture's precondition, not the planner behavior under test.
+async fn vacuum_until_emptied_index_pages_are_deleted(pool: &sqlx_postgres::PgPool, schema: &str) {
+    let vacuum = format!(r#"VACUUM "{schema}"."storage_emptied_fixture""#);
+    let deleted_pages = format!(
+        r#"SELECT deleted_pages FROM pgstatindex('"{schema}".storage_emptied_idx'::regclass)"#
+    );
+    for _ in 0..EMPTIED_VACUUM_ATTEMPTS {
+        query(AssertSqlSafe(vacuum.clone()))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("emptied fixture vacuum failed: {error}"));
+        let deleted = query(AssertSqlSafe(deleted_pages.clone()))
+            .fetch_one(pool)
+            .await
+            .and_then(|row| row.try_get::<i64, _>("deleted_pages"))
+            .unwrap_or_else(|error| panic!("emptied fixture measurement failed: {error}"));
+        if deleted > 0 {
+            return;
+        }
+        tokio::time::sleep(EMPTIED_VACUUM_PAUSE).await;
+    }
+    panic!("VACUUM never deleted the emptied fixture's index pages");
+}
+
 /// A packed index at a low fill factor is not bloat, while an index whose rows
 /// were all deleted is almost entirely reclaimable.
 async fn assert_measured_selection_respects_fillfactor_and_emptied_indexes(
@@ -405,7 +438,12 @@ async fn assert_measured_selection_respects_fillfactor_and_emptied_indexes(
     schema: &str,
 ) {
     for statement in [
-        format!(r#"CREATE TABLE "{schema}"."storage_measure_fixture" (id bigint NOT NULL)"#),
+        // Autovacuum stays off for the fixtures: an autoanalyze of the bulk
+        // inserts would hold a snapshot that keeps VACUUM from removing rows.
+        format!(
+            r#"CREATE TABLE "{schema}"."storage_measure_fixture" (id bigint NOT NULL)
+                WITH (autovacuum_enabled = false)"#
+        ),
         format!(
             r#"INSERT INTO "{schema}"."storage_measure_fixture" (id)
                 SELECT value FROM generate_series(1, 300000) AS value"#
@@ -414,20 +452,23 @@ async fn assert_measured_selection_respects_fillfactor_and_emptied_indexes(
             r#"CREATE INDEX storage_measure_sparse_idx
                 ON "{schema}"."storage_measure_fixture" (id) WITH (fillfactor = 50)"#
         ),
-        format!(r#"CREATE TABLE "{schema}"."storage_emptied_fixture" (id bigint NOT NULL)"#),
+        format!(
+            r#"CREATE TABLE "{schema}"."storage_emptied_fixture" (id bigint NOT NULL)
+                WITH (autovacuum_enabled = false)"#
+        ),
         format!(
             r#"INSERT INTO "{schema}"."storage_emptied_fixture" (id)
                 SELECT value FROM generate_series(1, 300000) AS value"#
         ),
         format!(r#"CREATE INDEX storage_emptied_idx ON "{schema}"."storage_emptied_fixture" (id)"#),
         format!(r#"DELETE FROM "{schema}"."storage_emptied_fixture""#),
-        format!(r#"VACUUM "{schema}"."storage_emptied_fixture""#),
     ] {
         query(AssertSqlSafe(statement))
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("measurement fixture failed: {error}"));
     }
+    vacuum_until_emptied_index_pages_are_deleted(pool, schema).await;
     let policy_input = StorageCompactionPolicyInput {
         maximum_indexes: 16,
         maximum_candidate_bytes: 128 * 1024 * 1024,
