@@ -127,11 +127,31 @@ pub(crate) async fn set_local_statement_timeout(
     connection: &mut PgConnection,
     timeout: Duration,
 ) -> Result<(), ()> {
+    set_local_timeout(connection, "statement_timeout", timeout).await
+}
+
+/// Bound every heavyweight-lock wait (table, row, and advisory locks) for the
+/// rest of the current transaction; a longer wait fails with SQLSTATE `55P03`.
+pub(crate) async fn set_local_lock_timeout(
+    connection: &mut PgConnection,
+    timeout: Duration,
+) -> Result<(), ()> {
+    set_local_timeout(connection, "lock_timeout", timeout).await
+}
+
+/// Install one transaction-local millisecond timeout. Zero is rejected because
+/// PostgreSQL reads it as "no timeout".
+async fn set_local_timeout(
+    connection: &mut PgConnection,
+    setting: &'static str,
+    timeout: Duration,
+) -> Result<(), ()> {
     let millis = i64::try_from(timeout.as_millis()).map_err(|_| ())?;
     if millis == 0 {
         return Err(());
     }
-    query("SELECT set_config('statement_timeout', $1, true)")
+    query("SELECT set_config($1, $2, true)")
+        .bind(setting)
         .bind(format!("{millis}ms"))
         .execute(connection)
         .await

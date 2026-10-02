@@ -81,8 +81,13 @@ the configured schema's complete index allocation plus ten percent of the
 current database allocation. This reserves one replacement copy of every index
 plus bounded WAL/catalog scratch for extension upgrades. An unavailable storage
 snapshot or insufficient headroom fails before image or container cutover.
-Cartograph schema migrations run transactionally with a bounded 60-second
-PostgreSQL statement deadline. If an older ledger still cannot advance, runtime
+Cartograph schema migrations run transactionally; the managed start bounds
+each statement with a 60-second PostgreSQL deadline. Each attempt waits at most
+two seconds for any one lock, so a schema change queued behind another
+session's long transaction never stalls that session's new readers for longer.
+A contended attempt rolls back whole and is retried after a one-second pause
+for up to five minutes, after which the migration reports the retryable
+`schema_busy` with nothing applied. If an older ledger still cannot advance, runtime
 and doctor output name the recorded version, required version, and exact next
 pending migration; doctor does not run a project-status query against columns
 that migration has not yet proved.
@@ -513,10 +518,19 @@ measures its validated data volume; external PostgreSQL must supply
 `--available-headroom-bytes`. Partial completion names the table and stable
 stop reason and can be resumed with a fresh plan.
 
-Failed generation cleanup now deletes its exact spill root and cascaded staging
-payload in the same fenced terminal transaction. PostgreSQL can therefore reuse
-those pages before another attempt; heap compaction remains the explicit path
-for returning an already-allocated high-water file to the filesystem.
+Failed generation cleanup deletes its exact spill root and cascaded staging
+payload in the same fenced terminal transaction when that cascade fits the
+cleanup statement deadline, so PostgreSQL can reuse those pages before another
+attempt. A larger spill, such as a full rebuild of a large project, rolls back
+only that delete: the generation is still failed and its lease released, and
+the spill rows stay with it, like its already-staged canonical rows, until the
+bounded retention drain removes them. That drain runs right after a failed
+automatic index, after the next successful index, or through `db prune`; a
+failed manual `cartograph index` therefore leaves a large spill in place until
+one of those runs. Before, the timed-out cascade failed the cleanup too and left
+the generation staging with its lease held until the lease expired. Heap
+compaction remains the explicit path for returning an already-allocated
+high-water file to the filesystem.
 
 ## Distribution boundary
 

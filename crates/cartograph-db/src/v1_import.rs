@@ -24,8 +24,8 @@ use tokio::{io::AsyncReadExt as _, time::Instant};
 use crate::{
     CanonicalGenerationFacts, CartographDatabase, EdgeInput, FileInput, GenerationContents,
     GenerationFacts, GenerationRecoveryRequest, GenerationValidationLimits, LeaseOwner,
-    LeaseRequest, LeaseTarget, PrepareGenerationMutation, RecoverableGeneration, ReferenceInput,
-    SearchDocumentInput, SymbolInput, TerminalGenerationMutation, apply_page_rank,
+    LeaseRequest, LeaseTarget, MigrationError, PrepareGenerationMutation, RecoverableGeneration,
+    ReferenceInput, SearchDocumentInput, SymbolInput, TerminalGenerationMutation, apply_page_rank,
     apply_sampled_betweenness,
 };
 
@@ -534,6 +534,12 @@ pub enum V1PostgresImportError {
     /// Another writer published after this import reserved its generation sequence.
     #[error("another Cartograph writer published during v1 import; retry after it is idle")]
     ConcurrentPublication,
+    /// Another session's locks kept the destination schema migration from
+    /// applying for its whole contention budget, before anything was staged.
+    #[error(
+        "another Cartograph process held the v2 destination schema's PostgreSQL locks throughout the bounded schema-migration wait; nothing was imported. Restart or stop that process, then rerun the import"
+    )]
+    DestinationSchemaBusy,
     /// PostgreSQL failed without rendering query, row, schema, or credentials.
     #[error("Cartograph PostgreSQL v1 import failed during {operation}")]
     DatabaseOperation {
@@ -833,7 +839,10 @@ where
     database
         .migrate_bounded(request.execution.statement_timeout)
         .await
-        .map_err(|_| database_error("migrate-destination"))?;
+        .map_err(|error| match error {
+            MigrationError::SchemaBusy { .. } => V1PostgresImportError::DestinationSchemaBusy,
+            _ => database_error("migrate-destination"),
+        })?;
     let root_identity = project_root_identity(&request.source.revision.repository_fingerprint);
     let project_id = register_import_project(database, request, &root_identity).await?;
     let run = initialize_import_run(

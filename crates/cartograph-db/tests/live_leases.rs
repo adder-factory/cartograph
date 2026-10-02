@@ -6,7 +6,7 @@ use std::assert_matches;
 use std::{
     env, process,
     sync::atomic::{AtomicU32, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use cartograph_config::DatabaseSettings;
@@ -204,6 +204,208 @@ async fn leases_are_exclusive_observable_recoverable_and_database_clock_driven()
     drop(database);
     drop_schema(&pool, &schema).await;
     pool.close().await;
+}
+
+/// Mirrors the migration runner's per-attempt lock wait bound.
+const MIGRATION_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
+/// Scheduling and round-trip allowance on top of a PostgreSQL-side bound.
+const LOCK_BOUND_SLACK: Duration = Duration::from_secs(1);
+/// Long enough for a second attempt after the first contended one, far
+/// shorter than the production contention budget.
+const SHORT_CONTENTION_BUDGET: Duration = Duration::from_secs(4);
+const QUEUED_LOCK_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(10);
+const QUEUED_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(20);
+const CONTENDED_READER_ROUNDS: usize = 3;
+const MIGRATION_RESUME_TIMEOUT: Duration = Duration::from_secs(20);
+/// Digest versions admitted before migration 46 added version 19.
+const PRE_V19_DIGEST_CONSTRAINT: &str = "CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18))";
+
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn a_contended_migration_fails_fast_retries_and_reports_a_busy_schema() {
+    let (database, pool, schema) = open_isolated_database().await;
+    if let Err(error) = database.migrate().await {
+        panic!("contention fixture migration failed: {error}");
+    }
+    roll_back_latest_migration(&pool, &schema).await;
+
+    // A long transaction that has read `index_generations`, as an MCP
+    // server's sync or status query does, blocks migration 46's ALTER TABLE.
+    let mut holder = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("could not open the conflicting transaction: {error}"));
+    count_generations(&mut holder, &schema).await;
+
+    // (c) A budget shorter than the conflicting transaction ends as a busy
+    // schema after retrying, rolls back whole, and never as a hard failure.
+    let started = Instant::now();
+    assert_matches!(
+        database
+            .migrate_with_contention_budget(None, SHORT_CONTENTION_BUDGET)
+            .await,
+        Err(MigrationError::SchemaBusy {
+            operation: "apply-version"
+        })
+    );
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= MIGRATION_LOCK_TIMEOUT * 2,
+        "a busy schema was reported before a retry: {elapsed:?}"
+    );
+    // The last attempt starts inside the budget and waits one lock timeout.
+    assert!(
+        elapsed < SHORT_CONTENTION_BUDGET + MIGRATION_LOCK_TIMEOUT * 2,
+        "the contention budget was not bounded: {elapsed:?}"
+    );
+    assert_eq!(
+        recorded_schema_version(&pool, &schema).await,
+        LATEST_MIGRATION_VERSION - 1
+    );
+
+    // (a) While a full-budget migration keeps retrying, every new reader on
+    // another session waits at most one lock timeout behind its queued ALTER.
+    let migrator = database.clone();
+    let migration = tokio::spawn(async move { migrator.migrate().await });
+    for _ in 0..CONTENDED_READER_ROUNDS {
+        wait_for_queued_schema_change(&pool, &schema).await;
+        let mut reader = pool
+            .acquire()
+            .await
+            .unwrap_or_else(|error| panic!("could not acquire a reader connection: {error}"));
+        let read_started = Instant::now();
+        tokio::time::timeout(
+            MIGRATION_LOCK_TIMEOUT + LOCK_BOUND_SLACK,
+            count_generations(&mut reader, &schema),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("a queued schema change stalled a new reader"));
+        assert!(read_started.elapsed() < MIGRATION_LOCK_TIMEOUT + LOCK_BOUND_SLACK);
+    }
+
+    // (b) Once the conflicting transaction ends, the retrying migration
+    // applies within its budget.
+    holder
+        .rollback()
+        .await
+        .unwrap_or_else(|error| panic!("could not end the conflicting transaction: {error}"));
+    let report = tokio::time::timeout(MIGRATION_RESUME_TIMEOUT, migration)
+        .await
+        .unwrap_or_else(|_| panic!("the retrying migration did not resume"))
+        .unwrap_or_else(|error| panic!("the retrying migration task failed: {error}"))
+        .unwrap_or_else(|error| panic!("the retrying migration failed: {error}"));
+    assert_eq!(report.applied_versions, [LATEST_MIGRATION_VERSION]);
+    assert_eq!(
+        recorded_schema_version(&pool, &schema).await,
+        LATEST_MIGRATION_VERSION
+    );
+
+    assert_concurrent_migrator_is_a_busy_schema(&database, &pool, &schema).await;
+    drop(database);
+    drop_schema(&pool, &schema).await;
+    pool.close().await;
+}
+
+/// A concurrent migrator holding the schema's advisory lock is contention too.
+async fn assert_concurrent_migrator_is_a_busy_schema(
+    database: &CartographDatabase,
+    pool: &sqlx_postgres::PgPool,
+    schema: &str,
+) {
+    let mut migrator = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("could not open the concurrent migrator: {error}"));
+    query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("cartograph-v2-schema-migration:{schema}"))
+        .execute(&mut *migrator)
+        .await
+        .unwrap_or_else(|error| panic!("could not hold the migration lock: {error}"));
+    assert_matches!(
+        database
+            .migrate_with_contention_budget(None, SHORT_CONTENTION_BUDGET)
+            .await,
+        Err(MigrationError::SchemaBusy {
+            operation: "advisory-lock"
+        })
+    );
+    migrator
+        .rollback()
+        .await
+        .unwrap_or_else(|error| panic!("could not release the migration lock: {error}"));
+    assert_matches!(
+        database.migrate().await,
+        Ok(report) if report.applied_versions.is_empty()
+    );
+}
+
+/// Undo migration 46 exactly: restore the pre-V19 digest constraint and drop
+/// its ledger row, leaving an otherwise valid schema one version behind.
+async fn roll_back_latest_migration(pool: &sqlx_postgres::PgPool, schema: &str) {
+    let constraint = format!(
+        r#"ALTER TABLE "{schema}"."index_generations"
+            DROP CONSTRAINT index_generations_digest_version_check,
+            ADD CONSTRAINT index_generations_digest_version_check {PRE_V19_DIGEST_CONSTRAINT}"#
+    );
+    if let Err(error) = query(AssertSqlSafe(constraint)).execute(pool).await {
+        panic!("could not restore the pre-V19 digest constraint: {error}");
+    }
+    let ledger = format!(r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#);
+    let deleted = query(AssertSqlSafe(ledger))
+        .bind(LATEST_MIGRATION_VERSION)
+        .execute(pool)
+        .await;
+    assert_matches!(deleted, Ok(result) if result.rows_affected() == 1);
+}
+
+async fn count_generations(connection: &mut sqlx_postgres::PgConnection, schema: &str) {
+    let statement = format!(r#"SELECT count(*) FROM "{schema}"."index_generations""#);
+    if let Err(error) = query(AssertSqlSafe(statement)).fetch_one(connection).await {
+        panic!("could not read index generations: {error}");
+    }
+}
+
+async fn recorded_schema_version(pool: &sqlx_postgres::PgPool, schema: &str) -> i64 {
+    let statement = format!(r#"SELECT max(version) FROM "{schema}"."schema_migrations""#);
+    query(AssertSqlSafe(statement))
+        .fetch_one(pool)
+        .await
+        .and_then(|row| row.try_get::<i64, _>(0))
+        .unwrap_or_else(|error| panic!("could not read the migration ledger: {error}"))
+}
+
+/// Wait until a migration attempt's `ACCESS EXCLUSIVE` request on
+/// `index_generations` is queued behind the conflicting transaction.
+async fn wait_for_queued_schema_change(pool: &sqlx_postgres::PgPool, schema: &str) {
+    let deadline = Instant::now() + QUEUED_LOCK_OBSERVATION_TIMEOUT;
+    loop {
+        let queued = query(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_locks AS locks
+                INNER JOIN pg_catalog.pg_class AS tables ON tables.oid = locks.relation
+                INNER JOIN pg_catalog.pg_namespace AS namespaces
+                    ON namespaces.oid = tables.relnamespace
+                WHERE namespaces.nspname = $1
+                  AND tables.relname = 'index_generations'
+                  AND locks.mode = 'AccessExclusiveLock'
+                  AND NOT locks.granted
+            )",
+        )
+        .bind(schema)
+        .fetch_one(pool)
+        .await
+        .and_then(|row| row.try_get::<bool, _>(0))
+        .unwrap_or_else(|error| panic!("could not inspect queued locks: {error}"));
+        if queued {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no migration attempt queued for index_generations"
+        );
+        tokio::time::sleep(QUEUED_LOCK_POLL_INTERVAL).await;
+    }
 }
 
 struct LeaseFixture<'a> {

@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-02 (`v2.1.36`).
+Last release audit: 2026-10-02 (`v2.1.37`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds and confirmation phrases in the installed version. This page
@@ -114,7 +114,12 @@ keep, or confirm ownership of its own lease: an acquisition that failed for a
 reason other than contention, or a lost or unconfirmed heartbeat. A read of the
 project's leases that fails for another reason reports `index_failed` with the
 message `Cartograph project status is unavailable`, never `lease_failed`: that
-attempt held no lease to lose.
+attempt held no lease to lose. An index that applies a pending schema
+migration while connecting, and finds another session's PostgreSQL locks held
+throughout the migration's 5-minute contention budget, reports the retryable
+`schema_busy` with `previous_generation_visible: null`; it reserved nothing and
+applied nothing (see
+[Schema migration reports `schema_busy`](TROUBLESHOOTING.md#schema-migration-reports-schema_busy)).
 
 A successful `index --format json` report includes `live_source`. `matched`
 means the live checkout still matched the report's `source_revision` at the
@@ -237,7 +242,7 @@ or database settings.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.36 top-level command advertised
+This inventory contains every non-hidden v2.1.37 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 
@@ -417,19 +422,37 @@ already-verified binary installed and report only the remaining repair.
 - `retryable`: true when rerunning the same command, with no other action, is
   the next step. That is the case when a bounded wait or timeout ended without
   a failure verdict (a `timed_out` database, index, doctor, or verification
-  step, or `index.state: another_writer_active`), and also when verification
-  is `blocked` because another writer replaced the generation this upgrade
-  published or confirmed and the checkout is not fresh.
+  step, or a database or index step in `another_writer_active`), and also when
+  verification is `blocked` because another writer replaced the generation
+  this upgrade published or confirmed and the checkout is not fresh.
 - `database`, `index`, `doctor`, `verification`: each `{state, message}` plus an
   optional stable `reason`. A step that did not run because an earlier step
   stopped the reconciliation reports `not_run`.
 - `fresh`, `generationId`, `managedDatabasePort`, `requiredConfirmation`.
 
+`database.state` is one of:
+
+- `ready` (the managed database is healthy and its migrations are current, or
+  the validated external database from the environment is used; with an
+  external database the index child applies the migrations)
+- `another_writer_active` (`reason: schema_busy`, retryable): another
+  Cartograph process, often a long-running MCP server started from an older
+  binary, held PostgreSQL locks that the pending schema migration needs for
+  its whole 5-minute contention budget, so nothing was applied. The next step
+  is to restart or stop that process, then rerun the same command; it never
+  points to `doctor` or the managed database replacement.
+- `timed_out` (retryable; see the 15-minute managed start budget below)
+- `blocked` (the managed start failed; a bounded `db status` probe decides
+  whether `requiredConfirmation` names the confirmed managed upgrade)
+
 `index.state` is one of:
 
 - `ready`
 - `source_changed`
-- `another_writer_active` (`reason: lease_busy`, retryable)
+- `another_writer_active` (`reason: lease_busy`, retryable; or `reason:
+  schema_busy`, retryable, when the index child applied the schema migration
+  itself and another process's locks kept it from applying, as for the
+  database step)
 - `timed_out` (`reason: no_progress` or `ceiling`, retryable; the message says
   whether the child confirmed a cooperative cleanup (`request_cancelled` with
   no `cleanup_failure`), exited without confirming it, or was killed)
@@ -458,7 +481,10 @@ across an earlier invocation. Managed `db start` has a separate 15-minute cold
 image-pull/readiness budget. Exceeding it reports the database step as
 `timed_out`, draws no compatibility conclusion, and asks the caller to rerun
 the same command; only a bounded status probe with positive image/shared-memory
-incompatibility evidence can emit the destructive confirmation path.
+incompatibility evidence can emit the destructive confirmation path. The
+schema migration inside that start retries lock contention for at most 5
+minutes, well inside the 15-minute budget, so a busy schema is reported as
+`another_writer_active` with `reason: schema_busy` instead of `timed_out`.
 
 An already-open host cannot hot-load the new child. When `restartRequired` is
 true, close and reopen it once, then prove `server/discover` (or legacy
@@ -498,6 +524,20 @@ invocation budgets. Canonical rows drain in resumable transactions of at most
 distinguish durable progress from pending work. Inspect the report before
 repeating the confirmed command. MCP exposes the same limits as
 `maximumCascadeRows` and `maximumSearchRelationBytes` on `prune-generations`.
+
+`db start --wait-seconds` (default 90, at most 600) bounds readiness,
+extension initialization, and capability proof. The append-only schema
+migration that follows has its own bounds: a 60-second deadline per
+statement, a lock wait of at most two seconds per attempt, so a queued schema
+change never stalls other sessions' readers for longer, and a 5-minute
+lock-contention budget across retried attempts (an attempt that starts inside
+the budget runs to its end). A start with pending migrations can therefore
+take longer than `--wait-seconds`; `upgrade --apply` still caps its whole
+managed start at 15 minutes. When another session's locks
+outlast that budget, nothing is applied, and `db start` prints its message
+with `(reason: schema_busy)` and exits with status 75; every other `db start`
+failure exits with status 1. See
+[Schema migration reports `schema_busy`](TROUBLESHOOTING.md#schema-migration-reports-schema_busy).
 
 Managed lifecycle is supported on macOS/Linux with local Docker. Windows uses
 external PostgreSQL. Restore, upgrade, derived-index rebuild, remove, v1 import,

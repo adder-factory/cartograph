@@ -138,7 +138,9 @@ pub use managed::{
     ManagedDestructiveOperation, ManagedPostgresSettings, ManagedRemoveReport,
     ManagedRestoreReport, ManagedStartReport, ManagedUpgradeReport,
 };
-pub use migrations::{MigrationError, MigrationReport, latest_schema_version};
+pub use migrations::{
+    MigrationError, MigrationReport, SCHEMA_MIGRATION_CONTENTION_BUDGET, latest_schema_version,
+};
 pub use numerical::{
     NumericalSitePage, NumericalSiteQuery, NumericalSiteRecord, NumericalSiteStats,
 };

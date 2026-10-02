@@ -1767,7 +1767,9 @@ impl ProjectRuntime {
     /// # Errors
     ///
     /// Returns an error when the checkout root is unavailable, PostgreSQL
-    /// cannot be connected, or append-only schema migration fails.
+    /// cannot be connected, or append-only schema migration fails;
+    /// [`ProjectError::SchemaBusy`] when another session's locks kept the
+    /// pending migration from applying for its whole contention budget.
     pub async fn connect(
         project_root: impl AsRef<Path>,
         settings: &DatabaseSettings,
@@ -1792,6 +1794,7 @@ impl ProjectRuntime {
                     supported_schema_version: cartograph_db::latest_schema_version(),
                 });
             }
+            Err(MigrationError::SchemaBusy { .. }) => return Err(ProjectError::SchemaBusy),
             Err(_) => {
                 let error = match database.verify_current_schema().await {
                     Err(MigrationError::SchemaVersionBehind {
@@ -3534,6 +3537,13 @@ pub enum ProjectError {
         /// First append-only migration that remains unapplied.
         pending_migration_version: i64,
     },
+    /// Another PostgreSQL session held a lock that the pending schema migration
+    /// needed for the migration's whole lock-contention budget. Nothing was
+    /// applied, and retrying once that session ends is safe.
+    #[error(
+        "Cartograph PostgreSQL schema migration could not acquire its locks within its bounded lock-contention wait; another Cartograph process, often a long-running MCP server started from an older binary, is using the schema. Restart or stop that process, or retry"
+    )]
+    SchemaBusy,
     /// The database was migrated by a newer Cartograph binary.
     #[error(
         "Cartograph {binary_version} supports schema version {supported_schema_version}, but the database is at newer schema version {database_schema_version}; upgrade the Cartograph binary and repin the MCP registration before retrying"

@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-10-02 (`v2.1.36`).
+Last implementation review: 2026-10-02 (`v2.1.37`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -300,6 +300,15 @@ symbols, edges, references, numerical sites, and documents through 64
 deterministic UUID partitions per relation, committing four contiguous
 partitions at a time. A completed raw group is deleted in the same transaction
 that inserts its canonical rows and advances the durable cursor.
+A relation's first group runs column-targeted `ANALYZE` on its raw spill table,
+and its last group does the same on the canonical table it filled, inside the
+group's transaction. Later relations validate against this generation's files
+and symbols, and a plan made from a never-analyzed table or from a sample of
+only earlier or failed generations estimates the generation at about one row
+and probes an index that matches only its prefix, walking the whole generation
+per row. The reduce therefore never relies on autovacuum timing. As in
+preparation, a contended statistics lock waits under the spill statement
+deadline, and a timeout fails the stage as `reduce_deadline_exceeded`.
 PostgreSQL may spill grouping/sorting to its configured temporary storage;
 Rust never reloads the complete canonical payload to compute the digest.
 
@@ -622,8 +631,11 @@ autovacuum policy, keeping synchronous 27-table vacuuming out of the watcher
 critical path. Explicit prune requests retain the thresholded table-scoped
 maintenance step and report whether it completed or was deferred.
 Terminal failure cleanup also deletes the exact generation's PostgreSQL spill
-root in the same fenced transaction. Its cascaded staging payload becomes
-reusable immediately instead of remaining live until a later prune.
+root in the same fenced transaction when the cascade fits the cleanup statement
+deadline, so its staging payload becomes reusable immediately. A cascade that
+outlives the deadline rolls back to a savepoint instead of failing the cleanup:
+the generation still fails and releases its lease, and the bounded retention
+drain later removes its spill rows with its canonical rows.
 Pre-supervisor failures attempt to
 terminalize their exact staging generation under the same project advisory lock
 used by lease acquisition; when that lock stays held past the bounded cleanup

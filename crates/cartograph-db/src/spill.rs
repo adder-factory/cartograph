@@ -15,9 +15,10 @@ use sqlx_core::row::Row;
 
 use crate::{
     CartographDatabase, LeaseFence, StagedGeneration, StorageError,
-    database::{audited_query, set_local_statement_timeout},
+    database::{audited_query, classify_statement_error, set_local_statement_timeout},
     generation::{
-        StagingFenceTarget, check_staging_generation_fence, lock_staging_generation_fence,
+        COPIED_RELATION_PLANNER_COLUMNS, StagingFenceTarget, check_staging_generation_fence,
+        lock_staging_generation_fence,
     },
     ingest::{
         CanonicalSearchDocument, CountedCopyRequest, CountedTextCopy, EdgeInput, FileInput,
@@ -137,6 +138,56 @@ impl NativeGenerationSpillRelation {
             Self::NumericalSites => "numerical_sites",
             Self::Documents => "documents",
         }
+    }
+
+    /// Raw spill table this relation stages, with the columns its partition
+    /// queries filter and join on; `None` for the opaque extraction stream.
+    const fn raw_planner_statistics(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::ExtractedFiles => None,
+            Self::Files => Some((
+                "native_generation_spill_files",
+                "project_id, generation_id, bucket, file_id, normalized_path",
+            )),
+            Self::Symbols => Some((
+                "native_generation_spill_symbols",
+                "project_id, generation_id, bucket, symbol_id, file_id",
+            )),
+            Self::Edges => Some((
+                "native_generation_spill_edges",
+                "project_id, generation_id, bucket, source_symbol_id, target_symbol_id",
+            )),
+            Self::References => Some((
+                "native_generation_spill_references",
+                "project_id, generation_id, bucket, file_id, owner_symbol_id, target_symbol_id",
+            )),
+            Self::NumericalSites => Some((
+                "native_generation_spill_numerical_sites",
+                "project_id, generation_id, bucket, numerical_site_id, file_id, owner_symbol_id",
+            )),
+            Self::Documents => Some((
+                "native_generation_spill_documents",
+                "project_id, generation_id, bucket, document_id, file_id, symbol_id",
+            )),
+        }
+    }
+
+    /// Canonical generation table this relation reduces into, with the planner
+    /// columns analyzed once its last partition group lands; `None` for the
+    /// opaque extraction stream, which has no canonical table.
+    fn canonical_planner_statistics(self) -> Option<(&'static str, &'static str)> {
+        let table = match self {
+            Self::ExtractedFiles => return None,
+            Self::Files => "files",
+            Self::Symbols => "symbols",
+            Self::Edges => "edges",
+            Self::References => "references",
+            Self::NumericalSites => "numerical_sites",
+            Self::Documents => "search_documents",
+        };
+        COPIED_RELATION_PLANNER_COLUMNS
+            .into_iter()
+            .find(|(relation, _)| *relation == table)
     }
 }
 
@@ -740,6 +791,31 @@ struct NativeGenerationCanonicalCursor {
     upper_bucket: i32,
 }
 
+impl NativeGenerationCanonicalCursor {
+    /// The raw spill table to analyze before this group reduces anything: the
+    /// relation's first group is the first to read it, and every raw row of
+    /// this generation was sealed before canonicalization began.
+    const fn raw_statistics(&self) -> Option<(&'static str, &'static str)> {
+        if self.partition == 0 {
+            self.relation.raw_planner_statistics()
+        } else {
+            None
+        }
+    }
+
+    /// The canonical table to analyze after this group, when it is the
+    /// relation's last, so later relations validate against all of it.
+    fn canonical_statistics(&self) -> Option<(&'static str, &'static str)> {
+        let completes_relation = self
+            .partition
+            .saturating_add(CANONICAL_PARTITIONS_PER_TRANSACTION)
+            >= CANONICAL_PARTITIONS;
+        completes_relation
+            .then(|| self.relation.canonical_planner_statistics())
+            .flatten()
+    }
+}
+
 /// Deterministic digest and counts streamed from canonical PostgreSQL rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeGenerationSpillDigestReport {
@@ -1336,10 +1412,16 @@ impl NativeGenerationSpill {
     /// PostgreSQL performs generation-wide grouping and can spill its bounded sort/hash
     /// work to database temporary storage. The completed raw group is removed in
     /// the same transaction as the canonical insert and durable progress advance.
+    /// A relation's first group refreshes the planner statistics of its raw spill
+    /// table before reading it, and its last group refreshes those of the
+    /// canonical table it loaded before committing, because every later
+    /// relation validates its rows against this generation's files and symbols.
     /// # Errors
     ///
     /// Returns an error when duplicate identities conflict, aggregation overflows,
-    /// the phase/fence changed, or the partition transaction cannot commit.
+    /// the phase/fence changed, or the partition transaction cannot commit. A
+    /// statement that exceeds the spill statement timeout is reported as
+    /// [`StorageError::StatementTimeout`].
     pub async fn canonicalize_next(
         &self,
     ) -> Result<NativeGenerationSpillCanonicalProgress, StorageError> {
@@ -1362,7 +1444,9 @@ impl NativeGenerationSpill {
         }
         begin_canonicalization(self, &mut transaction, phase).await?;
         let cursor = load_canonical_cursor(self, &mut transaction).await?;
+        analyze_planner_statistics(self, &mut transaction, cursor.raw_statistics()).await?;
         let inserted = reduce_canonical_partition(self, &mut transaction, &cursor).await?;
+        analyze_planner_statistics(self, &mut transaction, cursor.canonical_statistics()).await?;
         let complete = advance_canonical_cursor(
             self,
             &mut transaction,
@@ -2295,7 +2379,7 @@ async fn reduce_canonical_partition(
         .bind(cursor.upper_bucket)
         .fetch_optional(&mut **transaction)
         .await
-        .map_err(|_| database_error("spill-detect-canonical-conflict"))?
+        .map_err(|error| classify_statement_error(&error, "spill-detect-canonical-conflict"))?
         .is_some()
     {
         return Err(StorageError::GenerationSpillConflict);
@@ -2307,7 +2391,14 @@ async fn reduce_canonical_partition(
         .bind(cursor.upper_bucket)
         .execute(&mut **transaction)
         .await
-        .map_err(|_| StorageError::GenerationSpillConflict)?
+        .map_err(|error| {
+            // Any other rejection is a canonical constraint violation by the
+            // spilled facts themselves.
+            match classify_statement_error(&error, "spill-insert-canonical-partition") {
+                timeout @ StorageError::StatementTimeout { .. } => timeout,
+                _ => StorageError::GenerationSpillConflict,
+            }
+        })?
         .rows_affected();
     let delete_sql = format!(
         r#"DELETE FROM {schema}."{table}"
@@ -2323,8 +2414,36 @@ async fn reduce_canonical_partition(
         .bind(cursor.upper_bucket)
         .execute(&mut **transaction)
         .await
-        .map_err(|_| database_error("spill-delete-canonicalized-raw"))?;
+        .map_err(|error| classify_statement_error(&error, "spill-delete-canonicalized-raw"))?;
     Ok(inserted)
+}
+
+/// Refresh planner statistics for one table this generation just filled.
+///
+/// The partition queries are only bounded while PostgreSQL plans them from
+/// statistics that include this generation. A never-analyzed table, or a
+/// sample of only earlier or failed generations, makes the planner estimate
+/// this generation's `(project_id, generation_id)` prefix at about one row, so
+/// an index matching only that prefix looks as cheap as the exact key. Each
+/// probe of such an index then walks the whole generation: a full rebuild of a
+/// few hundred thousand symbols validated a single edge or document partition
+/// for longer than the spill statement timeout. Autovacuum may sample these
+/// tables at any point, so the reduce does not rely on it. The sample counts
+/// this transaction's own rows, so the statistics describe the whole table.
+async fn analyze_planner_statistics(
+    spill: &NativeGenerationSpill,
+    transaction: &mut sqlx_postgres::PgTransaction<'_>,
+    target: Option<(&'static str, &'static str)>,
+) -> Result<(), StorageError> {
+    let Some((table, columns)) = target else {
+        return Ok(());
+    };
+    let schema = crate::database::quoted_schema(&spill.database.schema);
+    audited_query(format!(r#"ANALYZE {schema}."{table}" ({columns})"#))
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| classify_statement_error(&error, "spill-analyze-planner-statistics"))?;
+    Ok(())
 }
 
 async fn advance_canonical_cursor(
@@ -3016,7 +3135,7 @@ pub(crate) async fn canonical_fact_counts(
         .bind(generation_id.as_str())
         .fetch_one(connection)
         .await
-        .map_err(|_| database_error("spill-read-canonical-counts"))?;
+        .map_err(|error| classify_statement_error(&error, "spill-read-canonical-counts"))?;
     decode_fact_counts(&row)
 }
 
@@ -3128,7 +3247,7 @@ where
     while let Some(row) = rows
         .try_next()
         .await
-        .map_err(|_| database_error(request.operation))?
+        .map_err(|error| classify_statement_error(&error, request.operation))?
     {
         pulse.row().await?;
         let encoded = row
@@ -3317,7 +3436,7 @@ where
         .bind(generation_id.as_str())
         .fetch_optional(&mut **transaction)
         .await
-        .map_err(|_| database_error("spill-digest-document-metadata"))?;
+        .map_err(|error| classify_statement_error(&error, "spill-digest-document-metadata"))?;
     if missing.is_none() {
         let sql = digest_relation_sql(
             schema,
@@ -3366,7 +3485,7 @@ where
     while let Some(row) = rows
         .try_next()
         .await
-        .map_err(|_| database_error("spill-digest-documents"))?
+        .map_err(|error| classify_statement_error(&error, "spill-digest-documents"))?
     {
         pulse.row().await?;
         let raw_kind = read_string(&row, "document_kind")?;
@@ -4056,6 +4175,28 @@ mod tests {
             })
         );
         assert!(NativeGenerationSpillPolicy::new(1, 1).is_ok());
+    }
+
+    /// A fact relation missing from either planner-column list would silently
+    /// skip its `ANALYZE`, and its partitions, or later relations, would again
+    /// be validated against statistics that do not describe this generation.
+    #[test]
+    fn every_fact_relation_refreshes_raw_and_canonical_planner_statistics() {
+        for relation in NativeGenerationSpillRelation::FACTS {
+            let raw = relation.raw_planner_statistics();
+            assert_eq!(
+                raw.map(|(table, _)| table),
+                Some(format!("native_generation_spill_{}", relation.as_str())).as_deref(),
+            );
+            assert!(
+                relation.canonical_planner_statistics().is_some(),
+                "{} has no canonical planner statistics",
+                relation.as_str()
+            );
+        }
+        let extracted = NativeGenerationSpillRelation::ExtractedFiles;
+        assert_eq!(extracted.raw_planner_statistics(), None);
+        assert_eq!(extracted.canonical_planner_statistics(), None);
     }
 
     #[test]

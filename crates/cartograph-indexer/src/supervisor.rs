@@ -114,7 +114,8 @@ impl fmt::Display for PipelineFileFailure {
 /// Stable credential-safe detail for a pipeline failure whose cause is actionable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PipelineFailureReason {
-    /// A bounded item or whole-stage execution horizon elapsed.
+    /// A bounded item or whole-stage execution horizon elapsed, or one of the
+    /// stage's database statements outlived its statement timeout.
     DeadlineExceeded,
     /// The supervisor observed no durable stage progress inside its watchdog horizon.
     ProgressStalled,

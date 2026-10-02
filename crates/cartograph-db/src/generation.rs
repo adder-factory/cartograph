@@ -43,7 +43,9 @@ const RECONCILE_LEASE_ID_COLUMN: usize = 5;
 const RECONCILE_LEASE_UNEXPIRED_COLUMN: usize = 6;
 const RECONCILE_LEASE_GENERATION_COLUMN: usize = 7;
 const GENERATION_LOCK_NAMESPACE: &str = "cartograph-v2-generation";
-const COPIED_RELATION_PLANNER_COLUMNS: [(&str, &str); 6] = [
+/// Each bulk-loaded generation relation and the planner columns analyzed after
+/// its rows land. Both the COPY prepare and the spilled reduce use this list.
+pub(crate) const COPIED_RELATION_PLANNER_COLUMNS: [(&str, &str); 6] = [
     (
         "files",
         "project_id, generation_id, file_id, normalized_path",
@@ -1603,6 +1605,10 @@ impl CartographDatabase {
     ///
     /// This operation is idempotent for an already-failed generation that still
     /// carries the same live token, which permits bounded timeout reconciliation.
+    /// The generation's spill run is deleted with it when that cascade fits the
+    /// statement deadline; a larger spill stays with the failed generation, like
+    /// its already-staged canonical rows, until retention drains it in bounded
+    /// batches, so the transition never depends on generation size.
     /// # Errors
     ///
     /// Returns an error if the exact generation lease is stale/malformed or
@@ -1852,7 +1858,7 @@ async fn cleanup_transaction(
             });
         }
     }
-    delete_generation_spill_if_present(
+    reclaim_generation_spill(
         connection,
         GenerationSpillDelete {
             quoted_schema: &quoted_schema,
@@ -1862,6 +1868,38 @@ async fn cleanup_transaction(
     )
     .await?;
     delete_generation_fence(connection, &quoted_schema, fence).await
+}
+
+/// Delete a failed generation's spill run when the cascade fits the cleanup's
+/// statement deadline, so a retry can reuse those pages at once.
+///
+/// The cascade walks every spilled row of the generation in one statement, and
+/// a large rebuild's spill outlives the short failure-cleanup deadline. That
+/// timeout rolls back only this savepoint: the generation is still failed and
+/// its lease released, and the spill is left to retention's bounded keyset
+/// drain, exactly as abandoned-staging recovery leaves it. Failing the whole
+/// cleanup instead kept the generation staging and its lease held until the
+/// lease expired. Every other failure aborts the cleanup as before.
+async fn reclaim_generation_spill(
+    connection: &mut PgConnection,
+    input: GenerationSpillDelete<'_>,
+) -> Result<(), StorageError> {
+    query("SAVEPOINT cartograph_cleanup_spill")
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| database_error("cleanup-spill-savepoint"))?;
+    let settle = match delete_generation_spill_if_present(&mut *connection, input).await {
+        Ok(()) => "RELEASE SAVEPOINT cartograph_cleanup_spill",
+        Err(StorageError::StatementTimeout { .. }) => {
+            "ROLLBACK TO SAVEPOINT cartograph_cleanup_spill"
+        }
+        Err(error) => return Err(error),
+    };
+    query(settle)
+        .execute(connection)
+        .await
+        .map(|_| ())
+        .map_err(|_| database_error("cleanup-spill-savepoint"))
 }
 
 async fn fail_transaction(
@@ -1930,7 +1968,7 @@ async fn delete_generation_spill_if_present(
         .execute(connection)
         .await
         .map(|_| ())
-        .map_err(|_| database_error("cleanup-generation-spill"))
+        .map_err(|error| classify_statement_error(&error, "cleanup-generation-spill"))
 }
 
 async fn prepare_transaction(

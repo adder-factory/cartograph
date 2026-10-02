@@ -6,6 +6,15 @@ pub(crate) const GENERATION_CAPACITY_SCOPE: &str = "cartograph_process";
 pub(crate) const GENERATION_CAPACITY_NEXT_ACTION: &str = "use generationStorage=postgres for a dense repository; maxGenerationBytes cannot exceed 8589934592 bytes (8 GiB), so when that ceiling is already selected exclude machine-generated or compiled artifacts with --exclude or project configuration, then run an explicit cartograph index; auto-sync suppresses itself after five capacity failures";
 /// Stable code for a failed bounded cleanup of index staging state.
 pub(crate) const INDEX_CLEANUP_FAILED_CODE: &str = "index_cleanup_failed";
+/// Stable code for a schema migration that another session's PostgreSQL locks
+/// kept from applying for its whole lock-contention budget. Like `lease_busy`,
+/// it is retryable contention: nothing was applied.
+pub(crate) const SCHEMA_BUSY_CODE: &str = "schema_busy";
+/// Exit status of `db start` when its schema migration ends as
+/// [`SCHEMA_BUSY_CODE`] (`EX_TEMPFAIL` from `sysexits.h`), so a parent such as
+/// `upgrade --apply` can tell retryable contention from a failure without
+/// parsing output. Every other `db start` failure exits with status 1.
+pub(crate) const SCHEMA_BUSY_EXIT_STATUS: u8 = 75;
 /// Stable code for a SCIP import that could not restore the project's
 /// previous overlay after its forced index failed or was cancelled.
 const SCIP_OVERLAY_ROLLBACK_FAILED_CODE: &str = "scip_overlay_rollback_failed";
@@ -250,6 +259,7 @@ const fn index_lifecycle_failure_code(error: &ProjectError) -> Option<&'static s
         ProjectError::SourceChangedDuringIndex => Some("source_changed_during_index"),
         ProjectError::IndexFailed => Some("index_failed"),
         ProjectError::IndexLeaseBusy => Some("lease_busy"),
+        ProjectError::SchemaBusy => Some(SCHEMA_BUSY_CODE),
         ProjectError::IndexRetentionBacklog => Some("retention_backlog"),
         ProjectError::IndexLeaseFailed => Some("lease_failed"),
         ProjectError::IndexPublicationFailed => Some("publication_failed"),
@@ -501,6 +511,22 @@ mod tests {
             .unwrap_or_else(|serialization| panic!("failure JSON failed: {serialization}"));
         serde_json::from_str(&encoded)
             .unwrap_or_else(|serialization| panic!("failure JSON was invalid: {serialization}"))
+    }
+
+    #[test]
+    fn a_busy_schema_reaches_index_json_as_its_own_retryable_code() {
+        // `upgrade --apply` reads this code from the index child's stderr to
+        // report contention instead of a permanent `blocked` index step.
+        let report = failure_report(DirectIndexFailureInput {
+            failure: &IndexFailure::from(ProjectError::SchemaBusy),
+            previous_generation_visible: None,
+        });
+        assert_eq!(report["error"]["code"], SCHEMA_BUSY_CODE);
+        assert!(report["error"]["previous_generation_visible"].is_null());
+        let message = direct_index_failure_message(&ProjectError::SchemaBusy);
+        assert!(message.contains("MCP server started from an older binary"));
+        assert!(message.contains("Restart or stop that process"));
+        assert!(message.ends_with("(reason: schema_busy)"));
     }
 
     #[test]
