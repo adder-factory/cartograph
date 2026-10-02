@@ -11,7 +11,7 @@ use cartograph_search::{
 
 use crate::{
     GitChangeKind, ProjectCancellation, ProjectError, ProjectRuntime, ReviewOptions,
-    discover_git_comparison, utf8_boundary,
+    discover_git_comparison,
 };
 
 const OVERLAY_MAXIMUM_FILE_BYTES: usize = 512 * 1_024;
@@ -322,7 +322,7 @@ fn live_excerpt(source: &str, matched_line: usize) -> LiveExcerpt {
         if remaining == 0 {
             break;
         }
-        let boundary = utf8_boundary(line, remaining.min(line.len()));
+        let boundary = line.floor_char_boundary(remaining);
         text.push_str(&line[..boundary]);
         end_line = index;
         if boundary < line.len() {

@@ -1432,14 +1432,7 @@ fn ascii_lower_prefix(source: &str) -> String {
 }
 
 fn bounded_prefix(source: &str, maximum_bytes: usize) -> &str {
-    if source.len() <= maximum_bytes {
-        return source;
-    }
-    let mut end = maximum_bytes;
-    while !source.is_char_boundary(end) {
-        end -= 1;
-    }
-    &source[..end]
+    &source[..source.floor_char_boundary(maximum_bytes)]
 }
 
 /// A canonical project-relative source path with forward-slash separators.

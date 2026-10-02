@@ -3510,14 +3510,6 @@ fn monotonic_millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
-pub(crate) fn utf8_boundary(value: &str, maximum: usize) -> usize {
-    let mut boundary = maximum.min(value.len());
-    while !value.is_char_boundary(boundary) {
-        boundary = boundary.saturating_sub(1);
-    }
-    boundary
-}
-
 /// Credential-safe project service failures.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum ProjectError {

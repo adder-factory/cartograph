@@ -15455,7 +15455,7 @@ fn normalize_rollup_summary(content: &str) -> Result<String, ProjectError> {
         return Ok(compact);
     }
     let maximum_body = FILE_SUMMARY_MAXIMUM_TEXT_BYTES.saturating_sub(" …".len());
-    let boundary = utf8_boundary_for_tool(&compact, maximum_body);
+    let boundary = compact.floor_char_boundary(maximum_body);
     let head = &compact[..boundary];
     let sentence = [head.rfind(". "), head.rfind("! "), head.rfind("? ")]
         .into_iter()
@@ -20201,16 +20201,8 @@ fn trace_result_summary(result: &Result<ToolResult, ToolError>) -> (bool, String
 }
 
 fn bounded_utf8_text(value: &str, maximum: usize) -> (String, bool) {
-    let boundary = utf8_boundary_for_tool(value, maximum);
+    let boundary = value.floor_char_boundary(maximum);
     (value[..boundary].to_owned(), boundary < value.len())
-}
-
-fn utf8_boundary_for_tool(value: &str, maximum: usize) -> usize {
-    let mut boundary = maximum.min(value.len());
-    while !value.is_char_boundary(boundary) {
-        boundary = boundary.saturating_sub(1);
-    }
-    boundary
 }
 
 fn playbook_tool(arguments: &Map<String, Value>) -> Result<ToolResult, ToolError> {

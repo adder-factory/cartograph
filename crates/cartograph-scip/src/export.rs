@@ -647,11 +647,7 @@ fn bounded_documentation(text: &str) -> Vec<String> {
     if text.is_empty() {
         return Vec::new();
     }
-    let mut end = text.len().min(MAXIMUM_STRING_BYTES);
-    while !text.is_char_boundary(end) {
-        end = end.saturating_sub(1);
-    }
-    vec![text[..end].to_owned()]
+    vec![text[..text.floor_char_boundary(MAXIMUM_STRING_BYTES)].to_owned()]
 }
 
 fn symbol_display_name(symbol: &InterchangeSymbol, file_path: &str) -> String {

@@ -7,7 +7,7 @@ use cartograph_domain::{
 };
 use serde::Serialize;
 
-use crate::{ProjectCancellation, ProjectError, ProjectRuntime, utf8_boundary};
+use crate::{ProjectCancellation, ProjectError, ProjectRuntime};
 
 const DEFAULT_CONTEXT_LINES: u16 = 3;
 const MAXIMUM_CONTEXT_LINES: u16 = 200;
@@ -656,7 +656,7 @@ fn extract_file_excerpt(
     {
         let remaining = MAXIMUM_FILE_EXCERPT_BYTES.saturating_sub(text.len());
         if line.len() > remaining {
-            let boundary = utf8_boundary(line, remaining);
+            let boundary = line.floor_char_boundary(remaining);
             text.push_str(&line[..boundary]);
             returned = returned.saturating_add(1);
             byte_truncated = true;
@@ -712,7 +712,7 @@ fn extract_excerpt(input: ExcerptRequest<'_>) -> Result<SourceExcerpt, ProjectEr
         }
         let remaining = options.maximum_bytes.saturating_sub(text.len());
         if line.len() > remaining {
-            let boundary = utf8_boundary(line, remaining);
+            let boundary = line.floor_char_boundary(remaining);
             text.push_str(&line[..boundary]);
             end_line = line_number;
             truncated = true;

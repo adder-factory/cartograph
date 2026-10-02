@@ -309,14 +309,7 @@ fn append_rerank_field(text: &mut String, label: &str, value: &str) {
 }
 
 fn bounded_utf8(value: &str, maximum_bytes: usize) -> &str {
-    if value.len() <= maximum_bytes {
-        return value;
-    }
-    let mut end = maximum_bytes;
-    while end > 0 && !value.is_char_boundary(end) {
-        end = end.saturating_sub(1);
-    }
-    &value[..end]
+    &value[..value.floor_char_boundary(maximum_bytes)]
 }
 
 fn parse_optional_id<T>(

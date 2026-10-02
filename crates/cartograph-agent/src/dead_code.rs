@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use crate::{ProjectCancellation, utf8_boundary};
+use crate::ProjectCancellation;
 
 const MAXIMUM_CANDIDATES: u16 = 500;
 const DEFAULT_BATCH_SIZE: u8 = 10;
@@ -283,11 +283,7 @@ fn batch_prompt(candidates: &[DeadCodeCandidate]) -> String {
 }
 
 fn bounded_safe_code(value: &str) -> &str {
-    let mut end = value.len().min(MAXIMUM_SAFE_CODE_BYTES);
-    while !value.is_char_boundary(end) {
-        end = end.saturating_sub(1);
-    }
-    &value[..end]
+    &value[..value.floor_char_boundary(MAXIMUM_SAFE_CODE_BYTES)]
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -383,7 +379,7 @@ fn apply_structural_hedges(
                 judgement.reason
             );
             if judgement.reason.len() > MAXIMUM_REASON_BYTES {
-                let boundary = utf8_boundary(&judgement.reason, MAXIMUM_REASON_BYTES);
+                let boundary = judgement.reason.floor_char_boundary(MAXIMUM_REASON_BYTES);
                 judgement.reason.truncate(boundary);
             }
         }

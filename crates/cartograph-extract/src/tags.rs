@@ -1366,11 +1366,7 @@ fn truncate_with_ellipsis(
         output.push_str(value);
         return Ok(output);
     }
-    let mut end = prefix.min(value.len());
-    while !value.is_char_boundary(end) {
-        end = end.saturating_sub(1);
-    }
-    output.push_str(&value[..end]);
+    output.push_str(&value[..value.floor_char_boundary(prefix)]);
     output.push_str("...");
     Ok(output)
 }

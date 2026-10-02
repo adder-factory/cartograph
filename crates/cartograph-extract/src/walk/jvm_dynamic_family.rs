@@ -583,10 +583,9 @@ fn preceding_jvm_doc(
 }
 
 fn jvm_doc_prefix(source: &str, upper_bound: usize) -> Option<(&str, usize)> {
-    let mut lower_bound = upper_bound.saturating_sub(MAX_DOC_BYTES.saturating_add(4));
-    while lower_bound < upper_bound && !source.is_char_boundary(lower_bound) {
-        lower_bound = lower_bound.saturating_add(1);
-    }
+    let lower_bound = source
+        .ceil_char_boundary(upper_bound.saturating_sub(MAX_DOC_BYTES.saturating_add(4)))
+        .min(upper_bound);
     let before = source.get(lower_bound..upper_bound)?;
     let trimmed_end = before.trim_end_matches(char::is_whitespace).len();
     let gap = before.get(trimmed_end..).unwrap_or_default();

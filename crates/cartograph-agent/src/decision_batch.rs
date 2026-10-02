@@ -141,14 +141,7 @@ where
 
 /// `text` cut to at most `limit` bytes on a character boundary.
 pub(crate) fn truncated(text: &str, limit: usize) -> &str {
-    if text.len() <= limit {
-        return text;
-    }
-    let mut end = limit;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    &text[..text.floor_char_boundary(limit)]
 }
 
 #[cfg(test)]

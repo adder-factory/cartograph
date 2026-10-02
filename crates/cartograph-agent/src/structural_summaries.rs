@@ -412,6 +412,6 @@ pub fn cap_structural_summary(value: &str) -> String {
         return one_line;
     }
     let body_limit = SUMMARY_MAXIMUM_TEXT_BYTES.saturating_sub("...".len());
-    let body = &one_line[..crate::utf8_boundary(&one_line, body_limit)];
+    let body = &one_line[..one_line.floor_char_boundary(body_limit)];
     format!("{}...", body.trim_end())
 }
