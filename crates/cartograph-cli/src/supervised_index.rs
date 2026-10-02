@@ -4,10 +4,10 @@
 //! cooperative [`ProjectCancellation`]: the indexer supervisor then fails its
 //! staging generation and releases its exact project lease instead of leaving
 //! both behind until the lease expires. A second interrupt exits immediately.
-//! A cancelled request reports `request_cancelled` only when PostgreSQL
-//! confirms the cleanup of what that request itself held; otherwise it
-//! reports `index_cleanup_failed`. Other writers' leases and generations on
-//! the same project are never part of that proof.
+//! A cancelled request reports `request_cancelled` as its primary failure.
+//! It adds the secondary `cleanup_failure` unless PostgreSQL confirms the
+//! cleanup of what that request itself held. Other writers' leases and
+//! generations on the same project are never part of that proof.
 //!
 //! The hidden `--supervised` mode is the child that `upgrade --apply` runs.
 //! Its parent holds stdin open and closes it to request the same cooperative
@@ -27,8 +27,8 @@ use std::{
 };
 
 use cartograph_agent::{
-    IndexOptions, IndexReport, PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime,
-    ReservedIndexGeneration, SupervisorState, SupervisorStatus,
+    IndexFailure, IndexOptions, IndexReport, PipelineStage, ProjectCancellation, ProjectError,
+    ProjectRuntime, ReservedIndexGeneration, SupervisorState, SupervisorStatus,
 };
 use cartograph_db::LeaseTarget;
 use cartograph_domain::{GenerationId, GenerationState, ProjectId, ProjectOperation};
@@ -41,8 +41,9 @@ use tokio::time::{Instant, MissedTickBehavior};
 pub(crate) const SUPERVISED_WRITER_WAIT: Duration = Duration::from_mins(30);
 /// Interval between reads of the project's operation leases.
 const WRITER_POLL_INTERVAL: Duration = Duration::from_secs(1);
-/// First pause after an acquisition collision that no live lease explained,
-/// such as a schema-maintenance lock; it doubles up to
+/// First pause after a `lease_busy` attempt that no live lease explained,
+/// such as a project lock held past the bounded staging-preflight wait by an
+/// operation without a lease, or a schema-maintenance lock; it doubles up to
 /// [`MAXIMUM_COLLISION_BACKOFF`] because every collision costs a source scan.
 /// A collision with a live writer instead waits for that writer's lease.
 const INITIAL_COLLISION_BACKOFF: Duration = Duration::from_secs(15);
@@ -99,9 +100,13 @@ pub(crate) struct CancellableIndex<'request> {
 }
 
 /// Run one index request under its cancellation signal.
+///
+/// A failure keeps the attempt's primary error and whether cleanup of what
+/// the request held also failed; for a cancellation, PostgreSQL decides the
+/// latter (see [`confirm_cancellation_cleanup`]).
 pub(crate) async fn run_cancellable_index(
     request: CancellableIndex<'_>,
-) -> Result<IndexReport, ProjectError> {
+) -> Result<IndexReport, IndexFailure> {
     let CancellableIndex {
         runtime,
         options,
@@ -113,7 +118,7 @@ pub(crate) async fn run_cancellable_index(
             let mut owned = OwnedReservations::default();
             let reserved_before = cancellation.reserved_index_generation();
             let result = runtime
-                .index_with_cancellation(options, cancellation.clone())
+                .index_with_cancellation_detail(options, cancellation.clone())
                 .await;
             owned.record_since(&cancellation, reserved_before.as_ref());
             confirm_cancellation_cleanup(FinishedRequest {
@@ -205,43 +210,78 @@ impl OwnedReservations {
 
 /// One finished index request whose cancellation may need a cleanup proof.
 struct FinishedRequest<'request> {
-    result: Result<IndexReport, ProjectError>,
+    result: Result<IndexReport, IndexFailure>,
     runtime: &'request ProjectRuntime,
     /// Whether the request's cancellation was requested.
     cancelled: bool,
     owned: &'request OwnedReservations,
 }
 
-/// Keep `request_cancelled` only when PostgreSQL proves the cancelled
-/// request cleaned up what it held.
+/// Report a cancelled request as `request_cancelled`, with a secondary
+/// cleanup failure unless PostgreSQL proves the request cleaned up what it
+/// held.
 ///
+/// Neither the agent's cleanup flag nor its absence settles a cancellation.
 /// The agent reports any supervisor error under a cancelled token as
-/// `RequestCancelled`, including a failed or skipped cleanup. Conversely, a
-/// cancelled attempt whose own cleanup already completed can still end in
-/// `IndexCleanupFailed` when a redundant bounded cleanup afterwards waits
-/// behind another writer's project lock; for a cancelled request both are
-/// settled by the same proof. A request that
-/// reserved no generation held nothing. Otherwise each generation it reserved
-/// must have left `staging`/`ready` (cleanup marks it `failed`; it may also
-/// have been published, superseded, or retired) and the project's index lease
-/// row must name none of them. Another writer's lease and generations, which
-/// a concurrent auto-sync may hold at the same moment, are not this request's
-/// and never count against it. An unreadable row is reported as
-/// [`ProjectError::IndexCleanupFailed`]: conservative, never optimistic.
+/// `RequestCancelled`, including one whose owned cleanup failed or was
+/// skipped. Conversely, an attempt whose own cleanup already completed can
+/// still carry a cleanup failure when a redundant bounded cleanup afterwards
+/// waits behind another writer's project lock; and a supervised request may
+/// hold reservations from earlier attempts. A request that reserved no
+/// generation held nothing. Otherwise each generation it reserved must have
+/// left `staging`/`ready` (cleanup marks it `failed`; it may also have been
+/// published, superseded, or retired) and the project's index lease row must
+/// name none of them. Another writer's lease and generations, which a
+/// concurrent auto-sync may hold at the same moment, are not this request's
+/// and never count against it. An unreadable row is reported as a cleanup
+/// failure: conservative, never optimistic.
 async fn confirm_cancellation_cleanup(
     request: FinishedRequest<'_>,
-) -> Result<IndexReport, ProjectError> {
+) -> Result<IndexReport, IndexFailure> {
     let FinishedRequest {
         result,
         runtime,
         cancelled,
         owned,
     } = request;
-    if !cancellation_outcome(&result, cancelled) {
-        return result;
+    match &result {
+        Err(failure) if cancellation_outcome(failure.error(), cancelled) => {}
+        _ => return result,
     }
+    let cancellation = IndexFailure::from(ProjectError::RequestCancelled);
+    if owned_cleanup_proven(runtime, owned).await {
+        Err(cancellation)
+    } else {
+        Err(cancellation.with_failed_cleanup())
+    }
+}
+
+/// Whether a failure is the outcome of a cancellation that the cleanup
+/// proof settles: `RequestCancelled`, or `lease_busy` after cancellation was
+/// requested.
+///
+/// A cancelled attempt that reserved a generation already reports
+/// `RequestCancelled`. One that met another writer before reserving (a live
+/// lease, or the project lock still held past the bounded staging-preflight
+/// wait) answers `lease_busy` without checking cancellation, yet it is the
+/// requested stop, not contention left to retry, so it is reported as one;
+/// so is a collision that ended just before the stop arrived, which the same
+/// proof settles. Any other primary failure, including a pre-reservation
+/// staging recovery that failed for a reason other than contention, is not
+/// the request's own cleanup and is reported as it is.
+const fn cancellation_outcome(error: &ProjectError, cancelled: bool) -> bool {
+    match error {
+        ProjectError::RequestCancelled => true,
+        ProjectError::IndexLeaseBusy => cancelled,
+        _ => false,
+    }
+}
+
+/// Whether PostgreSQL shows every generation in `owned` settled and no index
+/// lease row naming one of them; trivially true when nothing was reserved.
+async fn owned_cleanup_proven(runtime: &ProjectRuntime, owned: &OwnedReservations) -> bool {
     let Some(project_id) = owned.reserved.first().map(|first| first.project_id.clone()) else {
-        return Err(ProjectError::RequestCancelled);
+        return true;
     };
     let database = runtime.database();
     let mut generations = Vec::with_capacity(owned.reserved.len());
@@ -263,25 +303,11 @@ async fn confirm_cancellation_cleanup(
         Ok(Some(lease)) => IndexLeaseRow::Names(lease.generation_id().cloned()),
         Err(_) => IndexLeaseRow::Unreadable,
     };
-    if owned_cleanup_confirmed(&OwnedCleanup {
+    owned_cleanup_confirmed(&OwnedCleanup {
         owned: &generation_ids,
         generations: &generations,
         lease,
-    }) {
-        Err(ProjectError::RequestCancelled)
-    } else {
-        Err(ProjectError::IndexCleanupFailed)
-    }
-}
-
-/// Whether `result` is the outcome of a cancellation that the cleanup proof
-/// settles: `RequestCancelled`, or a cleanup failure of a cancelled request.
-const fn cancellation_outcome(result: &Result<IndexReport, ProjectError>, cancelled: bool) -> bool {
-    match result {
-        Err(ProjectError::RequestCancelled) => true,
-        Err(ProjectError::IndexCleanupFailed) => cancelled,
-        _ => false,
-    }
+    })
 }
 
 /// One generation the cancelled request reserved, as PostgreSQL reports it.
@@ -488,7 +514,7 @@ struct SupervisedIndex<'request> {
 }
 
 /// Index after other writers finish while reporting progress until it ends.
-async fn run_supervised_index(request: SupervisedIndex<'_>) -> Result<IndexReport, ProjectError> {
+async fn run_supervised_index(request: SupervisedIndex<'_>) -> Result<IndexReport, IndexFailure> {
     let SupervisedIndex {
         runtime,
         options,
@@ -522,7 +548,7 @@ async fn run_supervised_index(request: SupervisedIndex<'_>) -> Result<IndexRepor
 async fn index_after_other_writers(
     wait: &WriterWait<'_>,
     options: IndexOptions,
-) -> Result<IndexReport, ProjectError> {
+) -> Result<IndexReport, IndexFailure> {
     let mut owned = OwnedReservations::default();
     let result = attempt_until_final(wait, options, &mut owned).await;
     confirm_cancellation_cleanup(FinishedRequest {
@@ -535,11 +561,13 @@ async fn index_after_other_writers(
 }
 
 /// Run attempts until one is final, recording each attempt's reservation.
+/// The wait itself ends the request with `request_cancelled` or, once its
+/// bound expires, `lease_busy`; neither ran a cleanup of its own.
 async fn attempt_until_final(
     wait: &WriterWait<'_>,
     options: IndexOptions,
     owned: &mut OwnedReservations,
-) -> Result<IndexReport, ProjectError> {
+) -> Result<IndexReport, IndexFailure> {
     let mut backoff = INITIAL_COLLISION_BACKOFF;
     loop {
         wait.progress.indexing.store(false, Ordering::Relaxed);
@@ -549,7 +577,7 @@ async fn attempt_until_final(
         let reserved_before = wait.cancellation.reserved_index_generation();
         let result = wait
             .runtime
-            .index_with_cancellation(options.clone(), wait.cancellation.clone())
+            .index_with_cancellation_detail(options.clone(), wait.cancellation.clone())
             .await;
         owned.record_since(wait.cancellation, reserved_before.as_ref());
         match attempt_verdict(wait, &result).await {
@@ -571,40 +599,34 @@ enum AttemptVerdict {
     Final,
     /// Another writer's live lease explains the failure: wait it out.
     AwaitWriter,
-    /// Lease acquisition was refused without a live lease to explain it, for
-    /// example by a schema-maintenance lock: pause, then try again.
+    /// The project was busy without a live lease to explain it, for example
+    /// a schema-maintenance lock: pause, then try again.
     Backoff,
 }
 
-/// A failure that another project writer can cause.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SuspectedContention {
-    /// Lease acquisition found the project busy.
-    LeaseRefused,
-    /// A bounded staging cleanup could not finish. Another writer's prepare
-    /// transaction holds the project lock for its whole COPY, so the cleanup
-    /// that every attempt runs first times out behind it; only a live lease
-    /// on the project at that point makes it a collision rather than a
-    /// cleanup fault.
-    CleanupBlocked,
-}
-
-const fn suspected_contention(
-    result: &Result<IndexReport, ProjectError>,
-) -> Option<SuspectedContention> {
+/// Whether another project writer refused the attempt.
+///
+/// The agent reports every collision as `lease_busy`: a live project lease or
+/// a project lock still held past the bounded staging-preflight wait (another
+/// writer's prepare transaction holds it for its whole COPY) before any
+/// generation is reserved, and a writer that won after that check at lease
+/// acquisition. A cleanup failure that follows the collision is secondary
+/// detail of that primary. `index_cleanup_failed` as the primary failure
+/// means only that the pre-reservation staging recovery failed for a reason
+/// other than contention, so it is a final fault, never a collision.
+const fn refused_by_another_writer(result: &Result<IndexReport, IndexFailure>) -> bool {
     match result {
-        Err(ProjectError::IndexLeaseBusy) => Some(SuspectedContention::LeaseRefused),
-        Err(ProjectError::IndexCleanupFailed) => Some(SuspectedContention::CleanupBlocked),
-        _ => None,
+        Err(failure) => matches!(failure.error(), ProjectError::IndexLeaseBusy),
+        Ok(_) => false,
     }
 }
 
-/// Decide a suspected collision from whether another writer's lease is live.
-const fn contention_verdict(suspected: SuspectedContention, live_writer: bool) -> AttemptVerdict {
-    match (suspected, live_writer) {
-        (_, true) => AttemptVerdict::AwaitWriter,
-        (SuspectedContention::LeaseRefused, false) => AttemptVerdict::Backoff,
-        (SuspectedContention::CleanupBlocked, false) => AttemptVerdict::Final,
+/// Decide a collision from whether another writer's lease is live.
+const fn contention_verdict(live_writer: bool) -> AttemptVerdict {
+    if live_writer {
+        AttemptVerdict::AwaitWriter
+    } else {
+        AttemptVerdict::Backoff
     }
 }
 
@@ -615,16 +637,13 @@ const fn contention_verdict(suspected: SuspectedContention, live_writer: bool) -
 /// bound as `lease_busy`.
 async fn attempt_verdict(
     wait: &WriterWait<'_>,
-    result: &Result<IndexReport, ProjectError>,
+    result: &Result<IndexReport, IndexFailure>,
 ) -> AttemptVerdict {
-    if wait.cancellation.is_cancelled() {
+    if wait.cancellation.is_cancelled() || !refused_by_another_writer(result) {
         return AttemptVerdict::Final;
     }
-    let Some(suspected) = suspected_contention(result) else {
-        return AttemptVerdict::Final;
-    };
     match within_wait(wait, live_writer_on_project(wait.runtime)).await {
-        Ok(live_writer) => contention_verdict(suspected, live_writer),
+        Ok(live_writer) => contention_verdict(live_writer),
         Err(ProjectError::RequestCancelled) => AttemptVerdict::Final,
         Err(_) => AttemptVerdict::AwaitWriter,
     }
@@ -880,33 +899,33 @@ mod tests {
         );
     }
 
+    fn failed(failure: IndexFailure) -> Result<IndexReport, IndexFailure> {
+        Err(failure)
+    }
+
     #[test]
-    fn a_cleanup_blocked_behind_a_live_writer_is_awaited_not_reported() {
-        let blocked = suspected_contention(&Err(ProjectError::IndexCleanupFailed))
-            .unwrap_or_else(|| panic!("a blocked cleanup must be checked for contention"));
-        // Another writer's prepare holds the project lock: wait for it
-        // instead of reporting a cleanup failure.
-        assert_eq!(
-            contention_verdict(blocked, true),
-            AttemptVerdict::AwaitWriter
-        );
-        // Without a live writer the cleanup failure is real and final.
-        assert_eq!(contention_verdict(blocked, false), AttemptVerdict::Final);
+    fn only_lease_contention_is_a_collision_even_with_a_failed_cleanup_beside_it() {
+        // A collided attempt whose own staging cleanup then timed out behind
+        // the other writer keeps `lease_busy` as its primary: still a
+        // collision to wait out, not a final cleanup failure.
+        let collided = IndexFailure::from(ProjectError::IndexLeaseBusy).with_failed_cleanup();
+        assert!(refused_by_another_writer(&failed(collided)));
+        assert!(refused_by_another_writer(&failed(
+            ProjectError::IndexLeaseBusy.into()
+        )));
+        assert_eq!(contention_verdict(true), AttemptVerdict::AwaitWriter);
+        assert_eq!(contention_verdict(false), AttemptVerdict::Backoff);
 
-        let refused = suspected_contention(&Err(ProjectError::IndexLeaseBusy))
-            .unwrap_or_else(|| panic!("a refused lease must be checked for contention"));
-        assert_eq!(
-            contention_verdict(refused, true),
-            AttemptVerdict::AwaitWriter
-        );
-        assert_eq!(contention_verdict(refused, false), AttemptVerdict::Backoff);
-
+        // A lock wait behind another writer's prepare is `lease_busy` before
+        // reservation, so `index_cleanup_failed` as the primary is a real
+        // staging-recovery fault: final, whether or not a writer is live.
         for other in [
+            ProjectError::IndexCleanupFailed,
             ProjectError::RequestCancelled,
             ProjectError::IndexFailed,
             ProjectError::IndexLeaseFailed,
         ] {
-            assert_eq!(suspected_contention(&Err(other)), None);
+            assert!(!refused_by_another_writer(&failed(other.into())));
         }
     }
 
@@ -916,26 +935,20 @@ mod tests {
     }
 
     #[test]
-    fn a_cancelled_requests_cleanup_failure_is_settled_by_the_proof() {
-        // A redundant cleanup that waited behind another writer's lock after
-        // the request's own cleanup finished must not decide the outcome.
-        assert!(cancellation_outcome(
-            &Err(ProjectError::IndexCleanupFailed),
+    fn a_cancelled_requests_contention_is_settled_by_the_proof_but_other_faults_are_not() {
+        assert!(cancellation_outcome(&ProjectError::RequestCancelled, false));
+        assert!(cancellation_outcome(&ProjectError::RequestCancelled, true));
+        // A stop that met another writer before reserving anything is the
+        // requested cancellation, not contention left to retry.
+        assert!(cancellation_outcome(&ProjectError::IndexLeaseBusy, true));
+        assert!(!cancellation_outcome(&ProjectError::IndexLeaseBusy, false));
+        // A failed pre-reservation staging recovery is not this request's own
+        // cleanup, so no proof about its reservations may relabel it.
+        assert!(!cancellation_outcome(
+            &ProjectError::IndexCleanupFailed,
             true
         ));
-        assert!(cancellation_outcome(
-            &Err(ProjectError::RequestCancelled),
-            false
-        ));
-        // Without cancellation a cleanup failure is reported as it is.
-        assert!(!cancellation_outcome(
-            &Err(ProjectError::IndexCleanupFailed),
-            false
-        ));
-        assert!(!cancellation_outcome(
-            &Err(ProjectError::IndexLeaseBusy),
-            true
-        ));
+        assert!(!cancellation_outcome(&ProjectError::IndexLeaseFailed, true));
     }
 
     #[test]

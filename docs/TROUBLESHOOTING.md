@@ -105,17 +105,19 @@ On a large or continuously edited project, read `projectReconciliation.index`:
 - `another_writer_active` (`retryable: true`): another Cartograph operation,
   usually an MCP server's auto-sync in another session (or a schema maintenance
   step), kept the project busy for the whole 30-minute wait and this run
-  published nothing. Rerun the same upgrade command
-  after it finishes. A writer that starts during the index's source scan is
-  awaited too, but each such collision repeats the scan, so an auto-sync that
-  re-syncs continuously can use up the whole wait; pause edits in the other
-  session (or stop its MCP server) before rerunning.
+  published nothing. Rerun the same upgrade command after it finishes. A
+  writer that starts during the index's source scan is awaited too (the
+  index's attempt reports `lease_busy` and is retried), but each such
+  collision repeats the scan, so an auto-sync that re-syncs continuously can
+  use up the whole wait; pause edits in the other session (or stop its MCP
+  server) before rerunning.
 - `timed_out` (`retryable: true`, `reason: no_progress` or `ceiling`): the index
   reported no progress for 15 minutes, or reached the 180-minute ceiling. Its
   stdin was closed so that it stopped cooperatively. The message says whether it
-  confirmed releasing its lease, exited without confirming it, or was killed
-  after 4 minutes; in the last two cases the lease can remain for up to its
-  5-minute TTL. A rerun waits for that instead of failing with `lease_busy`. If
+  confirmed releasing its lease (`request_cancelled` without a
+  `cleanup_failure`), exited without confirming it, or was killed after 4
+  minutes; in the last two cases the lease can remain for up to its 5-minute
+  TTL. A rerun waits for that instead of failing with `lease_busy`. If
   the timeout repeats, run `cartograph index <path>` directly to see the stage
   that is not advancing.
 - `blocked` with a `reason`: the index failed with that stable code. Run
@@ -127,9 +129,10 @@ about the project's health.
 
 `cartograph index` itself stops cooperatively on SIGINT or SIGTERM and releases
 its lease before exiting with `request_cancelled`; a second interrupt exits at
-once and leaves the lease to expire. `request_cancelled` confirms only this
-index's own cleanup: another session's lease or staging generation on the same
-project does not turn it into `index_cleanup_failed`.
+once and leaves the lease to expire. With `--format json`, a
+`request_cancelled` failure without `cleanup_failure` means PostgreSQL
+confirmed this index's own cleanup; another session's lease or staging
+generation on the same project does not add a `cleanup_failure`.
 
 If startup says the database schema is newer than the binary, do not retry the
 old process. The error reports the running binary version, database schema
@@ -204,7 +207,10 @@ When an attempt fails and the bounded cleanup of its own staging generation
 also fails afterward (for example, because its own interrupted transaction
 still holds the project lock), `index --format json` keeps the first failure as
 `code` and reports the cleanup as `cleanup_failure` with
-`index_cleanup_failed`. The next index retries that cleanup. A lost or
+`index_cleanup_failed`. A cancelled index (`request_cancelled`) reports
+`cleanup_failure` unless PostgreSQL confirms that no generation it reserved is
+still `staging` or `ready` and that its lease names none of them. The next index retries that
+cleanup. A lost or
 unconfirmed lease heartbeat is `lease_failed`. `code: index_cleanup_failed` on
 its own means the pre-reservation staging recovery failed for a reason other
 than contention; inspect PostgreSQL health and generation retention before

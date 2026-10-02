@@ -72,28 +72,28 @@ writes a structured `error` object to stderr with `code`, `message`, `stage`,
 literal values, database URL, or parser/driver internals. MCP admin job status
 uses the same bounded `fileFailure` evidence.
 
-A generated `cartograph admin` command that starts a background job, such as
-`admin index`, runs the job in-process and polls its status until it finishes.
-That wait has a ten-minute CLI deadline which also bounds every individual
-status poll. When the deadline elapses, or the wait fails for any other reason,
-the command cancels the job and waits up to four minutes for its cleanup before
-it exits nonzero. Cleanup normally fails the staging generation and releases
-the project's index lease. A job cancelled inside a long synchronous stage
-section first finishes that section, keeping its lease renewed meanwhile. If
-lease ownership is lost or its outcome is ambiguous, the work is still running
-at the operation deadline, or cleanup outlasts the four-minute wait, the lease
-is not released by this command: it expires on its own and the next writer
-recovers the staging generation. Run index work expected to exceed the deadline
-through `cartograph index` or the `cartograph_admin` job API of a long-lived
-`cartograph serve`.
+Invalid parser-recovery spans and parser stops without cancellation are instead
+retained as partial files and listed in a successful index report with degraded
+reason `extraction_invalid_span` or `extraction_parser_stopped`.
+For a generation-capacity failure, text and JSON name `maxGenerationBytes`, the
+`cartograph_process` scope, its hard 8 GiB maximum, and the bounded
+PostgreSQL-spill/generated-artifact-exclusion next action. An out-of-range
+configuration names the field and exact inclusive range. Auto-sync performs
+bounded failed-generation cleanup after each failed
+attempt and suppresses itself after five capacity failures across source
+revisions; adjust the reported setting and run an explicit index to clear that
+circuit.
 
-`code` is always the failure that ended the attempt. When bounded cleanup of
-the attempt's own staging generation also fails afterward, and the attempt's
-final unleased-staging cleanup does not terminalize that generation either, the
-object adds a separate `cleanup_failure` (`code: index_cleanup_failed`,
-`message`) instead of replacing `code`; the next index retries that cleanup. `code:
-index_cleanup_failed` alone means the pre-reservation staging recovery itself
-failed. `previous_generation_visible` is read from PostgreSQL after the
+In the `index --format json` failure object, `code` is always the failure
+that ended the attempt. When bounded cleanup of the attempt's own staging
+generation also fails afterward, and the attempt's final unleased-staging
+cleanup does not terminalize that generation either, the object adds a
+separate `cleanup_failure` (`code: index_cleanup_failed`, `message`) instead
+of replacing `code`; the next index retries that cleanup.
+For a cancelled index, `cleanup_failure` instead reflects the PostgreSQL check
+described below. `code: index_cleanup_failed` alone means the pre-reservation
+recovery of abandoned staging generations itself failed for a reason other
+than contention. `previous_generation_visible` is read from PostgreSQL after the
 failure: `true` when a published generation is still current, `false` when the
 project has none (for example, before its first successful index), and `null`
 when that bounded lookup itself failed. Another live project lease, or another
@@ -125,30 +125,35 @@ statement, or an `ANALYZE`) finishes or reaches its 3-minute statement bound.
 The transaction then rolls back at its next cancellation check instead of
 running its remaining COPY, derived-relation, evidence, and `ANALYZE`
 statements; at most a few short bookkeeping statements (lock, fence, and state
-checks) run before that check. `request_cancelled` is reported only when
-PostgreSQL then shows that every generation this request reserved is no longer
-`staging` or `ready` and that the project's index lease names none of them; a
-request stopped before it reserved a generation held nothing to clean up.
-Another writer's lease or staging generation on the same project does not
-affect this. Otherwise, for example when the lease expired instead of being
-released, the code is `index_cleanup_failed` and any remaining lease expires on
-its 5-minute TTL. An interrupt that arrives after a generation was already
-published, while the index rechecks the checkout, leaves that generation
-current and still reports `request_cancelled`. A second interrupt exits
-immediately without cleanup, and so does any interrupt after the request has
-ended.
+checks) run before that check. The code stays `request_cancelled`, including
+for a stop that meets another writer's lease or project lock before reserving
+anything. The failure has no `cleanup_failure` only when PostgreSQL then shows
+that every generation this request reserved is no longer `staging` or `ready`
+and that the project's index lease names none of them; a request stopped
+before it reserved a generation held nothing to clean up. Another writer's
+lease or staging generation on the same project does not affect this.
+Otherwise, for example when the lease expired instead of being released, the
+failure adds `cleanup_failure` (`index_cleanup_failed`), the next index retries
+the cleanup, and any remaining lease expires on its 5-minute TTL. An interrupt
+that arrives after a generation was already published, while the index
+rechecks the checkout, leaves that generation current and still reports
+`request_cancelled`. A second interrupt exits immediately without cleanup, and
+so does any interrupt after the request has ended.
 
-Invalid parser-recovery spans and parser stops without cancellation are instead
-retained as partial files and listed in a successful index report with degraded
-reason `extraction_invalid_span` or `extraction_parser_stopped`.
-For a generation-capacity failure, text and JSON name `maxGenerationBytes`, the
-`cartograph_process` scope, its hard 8 GiB maximum, and the bounded
-PostgreSQL-spill/generated-artifact-exclusion next action. An out-of-range
-configuration names the field and exact inclusive range. Auto-sync performs
-bounded failed-generation cleanup after each failed
-attempt and suppresses itself after five capacity failures across source
-revisions; adjust the reported setting and run an explicit index to clear that
-circuit.
+A generated `cartograph admin` command that starts a background job, such as
+`admin index`, runs the job in-process and polls its status until it finishes.
+That wait has a ten-minute CLI deadline which also bounds every individual
+status poll. When the deadline elapses, or the wait fails for any other reason,
+the command cancels the job and waits up to four minutes for its cleanup before
+it exits nonzero. Cleanup normally fails the staging generation and releases
+the project's index lease. A job cancelled inside a long synchronous stage
+section first finishes that section, keeping its lease renewed meanwhile. If
+lease ownership is lost or its outcome is ambiguous, the work is still running
+at the operation deadline, or cleanup outlasts the four-minute wait, the lease
+is not released by this command: it expires on its own and the next writer
+recovers the staging generation. Run index work expected to exceed the deadline
+through `cartograph index` or the `cartograph_admin` job API of a long-lived
+`cartograph serve`.
 
 `embed` carries forward matching content-addressed vectors before calling the
 configured endpoint. Its report distinguishes the complete
@@ -297,11 +302,13 @@ optional Git churn/co-change and issue-history refresh to the next explicit
 an MCP server's auto-sync, or a maintenance operation) holds the project, the
 child waits up to 30 minutes for it before reporting `another_writer_active`.
 A writer that starts while the child scans the checkout is awaited within the
-same 30 minutes: the child's attempt then finds the project busy, either at
-lease acquisition or because its bounded staging cleanup waits behind that
-writer's prepare transaction, and is retried after the writer's lease is gone
-instead of being reported as `index_cleanup_failed`. Each such collision
-repeats the source scan. The step has no fixed wall-clock limit. Instead the
+same 30 minutes: the child's attempt then reports `lease_busy`, either before
+reserving a generation (its bounded staging recovery found that writer's lease,
+or waited five seconds behind that writer's prepare transaction) or at lease
+acquisition, and is retried after the writer's lease is gone. A `lease_busy`
+that no live lease explains (for example a schema-maintenance lock) is retried
+after a pause that grows from 15 seconds to 4 minutes, within the same 30
+minutes. Each such collision repeats the source scan. The step has no fixed wall-clock limit. Instead the
 child reports progress (stage, item and byte counters, files discovered and
 hashed by source scans, lease renewals, and the other writer's renewals while
 it waits), and the step stops only when no progress arrives for 15 minutes or
@@ -309,9 +316,10 @@ after an absolute 180-minute ceiling (the 30-minute writer wait plus one
 generation build, whose own supervisor budget is 2 hours). To stop the child,
 the parent closes the child's stdin. The child treats that as a cooperative
 cancellation: it fails its staging generation, releases its lease, and reports
-`request_cancelled`. The parent waits up to 4 minutes for that before it kills
-the child. Only a killed child leaves its lease to the 5-minute TTL, and a
-rerun's writer wait absorbs that. These bounds apply when the binary that starts
+`request_cancelled` without a `cleanup_failure` once PostgreSQL confirms that
+cleanup. The parent waits up to 4 minutes for that before it kills the child.
+A killed child, or one that exited without confirming its cleanup, can leave
+its lease to the 5-minute TTL, and a rerun's writer wait absorbs that. These bounds apply when the binary that starts
 `upgrade --apply` contains them; an upgrade started from an older release uses
 that release's index orchestration until it is rerun from the new one.
 
@@ -374,8 +382,8 @@ already-verified binary installed and report only the remaining repair.
 - `source_changed`
 - `another_writer_active` (`reason: lease_busy`, retryable)
 - `timed_out` (`reason: no_progress` or `ceiling`, retryable; the message says
-  whether the child confirmed a cooperative cleanup, exited without confirming
-  it, or was killed)
+  whether the child confirmed a cooperative cleanup (`request_cancelled` with
+  no `cleanup_failure`), exited without confirming it, or was killed)
 - `blocked` (`reason` is the child's stable index failure code, such as
   `parse_failed`, when one was reported)
 

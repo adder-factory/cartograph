@@ -43,8 +43,9 @@ pub(super) const INDEX_TERMINATION_GRACE: Duration = Duration::from_mins(4);
 const PIPE_DRAIN_AFTER_EXIT: Duration = Duration::from_secs(5);
 /// How long a killed child is awaited before supervision gives up on it.
 const KILLED_CHILD_REAP_TIMEOUT: Duration = Duration::from_secs(30);
-/// The child's failure code for a cancellation whose cleanup it confirmed.
-const CONFIRMED_CANCELLATION_CODE: &str = "request_cancelled";
+/// The child's primary failure code for a cooperative cancellation. Its
+/// cleanup is confirmed only when the failure carries no `cleanup_failure`.
+const CANCELLATION_CODE: &str = "request_cancelled";
 /// Bound on the final index report read from stdout.
 const MAXIMUM_INDEX_REPORT_BYTES: usize = 8 * 1024 * 1024;
 /// Bound on one stderr line; longer lines are truncated and never progress.
@@ -130,12 +131,14 @@ impl DeadlineTrigger {
 /// How a timed-out child ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ChildStop {
-    /// It exited within the grace with `request_cancelled`, which it reports
-    /// only after releasing its lease and failing any unpublished staging
-    /// generation.
+    /// It exited within the grace with `request_cancelled` and no
+    /// `cleanup_failure`, which it reports only after PostgreSQL showed its
+    /// lease released and no generation it reserved still `staging` or
+    /// `ready`.
     Cooperative,
-    /// It exited within the grace with another failure, so the cleanup is
-    /// not confirmed.
+    /// It exited within the grace with another failure, or with
+    /// `request_cancelled` plus a `cleanup_failure`, so the cleanup is not
+    /// confirmed.
     Unconfirmed,
     /// It did not exit within the grace and was killed; its lease expires
     /// on its own TTL.
@@ -223,13 +226,18 @@ impl<Stderr: AsyncRead + Unpin> Supervision<Stderr> {
         if succeeded && let Some(report) = report.and_then(decode_index_report) {
             return IndexChildOutcome::Completed(report);
         }
-        let code = (!succeeded).then(|| self.stderr.failure_code()).flatten();
+        let failure = (!succeeded).then(|| self.stderr.final_failure()).flatten();
         let Some(trigger) = self.deadlines.expired else {
-            return IndexChildOutcome::Failed { code };
+            return IndexChildOutcome::Failed {
+                code: failure.map(|failure| failure.code),
+            };
         };
         let stop = if self.deadlines.killed_at.is_some() {
             ChildStop::Forced
-        } else if code.as_deref() == Some(CONFIRMED_CANCELLATION_CODE) {
+        } else if failure
+            .as_ref()
+            .is_some_and(ChildFailure::confirms_cancellation)
+        {
             ChildStop::Cooperative
         } else {
             ChildStop::Unconfirmed
@@ -368,22 +376,43 @@ impl<Stderr> StderrScan<Stderr> {
         false
     }
 
-    /// The validated `error.code` of the child's final failure JSON, which is
-    /// the last document that starts in column zero of the retained tail.
-    fn failure_code(&self) -> Option<String> {
+    /// The child's final failure JSON, which is the last document that
+    /// starts in column zero of the retained tail, with a validated code.
+    fn final_failure(&self) -> Option<ChildFailure> {
         let start = self
             .tail
             .windows(2)
             .rposition(|pair| pair == b"\n{")
             .map_or(0, |position| position + 1);
         let failure: FailureLine = serde_json::from_slice(&self.tail[start..]).ok()?;
-        let code = failure.error.code;
+        let FailureFields {
+            code,
+            cleanup_failure,
+        } = failure.error;
         (!code.is_empty()
             && code.len() <= MAXIMUM_FAILURE_CODE_BYTES
             && code
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'))
-        .then_some(code)
+        .then_some(ChildFailure {
+            code,
+            cleanup_failed: cleanup_failure.is_some(),
+        })
+    }
+}
+
+/// The child's validated failure report.
+struct ChildFailure {
+    /// Stable primary failure code.
+    code: String,
+    /// The report carried a secondary `cleanup_failure`.
+    cleanup_failed: bool,
+}
+
+impl ChildFailure {
+    /// A cooperative cancellation whose cleanup the child confirmed.
+    fn confirms_cancellation(&self) -> bool {
+        self.code == CANCELLATION_CODE && !self.cleanup_failed
     }
 }
 
@@ -394,12 +423,18 @@ struct ProgressLine {
 
 #[derive(Deserialize)]
 struct FailureLine {
-    error: FailureCode,
+    error: FailureFields,
 }
 
+/// The failure fields supervision relies on; every other field, such as a
+/// `previous_generation_visible` that may be `null`, is ignored.
 #[derive(Deserialize)]
-struct FailureCode {
+struct FailureFields {
     code: String,
+    /// Present (as an object) only when cleanup of what the child held also
+    /// failed or could not be confirmed; its contents are not needed.
+    #[serde(default)]
+    cleanup_failure: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -463,8 +498,9 @@ mod tests {
         grace: Duration::from_secs(20),
     };
 
-    /// A failure document in the child's pretty-printed shape.
-    const CANCELLED_FAILURE: &str = r#"printf '{\n  "error": {\n    "code": "request_cancelled",\n    "message": "cancelled"\n  }\n}\n' >&2"#;
+    /// A failure document in the child's pretty-printed shape, including a
+    /// visibility lookup that failed (`null`).
+    const CANCELLED_FAILURE: &str = r#"printf '{\n  "error": {\n    "code": "request_cancelled",\n    "message": "cancelled",\n    "previous_generation_visible": null\n  }\n}\n' >&2"#;
 
     fn fixture_child(directory: &Path, body: &str) -> Command {
         let script = directory.join("fixture-index");
@@ -609,18 +645,26 @@ mod tests {
     #[tokio::test]
     async fn an_exit_without_confirmed_cleanup_is_not_reported_as_cooperative() {
         let directory = workspace();
-        let child = fixture_child(
-            directory.path(),
-            "cat > /dev/null\nprintf '{\\n  \"error\": {\\n    \"code\": \"index_cleanup_failed\"\\n  }\\n}\\n' >&2\nexit 1",
-        );
-        let outcome = run_index_child(child, TEST_POLICY).await;
-        assert_eq!(
-            outcome,
-            IndexChildOutcome::TimedOut(IndexChildTimeout {
-                trigger: DeadlineTrigger::NoProgress,
-                stop: ChildStop::Unconfirmed,
-            })
-        );
+        for failure in [
+            // The cancellation is the primary failure, but PostgreSQL did not
+            // confirm the cleanup of what the child held.
+            r#"printf '{\n  "error": {\n    "code": "request_cancelled",\n    "previous_generation_visible": true,\n    "cleanup_failure": {\n      "code": "index_cleanup_failed",\n      "message": "cleanup failed"\n    }\n  }\n}\n' >&2"#,
+            r#"printf '{\n  "error": {\n    "code": "index_cleanup_failed"\n  }\n}\n' >&2"#,
+        ] {
+            let child = fixture_child(
+                directory.path(),
+                &format!("cat > /dev/null\n{failure}\nexit 1"),
+            );
+            let outcome = run_index_child(child, TEST_POLICY).await;
+            assert_eq!(
+                outcome,
+                IndexChildOutcome::TimedOut(IndexChildTimeout {
+                    trigger: DeadlineTrigger::NoProgress,
+                    stop: ChildStop::Unconfirmed,
+                }),
+                "{failure}"
+            );
+        }
     }
 
     #[tokio::test]

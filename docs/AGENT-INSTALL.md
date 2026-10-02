@@ -83,8 +83,9 @@ fresh index: `projectReconciliation.state: source_changed` means the installed
 binary published a complete generation and only later edits make it stale, so
 run `cartograph index .` once edits pause instead of rerunning the upgrade. When
 `projectReconciliation.retryable` is true (for example `index.state:
-another_writer_active` or `timed_out`), rerun the same command after the other
-writer finishes. A registration that launches
+another_writer_active` or `timed_out`), rerun the same command; for
+`another_writer_active`, wait until the other writer finishes. A registration
+that launches
 Cartograph through a wrapper (`commandState: wrapped`) keeps its wrapper,
 arguments, and `env`; only its embedded absolute Cartograph path is repinned,
 and `registrationRepair.changes` lists every changed entry. If it reports that

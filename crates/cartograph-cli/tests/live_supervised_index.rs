@@ -272,11 +272,24 @@ fn drain_into(
     })
 }
 
-/// The `error.code` of the last column-zero JSON document on stderr.
-fn failure_code(stderr: &str) -> Option<String> {
+/// The `error` object of the last column-zero JSON document on stderr.
+fn final_failure(stderr: &str) -> Option<Value> {
     let start = stderr.rfind("\n{").map_or(0, |position| position + 1);
-    let failure: Value = serde_json::from_str(&stderr[start..]).ok()?;
-    failure["error"]["code"].as_str().map(str::to_owned)
+    let mut failure: Value = serde_json::from_str(&stderr[start..]).ok()?;
+    failure.get_mut("error").map(Value::take)
+}
+
+/// The primary `error.code` and the secondary `error.cleanup_failure.code`
+/// of the final failure on stderr.
+fn failure_codes(stderr: &str) -> (Option<String>, Option<String>) {
+    let Some(failure) = final_failure(stderr) else {
+        return (None, None);
+    };
+    let code = |value: &Value| value["code"].as_str().map(str::to_owned);
+    (
+        code(&failure),
+        failure.get("cleanup_failure").and_then(code),
+    )
 }
 
 fn progress_lines(stderr: &str) -> Vec<Value> {
@@ -495,11 +508,19 @@ impl CompetingWriter {
         }
     }
 
-    /// Release the lease, then the project lock.
+    /// Release the lease, if one was taken, then the project lock. A writer
+    /// that never took its lease is told so first; otherwise its task would
+    /// keep waiting for that request instead of finishing.
     async fn finish(self) {
-        let _ = self.finish.send(());
-        self.task
-            .await
+        let Self {
+            take_lease,
+            finish,
+            task,
+            ..
+        } = self;
+        drop(take_lease);
+        let _ = finish.send(());
+        task.await
             .unwrap_or_else(|error| panic!("competing writer failed: {error}"));
     }
 }
@@ -651,8 +672,8 @@ async fn stop_mid_copy_and_assert_prompt_release(project: &LiveProject, scenario
         "a stopped index must not report success: {stderr}"
     );
     assert_eq!(
-        failure_code(&stderr).as_deref(),
-        Some("request_cancelled"),
+        failure_codes(&stderr),
+        (Some("request_cancelled".to_owned()), None),
         "the stop must be reported as a confirmed cooperative cancellation: {stderr}"
     );
     let remaining = database
@@ -676,8 +697,8 @@ async fn stop_mid_copy_and_assert_prompt_release(project: &LiveProject, scenario
         (first_generation, 1)
     );
     if let Some(foreign) = foreign {
-        // The other writer's reservation was left alone and did not turn the
-        // confirmed cancellation into a cleanup failure.
+        // The other writer's reservation was left alone and did not add a
+        // cleanup failure to the confirmed cancellation.
         assert_eq!(
             generation_state(project, &foreign).await,
             ("staging".to_owned(), 0)
@@ -876,8 +897,9 @@ async fn await_a_writer_that_started_after_the_writer_wait(project: &LiveProject
     // now, as it would for a writer that started during a long scan.
     wait_until_blocked_by(project, writer.backend).await;
     writer.take_lease().await;
-    // The bounded cleanup times out behind the writer's lock. The child must
-    // wait for that writer instead of reporting `index_cleanup_failed`.
+    // The bounded cleanup times out behind the writer's lock, so the attempt
+    // answers `lease_busy` before reserving anything. The child must wait for
+    // that writer instead of failing.
     wait_for_progress(&mut running, |progress| waiting_for_writer(progress, 1)).await;
     writer.finish().await;
 
@@ -957,10 +979,14 @@ async fn cancel_while_waiting_after_a_collided_reservation(project: &LiveProject
         "a stopped index must not report success: {stderr}"
     );
     // A cancellation during the wait still accounts for the earlier
-    // attempt's reservation, which it could not fail behind the writer.
+    // attempt's reservation, which it could not fail behind the writer: the
+    // cancellation stays primary and the unconfirmed cleanup is secondary.
     assert_eq!(
-        failure_code(&stderr).as_deref(),
-        Some("index_cleanup_failed"),
+        failure_codes(&stderr),
+        (
+            Some("request_cancelled".to_owned()),
+            Some("index_cleanup_failed".to_owned())
+        ),
         "{stderr}"
     );
     assert_eq!(
@@ -979,6 +1005,66 @@ async fn a_cancelled_wait_still_accounts_for_an_earlier_attempts_reservation() {
     project.drop_schema().await;
     if let Err(payload) = outcome {
         resume_unwind(payload);
+    }
+}
+
+/// A stop that lands while the attempt waits behind another writer's project
+/// lock, before it reserved anything.
+#[cfg(unix)]
+async fn stop_before_reserving_behind_another_writer(project: &LiveProject, stop: StopRequest) {
+    let (project_id, first_generation) = project.index_once().await;
+    let (_, sequence_before) = reservation_sequence(project, &project_id).await;
+    write_source(project.directory.path(), 8);
+    // The writer holds only the project lock, so the child passes its
+    // live-lease check (and, supervised, its writer wait) and then blocks in
+    // its bounded staging recovery.
+    let writer = CompetingWriter::start(project, &project_id).await;
+    let path = project.path();
+    let mut arguments = vec!["index", path.as_str(), "--format", "json"];
+    if matches!(stop, StopRequest::CloseSupervisorStdin) {
+        arguments.push("--supervised");
+    }
+    let mut running = RunningChild::spawn(project.command(&arguments));
+    wait_until_blocked_by(project, writer.backend).await;
+    request_stop(&mut running, stop);
+    // The lock wait runs to its five-second bound and the attempt answers
+    // `lease_busy`. The stop was requested and nothing was reserved, so the
+    // outcome is a confirmed cancellation, not contention to retry.
+    let FinishedChild {
+        succeeded, stderr, ..
+    } = running.finish(PROMPT_RELEASE).await;
+    writer.finish().await;
+    assert!(
+        !succeeded,
+        "a stopped index must not report success: {stderr}"
+    );
+    assert_eq!(
+        failure_codes(&stderr),
+        (Some("request_cancelled".to_owned()), None),
+        "{stderr}"
+    );
+    assert_eq!(
+        reservation_sequence(project, &project_id).await,
+        (first_generation, sequence_before)
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn a_stop_that_meets_another_writer_before_reserving_is_a_confirmed_cancellation() {
+    for (label, stop) in [
+        ("lock_stop_sigterm", StopRequest::Terminate),
+        ("lock_stop_stdin", StopRequest::CloseSupervisorStdin),
+    ] {
+        let project = LiveProject::new(label);
+        let outcome = AssertUnwindSafe(stop_before_reserving_behind_another_writer(&project, stop))
+            .catch_unwind()
+            .await;
+        project.drop_schema().await;
+        if let Err(payload) = outcome {
+            resume_unwind(payload);
+        }
     }
 }
 

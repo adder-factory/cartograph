@@ -78,8 +78,10 @@ capacity limit/scope/next action. Persistent failures of unchanged revisions use
 exponential backoff and stop after five automatic attempts until source changes.
 Concurrent edits (`source_changed_during_index` or `parse_source_changed`),
 another live lease owner or a writer still inside its prepare transaction
-(`lease_busy`, detected before reserving a generation), and an undrained failed-generation
-backlog (`retention_backlog`) schedule recovery after 2–30 seconds.
+(`lease_busy`, normally detected before reserving a generation; a writer that
+wins after that check is refused at lease acquisition), and an undrained
+failed-generation backlog (`retention_backlog`) schedule recovery after 2–30
+seconds.
 They do not exhaust the persistent-failure circuit. A retry timer runs even
 when no new filesystem event arrives; it does not wait for the 30-second
 missed-event reconciliation. Actual lease loss (`lease_failed`, including a

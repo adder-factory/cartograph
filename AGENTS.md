@@ -390,7 +390,8 @@ through the installed binary, and repairs stale owned host pins. Require
 source_changed` is a completed upgrade whose checkout was edited after
 publication; run `cartograph index <project>` once edits pause. When
 `projectReconciliation.retryable` is true (`another_writer_active` or a
-`timed_out` step), rerun the same command after the other writer finishes. If
+`timed_out` step), rerun the same command; for `another_writer_active`, wait
+until the other writer finishes. If
 `projectReconciliation` requests `upgrade-managed-database`, run only its
 backup and exact confirmed replacement steps, then rerun the same command to
 resume. A failure after the extension update retains the new image for that

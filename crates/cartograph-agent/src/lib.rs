@@ -1952,7 +1952,7 @@ impl ProjectRuntime {
         options: IndexOptions,
         cancellation: ProjectCancellation,
     ) -> Result<IndexReport, ProjectError> {
-        Box::pin(index_project_with_cancellation(self, options, cancellation))
+        self.index_with_cancellation_detail(options, cancellation)
             .await
             .map_err(IndexFailure::into_error)
     }
@@ -1969,12 +1969,29 @@ impl ProjectRuntime {
         &self,
         options: IndexOptions,
     ) -> Result<IndexReport, IndexFailure> {
-        Box::pin(index_project_with_cancellation(
-            self,
-            options,
-            ProjectCancellation::new(),
-        ))
-        .await
+        self.index_with_cancellation_detail(options, ProjectCancellation::new())
+            .await
+    }
+
+    /// Build and publish one generation while cooperatively reconciling
+    /// cancellation, keeping a secondary cleanup failure.
+    ///
+    /// The returned [`IndexFailure`] carries the same primary error as
+    /// [`Self::index_with_cancellation`] plus whether bounded cleanup of the
+    /// attempt's own staging generation also failed. Every generation this
+    /// request reserves is recorded on `cancellation`
+    /// ([`ProjectCancellation::reserved_index_generation`]), so a caller that
+    /// cancelled can check exactly that cleanup in PostgreSQL.
+    /// # Errors
+    ///
+    /// Returns the primary failure under the same conditions as
+    /// [`Self::index_with_cancellation`].
+    pub async fn index_with_cancellation_detail(
+        &self,
+        options: IndexOptions,
+        cancellation: ProjectCancellation,
+    ) -> Result<IndexReport, IndexFailure> {
+        Box::pin(index_project_with_cancellation(self, options, cancellation)).await
     }
 
     async fn attach_history(
