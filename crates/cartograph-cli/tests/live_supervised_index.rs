@@ -228,7 +228,7 @@ impl RunningChild {
             .unwrap_or_default();
         FinishedChild {
             succeeded: status.success(),
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stdout: String::from_utf8_lossy_owned(stdout),
             stderr,
         }
     }
