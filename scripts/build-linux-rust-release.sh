@@ -27,8 +27,8 @@ case "$TARGET:$ASSET_TARGET" in
     ;;
 esac
 
-if [[ ! "$BUILD_IMAGE" =~ ^rust:1\.98\.1-trixie@sha256:[0-9a-f]{64}$ ]]; then
-  echo "Linux release build image must pin rust:1.98.1-trixie by digest" >&2
+if [[ ! "$BUILD_IMAGE" =~ ^rust:1\.99\.0-trixie@sha256:[0-9a-f]{64}$ ]]; then
+  echo "Linux release build image must pin rust:1.99.0-trixie by digest" >&2
   exit 2
 fi
 if [[ ! "$RUNTIME_IMAGE" =~ ^debian:13-slim@sha256:[0-9a-f]{64}$ ]]; then

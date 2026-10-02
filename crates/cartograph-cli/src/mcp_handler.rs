@@ -3792,9 +3792,13 @@ fn append_detected_llm_presets(presets: &mut Vec<Value>, detected: &[Value]) {
     }
 }
 
+/// Project LLM tiers that must be configured before semantic tools can run;
+/// every other tier is optional.
+const REQUIRED_LLM_TIERS: [ProjectLlmTier; 1] = [ProjectLlmTier::Embedding];
+
 fn required_llm_tiers_missing(root: &Path) -> Result<BTreeSet<ProjectLlmTier>, ToolError> {
     let mut missing = BTreeSet::new();
-    for tier in [ProjectLlmTier::Embedding] {
+    for tier in REQUIRED_LLM_TIERS {
         if load_project_llm_tier(root, tier)
             .map_err(project_llm_error)?
             .is_none()
@@ -25864,7 +25868,7 @@ mod tests {
         let plan = build_llm_apply_plan(&arguments, "cli-bridge")
             .unwrap_or_else(|error| panic!("CLI bridge MCP plan failed: {error:?}"));
         assert_eq!(plan.inputs.len(), 1);
-        assert!(plan.cleared.is_empty());
+        assert_eq!(plan.cleared, []);
 
         let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         write_project_llm_configuration(root.path(), &plan.inputs, &plan.cleared)
@@ -26991,7 +26995,7 @@ mod tests {
             .len(),
             1
         );
-        assert!(
+        assert_eq!(
             filter_layer_findings(
                 layers,
                 LayerFindingFilter {
@@ -27002,8 +27006,8 @@ mod tests {
                     minimum_centrality: Some(0.001),
                     excluded_path: None,
                 },
-            )
-            .is_empty()
+            ),
+            [] as [Value; 0]
         );
     }
 
@@ -28888,7 +28892,7 @@ pub fn target(value: u32) -> u32 {
             .register_agent_state_project()
             .await
             .unwrap_or_else(|error| panic!("role project lookup failed: {error}"));
-        assert!(
+        assert_eq!(
             runtime
                 .database()
                 .pending_symbol_roles(
@@ -28897,8 +28901,8 @@ pub fn target(value: u32) -> u32 {
                     1
                 )
                 .await
-                .unwrap_or_else(|error| panic!("structural role cache lookup failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("structural role cache lookup failed: {error}")),
+            []
         );
         (
             project_id,
@@ -28937,13 +28941,13 @@ pub fn target(value: u32) -> u32 {
             .join()
             .unwrap_or_else(|_| panic!("role fixture server panicked"));
 
-        assert!(
+        assert_eq!(
             runtime
                 .database()
                 .pending_symbol_roles(project_id, RoleSweepModel::Judge("fixture-role"), 1)
                 .await
-                .unwrap_or_else(|error| panic!("role pending lookup failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("role pending lookup failed: {error}")),
+            []
         );
         let roles = runtime
             .database()
@@ -29608,7 +29612,7 @@ pub fn target(value: u32) -> u32 {
             intent_summary_tokens("parse token parse AND normalize_value"),
             vec!["parse", "token", "normalize_value"]
         );
-        assert!(intent_summary_tokens("a or xy").is_empty());
+        assert_eq!(intent_summary_tokens("a or xy"), [] as [String; 0]);
         assert_eq!(
             intent_summary_tokens(&vec!["symbol"; INTENT_PRIORITY_MAXIMUM_TOKENS + 5].join(" ")),
             vec!["symbol"]
@@ -30014,11 +30018,11 @@ pub fn target(value: u32) -> u32 {
         let evidence = &compact["structuredContent"]["evidence"];
         assert_eq!(evidence["navigation"]["stop"], "low_tokens_requested");
         assert_eq!(evidence["summaryOnly"], false);
-        assert!(
+        assert_eq!(
             evidence["sourceWindows"]
                 .as_array()
-                .unwrap_or_else(|| panic!("source windows"))
-                .is_empty()
+                .unwrap_or_else(|| panic!("source windows")),
+            &[] as &[Value; 0]
         );
         assert!(evidence["packet"]["retrieval"].get("items").is_none());
         assert!(
@@ -30832,7 +30836,7 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
                 .unwrap_or_else(|| panic!("role prompt missing"));
             let evidence: Vec<Value> = serde_json::from_str(prompt)
                 .unwrap_or_else(|error| panic!("role evidence JSON failed: {error}"));
-            assert!(!evidence.is_empty());
+            assert_ne!(evidence, [] as [Value; 0]);
             assert!(evidence.iter().all(|item| item["code"].is_string()));
             let roles = evidence
                 .iter()
@@ -30985,7 +30989,7 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
                     let evidence = evidence
                         .as_array()
                         .unwrap_or_else(|| panic!("symbol summary evidence was not an array"));
-                    assert!(!evidence.is_empty());
+                    assert_ne!(evidence, &[] as &[Value; 0]);
                     assert!(evidence.iter().all(|item| item["code"].is_string()));
                     let summaries = evidence
                     .iter()

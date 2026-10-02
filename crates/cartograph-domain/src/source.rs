@@ -2064,9 +2064,9 @@ mod tests {
         );
         assert_eq!(SourceLanguage::Python.v1_extensions(), &[".py", ".pyw"]);
         assert_eq!(SourceLanguage::Python.additional_extensions(), &[".pyi"]);
-        assert!(SourceLanguage::Rhai.v1_extensions().is_empty());
+        assert_eq!(SourceLanguage::Rhai.v1_extensions(), [] as [&str; 0]);
         assert_eq!(SourceLanguage::Rhai.additional_extensions(), &[".rhai"]);
-        assert!(SourceLanguage::Toml.v1_extensions().is_empty());
+        assert_eq!(SourceLanguage::Toml.v1_extensions(), [] as [&str; 0]);
         assert_eq!(SourceLanguage::Toml.additional_extensions(), &[".toml"]);
         assert!(SourceLanguage::is_v1_candidate_path("src/service.py"));
         assert!(!SourceLanguage::is_v1_candidate_path("src/service.pyi"));

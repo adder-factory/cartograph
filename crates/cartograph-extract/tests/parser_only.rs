@@ -68,8 +68,8 @@ fn parser_only_syntax_damage_is_partial_and_unknown_extensions_fail_closed() {
         .extract(&snapshot)
         .unwrap_or_else(|error| panic!("damaged JSON extraction failed: {error}"));
     assert_eq!(extracted.parse_status, FileParseStatus::Partial);
-    assert!(!extracted.diagnostics.is_empty());
-    assert!(extracted.symbols.is_empty());
+    assert_ne!(extracted.diagnostics, []);
+    assert_eq!(extracted.symbols, []);
 
     assert_eq!(
         SourceSnapshot::from_bytes("src/main.unknown", b"class Main {}", limits()).err(),

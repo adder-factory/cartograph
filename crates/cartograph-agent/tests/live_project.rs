@@ -1821,7 +1821,7 @@ async fn assert_primary_semantic_retrieval(
         .unwrap_or_else(|error| panic!("hybrid search failed: {error}"));
     assert_eq!(hybrid.semantic_readiness(), SemanticReadiness::Ready);
     assert_eq!(hybrid.execution(), RetrievalExecution::Hybrid);
-    assert!(!hybrid.items().is_empty());
+    assert_ne!(hybrid.items(), []);
     assert!(
         hybrid
             .items()
@@ -3433,7 +3433,7 @@ async fn assert_history_can_be_disabled(
         .current_file_history(FileHistoryQuery::new(&indexed.project_id, 10))
         .await
         .unwrap_or_else(|error| panic!("disabled history query failed: {error}"));
-    assert!(history.is_empty());
+    assert_eq!(history, []);
     let cochanges = runtime
         .database()
         .current_file_cochanges(
@@ -3441,7 +3441,7 @@ async fn assert_history_can_be_disabled(
         )
         .await
         .unwrap_or_else(|error| panic!("disabled cochange query failed: {error}"));
-    assert!(cochanges.is_empty());
+    assert_eq!(cochanges, []);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3662,7 +3662,7 @@ async fn assert_issue_generation_fence(
         })
         .await
         .unwrap_or_else(|error| panic!("removed symbol issue read failed: {error}"));
-    assert!(removed_issues.is_empty());
+    assert_eq!(removed_issues, []);
     refreshed
 }
 
@@ -4162,7 +4162,7 @@ async fn changed_file_test_impact_traverses_named_imports_and_reports_barrels() 
             .unwrap_or_else(|error| panic!("filtered test-impact query failed: {error}"))
             .unwrap_or_else(|| panic!("filtered test-impact generation was missing"));
         assert_eq!(filtered.affected_test_file_count(), 0);
-        assert!(filtered.tests().is_empty());
+        assert_eq!(filtered.tests(), []);
         runtime.close().await;
     }
     drop_schema(&settings, &schema).await;

@@ -2501,8 +2501,8 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
         // permit in the async caller would allow a dropped request to start a
         // second scan while the first worker was still unwinding.
         let _permit = permit;
-        let _ = observations.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(value.saturating_add(1))
+        observations.update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            value.saturating_add(1)
         });
         source_revision_with_options(
             SourceRevisionRequest {
@@ -4213,7 +4213,7 @@ mod tests {
         assert!(!automatic.force);
         assert_eq!(automatic.max_source_bytes, None);
         assert!(!automatic.profile);
-        assert!(automatic.additional_excludes.is_empty());
+        assert_eq!(automatic.additional_excludes, [] as [String; 0]);
         assert_eq!(
             automatic.admission_reconciliation,
             IndexAdmissionReconciliation::PreserveCurrent

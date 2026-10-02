@@ -254,7 +254,7 @@ mod tests {
         let recovered = recover_file_local_failure(&snapshot, ExtractError::InvalidSpan)
             .unwrap_or_else(|error| panic!("invalid span stayed fatal: {error}"));
         assert_eq!(recovered.parse_status, FileParseStatus::Partial);
-        assert!(recovered.symbols.is_empty());
+        assert_eq!(recovered.symbols, []);
         assert_eq!(
             recovered.diagnostics,
             vec![ExtractionDiagnostic {

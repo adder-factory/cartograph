@@ -1400,7 +1400,7 @@ mod tests {
             include_findings: false,
             suppress_line_range_only: true,
         });
-        assert!(shifted.modified.is_empty());
+        assert_eq!(shifted.modified, []);
         assert_eq!(shifted.line_range_only_count, 1);
     }
 

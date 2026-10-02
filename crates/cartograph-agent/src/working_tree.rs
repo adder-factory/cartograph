@@ -346,7 +346,7 @@ mod tests {
             task_terms("Fix auth auth token parsing in the code"),
             vec!["auth", "parsing", "token"]
         );
-        assert!(task_terms("fix the code").is_empty());
+        assert_eq!(task_terms("fix the code"), [] as [String; 0]);
     }
 
     #[test]

@@ -547,7 +547,7 @@ async fn verify_native_evidence_and_candidate_kinds(
             .all(|step| matches!(step.action, Action::Finish) && step.completed),
         "an unexecuted chosen operation must not be reported"
     );
-    assert!(sufficient.ledger.report.source_windows.is_empty());
+    assert_eq!(sufficient.ledger.report.source_windows, []);
     let mut nav = Navigator::new(runtime, request, ProjectCancellation::new());
     nav.run_bounded(&NativeEvidenceProbe)
         .await
@@ -578,7 +578,7 @@ async fn verify_native_and_outage(
             .await
             .unwrap_or_else(|e| panic!("native: {e}"));
         assert_eq!(result.stop, stop);
-        assert!(result.source_windows.is_empty());
+        assert_eq!(result.source_windows, []);
     }
     for error_after_read in [false, true] {
         let mut nav = navigator(runtime, project, packet);
@@ -677,7 +677,7 @@ async fn verify_stop_conditions(
             .await
             .unwrap_or_else(|e| panic!("terminal decision: {e}"));
         assert_eq!(nav.ledger.report.stop, expected);
-        assert!(nav.ledger.report.source_windows.is_empty());
+        assert_eq!(nav.ledger.report.source_windows, []);
         if choice == "not_offered" {
             assert_eq!(
                 nav.ledger.report.provider_error,

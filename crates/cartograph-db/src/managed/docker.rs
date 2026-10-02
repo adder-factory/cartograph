@@ -1445,7 +1445,7 @@ mod tests {
             "true\t0123456789abcdef\trunning\thealthy\timage\t127.0.0.1\t55432\t1\t1\t1\t1\t1\t[]\tnull",
         )
         .unwrap_or_else(|error| panic!("a null command must still parse: {error}"));
-        assert!(without_command.command.is_empty());
+        assert_eq!(without_command.command, [] as [String; 0]);
         assert!(!has_current_postgres_settings(&without_command));
     }
 

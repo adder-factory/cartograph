@@ -466,7 +466,7 @@ mod tests {
         };
         let compiled =
             compile_config(config).unwrap_or_else(|error| panic!("config failed: {error}"));
-        assert!(compiled.warnings.is_empty());
+        assert_eq!(compiled.warnings, [] as [String; 0]);
         assert_eq!(
             matching_layer("src/ui/button.ts", &compiled.layers).map(|layer| layer.name.as_str()),
             Some("ui")

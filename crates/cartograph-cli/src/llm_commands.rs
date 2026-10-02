@@ -1865,7 +1865,7 @@ mod tests {
             setup_inputs(&arguments, SetupPreset::Jev).unwrap_or_else(|e| panic!("Jev setup: {e}"));
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs[0].tier(), ProjectLlmTier::Decision);
-        assert!(cleared.is_empty());
+        assert_eq!(cleared, []);
         arguments.credentials.clear_credentials = true;
         let (inputs, cleared) = setup_inputs(&arguments, SetupPreset::Jev)
             .unwrap_or_else(|e| panic!("Jev disable: {e}"));
@@ -2055,7 +2055,7 @@ mod tests {
         let (local, local_cleared) = local_inputs_in(root.path(), false)
             .unwrap_or_else(|error| panic!("local preset failed: {error}"));
         assert_eq!(local.len(), 6);
-        assert!(local_cleared.is_empty());
+        assert_eq!(local_cleared, []);
         let (minimal, minimal_cleared) = local_inputs_in(root.path(), true)
             .unwrap_or_else(|error| panic!("minimal local preset failed: {error}"));
         assert_eq!(minimal.len(), 4);
@@ -2071,7 +2071,7 @@ mod tests {
         let (custom, cleared) = setup_inputs(&arguments, SetupPreset::Custom)
             .unwrap_or_else(|error| panic!("custom preset failed: {error}"));
         assert_eq!(custom.len(), 1);
-        assert!(cleared.is_empty());
+        assert_eq!(cleared, []);
         assert_eq!(custom[0].tier(), ProjectLlmTier::Summarize);
         assert!(setup_inputs(&arguments, SetupPreset::LocalLlamaCpp).is_err());
         assert!(setup_inputs(&arguments, SetupPreset::Ollama).is_err());
@@ -2109,7 +2109,7 @@ mod tests {
         let (skipped, skipped_clears) = setup_inputs(&arguments, SetupPreset::Skip)
             .unwrap_or_else(|error| panic!("skip preset failed: {error}"));
         assert!(skipped.is_empty());
-        assert!(skipped_clears.is_empty());
+        assert_eq!(skipped_clears, []);
 
         for (argument, tier) in [
             (LlmTierArgument::Local, ProjectLlmTier::Local),
@@ -2180,7 +2180,7 @@ mod tests {
         let (inputs, cleared) = setup_inputs(&arguments, SetupPreset::CliBridge)
             .unwrap_or_else(|error| panic!("CLI bridge preset failed: {error}"));
         assert_eq!(inputs.len(), 1);
-        assert!(cleared.is_empty());
+        assert_eq!(cleared, []);
         write_project_llm_configuration(root.path(), &inputs, &cleared)
             .unwrap_or_else(|error| panic!("CLI bridge write failed: {error}"));
         let config = std::fs::read_to_string(root.path().join(".cartograph/config.json"))
@@ -2260,7 +2260,7 @@ mod tests {
         let unreachable = detect_one(UNREACHABLE_LOOPBACK_ENDPOINT).await;
         assert!(!unreachable.reachable);
         assert!(!unreachable.openai_compatible);
-        assert!(unreachable.models.is_empty());
+        assert_eq!(unreachable.models, [] as [String; 0]);
     }
 
     #[test]

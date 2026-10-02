@@ -6563,7 +6563,7 @@ mod tests {
                 assert_eq!(project_path, PathBuf::from("workspace"));
                 assert_eq!(workers, Some(4));
                 assert!(force);
-                assert!(exclude.is_empty());
+                assert_eq!(exclude, [] as [String; 0]);
                 assert!(!preserve_current_excludes);
                 assert!(matches!(format, OutputFormat::Json));
             }

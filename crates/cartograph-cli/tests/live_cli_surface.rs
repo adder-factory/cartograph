@@ -250,7 +250,7 @@ fn parse_failure_json_names_relative_input_and_preserves_the_current_generation(
             &schema,
             &["index", &project_path, "--format", "json"],
         );
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, b"");
         let report: Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
             panic!(
                 "index failure stderr was not standalone JSON: {error}: {}",

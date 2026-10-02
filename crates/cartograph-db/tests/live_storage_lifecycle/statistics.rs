@@ -42,7 +42,7 @@ pub(super) async fn assert_statistics_and_inventory(
         .await
         .unwrap_or_else(|error| panic!("statistics usage failed: {error}"));
     assert!(before.statistics.track_counts);
-    assert!(!before.statistics.observed_at.is_empty());
+    assert_ne!(before.statistics.observed_at, "");
     let analyzed = before
         .tables
         .iter()
@@ -109,7 +109,7 @@ async fn assert_complete_inventory(
         if !page.indexes_truncated {
             break;
         }
-        assert!(!page.indexes.is_empty());
+        assert_ne!(page.indexes, []);
         offset += u32::try_from(page.indexes.len())
             .unwrap_or_else(|_| panic!("inventory offset overflow"));
     }
@@ -130,6 +130,6 @@ async fn assert_complete_inventory(
         .unwrap_or_else(|error| panic!("empty inventory page failed: {error}"));
     assert_eq!(empty.index_count, reset.index_count);
     assert_eq!(empty.table_count, reset.table_count);
-    assert!(empty.tables.is_empty());
-    assert!(empty.indexes.is_empty());
+    assert_eq!(empty.tables, []);
+    assert_eq!(empty.indexes, []);
 }

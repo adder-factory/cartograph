@@ -2533,7 +2533,7 @@ esac
             fs::read_to_string(elsewhere.path().join("mcp.json"))?,
             wrapped
         );
-        assert!(fixture.invocations().is_empty());
+        assert_eq!(fixture.invocations(), "");
         let mut rendered = String::new();
         render_registration_repair(&mut rendered, &report);
         assert!(rendered.contains("cursor global (~/.cursor/mcp.json): manual: Edit"));

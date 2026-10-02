@@ -2412,7 +2412,7 @@ mod tests {
         let (orphans, warnings) = discover_orphans(&paths.directory, &BTreeSet::new())
             .unwrap_or_else(|error| panic!("orphan discovery failed: {error}"));
         assert_eq!(orphans.len(), 1);
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, [] as [String; 0]);
 
         row.pid_record = Some(record);
         assert_eq!(

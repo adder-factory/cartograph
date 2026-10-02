@@ -580,7 +580,7 @@ async fn assert_generation_cursor_refresh(
     );
     let current_page = pending_page(&fixture.database, project, selector_b, None).await;
     assert_eq!(current_page.generation_id(), &second);
-    assert!(current_page.documents().is_empty());
+    assert_eq!(current_page.documents(), []);
     assert_readiness(
         &fixture.database,
         project,

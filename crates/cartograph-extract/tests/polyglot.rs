@@ -871,7 +871,7 @@ fn dynamic_and_shadowed_module_syntax_does_not_invent_bindings() {
         "function use(name) { return require(name); }\n",
     );
     let dynamic_use = symbol(&dynamic, "use");
-    assert!(dynamic.import_bindings.is_empty());
+    assert_eq!(dynamic.import_bindings, []);
     assert!(dynamic.references.iter().any(|reference| {
         reference.owner.as_ref() == Some(&dynamic_use.id)
             && reference.name == "require"
@@ -906,7 +906,7 @@ fn dynamic_and_shadowed_module_syntax_does_not_invent_bindings() {
     );
 
     let side_effect = extract("src/side-effect.cjs", "require('./helper');\n");
-    assert!(side_effect.import_bindings.is_empty());
+    assert_eq!(side_effect.import_bindings, []);
     assert!(side_effect.references.iter().any(|reference| {
         reference.owner.is_none()
             && reference.name == "require"
@@ -917,7 +917,7 @@ fn dynamic_and_shadowed_module_syntax_does_not_invent_bindings() {
         "src/shadowed-require.cjs",
         "const require = makeRequire();\nconst helper = require('./helper');\n",
     );
-    assert!(shadowed_require.import_bindings.is_empty());
+    assert_eq!(shadowed_require.import_bindings, []);
     assert!(shadowed_require.references.iter().any(|reference| {
         reference.name == "require" && reference.kind == ReferenceKind::Calls
     }));
@@ -926,7 +926,7 @@ fn dynamic_and_shadowed_module_syntax_does_not_invent_bindings() {
         "src/shadowed-parameter.cjs",
         "function use(require) { return require('./helper'); }\n",
     );
-    assert!(shadowed_parameter.import_bindings.is_empty());
+    assert_eq!(shadowed_parameter.import_bindings, []);
     assert!(shadowed_parameter.references.iter().any(|reference| {
         reference.name == "require" && reference.kind == ReferenceKind::Calls
     }));

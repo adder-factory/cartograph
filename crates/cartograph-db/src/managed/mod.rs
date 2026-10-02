@@ -1803,7 +1803,7 @@ mod tests {
         assert!(!second.credentials_created);
         assert!(!second.container_created);
         assert!(second.capabilities.ready);
-        assert!(second.migrations.applied_versions.is_empty());
+        assert_eq!(second.migrations.applied_versions, [] as [i64; 0]);
         assert_eq!(second.schema, TEST_DATABASE_SCHEMA);
     }
 
@@ -1822,7 +1822,7 @@ mod tests {
             Err(error) => panic!("paused managed start failed: {error}"),
         };
         assert!(resumed.capabilities.ready);
-        assert!(resumed.migrations.applied_versions.is_empty());
+        assert_eq!(resumed.migrations.applied_versions, [] as [i64; 0]);
 
         let paused = std::process::Command::new("docker")
             .args(["container", "pause", &database.identity.container_name])
@@ -1833,7 +1833,7 @@ mod tests {
             Ok(logs) => logs,
             Err(error) => panic!("managed logs failed: {error}"),
         };
-        assert!(!logs.trim().is_empty());
+        assert_ne!(logs.trim(), "");
         assert!(!logs.contains("POSTGRES_PASSWORD"));
 
         #[cfg(unix)]

@@ -994,21 +994,21 @@ mod tests {
         ))
         .unwrap_or_else(|error| panic!("optional metadata fallback failed: {error}"));
         assert_eq!(metadata.site_count, 1);
-        assert!(metadata.extra_lines.is_empty());
+        assert_eq!(metadata.extra_lines, [] as [u32; 0]);
         assert_eq!(
             metadata.provenance.as_deref(),
             Some("resolvedBy:qualified-name")
         );
 
-        assert!(
+        assert_eq!(
             parse_legacy_string_array(Some(r#"["valid",7]"#), "candidates")
-                .unwrap_or_else(|error| panic!("mixed candidate fallback failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("mixed candidate fallback failed: {error}")),
+            [] as [String; 0]
         );
-        assert!(
+        assert_eq!(
             parse_legacy_u32_array(Some(r#"[2,"bad"]"#), "extra_lines")
-                .unwrap_or_else(|error| panic!("mixed line fallback failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("mixed line fallback failed: {error}")),
+            [] as [u32; 0]
         );
     }
 
@@ -1172,7 +1172,7 @@ mod tests {
             .unwrap_or_else(|_| panic!("CRLF properties fixture is too large"));
         let node = source_node("Enabled", 0, end_column);
 
-        assert!(node.body_hash.is_empty());
+        assert_eq!(node.body_hash, "");
         assert_eq!(source_span(&properties, &node), Ok((0, legacy_line.len())));
         assert_eq!(source.as_bytes()[legacy_line.len() - 1], b'\r');
         assert_eq!(
@@ -1235,10 +1235,10 @@ mod tests {
         let mapped = map_edge_fact(&mapping, &edge)
             .unwrap_or_else(|error| panic!("def-use edge mapping failed: {error}"));
         assert_eq!(mapped.site_count, EXPECTED_DEF_USE_SITES);
-        assert!(
+        assert_eq!(
             map_edge_reference_facts(&mapping, &edge)
-                .unwrap_or_else(|error| panic!("def-use reference mapping failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("def-use reference mapping failed: {error}")),
+            []
         );
     }
 

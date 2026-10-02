@@ -775,7 +775,7 @@ async fn assert_mcp_macro_lifecycle(
             .await
             .unwrap_or_else(|error| panic!("could not delete session: {error}"))
     );
-    assert!(
+    assert_eq!(
         database
             .mcp_calls_for_session(McpSessionCallsQuery {
                 project_id: project,
@@ -783,8 +783,8 @@ async fn assert_mcp_macro_lifecycle(
                 limit: 100,
             })
             .await
-            .unwrap_or_else(|error| panic!("could not verify cascade: {error}"))
-            .is_empty()
+            .unwrap_or_else(|error| panic!("could not verify cascade: {error}")),
+        []
     );
 }
 #[tokio::test]
@@ -859,13 +859,13 @@ async fn role_cache_is_scoped_to_the_model_that_wrote_it() {
     // A model's own judgment is cached for it, re-judged by another model,
     // and never downgraded by a rules-only sweep.
     save(&caller, "jev", "jev-roles-v1").await;
-    assert!(pending(structural).await.is_empty());
-    assert!(pending(jev).await.is_empty());
+    assert_eq!(pending(structural).await, [] as [String; 0]);
+    assert_eq!(pending(jev).await, [] as [String; 0]);
     assert_eq!(pending(chat).await, caller_pending);
 
     // A current rules fallback satisfies rules but still invites a model.
     save(&caller, "structural_fallback", "structural-v2").await;
-    assert!(pending(structural).await.is_empty());
+    assert_eq!(pending(structural).await, [] as [String; 0]);
     assert_eq!(pending(jev).await, caller_pending);
 
     drop(database);
@@ -1421,7 +1421,7 @@ async fn expected_generation_reads_survive_publication_without_mixing_snapshots(
         ))
         .await
         .unwrap_or_else(|error| panic!("replacement generation lookup failed: {error}"));
-    assert!(replacement_rows.is_empty());
+    assert_eq!(replacement_rows, []);
 
     drop(database);
     drop_schema(&pool, &schema).await;
@@ -1618,7 +1618,7 @@ async fn startup_rebuilds_crash_lost_search_relation_and_removes_trusted_orphan(
         .migrate()
         .await
         .unwrap_or_else(|error| panic!("startup search repair failed: {error}"));
-    assert!(report.applied_versions.is_empty());
+    assert_eq!(report.applied_versions, [] as [i64; 0]);
     assert_eq!(report.current_version, LATEST_MIGRATION_VERSION);
     let after = bm25_signature(&database, &project, current.generation_id()).await;
     assert_eq!(after, before);
@@ -3414,13 +3414,13 @@ async fn assert_search(database: &CartographDatabase, expected: SearchExpectatio
         Err(error) => panic!("BM25 search failed: {error}"),
     };
     match (expected.document_id, expected.generation_id) {
-        (None, None) => assert!(hits.is_empty()),
+        (None, None) => assert_eq!(hits, []),
         (Some(document_id), Some(generation_id)) => {
             assert_eq!(hits.len(), 1);
             assert_eq!(hits[0].document_id().as_str(), document_id);
             assert_eq!(hits[0].generation_id(), generation_id);
             assert!(hits[0].score().is_finite() && hits[0].score().is_sign_positive());
-            assert!(!hits[0].components().is_empty());
+            assert_ne!(hits[0].components(), []);
         }
         _ => panic!("search expectation must contain both document and generation IDs"),
     }

@@ -958,7 +958,7 @@ mod tests {
 
         // An empty marker keeps its v1 meaning: drop this tree outright.
         assert!(fs::write(root.join(CARTOGRAPH_IGNORE_MARKER), "\n").is_ok());
-        assert!(discover_with_excludes(root, &[]).is_empty());
+        assert_eq!(discover_with_excludes(root, &[]), [] as [String; 0]);
     }
 
     #[test]
@@ -1195,7 +1195,7 @@ mod tests {
             ]
         );
         assert_eq!(nested_paths(root, true, false), ["modules/sub/sub.ts"]);
-        assert!(nested_paths(root, false, true).is_empty());
+        assert_eq!(nested_paths(root, false, true), [] as [String; 0]);
         assert_eq!(
             nested_paths_with_excludes(root, true, true, &[".private-worktrees/**".to_owned()]),
             ["modules/sub/sub.ts", "third_party_sdk/sdk.ts"]

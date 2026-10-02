@@ -19843,8 +19843,8 @@ export function secondClone(value: number) {
                 .iter()
                 .all(|symbol| symbol.symbol_kind == SymbolKind::File.as_str())
         );
-        assert!(facts.references().is_empty());
-        assert!(facts.edges().is_empty());
+        assert_eq!(facts.references(), []);
+        assert_eq!(facts.edges(), []);
         assert_eq!(
             facts
                 .documents()
@@ -20464,7 +20464,7 @@ export function secondClone(value: number) {
                         )
                 })
                 .collect::<Vec<_>>();
-            assert!(!private_sites.is_empty());
+            assert_ne!(private_sites, [] as [&ReferenceInput; 0]);
             assert!(private_sites.iter().all(|reference| {
                 reference.target_symbol_id.is_none()
                     && reference.resolution_provenance == RUST_EXTERNAL_UNRESOLVED_PROVENANCE
@@ -20521,7 +20521,7 @@ export function secondClone(value: number) {
                         && reference.reference_name == "public_api"
                 })
                 .collect::<Vec<_>>();
-            assert!(!sites.is_empty());
+            assert_ne!(sites, [] as [&ReferenceInput; 0]);
             assert!(sites.iter().all(|reference| {
                 reference.target_symbol_id.is_none()
                     && reference.resolution_provenance == RUST_EXTERNAL_UNRESOLVED_PROVENANCE
@@ -20828,7 +20828,7 @@ export function secondClone(value: number) {
                     && document.code() == path
             })
             .unwrap_or_else(|| panic!("file search document was missing"));
-        assert!(file_document.qualified_name().is_empty());
+        assert_eq!(file_document.qualified_name(), "");
         assert_eq!(file_document.code(), path);
         let file_symbol_id = file_document
             .symbol_id()
@@ -21059,7 +21059,7 @@ export function secondClone(value: number) {
             || false,
         )
         .unwrap_or_else(|_| panic!("policy resolution failed"));
-        assert!(facts.references.is_empty());
+        assert_eq!(facts.references, []);
         assert!(facts.edges.iter().any(|edge| edge.kind == EdgeKind::Calls));
         assert!(facts.documents.iter().all(|document| {
             document.natural_text.is_empty()
@@ -21409,7 +21409,7 @@ export function secondClone(value: number) {
                 .unwrap_or_else(|| panic!("{error} omitted its file diagnostic"));
             assert_eq!(file.path().as_str(), "src/failing.rs");
             assert_eq!(file.reason(), expected);
-            assert!(!expected.description().is_empty());
+            assert_ne!(expected.description(), "");
         }
     }
 
@@ -21498,7 +21498,7 @@ export function secondClone(value: number) {
         let generation = build_native_generation(&runner, source_root, pipeline)
             .await
             .unwrap_or_else(|error| panic!("nesting override did not parse: {error}"));
-        assert!(generation.report().degraded_files().is_empty());
+        assert_eq!(generation.report().degraded_files(), []);
         assert!(
             generation
                 .facts()

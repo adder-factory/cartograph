@@ -133,7 +133,7 @@ mod tests {
         )
         .await?;
         assert_eq!(admission, BacklogAdmission::Admit);
-        assert!(backlog.calls().is_empty());
+        assert_eq!(backlog.calls(), [] as [&str; 0]);
         Ok(())
     }
 

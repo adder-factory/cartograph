@@ -595,10 +595,9 @@ impl PrepareGenerationProgress {
     }
 
     pub(crate) fn advance(&self) {
-        let _ = self
-            .sequence
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                Some(value.saturating_add(1))
+        self.sequence
+            .update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.saturating_add(1)
             });
     }
 }

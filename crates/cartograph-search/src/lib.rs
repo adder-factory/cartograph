@@ -689,7 +689,7 @@ mod contract_tests {
             evidence_limit: PACKET_EVIDENCE_LIMIT,
             truncated: false,
         });
-        assert!(absent.edit_candidates().candidates().is_empty());
+        assert_eq!(absent.edit_candidates().candidates(), []);
     }
 
     #[test]
@@ -874,12 +874,12 @@ mod contract_tests {
 
         let clean = WorkingTreeOverlay::clean();
         assert_eq!(clean.status(), WorkingTreeOverlayStatus::Clean);
-        assert!(clean.files().is_empty());
+        assert_eq!(clean.files(), []);
         assert!(!clean.truncated());
 
         let unavailable = WorkingTreeOverlay::unavailable();
         assert_eq!(unavailable.status(), WorkingTreeOverlayStatus::Unavailable);
-        assert!(unavailable.files().is_empty());
+        assert_eq!(unavailable.files(), []);
         assert!(!unavailable.truncated());
 
         let no_matches = WorkingTreeOverlay::completed(WorkingTreeOverlayInput {
@@ -891,7 +891,7 @@ mod contract_tests {
         })
         .unwrap_or_else(|error| panic!("valid empty overlay failed: {error}"));
         assert_eq!(no_matches.status(), WorkingTreeOverlayStatus::NoMatches);
-        assert!(no_matches.files().is_empty());
+        assert_eq!(no_matches.files(), []);
         assert!(no_matches.truncated());
 
         let traversal = TraversalBudget::new(2, SAMPLE_NODE_LIMIT)

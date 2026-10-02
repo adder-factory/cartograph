@@ -210,7 +210,7 @@ fn c_family_preserves_the_locked_v1_1_33_floor_and_fixes_known_defects() {
         Err(error) => panic!("locked C-family v1.1.33 oracle is invalid: {error}"),
     };
     assert_eq!(oracle.baseline, "v1.1.33");
-    assert!(!oracle.policy.is_empty());
+    assert_ne!(oracle.policy, "");
     let actual = [
         extract_capability("video.c", C_SOURCE),
         extract_capability("widget.cpp", CPP_SOURCE),
@@ -696,7 +696,7 @@ fn cancellation_and_recoverable_syntax_damage_are_explicit() {
         "export function useful(): number { return 1; }\nfunction broken( {\n",
     );
     assert_eq!(damaged.parse_status, FileParseStatus::Partial);
-    assert!(!damaged.diagnostics.is_empty());
+    assert_ne!(damaged.diagnostics, []);
     assert!(damaged.symbols.iter().any(|entry| entry.name == "useful"));
 }
 

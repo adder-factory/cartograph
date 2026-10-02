@@ -1002,7 +1002,7 @@ async fn writer_failure_cancels_and_reaps_active_calls_before_returning() -> Tes
     input.flush().await?;
     let mut initialized = String::new();
     output.read_line(&mut initialized).await?;
-    assert!(!initialized.is_empty());
+    assert_ne!(initialized, "");
     input
         .write_all(
             concat!(

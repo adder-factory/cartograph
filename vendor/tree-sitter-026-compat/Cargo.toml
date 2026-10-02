@@ -2,7 +2,7 @@
 name = "tree-sitter"
 version = "0.26.13"
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 publish = false
 license = "MIT"
 description = "Cartograph's runtime-neutral compatibility facade for ABAP grammar bindings"
