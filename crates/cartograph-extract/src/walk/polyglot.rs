@@ -1141,21 +1141,7 @@ fn capture_rust_value_path(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
-    if is_call_or_construction_target(node)
-        || is_rust_turbofish_callee(node)
-        || node.parent().is_some_and(|parent| {
-            matches!(
-                parent.kind(),
-                "scoped_identifier" | "scoped_type_identifier"
-            )
-        })
-        || node.parent().is_some_and(|parent| {
-            parent.kind() == "macro_invocation"
-                && parent.child_by_field_name("macro").is_some_and(|target| {
-                    target.start_byte() == node.start_byte() && target.end_byte() == node.end_byte()
-                })
-        })
-    {
+    if rust_value_path_named_elsewhere(node) {
         return Ok(());
     }
     emit_node_reference(
@@ -1166,6 +1152,29 @@ fn capture_rust_value_path(
             kind: ReferenceKind::References,
         },
     )
+}
+
+/// Whether another reference already names this path: a call (turbofish
+/// included) names its callee, a longer path names its segments, and a macro
+/// invocation names its macro.
+fn rust_value_path_named_elsewhere(node: Node<'_>) -> bool {
+    is_call_or_construction_target(node)
+        || is_rust_turbofish_callee(node)
+        || node
+            .parent()
+            .is_some_and(|parent| rust_parent_names_path(parent, node))
+}
+
+/// Whether `parent` itself names `node`: a longer path containing it, or the
+/// macro invocation whose macro it is.
+fn rust_parent_names_path(parent: Node<'_>, node: Node<'_>) -> bool {
+    match parent.kind() {
+        "scoped_identifier" | "scoped_type_identifier" => true,
+        "macro_invocation" => parent.child_by_field_name("macro").is_some_and(|target| {
+            target.start_byte() == node.start_byte() && target.end_byte() == node.end_byte()
+        }),
+        _ => false,
+    }
 }
 
 fn join_rust_use_path(
