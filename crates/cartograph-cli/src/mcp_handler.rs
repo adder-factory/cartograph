@@ -106,7 +106,9 @@ use crate::host::{
     DiagnosticLocation, HostInspectionError, ProjectDiscoveryRequest, detect_install_targets,
     discover_projects,
 };
-use crate::supervised_index::{CancellableIndex, IndexSupervision, run_cancellable_index};
+use crate::supervised_index::{
+    CancellableIndex, IndexSupervision, run_cancellable_index, with_cleanup_proof,
+};
 
 #[cfg(test)]
 use cartograph_db::{AgentArtifactRecord, AgentArtifactState};
@@ -12728,10 +12730,15 @@ impl AdminLifecycleTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let report = runtime
-                        .import_scip_with_cancellation(request, operation_cancellation)
-                        .await?;
-                    serde_json::to_value(report).map_err(|_| ProjectError::IndexFailed)
+                    let report = with_cleanup_proof(
+                        &runtime,
+                        &operation_cancellation,
+                        runtime
+                            .import_scip_with_cancellation(request, operation_cancellation.clone()),
+                    )
+                    .await?;
+                    serde_json::to_value(report)
+                        .map_err(|_| IndexFailure::from(ProjectError::IndexFailed))
                 },
             })
             .await?;

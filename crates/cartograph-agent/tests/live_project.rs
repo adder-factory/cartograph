@@ -1415,7 +1415,7 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
                 ProjectCancellation::new(),
             )
             .await
-            .unwrap_or_else(|error| panic!("SCIP import failed: {error}"));
+            .unwrap_or_else(|error| panic!("SCIP import failed: {error:?}"));
         assert!(imported.index.published);
         assert_ne!(imported.index.generation_id, first.generation_id);
         let overlay = imported

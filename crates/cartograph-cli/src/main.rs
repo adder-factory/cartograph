@@ -3314,7 +3314,7 @@ async fn sync_if_dirty_index(
     project_id: ProjectId,
     options: IndexOptions,
 ) -> Result<SyncIfDirtyIndexOutcome, IndexFailure> {
-    let mut wait_deadline = None;
+    let mut writer_wait = None;
     loop {
         let collision = match runtime.index_with_failure_detail(options.clone()).await {
             Ok(report) => {
@@ -3326,15 +3326,15 @@ async fn sync_if_dirty_index(
             Err(failure) => return Err(failure),
         };
 
-        let deadline = *wait_deadline
-            .get_or_insert_with(|| tokio::time::Instant::now() + SYNC_IF_DIRTY_LEASE_WAIT);
-        if supervised_index::wait_for_project_writers(runtime, &project_id, deadline)
-            .await
-            .is_err()
-        {
+        let wait = writer_wait.get_or_insert_with(|| {
+            supervised_index::WriterCollisionWait::until(
+                tokio::time::Instant::now() + SYNC_IF_DIRTY_LEASE_WAIT,
+            )
+        });
+        if wait.after_collision(runtime, &project_id).await.is_err() {
             return Err(collision);
         }
-        let Ok(status) = tokio::time::timeout_at(deadline, runtime.status()).await else {
+        let Ok(status) = tokio::time::timeout_at(wait.deadline(), runtime.status()).await else {
             return Err(collision);
         };
         if status?.fresh {

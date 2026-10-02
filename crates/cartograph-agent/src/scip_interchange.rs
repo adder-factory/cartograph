@@ -15,7 +15,7 @@ use cartograph_scip::{
 use serde::Serialize;
 
 use crate::{
-    IndexOptions, IndexReport, MAXIMUM_SCIP_OVERLAY_BYTES, MAXIMUM_SCIP_OVERLAY_ROWS,
+    IndexFailure, IndexOptions, IndexReport, MAXIMUM_SCIP_OVERLAY_BYTES, MAXIMUM_SCIP_OVERLAY_ROWS,
     ProjectCancellation, ProjectError, ProjectRuntime, SCIP_OVERLAY_RELATIVE_PATH, source_limits,
 };
 
@@ -260,12 +260,14 @@ impl ProjectRuntime {
     ///
     /// Returns an error when the input is missing, unsafe, oversized, or invalid
     /// SCIP; overlay installation or rollback fails; forced indexing fails; the
-    /// installed digest changes; or cancellation wins.
+    /// installed digest changes; or cancellation wins. A failed forced index
+    /// keeps its [`IndexFailure`], including whether bounded cleanup of its own
+    /// staging generation also failed.
     pub async fn import_scip_with_cancellation(
         &self,
         request: ScipImportRequest,
         cancellation: ProjectCancellation,
-    ) -> Result<ScipImportReport, ProjectError> {
+    ) -> Result<ScipImportReport, IndexFailure> {
         let root = self.root.clone();
         let input = request.input.clone();
         let read_cancellation = cancellation.clone();
@@ -283,7 +285,7 @@ impl ProjectRuntime {
         .await
         .map_err(|_| ProjectError::ScipOverlayInvalid)??;
         if cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled);
+            return Err(ProjectError::RequestCancelled.into());
         }
         let DecodedImport {
             bytes,
@@ -304,12 +306,13 @@ impl ProjectRuntime {
         let options = IndexOptions::default()
             .with_force(true)
             .with_max_workers(request.workers)?;
-        let index = Box::pin(self.index_with_cancellation(options, cancellation.clone())).await;
+        let index =
+            Box::pin(self.index_with_cancellation_detail(options, cancellation.clone())).await;
         let index = match index {
             Ok(index) => index,
-            Err(error) => {
+            Err(failure) => {
                 rollback_overlay_if_owned(self.root.clone(), requested_digest, backup).await?;
-                return Err(error);
+                return Err(failure);
             }
         };
         let root = self.root.clone();
@@ -317,7 +320,7 @@ impl ProjectRuntime {
             .await
             .map_err(|_| ProjectError::ScipOverlayInvalid)??;
         if final_digest != Some(requested_digest) {
-            return Err(ProjectError::IndexFailed);
+            return Err(ProjectError::IndexFailed.into());
         }
         Ok(ScipImportReport {
             input: request.input.into_string(),

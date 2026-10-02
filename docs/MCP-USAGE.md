@@ -113,8 +113,9 @@ the previous published generation remains untouched. Absolute checkout paths,
 source/parser text, literals, database URLs, and driver messages are not part of
 the MCP result.
 
-When an `index`, `sync`, `embed-only`, or indexing `init` admin job fails and
-the bounded cleanup of its own staging generation also fails, its terminal
+When an `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` admin
+job fails and the bounded cleanup of its own staging generation also fails
+(for `scip-import`, the staging generation of its forced index), its terminal
 status adds an optional `cleanupFailure` object with
 `code: index_cleanup_failed` and `message`, the same object direct
 `index --format json` reports as `cleanup_failure`. It never replaces `failure`,

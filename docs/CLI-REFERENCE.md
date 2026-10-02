@@ -195,7 +195,10 @@ migration, or rebuild), it waits for every such lease, within one bounded
 five-minute wait, instead of stealing it or rescanning the checkout while the
 lease is live. After the competing writers release, the command succeeds when
 one of them published the now-current source revision; otherwise it retries its
-own complete index. A live lease that outlasts the five minutes ends the
+own complete index. A collision that no live lease explains, such as a project
+lock held by an operation without a lease, pauses before that retry instead,
+from 15 seconds doubling up to 4 minutes within the same wait, because every
+retry repeats the source scan. A writer that outlasts the five minutes ends the
 command with the retryable `lease_busy`. Like `index`, a failure message names
 a cleanup failure that followed it as a secondary `index_cleanup_failed`.
 

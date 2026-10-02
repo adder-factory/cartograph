@@ -222,7 +222,8 @@ until the next index that finds the project free fails it in its staging
 recovery. The current generation stays published. Wait for the writer to
 finish and retry. `sync-if-dirty` already waits, up to five minutes in total,
 for every live lease on the project (index, sync, hook, migration, or rebuild)
-before it retries, and reports `lease_busy` if a lease outlasts that wait;
+before it retries, pauses first when no live lease explains the collision, and
+reports `lease_busy` if a writer outlasts that wait;
 automatic sync schedules the retry. `admin unlock` removes only
 database-clock-expired leases and cannot clear a live writer.
 

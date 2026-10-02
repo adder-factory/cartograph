@@ -24,13 +24,13 @@
 //! project instead of failing immediately with `lease_busy`, including a
 //! writer that started while this child scanned the checkout and now blocks
 //! its attempt. `sync-if-dirty` waits on the same project leases through
-//! [`wait_for_project_writers`] after its own `lease_busy` attempts.
+//! [`WriterCollisionWait`] after its own `lease_busy` attempts.
 
 use std::{
     io::{Read, Write as _},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -215,18 +215,11 @@ async fn run_request(request: CancellableIndex<'_>) -> Result<IndexReport, Index
     } = request;
     match supervision {
         IndexSupervision::Direct => {
-            let mut owned = OwnedReservations::default();
-            let reserved_before = cancellation.reserved_index_generation();
-            let result = runtime
-                .index_with_cancellation_detail(options, cancellation.clone())
-                .await;
-            owned.record_since(&cancellation, reserved_before.as_ref());
-            confirm_cancellation_cleanup(FinishedRequest {
-                result,
+            with_cleanup_proof(
                 runtime,
-                cancelled: cancellation.is_cancelled(),
-                owned: &owned,
-            })
+                &cancellation,
+                runtime.index_with_cancellation_detail(options, cancellation.clone()),
+            )
             .await
         }
         IndexSupervision::Supervised => {
@@ -283,30 +276,39 @@ impl InterruptForwarding {
     /// The cancellable index request started; an interrupt now stops it
     /// cooperatively.
     fn request_started(&self) {
-        self.phase.started.store(true, Ordering::Relaxed);
+        self.phase.enter(RequestPhase::RUNNING);
     }
 
     /// The index request ended; any later interrupt ends the process as the
     /// default disposition would have.
     fn request_finished(&self) {
-        self.phase.finished.store(true, Ordering::Relaxed);
+        self.phase.enter(RequestPhase::ENDED);
     }
 }
 
 /// How far the process's one index request got, as interrupts see it.
+///
+/// One word holds the phase, written by the request task and read by the
+/// interrupt forwarder, so the forwarder never sees a half-updated pair of
+/// flags, and it only ever moves forward.
 #[derive(Default)]
-struct RequestPhase {
-    /// The cancellable request started.
-    started: AtomicBool,
-    /// The request ended.
-    finished: AtomicBool,
-}
+struct RequestPhase(AtomicU8);
 
 impl RequestPhase {
+    /// The cancellable request runs.
+    const RUNNING: u8 = 1;
+    /// The request ended.
+    const ENDED: u8 = 2;
+
+    /// Move to `phase` unless the request already got further.
+    fn enter(&self, phase: u8) {
+        self.0.fetch_max(phase, Ordering::AcqRel);
+    }
+
     /// Whether an interrupt now becomes a cooperative stop: only while the
     /// request runs.
     fn running(&self) -> bool {
-        self.started.load(Ordering::Relaxed) && !self.finished.load(Ordering::Relaxed)
+        self.0.load(Ordering::Acquire) == Self::RUNNING
     }
 }
 
@@ -336,9 +338,34 @@ impl OwnedReservations {
     }
 }
 
-/// One finished index request whose cancellation may need a cleanup proof.
-struct FinishedRequest<'request> {
-    result: Result<IndexReport, IndexFailure>,
+/// Await one direct request that indexes under `cancellation` and settle a
+/// cancelled outcome's cleanup the way an index request does (see
+/// [`confirm_cancellation_cleanup`]).
+///
+/// An MCP SCIP import, for example, forces one index under its job's
+/// cancellation, so its cancelled job reports the same PostgreSQL-confirmed
+/// `cleanupFailure` as a cancelled index job.
+pub(crate) async fn with_cleanup_proof<Report>(
+    runtime: &ProjectRuntime,
+    cancellation: &ProjectCancellation,
+    request: impl Future<Output = Result<Report, IndexFailure>>,
+) -> Result<Report, IndexFailure> {
+    let mut owned = OwnedReservations::default();
+    let reserved_before = cancellation.reserved_index_generation();
+    let result = request.await;
+    owned.record_since(cancellation, reserved_before.as_ref());
+    confirm_cancellation_cleanup(FinishedRequest {
+        result,
+        runtime,
+        cancelled: cancellation.is_cancelled(),
+        owned: &owned,
+    })
+    .await
+}
+
+/// One finished request whose cancellation may need a cleanup proof.
+struct FinishedRequest<'request, Report> {
+    result: Result<Report, IndexFailure>,
     runtime: &'request ProjectRuntime,
     /// Whether the request's cancellation was requested.
     cancelled: bool,
@@ -363,9 +390,9 @@ struct FinishedRequest<'request> {
 /// concurrent auto-sync may hold at the same moment, are not this request's
 /// and never count against it. An unreadable row is reported as a cleanup
 /// failure: conservative, never optimistic.
-async fn confirm_cancellation_cleanup(
-    request: FinishedRequest<'_>,
-) -> Result<IndexReport, IndexFailure> {
+async fn confirm_cancellation_cleanup<Report>(
+    request: FinishedRequest<'_, Report>,
+) -> Result<Report, IndexFailure> {
     let FinishedRequest {
         result,
         runtime,
@@ -846,28 +873,64 @@ async fn wait_for_other_writers(wait: &WriterWait<'_>) -> Result<(), ProjectErro
     wait_for_project_leases(wait, &project_id).await
 }
 
-/// Wait, until `deadline`, for every live operation lease on the project to
-/// end; a deadline that passes first reports the retryable `lease_busy`.
+/// `sync-if-dirty`'s bounded wait between its `lease_busy` attempts; a
+/// deadline that passes first reports the retryable `lease_busy`.
 ///
-/// `sync-if-dirty` waits here after an attempt reports `lease_busy`. A live
-/// lease of any operation in [`PROJECT_OPERATIONS`] refuses index acquisition,
-/// so waiting on the index lease alone would retry, and rescan the checkout,
-/// while a sync, hook, migration, or rebuild lease is still live. The wait is
+/// A live lease of any operation in [`PROJECT_OPERATIONS`] refuses index
+/// acquisition, so waiting on the index lease alone would retry, and rescan
+/// the checkout, while a sync, hook, migration, or rebuild lease is still
+/// live: the wait outlasts every one of them. A collision that no live lease
+/// explains (a project lock held past the bounded staging-preflight wait by
+/// an operation without a lease, or a schema-maintenance lock) pauses instead,
+/// from [`INITIAL_COLLISION_BACKOFF`] doubling up to
+/// [`MAXIMUM_COLLISION_BACKOFF`], as the supervised attempts do. The wait is
 /// the supervised one without cancellation or progress reporting.
-pub(crate) async fn wait_for_project_writers(
-    runtime: &ProjectRuntime,
-    project_id: &ProjectId,
+pub(crate) struct WriterCollisionWait {
     deadline: Instant,
-) -> Result<(), ProjectError> {
-    let progress = SupervisedProgress::default();
-    let cancellation = ProjectCancellation::new();
-    let wait = WriterWait {
-        runtime,
-        progress: &progress,
-        cancellation: &cancellation,
-        deadline,
-    };
-    wait_for_project_leases(&wait, project_id).await
+    backoff: Duration,
+}
+
+impl WriterCollisionWait {
+    /// A wait that reports `lease_busy` once `deadline` passes.
+    pub(crate) const fn until(deadline: Instant) -> Self {
+        Self {
+            deadline,
+            backoff: INITIAL_COLLISION_BACKOFF,
+        }
+    }
+
+    /// When the whole wait ends.
+    pub(crate) const fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
+    /// Wait out the collision an attempt on `project_id` just reported.
+    pub(crate) async fn after_collision(
+        &mut self,
+        runtime: &ProjectRuntime,
+        project_id: &ProjectId,
+    ) -> Result<(), ProjectError> {
+        let progress = SupervisedProgress::default();
+        let cancellation = ProjectCancellation::new();
+        let wait = WriterWait {
+            runtime,
+            progress: &progress,
+            cancellation: &cancellation,
+            deadline: self.deadline,
+        };
+        if within_wait(&wait, live_writer_heartbeat(runtime, project_id))
+            .await?
+            .is_some()
+        {
+            return wait_for_project_leases(&wait, project_id).await;
+        }
+        within_wait(&wait, tokio::time::sleep(self.backoff)).await?;
+        self.backoff = self
+            .backoff
+            .saturating_mul(2)
+            .min(MAXIMUM_COLLISION_BACKOFF);
+        Ok(())
+    }
 }
 
 /// Poll the project's operation leases while another writer holds one.
@@ -1363,9 +1426,9 @@ mod tests {
         // wait that outlives its bound is the retryable contention code.
         for operation in PROJECT_OPERATIONS {
             let lease = competing_lease(&runtime, &project_id, operation).await;
-            let waited =
-                wait_for_project_writers(&runtime, &project_id, Instant::now() + LIVE_WAIT_BOUND)
-                    .await;
+            let waited = WriterCollisionWait::until(Instant::now() + LIVE_WAIT_BOUND)
+                .after_collision(&runtime, &project_id)
+                .await;
             assert_eq!(
                 waited,
                 Err(ProjectError::IndexLeaseBusy),
@@ -1385,13 +1448,24 @@ mod tests {
             tokio::time::sleep(LIVE_WAIT_BOUND).await;
             runtime.database().release_lease(&lease).await
         };
+        let mut released_wait = WriterCollisionWait::until(started + RELEASED_WAIT_BOUND);
         let (waited, released) = tokio::join!(
-            wait_for_project_writers(&runtime, &project_id, started + RELEASED_WAIT_BOUND),
+            released_wait.after_collision(&runtime, &project_id),
             release
         );
         released.unwrap_or_else(|error| panic!("sync lease release failed: {error}"));
         assert_eq!(waited, Ok(()));
         assert!(started.elapsed() >= LIVE_WAIT_BOUND);
+
+        // A collision that no live lease explains (a lock held without one)
+        // pauses instead of retrying, and rescanning the checkout, at once:
+        // a bound shorter than the first pause ends as `lease_busy`.
+        assert_eq!(
+            WriterCollisionWait::until(Instant::now() + LIVE_WAIT_BOUND)
+                .after_collision(&runtime, &project_id)
+                .await,
+            Err(ProjectError::IndexLeaseBusy),
+        );
         runtime.close().await;
     }
 
