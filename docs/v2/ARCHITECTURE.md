@@ -88,7 +88,9 @@ Before migration or normal work, Cartograph proves:
 - pgvector 0.8.4 or newer, with 0.8.6 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
 
-The append-only migration ledger currently owns forty-five versions. Migration 45
+The append-only migration ledger currently owns forty-six versions. Migration 46
+admits generation digest V19 for Rust references inside macro arguments.
+Migration 45
 records each ready generation's exact fact counts and source bytes, so status and
 freshness stop counting fact tables, and keys Git churn/co-change refreshes by
 their inputs so an unchanged HEAD reuses stored history. Migration 44
@@ -306,7 +308,7 @@ batch-local validation uses the same field contract, global conflicts and edge
 multiplicity are reduced under database constraints, and each canonical
 partition group proves its file/symbol/span cross-relations before its raw
 evidence is removed. The durable completed phase makes a redundant final
-generation-wide relation scan unnecessary. The V18 digest is streamed as exact
+generation-wide relation scan unnecessary. The V19 digest is streamed as exact
 canonical row bytes in the memory reducer's table/key order. Centrality uses
 the same pre-dedup calls/reference graph and is patched onto fenced raw symbols
 before sealing. Exact batch replay and the canonical cursor make an interrupted

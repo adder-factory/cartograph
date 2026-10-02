@@ -209,7 +209,7 @@ fn doctor_warns_for_uninitialized_behind_schema_and_fails_for_real_state() {
             migration["message"]
                 .as_str()
                 .is_some_and(|message| message.contains(
-                    "database schema version 44 is below required version 45; next pending migration is 45"
+                    "database schema version 45 is below required version 46; next pending migration is 46"
                 ))
         );
     }));
@@ -1874,7 +1874,7 @@ fn invoke(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) -> 
 }
 
 fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
-    const GENERATION_FACT_COUNTS_SCHEMA_VERSION: i64 = 45;
+    const RUST_MACRO_REFERENCES_SCHEMA_VERSION: i64 = 46;
     let settings =
         cartograph_config::DatabaseSettings::parse(database_url, Some("2"), Some("10000"))
             .and_then(|settings| settings.with_schema(schema))
@@ -1886,7 +1886,7 @@ fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
     runtime.block_on(async {
         assert_eq!(
             cartograph_db::latest_schema_version(),
-            GENERATION_FACT_COUNTS_SCHEMA_VERSION,
+            RUST_MACRO_REFERENCES_SCHEMA_VERSION,
             "schema-behind fixture must track the current migration"
         );
         let pool = cartograph_db::connect(&settings)
@@ -1897,25 +1897,19 @@ fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
             .migrate()
             .await
             .unwrap_or_else(|error| panic!("schema-behind migration failed: {error}"));
-        for statement in [
-            format!(
-                r#"ALTER TABLE "{schema}"."index_generations"
-                    DROP CONSTRAINT index_generations_fact_counts_check,
-                    DROP COLUMN fact_files, DROP COLUMN fact_symbols, DROP COLUMN fact_edges,
-                    DROP COLUMN fact_references, DROP COLUMN fact_numerical_sites,
-                    DROP COLUMN fact_documents, DROP COLUMN fact_source_bytes"#
-            ),
-            format!(r#"DROP TABLE "{schema}"."history_refreshes""#),
-        ] {
-            query(AssertSqlSafe(statement))
-                .execute(&pool)
-                .await
-                .unwrap_or_else(|error| panic!("schema-behind rollback failed: {error}"));
-        }
+        query(AssertSqlSafe(format!(
+            r#"ALTER TABLE "{schema}"."index_generations"
+                DROP CONSTRAINT index_generations_digest_version_check,
+                ADD CONSTRAINT index_generations_digest_version_check
+                    CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18))"#
+        )))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("schema-behind rollback failed: {error}"));
         query(AssertSqlSafe(format!(
             r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#
         )))
-        .bind(GENERATION_FACT_COUNTS_SCHEMA_VERSION)
+        .bind(RUST_MACRO_REFERENCES_SCHEMA_VERSION)
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("schema-behind ledger rollback failed: {error}"));

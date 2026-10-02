@@ -318,17 +318,19 @@ pub enum GenerationDigestVersion {
     V17 = 17,
     /// Updated CUDA grammar and Unicode identifier semantics.
     V18 = 18,
+    /// Rust macro-argument references.
+    V19 = 19,
 }
 
 impl GenerationDigestVersion {
     /// Current digest contract emitted by this Cartograph v2 binary.
-    pub const CURRENT: Self = Self::V18;
+    pub const CURRENT: Self = Self::V19;
 
     /// Every admitted contract version in ascending order.
     ///
     /// A new version is added here and nowhere else; validation walks this list
     /// rather than repeating one guarded arm per version.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::V1,
         Self::V2,
         Self::V3,
@@ -347,6 +349,7 @@ impl GenerationDigestVersion {
         Self::V16,
         Self::V17,
         Self::V18,
+        Self::V19,
     ];
 
     /// Stable PostgreSQL `smallint` representation.
@@ -674,7 +677,8 @@ mod tests {
     const DIGEST_V16_DATABASE_VALUE: i16 = 16;
     const DIGEST_V17_DATABASE_VALUE: i16 = 17;
     const DIGEST_V18_DATABASE_VALUE: i16 = 18;
-    const UNKNOWN_DIGEST_DATABASE_VALUE: i16 = 19;
+    const DIGEST_V19_DATABASE_VALUE: i16 = 19;
+    const UNKNOWN_DIGEST_DATABASE_VALUE: i16 = 20;
 
     #[test]
     fn branded_ids_canonicalize_and_validate_deserialized_values() {
@@ -697,93 +701,6 @@ mod tests {
     fn lifecycle_and_document_kinds_have_stable_database_values() {
         assert_eq!(GenerationState::Staging.as_str(), "staging");
         assert_eq!(GenerationState::Current.as_str(), "current");
-        assert_eq!(
-            GenerationDigestVersion::V1.database_value(),
-            DIGEST_V1_DATABASE_VALUE
-        );
-        assert_eq!(
-            GenerationDigestVersion::V2.database_value(),
-            DIGEST_V2_DATABASE_VALUE
-        );
-        assert_eq!(
-            GenerationDigestVersion::CURRENT.database_value(),
-            DIGEST_V18_DATABASE_VALUE
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V1_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V1)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V2_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V2)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V3_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V3)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V4_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V4)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V5_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V5)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V6_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V6)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V7_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V7)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V8_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V8)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V9_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V9)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V10_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V10)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V11_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V11)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V12_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V12)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V13_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V13)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V14_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V14)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V15_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V15)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V16_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V16)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V17_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V17)
-        );
-        assert_eq!(
-            GenerationDigestVersion::from_database_value(DIGEST_V18_DATABASE_VALUE),
-            Ok(GenerationDigestVersion::V18)
-        );
-        assert!(
-            GenerationDigestVersion::from_database_value(UNKNOWN_DIGEST_DATABASE_VALUE).is_err()
-        );
         assert_eq!(DocumentKind::Symbol.as_str(), "symbol");
         assert_eq!(DocumentKind::Documentation.as_str(), "documentation");
         assert_eq!(FileParseStatus::Parsed.as_str(), "parsed");
@@ -794,6 +711,45 @@ mod tests {
         assert_eq!(
             project_root_identity(&fingerprint),
             format!("project:{}", fingerprint.as_str())
+        );
+    }
+
+    #[test]
+    fn generation_digest_versions_have_stable_database_values() {
+        let versions = [
+            (DIGEST_V1_DATABASE_VALUE, GenerationDigestVersion::V1),
+            (DIGEST_V2_DATABASE_VALUE, GenerationDigestVersion::V2),
+            (DIGEST_V3_DATABASE_VALUE, GenerationDigestVersion::V3),
+            (DIGEST_V4_DATABASE_VALUE, GenerationDigestVersion::V4),
+            (DIGEST_V5_DATABASE_VALUE, GenerationDigestVersion::V5),
+            (DIGEST_V6_DATABASE_VALUE, GenerationDigestVersion::V6),
+            (DIGEST_V7_DATABASE_VALUE, GenerationDigestVersion::V7),
+            (DIGEST_V8_DATABASE_VALUE, GenerationDigestVersion::V8),
+            (DIGEST_V9_DATABASE_VALUE, GenerationDigestVersion::V9),
+            (DIGEST_V10_DATABASE_VALUE, GenerationDigestVersion::V10),
+            (DIGEST_V11_DATABASE_VALUE, GenerationDigestVersion::V11),
+            (DIGEST_V12_DATABASE_VALUE, GenerationDigestVersion::V12),
+            (DIGEST_V13_DATABASE_VALUE, GenerationDigestVersion::V13),
+            (DIGEST_V14_DATABASE_VALUE, GenerationDigestVersion::V14),
+            (DIGEST_V15_DATABASE_VALUE, GenerationDigestVersion::V15),
+            (DIGEST_V16_DATABASE_VALUE, GenerationDigestVersion::V16),
+            (DIGEST_V17_DATABASE_VALUE, GenerationDigestVersion::V17),
+            (DIGEST_V18_DATABASE_VALUE, GenerationDigestVersion::V18),
+            (DIGEST_V19_DATABASE_VALUE, GenerationDigestVersion::V19),
+        ];
+        for (value, version) in versions {
+            assert_eq!(version.database_value(), value);
+            assert_eq!(
+                GenerationDigestVersion::from_database_value(value),
+                Ok(version)
+            );
+        }
+        assert_eq!(
+            GenerationDigestVersion::CURRENT.database_value(),
+            DIGEST_V19_DATABASE_VALUE
+        );
+        assert!(
+            GenerationDigestVersion::from_database_value(UNKNOWN_DIGEST_DATABASE_VALUE).is_err()
         );
     }
 
