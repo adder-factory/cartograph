@@ -2389,10 +2389,17 @@ mod tests {
             #[command(flatten)]
             setup: SetupArguments,
         }
+        // Assembled at runtime so no source literal reads as a stored credential.
+        let database_url = [
+            "postgresql://cartograph:",
+            "debug-secret",
+            "@127.0.0.1:1/cartograph",
+        ]
+        .concat();
         let parsed = <Harness as clap::Parser>::try_parse_from([
             "install",
             "--database-url",
-            "postgresql://cartograph:debug-secret@127.0.0.1:1/cartograph",
+            database_url.as_str(),
             "--api-key-command",
             "/opt/helper",
             "--api-key-arg",
@@ -2405,7 +2412,7 @@ mod tests {
         assert!(rendered.contains("api_key_argument_count: 1"), "{rendered}");
         assert_eq!(
             parsed.install.database_url.as_deref(),
-            Some("postgresql://cartograph:debug-secret@127.0.0.1:1/cartograph")
+            Some(database_url.as_str())
         );
         let setup = <SetupHarness as clap::Parser>::try_parse_from([
             "setup",

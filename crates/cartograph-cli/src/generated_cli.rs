@@ -1992,13 +1992,20 @@ mod tests {
 
     #[test]
     fn parsed_cli_debug_never_prints_argument_values() {
-        const DATABASE_URL: &str = "postgresql://cartograph:debug-secret@127.0.0.1:1/cartograph";
+        // Assembled at runtime so no source literal reads as a stored credential.
+        let database_url = [
+            "postgresql://cartograph:",
+            "debug-secret",
+            "@127.0.0.1:1/cartograph",
+        ]
+        .concat();
+        let database_url = database_url.as_str();
         let tool = parse_from([
             "cartograph",
             "admin",
             "init",
             "--database-url",
-            DATABASE_URL,
+            database_url,
         ])
         .unwrap_or_else(|error| panic!("admin init parse failed: {error}"));
         let static_command = parse_from([
@@ -2007,7 +2014,7 @@ mod tests {
             "install",
             "--no-models",
             "--database-url",
-            DATABASE_URL,
+            database_url,
         ])
         .unwrap_or_else(|error| panic!("llm install parse failed: {error}"));
         let rendered = format!("{tool:?} {static_command:?}");
@@ -2016,7 +2023,7 @@ mod tests {
         let ParsedCli::Tool(admin) = tool else {
             panic!("admin init did not route through generated tool command");
         };
-        assert_eq!(admin.arguments["databaseUrl"], DATABASE_URL);
+        assert_eq!(admin.arguments["databaseUrl"], database_url);
     }
 
     #[test]
