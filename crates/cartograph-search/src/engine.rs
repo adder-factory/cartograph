@@ -46,7 +46,7 @@ const CALLEE_DIRECTIONS: [TraversalDirection; 1] = [TraversalDirection::Outgoing
 const BIDIRECTIONAL_DIRECTIONS: [TraversalDirection; 2] =
     [TraversalDirection::Incoming, TraversalDirection::Outgoing];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum TraversalKind {
     Calls,
     Impact,
@@ -2218,6 +2218,8 @@ fn edge_is_relevant(arc: &GraphArc, kind: TraversalKind, edge_kind: Option<EdgeK
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use cartograph_domain::{EdgeKind, FileId};
 
     use super::*;
@@ -2267,14 +2269,14 @@ mod tests {
 
     #[test]
     fn intent_selects_graph_direction_and_test_expansion_explicitly() {
-        assert!(matches!(
+        assert_matches!(
             context_traversal_kind(TaskIntent::ImplementationTrace),
             Some(TraversalKind::Calls)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             context_traversal_kind(TaskIntent::ChangePlanning),
             Some(TraversalKind::Impact)
-        ));
+        );
         assert!(context_traversal_kind(TaskIntent::SymbolLookup).is_none());
         assert!(context_traversal_kind(TaskIntent::DocumentationLookup).is_none());
         assert!(context_selects_tests(TaskIntent::TestSelection));

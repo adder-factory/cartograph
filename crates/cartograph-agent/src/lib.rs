@@ -2834,7 +2834,7 @@ struct GenerationStoragePolicy {
     spill: NativeGenerationSpillPolicy,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum GenerationStorageSelection {
     Memory,
     Postgres(NativeGenerationSpillPolicy),
@@ -3668,6 +3668,8 @@ pub enum ProjectError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     #[test]
@@ -3875,7 +3877,7 @@ mod tests {
             preference,
             spill: NativeGenerationSpillPolicy::default(),
         };
-        assert!(matches!(
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Memory),
                 GenerationStorageSignals {
@@ -3886,8 +3888,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Memory
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Postgres),
                 GenerationStorageSignals {
@@ -3898,8 +3900,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Auto),
                 GenerationStorageSignals {
@@ -3910,8 +3912,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Memory
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Auto),
                 GenerationStorageSignals {
@@ -3922,8 +3924,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Auto),
                 GenerationStorageSignals {
@@ -3934,7 +3936,7 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
+        );
         assert!(is_cargo_manifest(
             &NormalizedPath::parse("crates/service/Cargo.toml")
                 .unwrap_or_else(|error| panic!("fixture path failed: {error}"))
@@ -3951,7 +3953,7 @@ mod tests {
             preference,
             spill: NativeGenerationSpillPolicy::default(),
         };
-        assert!(matches!(
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Auto),
                 GenerationStorageSignals {
@@ -3962,8 +3964,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Auto),
                 GenerationStorageSignals {
@@ -3974,8 +3976,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Auto),
                 GenerationStorageSignals {
@@ -3986,8 +3988,8 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             select_generation_storage(
                 policy(ProjectGenerationStorage::Postgres),
                 GenerationStorageSignals {
@@ -3998,7 +4000,7 @@ mod tests {
                 },
             ),
             GenerationStorageSelection::Postgres(_)
-        ));
+        );
     }
 
     #[test]

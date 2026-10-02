@@ -49,6 +49,18 @@ pub(super) enum ParsedCli {
     Tool(GeneratedToolInvocation),
 }
 
+/// Names the route without argument values: a static command can carry a
+/// secret-bearing `--database-url` or credential-helper `--api-key-arg`
+/// values, which the derived `Debug` of `Cli` prints verbatim.
+impl fmt::Debug for ParsedCli {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Static(_) => formatter.write_str("Static(<redacted>)"),
+            Self::Tool(invocation) => formatter.debug_tuple("Tool").field(invocation).finish(),
+        }
+    }
+}
+
 pub(super) enum ParseFailure {
     Clap(clap::Error),
     Contract(String),
@@ -81,6 +93,20 @@ pub(super) struct GeneratedToolInvocation {
     project_path: PathBuf,
     arguments: Map<String, Value>,
     render_mode: CliRenderMode,
+}
+
+/// Counts the arguments instead of printing them: they are operator-supplied
+/// tool inputs, including `cartograph_admin`'s secret-bearing `databaseUrl`.
+impl fmt::Debug for GeneratedToolInvocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedToolInvocation")
+            .field("tool_name", &self.tool_name)
+            .field("project_path", &"<redacted>")
+            .field("argument_count", &self.arguments.len())
+            .field("render_mode", &self.render_mode)
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1962,6 +1988,35 @@ mod tests {
         assert_eq!(admin.tool_name, "cartograph_admin");
         assert_eq!(admin.arguments["action"], "sync");
         assert_eq!(admin.arguments["workers"], 4);
+    }
+
+    #[test]
+    fn parsed_cli_debug_never_prints_argument_values() {
+        const DATABASE_URL: &str = "postgresql://cartograph:debug-secret@127.0.0.1:1/cartograph";
+        let tool = parse_from([
+            "cartograph",
+            "admin",
+            "init",
+            "--database-url",
+            DATABASE_URL,
+        ])
+        .unwrap_or_else(|error| panic!("admin init parse failed: {error}"));
+        let static_command = parse_from([
+            "cartograph",
+            "llm",
+            "install",
+            "--no-models",
+            "--database-url",
+            DATABASE_URL,
+        ])
+        .unwrap_or_else(|error| panic!("llm install parse failed: {error}"));
+        let rendered = format!("{tool:?} {static_command:?}");
+        assert!(!rendered.contains("debug-secret"));
+        assert_eq!(format!("{static_command:?}"), "Static(<redacted>)");
+        let ParsedCli::Tool(admin) = tool else {
+            panic!("admin init did not route through generated tool command");
+        };
+        assert_eq!(admin.arguments["databaseUrl"], DATABASE_URL);
     }
 
     #[test]

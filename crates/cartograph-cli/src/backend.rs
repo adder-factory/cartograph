@@ -360,6 +360,24 @@ enum PidState {
     Invalid(String),
 }
 
+/// Counts a valid record's argv instead of printing it: it carries the
+/// operator's `llamaServerArgs`, which may hold a secret such as `--api-key`.
+impl std::fmt::Debug for PidState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing => formatter.write_str("Missing"),
+            Self::Valid(record) => formatter
+                .debug_struct("Valid")
+                .field("schema_version", &record.schema_version)
+                .field("pid", &record.pid)
+                .field("argument_count", &record.args.len())
+                .finish_non_exhaustive(),
+            Self::UnsupportedVersion => formatter.write_str("UnsupportedVersion"),
+            Self::Invalid(message) => formatter.debug_tuple("Invalid").field(message).finish(),
+        }
+    }
+}
+
 struct StatePaths {
     project: PathBuf,
     directory: PathBuf,
@@ -1921,6 +1939,8 @@ fn print_json(value: &impl Serialize) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use tempfile::{TempDir, tempdir};
 
@@ -2141,10 +2161,7 @@ mod tests {
         let future = paths.directory.join("llama-cccccccccccc.json");
         fs::write(&future, br#"{"schemaVersion":3,"futureField":true}"#)
             .unwrap_or_else(|error| panic!("future state fixture failed: {error}"));
-        assert!(matches!(
-            read_pid_record(&future),
-            PidState::UnsupportedVersion
-        ));
+        assert_matches!(read_pid_record(&future), PidState::UnsupportedVersion);
         CleanupFixture {
             root,
             log,
@@ -2396,10 +2413,13 @@ mod tests {
         };
         assert!(valid_pid_record(&record));
         assert!(safe_regular_file(&row.pid_file_path));
-        assert!(matches!(
+        let rendered = format!("{:?}", read_pid_record(&row.pid_file_path));
+        assert!(rendered.contains("argument_count: 2"), "{rendered}");
+        assert!(!rendered.contains("--port"), "{rendered}");
+        assert_matches!(
             read_pid_record(&paths.directory.join("missing.json")),
             PidState::Missing
-        ));
+        );
 
         let orphan = orphan_spec(FIXTURE_BACKEND_ID, &record)
             .unwrap_or_else(|error| panic!("orphan state failed: {error}"));
@@ -2423,10 +2443,10 @@ mod tests {
 
         fs::write(paths.directory.join("malformed.json"), b"not-json")
             .unwrap_or_else(|error| panic!("malformed pid fixture failed: {error}"));
-        assert!(matches!(
+        assert_matches!(
             read_pid_record(&paths.directory.join("malformed.json")),
             PidState::Invalid(message) if message == "state file is malformed"
-        ));
+        );
 
         let mut missing_model = row.clone();
         missing_model.artifact_health.model_exists = false;

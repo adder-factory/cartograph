@@ -6805,7 +6805,7 @@ mod tests {
 
         let find = generated_cli::parse_from(["cartograph", "find", "trace auth failure"])
             .unwrap_or_else(|error| panic!("find CLI did not parse: {error}"));
-        assert!(matches!(find, generated_cli::ParsedCli::Tool(_)));
+        assert_matches!(find, generated_cli::ParsedCli::Tool(_));
 
         let context = generated_cli::parse_from([
             "cartograph",
@@ -6815,7 +6815,7 @@ mod tests {
             "deterministic",
         ])
         .unwrap_or_else(|error| panic!("context CLI did not parse: {error}"));
-        assert!(matches!(context, generated_cli::ParsedCli::Tool(_)));
+        assert_matches!(context, generated_cli::ParsedCli::Tool(_));
 
         let show = Cli::try_parse_from([
             "cartograph",
@@ -6839,7 +6839,7 @@ mod tests {
             "field-access",
         ])
         .unwrap_or_else(|error| panic!("graph path CLI did not parse: {error}"));
-        assert!(matches!(graph_path, generated_cli::ParsedCli::Tool(_)));
+        assert_matches!(graph_path, generated_cli::ParsedCli::Tool(_));
         let graph_similar = generated_cli::parse_from([
             "cartograph",
             "graph",
@@ -6855,7 +6855,7 @@ mod tests {
             "22222222-2222-4222-8222-222222222222",
         ])
         .unwrap_or_else(|error| panic!("graph similar CLI did not parse: {error}"));
-        assert!(matches!(graph_similar, generated_cli::ParsedCli::Tool(_)));
+        assert_matches!(graph_similar, generated_cli::ParsedCli::Tool(_));
     }
 
     #[test]
@@ -6870,7 +6870,7 @@ mod tests {
             "--allow-stale",
         ])
         .unwrap_or_else(|error| panic!("files CLI did not parse: {error}"));
-        assert!(matches!(files, generated_cli::ParsedCli::Tool(_)));
+        assert_matches!(files, generated_cli::ParsedCli::Tool(_));
 
         let entry_points = generated_cli::parse_from([
             "cartograph",
@@ -6882,7 +6882,7 @@ mod tests {
             "--allow-stale",
         ])
         .unwrap_or_else(|error| panic!("entry-points CLI did not parse: {error}"));
-        assert!(matches!(entry_points, generated_cli::ParsedCli::Tool(_)));
+        assert_matches!(entry_points, generated_cli::ParsedCli::Tool(_));
 
         let at_range = generated_cli::parse_from([
             "cartograph",
