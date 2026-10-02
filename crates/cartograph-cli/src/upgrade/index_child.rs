@@ -1,7 +1,9 @@
 //! The supervised `cartograph index --supervised` child of `upgrade --apply`.
 //!
 //! The child reports one compact JSON progress line on stderr whenever its
-//! observable work changes. It is stopped only on an explicit bound:
+//! observable work changes, from its start: while it connects and migrates
+//! the schema, a bounded startup liveness line changes instead. It is
+//! stopped only on an explicit bound:
 //! [`IndexChildPolicy::inactivity`] without a changed progress line, or the
 //! [`IndexChildPolicy::ceiling`] since spawn. Stopping first closes the
 //! child's stdin, which it treats as a cooperative cancellation request (the
@@ -18,21 +20,24 @@ use tokio::{
     time::Instant,
 };
 
-use crate::supervised_index::SUPERVISED_WRITER_WAIT;
+use crate::supervised_index::{SUPERVISED_STARTUP_ALLOWANCE, SUPERVISED_WRITER_WAIT};
 
 /// Longest the index child may go without a changed progress line. The
 /// child's own supervisor stops a stage after 10 minutes without progress
 /// with a precise `*_progress_stalled` code, so this backstop fires only when
-/// the child stops reporting altogether; the margin also absorbs delayed
-/// lease heartbeats and unreported preparation such as the source scan.
+/// the child stops reporting altogether, including a startup that outlived
+/// its liveness allowance; the margin also absorbs delayed lease heartbeats
+/// and unreported preparation such as the source scan.
 pub(super) const INDEX_INACTIVITY_TIMEOUT: Duration = Duration::from_mins(15);
 /// Time for one generation build: the child's 2-hour supervisor operation
 /// budget plus source scans, Git history, and retention around it.
 const INDEX_BUILD_ALLOWANCE: Duration = Duration::from_mins(150);
 /// Absolute bound on the index child even while it keeps reporting progress:
-/// its bounded wait for a competing writer plus one generation build.
-pub(super) const INDEX_ABSOLUTE_CEILING: Duration =
-    SUPERVISED_WRITER_WAIT.saturating_add(INDEX_BUILD_ALLOWANCE);
+/// its startup (connection and schema migrations), its bounded wait for a
+/// competing writer, and one generation build.
+pub(super) const INDEX_ABSOLUTE_CEILING: Duration = SUPERVISED_STARTUP_ALLOWANCE
+    .saturating_add(SUPERVISED_WRITER_WAIT)
+    .saturating_add(INDEX_BUILD_ALLOWANCE);
 /// Time a cooperatively cancelled child gets to fail its generation and
 /// release its lease before it is killed. It covers the supervisor's own
 /// finish reserve (10 s worker grace, a 3-minute COPY, five 5-second database

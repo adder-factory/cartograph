@@ -122,9 +122,10 @@ publishes once and reports the change. That child reports `unverified` when it
 published but cancellation or a scan failure cut the post-publication check
 short; the upgrade's next-process status then decides freshness.
 
-`index` stops cooperatively on its first SIGINT or SIGTERM (Ctrl-C on Windows):
-it fails its unpublished staging generation, releases its project lease, and
-exits nonzero with code `request_cancelled`. The statement in flight in the
+Once its index request has started, `index` stops cooperatively on its first
+SIGINT or SIGTERM (Ctrl-C on Windows): it fails its unpublished staging
+generation, releases its project lease, and exits nonzero with code
+`request_cancelled`. The statement in flight in the
 generation's prepare transaction (a COPY batch, a derived-relation or evidence
 statement, or an `ANALYZE`) finishes or reaches its 3-minute statement bound.
 The transaction then rolls back at its next cancellation check instead of
@@ -142,8 +143,14 @@ failure adds `cleanup_failure` (`index_cleanup_failed`), the next index retries
 the cleanup, and any remaining lease expires on its 5-minute TTL. An interrupt
 that arrives after a generation was already published, while the index
 rechecks the checkout, leaves that generation current and still reports
-`request_cancelled`. A second interrupt exits immediately without cleanup, and
-so does any interrupt after the request has ended.
+`request_cancelled`. An interrupt that arrives earlier, while `index` resolves
+its database settings, connects, or applies schema migrations, ends the process
+at once; it holds no project lease or generation yet. So does a second
+interrupt, without cleanup, and any interrupt after the request has ended.
+These exits are the signal's default disposition: on Unix the process dies by
+the received signal, so its parent sees that signal rather than an exit status
+(a shell shows 130 for SIGINT or 143 for SIGTERM), and on Windows Ctrl-C exits
+with `STATUS_CONTROL_C_EXIT`.
 
 A generated `cartograph admin` command that starts a background job, such as
 `admin index`, runs the job in-process and polls its status until it finishes.
@@ -318,15 +325,21 @@ acquisition, and is retried after the writer's lease is gone. A `lease_busy`
 that no live lease explains (for example a schema-maintenance lock) is retried
 after a pause that grows from 15 seconds to 4 minutes, within the same 30
 minutes. Each such collision repeats the source scan. The step has no fixed wall-clock limit. Instead the
-child reports progress (stage, item and byte counters, files discovered and
-hashed by source scans, lease renewals, and the other writer's renewals while
-it waits), and the step stops only when no progress arrives for 15 minutes or
-after an absolute 180-minute ceiling (the 30-minute writer wait plus one
-generation build, whose own supervisor budget is 2 hours). To stop the child,
+child reports progress from its start: while it resolves its database,
+connects, and applies schema migrations, a startup line that changes every 2
+seconds for at most 30 minutes; then stage, item and byte counters, files
+discovered and hashed by source scans, lease renewals, and the other writer's
+renewals while it waits. The step stops only when no progress arrives for 15
+minutes (so a startup still running after its 30 minutes is stopped 15 minutes
+later) or after an absolute 210-minute ceiling (the 30-minute startup
+allowance, the 30-minute writer wait, and one generation build, whose own
+supervisor budget is 2 hours). To stop the child,
 the parent closes the child's stdin. The child treats that as a cooperative
 cancellation: it fails its staging generation, releases its lease, and reports
 `request_cancelled` without a `cleanup_failure` once PostgreSQL confirms that
-cleanup. The parent waits up to 4 minutes for that before it kills the child.
+cleanup. A child that is still starting acts on the request when its index
+request begins, before it holds a lease or generation. The parent waits up to 4
+minutes for that before it kills the child.
 A killed child, or one that exited without confirming its cleanup, can leave
 its lease to the 5-minute TTL, and a rerun's writer wait absorbs that. These bounds apply when the binary that starts
 `upgrade --apply` contains them; an upgrade started from an older release uses
@@ -394,7 +407,9 @@ already-verified binary installed and report only the remaining repair.
   whether the child confirmed a cooperative cleanup (`request_cancelled` with
   no `cleanup_failure`), exited without confirming it, or was killed)
 - `blocked` (`reason` is the child's stable index failure code, such as
-  `parse_failed`, when one was reported)
+  `parse_failed`, when one was reported; the next step then names that code and
+  runs `cartograph index <path> --format json` for the full failure, while a
+  `blocked` index without a code points to `cartograph doctor <path>`)
 
 `verification.state` is `ready`, `source_changed`, `timed_out` (retryable), or
 `blocked`. A `blocked` verification is retryable when another writer replaced

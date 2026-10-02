@@ -1339,19 +1339,16 @@ async fn run_index_command(command: Command) -> Result<ExitCode, String> {
             supervised,
             format,
         } => {
-            run_index(
-                IndexArguments {
-                    project_path,
-                    workers,
-                    force,
-                    exclude,
-                    preserve_current_excludes,
-                    supervised,
-                    format,
-                    managed_database_port: None,
-                },
-                IndexFailureOutput::PrintAsCommand,
-            )
+            run_index(IndexArguments {
+                project_path,
+                workers,
+                force,
+                exclude,
+                preserve_current_excludes,
+                supervised,
+                format,
+                managed_database_port: None,
+            })
             .await
         }
         Command::Status {
@@ -2747,19 +2744,16 @@ impl AgentInstallContext {
             })
             .await?;
         }
-        run_index(
-            IndexArguments {
-                project_path: self.project_path.clone(),
-                workers: None,
-                force: false,
-                exclude: Vec::new(),
-                preserve_current_excludes: false,
-                supervised: false,
-                format: self.format,
-                managed_database_port: self.managed_database_port,
-            },
-            IndexFailureOutput::ReturnToCaller,
-        )
+        run_index(IndexArguments {
+            project_path: self.project_path.clone(),
+            workers: None,
+            force: false,
+            exclude: Vec::new(),
+            preserve_current_excludes: false,
+            supervised: false,
+            format: self.format,
+            managed_database_port: self.managed_database_port,
+        })
         .await
         .and_then(local_index_outcome)
     }
@@ -3132,46 +3126,13 @@ fn local_index_outcome(code: ExitCode) -> Result<(), String> {
     (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_INDEX_INCOMPLETE.to_owned())
 }
 
-/// Where an index failure message is written.
-#[derive(Clone, Copy)]
-enum IndexFailureOutput {
-    /// Return it to a caller that reports it in its own context.
-    ReturnToCaller,
-    /// Print it as the command's final output, as `main` would, while
-    /// interrupts are still forwarded.
-    PrintAsCommand,
-}
-
-async fn run_index(
-    arguments: IndexArguments,
-    failure_output: IndexFailureOutput,
-) -> Result<ExitCode, String> {
-    let cancellation = ProjectCancellation::new();
-    // Installed before any work and kept for the rest of the process, so an
-    // interrupt is never silently ignored once tokio owns the signal.
-    let interrupts = InterruptForwarding::install(
-        cancellation.clone(),
-        !arguments.supervised && matches!(arguments.format, OutputFormat::Text),
-    );
-    let outcome = match (
-        run_index_request(arguments, cancellation, &interrupts).await,
-        failure_output,
-    ) {
-        (Err(message), IndexFailureOutput::PrintAsCommand) => {
-            eprintln!("cartograph: {message}");
-            Ok(ExitCode::FAILURE)
-        }
-        (outcome, _) => outcome,
-    };
-    interrupts.request_finished();
-    outcome
-}
-
-async fn run_index_request(
-    arguments: IndexArguments,
-    cancellation: ProjectCancellation,
-    interrupts: &InterruptForwarding,
-) -> Result<ExitCode, String> {
+/// Run one `cartograph index` request.
+///
+/// An interrupt during the startup (settings, connection, schema migrations),
+/// when nothing could act on a cooperative stop yet, ends the process; only
+/// the cancellable request turns one into a cooperative stop (see
+/// [`supervised_index::run_cancellable_index`]).
+async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
     let IndexArguments {
         project_path,
         workers,
@@ -3182,17 +3143,26 @@ async fn run_index_request(
         format,
         managed_database_port,
     } = arguments;
+    let cancellation = ProjectCancellation::new();
+    // Installed before any work and kept for the rest of the process: tokio
+    // never restores a signal's default disposition, and the listener also
+    // replaces a SIGINT disposition inherited as ignored, so every interrupt
+    // is acted on.
+    let interrupts = InterruptForwarding::install(
+        cancellation.clone(),
+        !supervised && matches!(format, OutputFormat::Text),
+    );
     let supervision = if supervised {
         supervised_index::cancel_on_stdin_eof(cancellation.clone())?;
         IndexSupervision::Supervised
     } else {
         IndexSupervision::Direct
     };
-    let settings =
-        resolve_database_settings_with_port(&project_path, managed_database_port).await?;
-    let runtime = ProjectRuntime::connect(&project_path, &settings)
-        .await
-        .map_err(|error| error.to_string())?;
+    let runtime = supervised_index::start_up(
+        supervision,
+        connect_index_runtime(&project_path, managed_database_port),
+    )
+    .await?;
     let mut options = if preserve_current_excludes {
         IndexOptions::reconciliation()
     } else {
@@ -3217,9 +3187,9 @@ async fn run_index_request(
         options,
         cancellation,
         supervision,
+        interrupts: &interrupts,
     })
     .await;
-    interrupts.request_finished();
     match result {
         Ok(report) => {
             let rendered = print_index_report(&report, format);
@@ -3245,6 +3215,18 @@ async fn run_index_request(
             Err(rendered)
         }
     }
+}
+
+/// The startup of one index request: resolve the database settings, then
+/// connect and apply the append-only schema migrations.
+async fn connect_index_runtime(
+    project_path: &PathBuf,
+    managed_database_port: Option<u16>,
+) -> Result<ProjectRuntime, String> {
+    let settings = resolve_database_settings_with_port(project_path, managed_database_port).await?;
+    ProjectRuntime::connect(project_path, &settings)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// Whether readers still see a published generation after a failed index.

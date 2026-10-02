@@ -112,12 +112,14 @@ On a large or continuously edited project, read `projectReconciliation.index`:
   use up the whole wait; pause edits in the other session (or stop its MCP
   server) before rerunning.
 - `timed_out` (`retryable: true`, `reason: no_progress` or `ceiling`): the index
-  reported no progress for 15 minutes, or reached the 180-minute ceiling. Its
-  stdin was closed so that it stopped cooperatively. The message says whether it
-  confirmed releasing its lease (`request_cancelled` without a
-  `cleanup_failure`), exited without confirming it, or was killed after 4
-  minutes; in the last two cases the lease can remain for up to its 5-minute
-  TTL. A rerun waits for that instead of failing with `lease_busy`. If
+  reported no progress for 15 minutes (its database connection and schema
+  migration count as progress for their first 30 minutes), or reached the
+  210-minute ceiling. Its stdin was closed so that it stopped cooperatively.
+  The message says whether it confirmed releasing its lease
+  (`request_cancelled` without a `cleanup_failure`), exited without confirming
+  it, or was killed after 4 minutes; in the last two cases the lease can
+  remain for up to its 5-minute TTL. A rerun waits for that instead of failing
+  with `lease_busy`. If
   the timeout repeats, run `cartograph index <path>` directly to see the stage
   that is not advancing.
 - `blocked` with a `reason`: the index failed with that stable code. Run
@@ -127,12 +129,14 @@ A `doctor` or `verification` step with `state: timed_out` means that rescan of
 the checkout exceeded its 10-minute budget; it is retryable and says nothing
 about the project's health.
 
-`cartograph index` itself stops cooperatively on SIGINT or SIGTERM and releases
-its lease before exiting with `request_cancelled`; a second interrupt exits at
-once and leaves the lease to expire. With `--format json`, a
-`request_cancelled` failure without `cleanup_failure` means PostgreSQL
-confirmed this index's own cleanup; another session's lease or staging
-generation on the same project does not add a `cleanup_failure`.
+Once its index request has started, `cartograph index` stops cooperatively on
+SIGINT or SIGTERM and releases its lease before exiting with
+`request_cancelled`; a second interrupt ends it at once by that signal and
+leaves the lease to expire. An interrupt while it still connects or migrates
+the schema ends it at once as well, before it holds a lease. With
+`--format json`, a `request_cancelled` failure without `cleanup_failure` means
+PostgreSQL confirmed this index's own cleanup; another session's lease or
+staging generation on the same project does not add a `cleanup_failure`.
 
 If startup says the database schema is newer than the binary, do not retry the
 old process. The error reports the running binary version, database schema

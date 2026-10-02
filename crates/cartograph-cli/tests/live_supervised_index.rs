@@ -771,6 +771,59 @@ async fn a_direct_index_honors_sigterm_cooperatively_beside_another_writers_gene
     }
 }
 
+/// A second interrupt while the stopping index still waits on its blocked
+/// statement ends the process by that signal, as the default disposition
+/// would, instead of an exit status a parent shell cannot tell apart.
+#[cfg(unix)]
+async fn a_second_interrupt_ends_the_process_by_the_signal(project: &LiveProject) {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    project.index_once().await;
+    write_source(project.directory.path(), 2);
+    let blocker = HeldLock::fact_table(project).await;
+    let path = project.path();
+    let mut running = RunningChild::spawn(project.command(&["index", path.as_str()]));
+    wait_until_blocked_by(project, blocker.backend).await;
+    request_stop(&mut running, StopRequest::Terminate);
+    // The announcement shows the first interrupt was forwarded; a second one
+    // sent before that could be coalesced with it.
+    let started = Instant::now();
+    while !running.stderr_text().contains("interrupt again") {
+        assert!(
+            started.elapsed() < OBSERVE_WAIT_TIMEOUT,
+            "the first interrupt was never announced: {}",
+            running.stderr_text()
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+    request_stop(&mut running, StopRequest::Terminate);
+    let status = tokio::time::timeout(PROMPT_RELEASE, running.child.wait())
+        .await
+        .unwrap_or_else(|_| panic!("the second interrupt did not end the index"))
+        .unwrap_or_else(|error| panic!("index child wait failed: {error}"));
+    assert_eq!(
+        status.signal(),
+        Some(signal_hook::consts::SIGTERM),
+        "{status:?}: {}",
+        running.stderr_text()
+    );
+    blocker.release().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn a_second_interrupt_ends_a_stopping_index_by_that_signal() {
+    let project = LiveProject::new("second_interrupt");
+    let outcome = AssertUnwindSafe(a_second_interrupt_ends_the_process_by_the_signal(&project))
+        .catch_unwind()
+        .await;
+    project.drop_schema().await;
+    if let Err(payload) = outcome {
+        resume_unwind(payload);
+    }
+}
+
 /// Wait until the running supervised child reports a progress line that
 /// satisfies `expected`, failing if it exits first.
 async fn wait_for_progress(running: &mut RunningChild, expected: impl Fn(&Value) -> bool) {

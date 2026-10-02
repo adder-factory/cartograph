@@ -37,6 +37,9 @@ tokio = { workspace = true, features = ["signal"] }
 toml_edit.workspace = true
 url.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+signal-hook.workspace = true
+
 [lints]
 workspace = true
 

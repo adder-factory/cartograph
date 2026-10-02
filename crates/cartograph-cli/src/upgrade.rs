@@ -759,8 +759,8 @@ fn add_project_reconciliation_steps(
         );
         return;
     }
-    if let Some(step) = index_retry_step(&reconciliation.index) {
-        next_steps.push(step.to_owned());
+    if let Some(step) = index_next_step(&reconciliation.index) {
+        next_steps.push(step);
         return;
     }
     if reconciliation.database.state == "timed_out" {
@@ -1041,15 +1041,23 @@ const fn whole_minutes(duration: Duration) -> u64 {
 
 const SECONDS_PER_MINUTE: u64 = 60;
 
-/// The single next step when the index step ended in a retryable state.
-fn index_retry_step(index: &UpgradeStep) -> Option<&'static str> {
-    match index.state {
-        ANOTHER_WRITER_ACTIVE => Some(
-            "Another Cartograph operation kept this project busy; nothing is broken. Rerun `cartograph upgrade --apply --project-path <path>` after it finishes; the installed binary resumes the remaining steps.",
+/// The single next step that the index step's own outcome decides: a rerun
+/// after a retryable state, or, for an index failure with a stable code, the
+/// direct index command that reports that failure in full. A failure without
+/// a code (the child crashed or never reported one) leaves the step to doctor.
+fn index_next_step(index: &UpgradeStep) -> Option<String> {
+    match (index.state, index.reason.as_deref()) {
+        (ANOTHER_WRITER_ACTIVE, _) => Some(
+            "Another Cartograph operation kept this project busy; nothing is broken. Rerun `cartograph upgrade --apply --project-path <path>` after it finishes; the installed binary resumes the remaining steps."
+                .to_owned(),
         ),
-        "timed_out" => Some(
-            "The index step was stopped at a bound without a failure verdict (see `projectReconciliation.index`). Rerun `cartograph upgrade --apply --project-path <path>` to resume; if it repeats, run `cartograph index <path>` directly to see the stage that is not advancing.",
+        ("timed_out", _) => Some(
+            "The index step was stopped at a bound without a failure verdict (see `projectReconciliation.index`). Rerun `cartograph upgrade --apply --project-path <path>` to resume; if it repeats, run `cartograph index <path>` directly to see the stage that is not advancing."
+                .to_owned(),
         ),
+        ("blocked", Some(code)) => Some(format!(
+            "The index step failed with `{code}` (see `projectReconciliation.index`). Run the installed binary's `cartograph index <path> --format json` for the full failure, fix that boundary, then rerun `cartograph upgrade --apply --project-path <path>`."
+        )),
         _ => None,
     }
 }
@@ -2329,15 +2337,18 @@ mod tests {
     #[test]
     fn index_bounds_fit_large_projects_without_becoming_unbounded() {
         // A 26-minute full index on a large project must fit, and so must a
-        // competing writer's wait followed by a full two-hour build.
+        // startup that migrates the schema for its whole liveness allowance,
+        // then a competing writer's wait followed by a full two-hour build.
         assert_eq!(
             index_child::INDEX_ABSOLUTE_CEILING,
-            Duration::from_mins(180)
+            Duration::from_mins(210)
         );
-        assert_eq!(ProjectCommand::Index.timeout(), Duration::from_mins(180));
+        assert_eq!(ProjectCommand::Index.timeout(), Duration::from_mins(210));
         assert!(
             index_child::INDEX_ABSOLUTE_CEILING
-                >= crate::supervised_index::SUPERVISED_WRITER_WAIT + Duration::from_hours(2)
+                >= crate::supervised_index::SUPERVISED_STARTUP_ALLOWANCE
+                    + crate::supervised_index::SUPERVISED_WRITER_WAIT
+                    + Duration::from_hours(2)
         );
         // The backstop leaves the child's own 10-minute stall detector to
         // report the precise stage first.
@@ -2735,7 +2746,31 @@ esac
         assert_eq!(report.index.state, "blocked");
         assert_eq!(report.index.reason.as_deref(), Some("parse_failed"));
         assert!(!report.retryable);
+        // The database and doctor were not the problem: the next step names
+        // the code and the command that reports the full index failure.
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1, "{steps:?}");
+        assert!(steps[0].contains("`parse_failed`"), "{steps:?}");
+        assert!(
+            steps[0].contains("`cartograph index <path> --format json`"),
+            "{steps:?}"
+        );
+        assert!(steps[0].contains("upgrade --apply"), "{steps:?}");
+        assert!(!steps[0].contains("doctor"), "{steps:?}");
         Ok(())
+    }
+
+    #[test]
+    fn an_index_failure_without_a_code_still_points_to_doctor() {
+        // A child that crashed or failed before it could report a code
+        // leaves no index failure to rerun; doctor finds the boundary.
+        let mut report = started_project_reconciliation(ProjectDatabaseMode::External);
+        report.index = upgrade_step("blocked", "fixture index failure without a code");
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1, "{steps:?}");
+        assert!(steps[0].contains("doctor <path>` for the exact failure"));
     }
 
     #[test]
@@ -2761,7 +2796,7 @@ esac
             stop: ChildStop::Cooperative,
         }));
         assert_eq!(ceiling.reason.as_deref(), Some("ceiling"));
-        assert!(ceiling.message.contains("180-minute"));
+        assert!(ceiling.message.contains("210-minute"));
     }
 
     #[test]

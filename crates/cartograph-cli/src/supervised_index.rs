@@ -1,24 +1,29 @@
 //! Cooperative cancellation and parent supervision for `cartograph index`.
 //!
-//! Every index run turns its first SIGINT/SIGTERM (Ctrl-C on Windows) into a
-//! cooperative [`ProjectCancellation`]: the indexer supervisor then fails its
-//! staging generation and releases its exact project lease instead of leaving
-//! both behind until the lease expires. A second interrupt exits immediately.
-//! A cancelled request reports `request_cancelled` as its primary failure.
-//! It adds the secondary `cleanup_failure` unless PostgreSQL confirms the
-//! cleanup of what that request itself held. Other writers' leases and
-//! generations on the same project are never part of that proof. MCP admin
-//! index jobs run the same direct path under their job cancellation, so both
-//! surfaces report a cancelled index's cleanup identically.
+//! Once its cancellable index request starts, an index run turns its first
+//! SIGINT/SIGTERM (Ctrl-C on Windows) into a cooperative
+//! [`ProjectCancellation`]: the indexer supervisor then fails its staging
+//! generation and releases its exact project lease instead of leaving both
+//! behind until the lease expires. Before that (while the run resolves its
+//! database, connects, and migrates the schema), on a second interrupt, and
+//! after the request ended, an interrupt ends the process as the signal's
+//! default disposition does, even one the process inherited as ignored. A
+//! cancelled request reports `request_cancelled` as its primary failure. It
+//! adds the secondary `cleanup_failure` unless PostgreSQL confirms the cleanup
+//! of what that request itself held. Other writers' leases and generations on
+//! the same project are never part of that proof. MCP admin index jobs run the
+//! same direct path under their job cancellation, so both surfaces report a
+//! cancelled index's cleanup identically.
 //!
 //! The hidden `--supervised` mode is the child that `upgrade --apply` runs.
 //! Its parent holds stdin open and closes it to request the same cooperative
 //! cancellation, reads one compact JSON progress line on stderr whenever the
-//! observable work changes, and relies on this module waiting (within
-//! [`SUPERVISED_WRITER_WAIT`]) for another live writer on the project instead
-//! of failing immediately with `lease_busy`, including a writer that started
-//! while this child scanned the checkout and now blocks its attempt.
-//! `sync-if-dirty` waits on the same project leases through
+//! observable work changes (from the child's start, including bounded
+//! liveness while it connects and migrates), and relies on this module
+//! waiting (within [`SUPERVISED_WRITER_WAIT`]) for another live writer on the
+//! project instead of failing immediately with `lease_busy`, including a
+//! writer that started while this child scanned the checkout and now blocks
+//! its attempt. `sync-if-dirty` waits on the same project leases through
 //! [`wait_for_project_writers`] after its own `lease_busy` attempts.
 
 use std::{
@@ -43,6 +48,13 @@ use tokio::time::{Instant, MissedTickBehavior};
 /// MCP server's auto-sync) to release the project before it reports
 /// `lease_busy`. Each writer's own supervisor bounds its run.
 pub(crate) const SUPERVISED_WRITER_WAIT: Duration = Duration::from_mins(30);
+/// Longest a supervised child reports liveness while it starts: resolving
+/// its database settings, connecting, and applying schema migrations and
+/// startup search-relation repairs, each statement of which runs under the
+/// session statement timeout. A startup still running after this stops
+/// changing its progress line, so the parent's inactivity bound then stops it
+/// like any other child that stopped reporting.
+pub(crate) const SUPERVISED_STARTUP_ALLOWANCE: Duration = Duration::from_mins(30);
 /// Interval between reads of the project's operation leases.
 const WRITER_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// First pause after a `lease_busy` attempt that no live lease explained,
@@ -57,8 +69,14 @@ const MAXIMUM_COLLISION_BACKOFF: Duration = Duration::from_mins(4);
 const PROGRESS_POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Scratch buffer for discarding unexpected bytes written to a supervised stdin.
 const STDIN_DRAIN_BYTES: usize = 256;
-/// Conventional exit status for a process stopped by a repeated interrupt.
-const INTERRUPTED_EXIT_CODE: i32 = 130;
+/// Shell convention for the exit status of a process ended by signal `N`:
+/// this base plus `N`. Used only if re-raising the signal failed to end it.
+#[cfg(unix)]
+const SIGNAL_EXIT_STATUS_BASE: i32 = 128;
+/// `STATUS_CONTROL_C_EXIT`: the status the default console handler exits
+/// with on Ctrl-C.
+#[cfg(windows)]
+const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
 /// Every operation whose live lease makes index acquisition on the project
 /// fail with `Busy`; the test-only `operation_slot` keeps it exhaustive.
 const PROJECT_OPERATIONS: [ProjectOperation; 5] = [
@@ -101,21 +119,93 @@ pub(crate) struct CancellableIndex<'request> {
     pub(crate) cancellation: ProjectCancellation,
     /// Direct or supervised mode.
     pub(crate) supervision: IndexSupervision,
+    /// The process's interrupt forwarding, told when the request starts and
+    /// ends.
+    pub(crate) interrupts: &'request InterruptForwarding,
+}
+
+/// Await the startup of one index request: resolving its database settings,
+/// connecting, and applying schema migrations, before any cancellable index
+/// work exists.
+///
+/// A supervised child reports a `starting` progress line from its first
+/// moment and changes it every [`PROGRESS_POLL_INTERVAL`] for at most
+/// [`SUPERVISED_STARTUP_ALLOWANCE`], so its parent does not mistake a long
+/// migration for a stalled child, while a startup that outlives the allowance
+/// falls back under the parent's inactivity bound. A direct index reports
+/// nothing.
+pub(crate) async fn start_up<T>(
+    supervision: IndexSupervision,
+    startup: impl Future<Output = T>,
+) -> T {
+    match supervision {
+        IndexSupervision::Direct => startup.await,
+        IndexSupervision::Supervised => {
+            with_startup_liveness(startup, emit_progress::<StartupProgress>).await
+        }
+    }
+}
+
+/// Await `startup` while `emit` reports its bounded liveness.
+async fn with_startup_liveness<T>(
+    startup: impl Future<Output = T>,
+    mut emit: impl FnMut(&StartupProgress),
+) -> T {
+    tokio::pin!(startup);
+    tokio::select! {
+        biased;
+        output = &mut startup => return output,
+        () = report_startup_liveness(&mut emit) => {}
+    }
+    startup.await
+}
+
+/// Report one changed startup line now and after every
+/// [`PROGRESS_POLL_INTERVAL`] until [`SUPERVISED_STARTUP_ALLOWANCE`] elapsed.
+async fn report_startup_liveness(emit: &mut impl FnMut(&StartupProgress)) {
+    let allowance_ends = Instant::now() + SUPERVISED_STARTUP_ALLOWANCE;
+    let mut ticker = tokio::time::interval(PROGRESS_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut startup_heartbeats = 0;
+    loop {
+        ticker.tick().await;
+        if Instant::now() >= allowance_ends {
+            return;
+        }
+        emit(&StartupProgress {
+            phase: SupervisedPhase::Starting,
+            startup_heartbeats,
+        });
+        startup_heartbeats += 1;
+    }
 }
 
 /// Run one index request under its cancellation signal.
 ///
+/// Interrupts become cooperative stops only while the request runs (see
+/// [`InterruptForwarding`]); before it starts, nothing would act on a
+/// cancellation yet, so they end the process.
 /// A failure keeps the attempt's primary error and whether cleanup of what
 /// the request held also failed; for a cancellation, PostgreSQL decides the
 /// latter (see [`confirm_cancellation_cleanup`]).
 pub(crate) async fn run_cancellable_index(
     request: CancellableIndex<'_>,
 ) -> Result<IndexReport, IndexFailure> {
+    let interrupts = request.interrupts;
+    interrupts.request_started();
+    let result = run_request(request).await;
+    interrupts.request_finished();
+    result
+}
+
+/// Run the request in its direct or supervised mode.
+async fn run_request(request: CancellableIndex<'_>) -> Result<IndexReport, IndexFailure> {
     let CancellableIndex {
         runtime,
         options,
         cancellation,
         supervision,
+        interrupts: _,
     } = request;
     match supervision {
         IndexSupervision::Direct => {
@@ -147,16 +237,21 @@ pub(crate) async fn run_cancellable_index(
 /// Process-interrupt forwarding for one index request and everything the
 /// process does after it.
 ///
-/// The listeners are installed synchronously when this is created, before any
-/// work starts, and are never removed: tokio never restores a signal's
-/// default disposition, so removing them would make every later interrupt
-/// silently ignored, including during the remaining steps of a caller such as
-/// `install`. While the request runs, the first interrupt cancels it
-/// cooperatively and a second exits immediately; once
-/// [`Self::request_finished`] is called, any interrupt exits immediately. A
-/// process runs at most one index request, so one forwarding is installed.
+/// The listeners are installed synchronously before any work starts and are
+/// never removed: tokio never restores a signal's default disposition, so
+/// removing them would make every later interrupt silently ignored, including
+/// during the remaining steps of a caller such as `install`. Only while the
+/// request runs (between [`Self::request_started`] and
+/// [`Self::request_finished`]) does the first interrupt cancel it
+/// cooperatively; a second one ends the process. Before the request starts
+/// (settings, connection, schema migrations), when nothing would act on a
+/// cancellation, and after it ended, any interrupt ends the process. Ending the
+/// process emulates the default disposition (see [`end_process_by`]), even
+/// for a signal the process inherited as ignored, as a non-interactive shell's
+/// background job does with SIGINT. A process runs at most one index request,
+/// so one forwarding is installed.
 pub(crate) struct InterruptForwarding {
-    finished: Arc<AtomicBool>,
+    phase: Arc<RequestPhase>,
 }
 
 impl InterruptForwarding {
@@ -165,24 +260,47 @@ impl InterruptForwarding {
     /// When no listener can be installed, default signal behavior remains.
     /// The forwarding task runs until the runtime shuts down.
     pub(crate) fn install(cancellation: ProjectCancellation, announce: bool) -> Self {
-        let finished = Arc::new(AtomicBool::new(false));
+        let phase = Arc::new(RequestPhase::default());
         if let Some(interrupts) = Interrupts::listen() {
             drop(tokio::spawn(forward_interrupts(
                 interrupts,
                 InterruptRoute {
                     cancellation,
                     announce,
-                    finished: finished.clone(),
+                    phase: phase.clone(),
                 },
             )));
         }
-        Self { finished }
+        Self { phase }
     }
 
-    /// The index request ended; any later interrupt exits immediately, as
-    /// the default disposition would have.
-    pub(crate) fn request_finished(&self) {
-        self.finished.store(true, Ordering::Relaxed);
+    /// The cancellable index request started; an interrupt now stops it
+    /// cooperatively.
+    fn request_started(&self) {
+        self.phase.started.store(true, Ordering::Relaxed);
+    }
+
+    /// The index request ended; any later interrupt ends the process as the
+    /// default disposition would have.
+    fn request_finished(&self) {
+        self.phase.finished.store(true, Ordering::Relaxed);
+    }
+}
+
+/// How far the process's one index request got, as interrupts see it.
+#[derive(Default)]
+struct RequestPhase {
+    /// The cancellable request started.
+    started: AtomicBool,
+    /// The request ended.
+    finished: AtomicBool,
+}
+
+impl RequestPhase {
+    /// Whether an interrupt now becomes a cooperative stop: only while the
+    /// request runs.
+    fn running(&self) -> bool {
+        self.started.load(Ordering::Relaxed) && !self.finished.load(Ordering::Relaxed)
     }
 }
 
@@ -416,15 +534,15 @@ fn drain_until_eof(input: &mut impl Read) {
 struct InterruptRoute {
     cancellation: ProjectCancellation,
     announce: bool,
-    finished: Arc<AtomicBool>,
+    phase: Arc<RequestPhase>,
 }
 
 async fn forward_interrupts(mut interrupts: Interrupts, route: InterruptRoute) {
-    if !interrupts.next().await {
+    let Some(first) = interrupts.next().await else {
         return;
-    }
-    if route.finished.load(Ordering::Relaxed) {
-        std::process::exit(INTERRUPTED_EXIT_CODE);
+    };
+    if !route.phase.running() {
+        end_process_by(first);
     }
     route.cancellation.cancel();
     if route.announce {
@@ -432,9 +550,50 @@ async fn forward_interrupts(mut interrupts: Interrupts, route: InterruptRoute) {
             "cartograph: stopping the index cooperatively so it releases its project lease; interrupt again to exit immediately"
         );
     }
-    if interrupts.next().await {
-        std::process::exit(INTERRUPTED_EXIT_CODE);
+    if let Some(second) = interrupts.next().await {
+        end_process_by(second);
     }
+}
+
+/// One interrupt the process received.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InterruptSignal {
+    /// `SIGINT`, such as a terminal's Ctrl-C.
+    #[cfg(unix)]
+    Interrupt,
+    /// `SIGTERM`, such as a service manager's stop request.
+    #[cfg(unix)]
+    Terminate,
+    /// A console Ctrl-C.
+    #[cfg(windows)]
+    CtrlC,
+}
+
+/// End the process the way `interrupt`'s default disposition would have.
+///
+/// On Unix that is death by the received signal, not an exit status, so a
+/// parent shell sees the signal and stops its loop or script too: the
+/// listener's handler is replaced by `SIG_DFL`, the signal unblocked and
+/// raised again. On Windows the default console handler exits with
+/// `STATUS_CONTROL_C_EXIT`.
+fn end_process_by(interrupt: InterruptSignal) -> ! {
+    match interrupt {
+        #[cfg(unix)]
+        InterruptSignal::Interrupt => raise_with_default_disposition(signal_hook::consts::SIGINT),
+        #[cfg(unix)]
+        InterruptSignal::Terminate => raise_with_default_disposition(signal_hook::consts::SIGTERM),
+        #[cfg(windows)]
+        InterruptSignal::CtrlC => std::process::exit(STATUS_CONTROL_C_EXIT.cast_signed()),
+    }
+}
+
+/// Restore `signal`'s default disposition and raise it. The emulation itself
+/// aborts if the raised signal returns, so it returns only for a signal it
+/// does not know, which then exits with the shell's status for that signal.
+#[cfg(unix)]
+fn raise_with_default_disposition(signal: std::ffi::c_int) -> ! {
+    let _unknown_signal = signal_hook::low_level::emulate_default_handler(signal);
+    std::process::exit(SIGNAL_EXIT_STATUS_BASE + signal)
 }
 
 /// SIGINT and SIGTERM listeners; either may be unavailable.
@@ -457,11 +616,15 @@ impl Interrupts {
         (interrupts.interrupt.is_some() || interrupts.terminate.is_some()).then_some(interrupts)
     }
 
-    /// Wait for the next interrupt; false once a signal stream closed.
-    async fn next(&mut self) -> bool {
+    /// Wait for the next interrupt; `None` once a signal stream closed.
+    async fn next(&mut self) -> Option<InterruptSignal> {
         tokio::select! {
-            received = next_signal(self.interrupt.as_mut()) => received,
-            received = next_signal(self.terminate.as_mut()) => received,
+            received = next_signal(self.interrupt.as_mut()) => {
+                received.then_some(InterruptSignal::Interrupt)
+            }
+            received = next_signal(self.terminate.as_mut()) => {
+                received.then_some(InterruptSignal::Terminate)
+            }
         }
     }
 }
@@ -490,9 +653,9 @@ impl Interrupts {
         })
     }
 
-    /// Wait for the next interrupt; false once the signal stream closed.
-    async fn next(&mut self) -> bool {
-        self.ctrl_c.recv().await.is_some()
+    /// Wait for the next interrupt; `None` once the signal stream closed.
+    async fn next(&mut self) -> Option<InterruptSignal> {
+        self.ctrl_c.recv().await.map(|()| InterruptSignal::CtrlC)
     }
 }
 
@@ -506,7 +669,7 @@ impl Interrupts {
         None
     }
 
-    async fn next(&mut self) -> bool {
+    async fn next(&mut self) -> Option<InterruptSignal> {
         match *self {}
     }
 }
@@ -817,6 +980,9 @@ struct ProgressObservation<'status> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum SupervisedPhase {
+    /// The child resolves its database settings, connects, and applies
+    /// schema migrations; no index attempt has started.
+    Starting,
     /// Another live writer holds a lease on the project.
     WaitingForWriter,
     /// An index attempt is preparing, building, or finalizing.
@@ -847,9 +1013,21 @@ struct ProgressSnapshot {
     heartbeats: u64,
 }
 
+/// One liveness observation while the child starts. Startup reports no
+/// work counters, so `startup_heartbeats` changes every line until the
+/// bounded allowance ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+struct StartupProgress {
+    /// Always [`SupervisedPhase::Starting`].
+    phase: SupervisedPhase,
+    /// Startup lines written before this one.
+    startup_heartbeats: u64,
+}
+
+/// The `{"progress": ...}` envelope the parent reads from stderr.
 #[derive(Serialize)]
-struct ProgressLine<'snapshot> {
-    progress: &'snapshot ProgressSnapshot,
+struct ProgressLine<'snapshot, Snapshot> {
+    progress: &'snapshot Snapshot,
 }
 
 /// Write a progress line whenever the observation changes. Never returns;
@@ -878,7 +1056,7 @@ async fn report_progress(
 }
 
 /// Write one complete line in a single call so it cannot interleave.
-fn emit_progress(snapshot: &ProgressSnapshot) {
+fn emit_progress<Snapshot: Serialize>(snapshot: &Snapshot) {
     let Ok(mut line) = serde_json::to_vec(&ProgressLine { progress: snapshot }) else {
         return;
     };
@@ -933,6 +1111,56 @@ mod tests {
         assert_ne!(
             hashing, scanning,
             "files hashed inside one long scan are progress"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_startup_reports_changing_liveness_only_within_its_allowance() {
+        // Longer than the allowance plus the parent's whole inactivity bound.
+        let startup_duration = SUPERVISED_STARTUP_ALLOWANCE + Duration::from_mins(20);
+        let started = Instant::now();
+        let mut lines = Vec::new();
+        let connected = with_startup_liveness(
+            async {
+                tokio::time::sleep(startup_duration).await;
+                "connected"
+            },
+            |line: &StartupProgress| lines.push((started.elapsed(), *line)),
+        )
+        .await;
+        assert_eq!(connected, "connected", "the startup itself is never cut");
+        assert_eq!(started.elapsed(), startup_duration);
+
+        // The first line is written at once, and every later one changes
+        // within one poll interval, so the parent's inactivity bound never
+        // sees a gap while the allowance lasts.
+        assert_eq!(lines.first().map(|(at, _)| *at), Some(Duration::ZERO));
+        assert!(
+            lines
+                .array_windows()
+                .all(|[(earlier, previous), (later, next)]| {
+                    previous != next
+                        && later
+                            .checked_sub(*earlier)
+                            .is_some_and(|gap| gap <= PROGRESS_POLL_INTERVAL)
+                })
+        );
+        // Liveness covers the whole allowance and stops with it, leaving a
+        // startup that runs longer to the parent's inactivity bound.
+        let (last, _) = lines
+            .last()
+            .copied()
+            .unwrap_or_else(|| panic!("a slow startup reported no liveness"));
+        assert!(last < SUPERVISED_STARTUP_ALLOWANCE);
+        assert!(last + PROGRESS_POLL_INTERVAL >= SUPERVISED_STARTUP_ALLOWANCE);
+
+        let line = serde_json::to_value(ProgressLine {
+            progress: &lines[1].1,
+        })
+        .unwrap_or_else(|error| panic!("startup line did not serialize: {error}"));
+        assert_eq!(
+            line,
+            serde_json::json!({"progress": {"phase": "starting", "startup_heartbeats": 1}})
         );
     }
 
@@ -1189,5 +1417,113 @@ mod tests {
         let mut broken = BrokenStdin { reads: 0 };
         drain_until_eof(&mut broken);
         assert_eq!(broken.reads, 2);
+    }
+}
+
+/// Interrupt exits observed from outside: the test binary re-executes itself
+/// as a child that owns the signal listeners, as `cartograph index` does.
+#[cfg(all(test, unix))]
+mod interrupt_exit_tests {
+    use std::{os::unix::process::ExitStatusExt as _, process::Command};
+
+    use super::*;
+
+    /// Selects the child scenario of a re-executed test binary.
+    const SCENARIO_ENV: &str = "CARTOGRAPH_TEST_INTERRUPT_SCENARIO";
+    /// The request already ended when `SIGINT` arrives.
+    const AFTER_REQUEST: &str = "after-request";
+    /// A second `SIGTERM` arrives while the request is still running.
+    const SECOND_INTERRUPT: &str = "second-interrupt";
+    /// Longest a child may survive the interrupt that must end it.
+    const CHILD_BOUND: Duration = Duration::from_secs(20);
+    /// Interval between checks that the first interrupt was forwarded.
+    const FORWARD_POLL: Duration = Duration::from_millis(10);
+
+    /// Send `signal` (a `kill` option such as `-INT`) to this process.
+    fn signal_self(signal: &str) {
+        let sent = Command::new("kill")
+            .args([signal, &std::process::id().to_string()])
+            .status()
+            .unwrap_or_else(|error| panic!("kill did not start: {error}"));
+        assert!(sent.success());
+    }
+
+    /// Child side: install the forwarding, deliver the scenario's
+    /// interrupts, and outlive them only if the forwarding fails to end the
+    /// process.
+    async fn interrupted_child(scenario: &str) {
+        let cancellation = ProjectCancellation::new();
+        let forwarding = InterruptForwarding::install(cancellation.clone(), false);
+        forwarding.request_started();
+        if scenario == AFTER_REQUEST {
+            forwarding.request_finished();
+            signal_self("-INT");
+        } else {
+            signal_self("-TERM");
+            // Signals are coalesced until the forwarding consumed the first.
+            // A forwarding that never cancels lets this child exit normally,
+            // which the parent reports as the failure.
+            let forwarded = tokio::time::timeout(CHILD_BOUND, async {
+                while !cancellation.is_cancelled() {
+                    tokio::time::sleep(FORWARD_POLL).await;
+                }
+            })
+            .await;
+            if forwarded.is_err() {
+                return;
+            }
+            signal_self("-TERM");
+        }
+        tokio::time::sleep(CHILD_BOUND).await;
+    }
+
+    /// Run this test binary as the interrupted child of `scenario`.
+    fn run_child(test: &str, scenario: &str) -> std::process::ExitStatus {
+        let executable = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("test executable is unknown: {error}"));
+        Command::new(executable)
+            .args([test, "--exact", "--test-threads=1", "--nocapture"])
+            .env(SCENARIO_ENV, scenario)
+            .status()
+            .unwrap_or_else(|error| panic!("interrupted child did not start: {error}"))
+    }
+
+    /// The child's own body when re-executed, or `None` in the parent.
+    fn child_scenario() -> Option<String> {
+        std::env::var(SCENARIO_ENV).ok()
+    }
+
+    #[tokio::test]
+    async fn an_interrupt_after_the_request_ends_the_process_by_that_signal() {
+        if let Some(scenario) = child_scenario() {
+            return interrupted_child(&scenario).await;
+        }
+        let status = run_child(
+            "supervised_index::interrupt_exit_tests::an_interrupt_after_the_request_ends_the_process_by_that_signal",
+            AFTER_REQUEST,
+        );
+        // Like the default disposition: a shell sees death by SIGINT and
+        // stops a loop or script, which a plain exit status would not do.
+        assert_eq!(
+            status.signal(),
+            Some(signal_hook::consts::SIGINT),
+            "{status:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_interrupt_ends_the_process_by_that_signal() {
+        if let Some(scenario) = child_scenario() {
+            return interrupted_child(&scenario).await;
+        }
+        let status = run_child(
+            "supervised_index::interrupt_exit_tests::a_second_interrupt_ends_the_process_by_that_signal",
+            SECOND_INTERRUPT,
+        );
+        assert_eq!(
+            status.signal(),
+            Some(signal_hook::consts::SIGTERM),
+            "{status:?}"
+        );
     }
 }

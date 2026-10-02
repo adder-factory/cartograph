@@ -21,6 +21,8 @@ use reqwest as _;
 use serde as _;
 use serde_json as _;
 use sha2 as _;
+#[cfg(unix)]
+use signal_hook as _;
 use sqlx_core as _;
 use tempfile as _;
 use thiserror as _;
