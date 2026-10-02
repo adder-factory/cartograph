@@ -18,10 +18,35 @@ const DIGEST_V12_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v10";
 const DIGEST_V13_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v11";
 const DIGEST_V14_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v12";
 const DIGEST_V15_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v13";
-const DIGEST_V19_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v17";
-const DIGEST_V18_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v16";
-const DIGEST_V17_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v15";
 const DIGEST_V16_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v14";
+const DIGEST_V17_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v15";
+const DIGEST_V18_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v16";
+const DIGEST_V19_DOMAIN: &[u8] = b"cartograph-v2-logical-generation-v17";
+
+/// Each digest contract's hash domain, in [`GenerationDigestVersion::ALL`]
+/// order. The length follows `ALL`, so a new contract does not compile until
+/// it names its own domain instead of silently reusing an older one.
+const DIGEST_DOMAINS: [&[u8]; GenerationDigestVersion::ALL.len()] = [
+    DIGEST_V1_TO_V6_DOMAIN,
+    DIGEST_V1_TO_V6_DOMAIN,
+    DIGEST_V1_TO_V6_DOMAIN,
+    DIGEST_V1_TO_V6_DOMAIN,
+    DIGEST_V1_TO_V6_DOMAIN,
+    DIGEST_V1_TO_V6_DOMAIN,
+    DIGEST_V7_DOMAIN,
+    DIGEST_V8_DOMAIN,
+    DIGEST_V9_DOMAIN,
+    DIGEST_V10_DOMAIN,
+    DIGEST_V11_DOMAIN,
+    DIGEST_V12_DOMAIN,
+    DIGEST_V13_DOMAIN,
+    DIGEST_V14_DOMAIN,
+    DIGEST_V15_DOMAIN,
+    DIGEST_V16_DOMAIN,
+    DIGEST_V17_DOMAIN,
+    DIGEST_V18_DOMAIN,
+    DIGEST_V19_DOMAIN,
+];
 
 pub(super) fn logical_digest<Cancel>(
     facts: &ValidatedFactTables,
@@ -108,22 +133,12 @@ pub(crate) struct LogicalDigestBuilder {
 
 impl LogicalDigestBuilder {
     pub(crate) fn new(version: GenerationDigestVersion) -> Self {
-        let domain = match version {
-            GenerationDigestVersion::V19 => DIGEST_V19_DOMAIN,
-            GenerationDigestVersion::V18 => DIGEST_V18_DOMAIN,
-            GenerationDigestVersion::V17 => DIGEST_V17_DOMAIN,
-            GenerationDigestVersion::V16 => DIGEST_V16_DOMAIN,
-            GenerationDigestVersion::V15 => DIGEST_V15_DOMAIN,
-            GenerationDigestVersion::V14 => DIGEST_V14_DOMAIN,
-            GenerationDigestVersion::V13 => DIGEST_V13_DOMAIN,
-            GenerationDigestVersion::V12 => DIGEST_V12_DOMAIN,
-            GenerationDigestVersion::V11 => DIGEST_V11_DOMAIN,
-            GenerationDigestVersion::V10 => DIGEST_V10_DOMAIN,
-            GenerationDigestVersion::V9 => DIGEST_V9_DOMAIN,
-            GenerationDigestVersion::V8 => DIGEST_V8_DOMAIN,
-            GenerationDigestVersion::V7 => DIGEST_V7_DOMAIN,
-            _ => DIGEST_V1_TO_V6_DOMAIN,
-        };
+        // `ALL` lists every contract, so the fallback is never taken.
+        let domain = GenerationDigestVersion::ALL
+            .iter()
+            .zip(DIGEST_DOMAINS)
+            .find_map(|(candidate, domain)| (*candidate == version).then_some(domain))
+            .unwrap_or(DIGEST_V1_TO_V6_DOMAIN);
         Self {
             digest: CanonicalDigest::new(domain),
         }
