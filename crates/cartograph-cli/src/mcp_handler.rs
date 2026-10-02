@@ -2697,6 +2697,13 @@ struct AdminJobView {
     /// cancelled job's cleanup the same way.
     #[serde(skip_serializing_if = "Option::is_none")]
     cleanup_failure: Option<SecondaryFailure>,
+    /// A `scip-import` job's forced index failed or was cancelled, and
+    /// restoring the project's previous SCIP overlay failed as well, so the
+    /// requested artifact may still be installed for the next index. Like
+    /// `cleanup_failure`, it accompanies the primary `failure`, or a
+    /// cancellation, without replacing it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overlay_rollback_failure: Option<SecondaryFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     progress: Option<SupervisorStatus>,
 }
@@ -2713,12 +2720,14 @@ impl AdminJobView {
             failure_detail: None,
             file_failure: None,
             cleanup_failure: None,
+            overlay_rollback_failure: None,
             progress: None,
         }
     }
 
     /// The terminal view of one finished job. A cancellation reports no
-    /// primary failure but keeps a failed cleanup of what the job held.
+    /// primary failure but keeps its secondary failures: a failed cleanup of
+    /// what the job held and a failed SCIP overlay rollback.
     fn finished(job_id: u64, action: AdminAction, result: Result<Value, IndexFailure>) -> Self {
         let running = Self::running(job_id, action);
         let failure = match result {
@@ -2731,13 +2740,16 @@ impl AdminJobView {
             }
             Err(failure) => failure,
         };
-        let cleanup_failure = SecondaryFailure::index_cleanup(&failure);
+        let secondary = Self {
+            cleanup_failure: SecondaryFailure::index_cleanup(&failure),
+            overlay_rollback_failure: SecondaryFailure::scip_overlay_rollback(&failure),
+            ..running
+        };
         let error = failure.error();
         if matches!(error, ProjectError::RequestCancelled) {
             return Self {
                 status: AdminJobStatus::Cancelled,
-                cleanup_failure,
-                ..running
+                ..secondary
             };
         }
         Self {
@@ -2745,8 +2757,7 @@ impl AdminJobView {
             failure: Some(admin_job_failure(error)),
             failure_detail: admin_job_failure_detail(error),
             file_failure: admin_job_file_failure(error),
-            cleanup_failure,
-            ..running
+            ..secondary
         }
     }
 }
@@ -25357,7 +25368,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::tests::index_cleanup_fixture::{HeldSchemaMaintenance, reject_staging_failure};
+    use crate::tests::index_cleanup_fixture::{
+        HeldProjectRow, HeldSchemaMaintenance, reject_staging_failure,
+    };
 
     const TEST_DEFAULT_LIMIT: u16 = 10;
     const TEST_VALID_LIMIT: u16 = 20;
@@ -25365,6 +25378,9 @@ mod tests {
     const TEST_FRACTION_MILLISECONDS: u64 = 123;
     const TEST_2024_NEW_YEAR_MILLISECONDS: u64 = 1_704_067_200_000;
     const TEST_SUB_MILLISECOND_NUMBER: f64 = 0.5;
+    /// Where `scip-import` installs its artifact; the live import tests prove
+    /// it, and the rollback failure message must name it.
+    const TEST_SCIP_OVERLAY_PATH: &str = ".cartograph/scip/overlay.scip";
 
     #[test]
     fn optional_enrichment_failures_are_actionable_and_do_not_hide_graph_availability() {
@@ -28584,6 +28600,167 @@ pub fn root() -> u32 {
         drop(runtime);
     }
 
+    /// A live project with a published generation and its exported
+    /// `index.scip`, whose later indexes cannot clean up their staging
+    /// generations. Fields drop in order: the handler and its runtime first,
+    /// the schema last.
+    struct ScipRollbackProject {
+        handler: CartographMcpHandler,
+        project_id: ProjectId,
+        project: tempfile::TempDir,
+        settings: cartograph_config::DatabaseSettings,
+        schema: String,
+        _schema_guard: cartograph_test_support::TestSchemaGuard,
+    }
+
+    impl ScipRollbackProject {
+        async fn new(schema_prefix: &str) -> Self {
+            let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
+                .unwrap_or_else(|_| panic!("live SCIP rollback database is not configured"));
+            let nanos = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let schema = format!("{schema_prefix}_{}_{}", process::id(), nanos);
+            let schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
+                .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
+            let settings =
+                cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
+                    .and_then(|settings| settings.with_schema(&schema))
+                    .unwrap_or_else(|error| panic!("SCIP rollback settings failed: {error}"));
+            let project =
+                tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+            std::fs::write(
+                project.path().join("lib.rs"),
+                "pub fn imported() -> u32 { 1 }\n",
+            )
+            .unwrap_or_else(|error| panic!("SCIP rollback fixture write failed: {error}"));
+            let runtime = Arc::new(
+                ProjectRuntime::connect(project.path(), &settings)
+                    .await
+                    .unwrap_or_else(|error| panic!("SCIP rollback runtime failed: {error}")),
+            );
+            let project_id = runtime
+                .index(IndexOptions::default().with_history_refresh(false))
+                .await
+                .unwrap_or_else(|error| panic!("SCIP rollback initial index failed: {error}"))
+                .project_id;
+            runtime
+                .export_scip_with_cancellation(
+                    ScipExportRequest::new("index.scip", 10_000)
+                        .unwrap_or_else(|error| panic!("SCIP export request failed: {error}")),
+                    ProjectCancellation::new(),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("SCIP rollback export failed: {error}"));
+            reject_staging_failure(&settings, &schema).await;
+            let handler = CartographMcpHandler::new(runtime)
+                .unwrap_or_else(|error| panic!("SCIP rollback handler failed: {error}"));
+            Self {
+                handler,
+                project_id,
+                project,
+                settings,
+                schema,
+                _schema_guard: schema_guard,
+            }
+        }
+
+        /// Start a `scip-import` of `index.scip` and return once its forced
+        /// index waits inside its reservation: the requested overlay is
+        /// installed and no rollback has run yet.
+        async fn start_paused_import(&self) -> (u64, HeldProjectRow) {
+            let reservation =
+                HeldProjectRow::hold(&self.settings, &self.schema, &self.project_id).await;
+            AdminLifecycleTools(&self.handler)
+                .start_scip_import_job(AdminAction::ScipImport, &Map::new())
+                .await
+                .unwrap_or_else(|error| panic!("SCIP import job failed to start: {error}"));
+            let started = self
+                .handler
+                .admin_jobs
+                .status(None)
+                .await
+                .unwrap_or_else(|error| panic!("SCIP import status failed: {error}"));
+            reservation.wait_until_reserving().await;
+            (started.job_id, reservation)
+        }
+
+        /// Leave a directory where the import installed its overlay, so the
+        /// rollback can neither read it back nor restore it.
+        fn break_overlay_rollback(&self) {
+            let overlay = self.project.path().join(TEST_SCIP_OVERLAY_PATH);
+            std::fs::remove_file(&overlay)
+                .unwrap_or_else(|error| panic!("the import installed no overlay: {error}"));
+            std::fs::create_dir(&overlay)
+                .unwrap_or_else(|error| panic!("overlay sabotage failed: {error}"));
+        }
+
+        async fn terminal_wire(&self, job_id: u64, expected: AdminJobStatus) -> Value {
+            let terminal = wait_for_admin_status(&self.handler.admin_jobs, job_id, expected).await;
+            serde_json::to_value(&terminal)
+                .unwrap_or_else(|error| panic!("SCIP import view did not serialize: {error}"))
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn scip_import_job_reports_a_failed_overlay_rollback_beside_its_index_failure() {
+        let fixture = ScipRollbackProject::new("cg_cli_scip_rollback_failed").await;
+        // Schema maintenance refuses the forced index's lease once it reserved
+        // its generation, and the fixture makes that generation's cleanup fail.
+        let maintenance = HeldSchemaMaintenance::hold(&fixture.settings, &fixture.schema).await;
+        let (job_id, reservation) = fixture.start_paused_import().await;
+        fixture.break_overlay_rollback();
+        reservation.release().await;
+        let wire = fixture.terminal_wire(job_id, AdminJobStatus::Failed).await;
+        maintenance.release().await;
+
+        assert_eq!(wire["failure"], "lease_failed", "{wire}");
+        assert_eq!(
+            wire["cleanupFailure"]["code"], "index_cleanup_failed",
+            "the import dropped its failed cleanup: {wire}"
+        );
+        assert_eq!(
+            wire["overlayRollbackFailure"]["code"], "scip_overlay_rollback_failed",
+            "the import dropped its failed overlay rollback: {wire}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn cancelled_scip_import_job_keeps_its_cleanup_proof_and_failed_overlay_rollback() {
+        let fixture = ScipRollbackProject::new("cg_cli_scip_rollback_cancelled").await;
+        // The refused lease keeps the forced index from publishing before it
+        // observes the cancellation.
+        let maintenance = HeldSchemaMaintenance::hold(&fixture.settings, &fixture.schema).await;
+        let (job_id, reservation) = fixture.start_paused_import().await;
+        fixture.break_overlay_rollback();
+        fixture
+            .handler
+            .admin_jobs
+            .cancel(Some(job_id))
+            .await
+            .unwrap_or_else(|error| panic!("SCIP import cancel failed: {error}"));
+        reservation.release().await;
+        let wire = fixture
+            .terminal_wire(job_id, AdminJobStatus::Cancelled)
+            .await;
+        maintenance.release().await;
+
+        assert!(wire.get("failure").is_none(), "{wire}");
+        // The reserved generation is still `staging`, so the PostgreSQL proof
+        // reports the cleanup as failed.
+        assert_eq!(
+            wire["cleanupFailure"]["code"], "index_cleanup_failed",
+            "{wire}"
+        );
+        assert_eq!(
+            wire["overlayRollbackFailure"]["code"], "scip_overlay_rollback_failed",
+            "the cancelled import dropped its failed overlay rollback: {wire}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn neighbor_summary_sweep_uses_same_kind_pgvector_evidence_without_transitive_drift() {
@@ -29717,6 +29894,42 @@ pub fn target(value: u32) -> u32 {
         assert_eq!(cancelled["status"], "cancelled");
         assert!(cancelled.get("failure").is_none());
         assert_eq!(cancelled["cleanupFailure"]["code"], "index_cleanup_failed");
+    }
+
+    #[test]
+    fn admin_job_view_adds_a_failed_overlay_rollback_beside_the_primary_and_cleanup() {
+        let failed = admin_job_wire(Err(IndexFailure::from(ProjectError::IndexLeaseBusy)
+            .with_failed_cleanup()
+            .with_failed_overlay_rollback()));
+        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["failure"], "lease_failed");
+        assert_eq!(failed["cleanupFailure"]["code"], "index_cleanup_failed");
+        assert_eq!(
+            failed["overlayRollbackFailure"]["code"],
+            "scip_overlay_rollback_failed"
+        );
+        assert!(
+            failed["overlayRollbackFailure"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(TEST_SCIP_OVERLAY_PATH))
+        );
+
+        // A cancelled import keeps it, and each secondary stands on its own.
+        let cancelled = admin_job_wire(Err(
+            IndexFailure::from(ProjectError::RequestCancelled).with_failed_overlay_rollback()
+        ));
+        assert_eq!(cancelled["status"], "cancelled");
+        assert!(cancelled.get("failure").is_none());
+        assert!(cancelled.get("cleanupFailure").is_none());
+        assert_eq!(
+            cancelled["overlayRollbackFailure"],
+            failed["overlayRollbackFailure"]
+        );
+
+        let restored = admin_job_wire(Err(
+            IndexFailure::from(ProjectError::IndexLeaseBusy).with_failed_cleanup()
+        ));
+        assert!(restored.get("overlayRollbackFailure").is_none());
     }
 
     #[test]

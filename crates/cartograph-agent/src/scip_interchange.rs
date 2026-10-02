@@ -259,10 +259,12 @@ impl ProjectRuntime {
     /// # Errors
     ///
     /// Returns an error when the input is missing, unsafe, oversized, or invalid
-    /// SCIP; overlay installation or rollback fails; forced indexing fails; the
-    /// installed digest changes; or cancellation wins. A failed forced index
+    /// SCIP; overlay installation fails; forced indexing fails; the installed
+    /// digest changes; or cancellation wins. A failed or cancelled forced index
     /// keeps its [`IndexFailure`], including whether bounded cleanup of its own
-    /// staging generation also failed.
+    /// staging generation also failed. Restoring the previous overlay then
+    /// never replaces that failure: a restore that fails as well is reported
+    /// beside it through [`IndexFailure::overlay_rollback_failed`].
     pub async fn import_scip_with_cancellation(
         &self,
         request: ScipImportRequest,
@@ -298,21 +300,28 @@ impl ProjectRuntime {
         } = decoded;
         let byte_count = usize_to_u64(bytes.len());
         let requested_digest = blake3::hash(&bytes);
+        // Validate the index options before the install, so nothing between
+        // the install and the forced index can return without a rollback.
+        let options = IndexOptions::default()
+            .with_force(true)
+            .with_max_workers(request.workers)?;
         let root = self.root.clone();
         let backup = tokio::task::spawn_blocking(move || install_overlay(&root, &bytes))
             .await
             .map_err(|_| ProjectError::ScipOverlayInvalid)??;
 
-        let options = IndexOptions::default()
-            .with_force(true)
-            .with_max_workers(request.workers)?;
         let index =
             Box::pin(self.index_with_cancellation_detail(options, cancellation.clone())).await;
         let index = match index {
             Ok(index) => index,
             Err(failure) => {
-                rollback_overlay_if_owned(self.root.clone(), requested_digest, backup).await?;
-                return Err(failure);
+                let rollback =
+                    rollback_overlay_if_owned(self.root.clone(), requested_digest, backup).await;
+                return Err(if rollback.is_ok() {
+                    failure
+                } else {
+                    failure.with_failed_overlay_rollback()
+                });
             }
         };
         let root = self.root.clone();
@@ -472,6 +481,13 @@ fn install_overlay(root: &Path, bytes: &[u8]) -> Result<Option<Vec<u8>>, Project
     Ok(backup)
 }
 
+/// Restore the overlay that `install_overlay` replaced, or remove a new one,
+/// unless the installed path no longer holds the requested bytes (another
+/// writer replaced them, so they are not this import's to restore).
+///
+/// An error means only that the restore did not complete, for example
+/// because the overlay path is no longer a readable regular file or its
+/// directory cannot be written; the requested artifact may still be installed.
 async fn rollback_overlay_if_owned(
     root: PathBuf,
     requested_digest: blake3::Hash,

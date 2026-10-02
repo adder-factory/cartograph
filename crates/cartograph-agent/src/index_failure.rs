@@ -1,12 +1,15 @@
 //! Index failure classification: project contention, primary failures, and
-//! the secondary outcome of bounded cleanup.
+//! the secondary outcomes of bounded cleanup and of a SCIP overlay rollback.
 //!
 //! An index attempt can fail and then fail again while terminalizing its own
 //! staging generation. The first failure decides the stable code and the retry
 //! policy; a later cleanup failure is secondary detail, because the next
 //! attempt's bounded staging preflight retries that cleanup. Contention with
 //! another project writer is reported as [`ProjectError::IndexLeaseBusy`]
-//! before any generation is reserved, never as a cleanup failure.
+//! before any generation is reserved, never as a cleanup failure. A SCIP
+//! import whose forced index fails restores the previous overlay; a restore
+//! that fails as well is secondary detail of the same kind, never a
+//! replacement for the index failure.
 
 use std::time::Duration;
 
@@ -19,11 +22,13 @@ use cartograph_indexer::{
 use crate::ProjectError;
 
 /// One failed index attempt: the authoritative primary failure plus whether
-/// bounded cleanup of the attempt's own staging generation failed afterward.
+/// bounded cleanup of the attempt's own staging generation failed afterward
+/// and, for a SCIP import, whether restoring the previous overlay failed too.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexFailure {
     error: ProjectError,
     cleanup_failed: bool,
+    overlay_rollback_failed: bool,
 }
 
 impl IndexFailure {
@@ -40,6 +45,14 @@ impl IndexFailure {
         self.cleanup_failed
     }
 
+    /// Whether a SCIP import's forced index failed and restoring the
+    /// project's previous overlay failed as well. The requested artifact may
+    /// then still be installed, and the next index would use it.
+    #[must_use]
+    pub const fn overlay_rollback_failed(&self) -> bool {
+        self.overlay_rollback_failed
+    }
+
     /// Keep only the primary failure.
     #[must_use]
     pub fn into_error(self) -> ProjectError {
@@ -51,6 +64,29 @@ impl IndexFailure {
     pub fn with_failed_cleanup(mut self) -> Self {
         self.cleanup_failed = true;
         self
+    }
+
+    /// Record that restoring the previous SCIP overlay after this failure did
+    /// not complete.
+    #[must_use]
+    pub fn with_failed_overlay_rollback(mut self) -> Self {
+        self.overlay_rollback_failed = true;
+        self
+    }
+
+    /// Report this failure as the requested cancellation whose cleanup the
+    /// caller settles from its own evidence, such as PostgreSQL state.
+    ///
+    /// The primary becomes [`ProjectError::RequestCancelled`] and the cleanup
+    /// outcome is cleared for that evidence to decide. A failed overlay
+    /// rollback stays: no database evidence covers the project's files.
+    #[must_use]
+    pub fn into_requested_cancellation(self) -> Self {
+        Self {
+            error: ProjectError::RequestCancelled,
+            cleanup_failed: false,
+            ..self
+        }
     }
 
     /// Fold in the outcome of the attempt's final bounded cleanup of its own
@@ -80,6 +116,7 @@ impl From<ProjectError> for IndexFailure {
         Self {
             error,
             cleanup_failed: false,
+            overlay_rollback_failed: false,
         }
     }
 }
@@ -379,5 +416,18 @@ mod tests {
         );
         assert_eq!(failure.error(), &ProjectError::RequestCancelled);
         assert!(failure.cleanup_failed());
+    }
+
+    #[test]
+    fn a_requested_cancellation_leaves_cleanup_to_its_proof_but_keeps_a_failed_overlay_rollback() {
+        let cancelled = IndexFailure::from(ProjectError::IndexLeaseBusy)
+            .with_failed_cleanup()
+            .with_failed_overlay_rollback()
+            .into_requested_cancellation();
+        assert_eq!(cancelled.error(), &ProjectError::RequestCancelled);
+        // The caller's PostgreSQL evidence decides the cleanup outcome, but
+        // none of it covers the project's overlay file.
+        assert!(!cancelled.cleanup_failed());
+        assert!(cancelled.overlay_rollback_failed());
     }
 }

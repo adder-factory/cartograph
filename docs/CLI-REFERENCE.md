@@ -207,8 +207,12 @@ project. It emits standard SCIP plus a forward-compatible Cartograph extension
 for every exact edge kind and represented site count. `scip-import` validates a
 bounded project-local artifact, installs it at
 `.cartograph/scip/overlay.scip`, and forces a new generation. Covered files use
-SCIP facts; uncovered files retain native extraction. A failed publication
-restores the prior overlay when the importer still owns the installed bytes.
+SCIP facts; uncovered files retain native extraction. A forced index that fails
+or is cancelled restores the prior overlay when the importer still owns the
+installed bytes. If that restore fails as well, the job keeps its `failure` (or
+its `cancelled` status) and any `cleanupFailure`, and adds a separate
+`overlayRollbackFailure` (`code: scip_overlay_rollback_failed`, `message`):
+the requested artifact may still be installed, and the next index would use it.
 The overlay digest participates in freshness, so changing it cannot leave an
 apparently current generation.
 
