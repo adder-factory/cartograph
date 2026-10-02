@@ -146,8 +146,8 @@ fn fusion_properties_hold_for_every_four_document_rank_permutation() {
                     reciprocal_rank_oracle(lexical_rank) + reciprocal_rank_oracle(semantic_rank);
                 assert_score(item.reciprocal_rank_score(), oracle);
             }
-            for adjacent in expected.items().windows(2) {
-                assert!(adjacent[0].reciprocal_rank_score() >= adjacent[1].reciprocal_rank_score());
+            for [higher, lower] in expected.items().array_windows() {
+                assert!(higher.reciprocal_rank_score() >= lower.reciprocal_rank_score());
             }
         }
     }

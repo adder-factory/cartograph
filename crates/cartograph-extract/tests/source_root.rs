@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::fs;
 
 use cartograph_domain::NormalizedPath;
@@ -25,17 +26,17 @@ fn bounded_reader_hashes_supported_files_and_rejects_oversized_inputs() {
     let snapshot = read(&root, "src/service.ts", limits(64));
     assert_eq!(snapshot.path().as_str(), "src/service.ts");
     assert_eq!(snapshot.source(), "export const value = 1;\n");
-    assert!(matches!(
+    assert_matches!(
         root.read(&path("src/large.ts"), limits(64)),
         Err(SourceReadError::SourceTooLarge)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         root.read_with_cancellation(
             &path("src/service.ts"),
             SourceReadOptions::new(limits(64), || true),
         ),
         Err(SourceReadError::Cancelled)
-    ));
+    );
 }
 
 #[test]
@@ -53,10 +54,10 @@ fn reader_streams_utf8_across_chunk_boundaries_and_rejects_incomplete_tail() {
     let root = source_root(root_dir.path());
     let snapshot = read(&root, "split.ts", limits(split.len()));
     assert_eq!(snapshot.source().as_bytes(), split);
-    assert!(matches!(
+    assert_matches!(
         root.read(&path("tail.ts"), limits(16)),
         Err(SourceReadError::InvalidSnapshot)
-    ));
+    );
 }
 
 #[test]
@@ -98,10 +99,10 @@ fn reader_rejects_symlink_targets_outside_the_canonical_project_root() {
     }
 
     let root = source_root(root_dir.path());
-    assert!(matches!(
+    assert_matches!(
         root.read(&path("linked.ts"), limits(1024)),
         Err(SourceReadError::OutsideRoot)
-    ));
+    );
 }
 
 #[cfg(unix)]
@@ -116,10 +117,10 @@ fn reader_rejects_fifo_before_opening_the_blocking_target() {
     assert!(status.success());
 
     let root = source_root(root_dir.path());
-    assert!(matches!(
+    assert_matches!(
         root.read(&path("events.ts"), limits(1024)),
         Err(SourceReadError::NotRegularFile)
-    ));
+    );
 }
 
 fn tempdir() -> tempfile::TempDir {

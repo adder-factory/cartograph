@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env, fs, process,
     sync::atomic::{AtomicU32, Ordering},
@@ -109,12 +110,12 @@ async fn assert_resumable_primary_import(
         .database
         .import_v1_postgres(primary_request.clone())
         .await;
-    assert!(matches!(
+    assert_matches!(
         rejected_complete,
         Err(V1PostgresImportError::DatabaseOperation {
             operation: "append-checkpoint"
         })
-    ));
+    );
     assert_post_publish_checkpoint_failure(fixture).await;
     remove_complete_checkpoint_rejection(fixture).await;
     let imported = match fixture
@@ -179,12 +180,12 @@ async fn assert_rollback_safe_import(fixture: &Fixture, primary_source: &str) ->
         .database
         .import_v1_postgres(rollback_request.clone())
         .await;
-    assert!(matches!(
+    assert_matches!(
         rejected,
         Err(V1PostgresImportError::DatabaseOperation {
             operation: "prepare-generation"
         })
-    ));
+    );
     assert_rollback_preserved_staging(fixture, &rollback_source).await;
     remove_copy_rejection(fixture).await;
     if let Err(error) = fixture
@@ -1528,10 +1529,7 @@ fn parse_document_id(raw: &str) -> DocumentId {
 
 fn assert_uuid_v8(raw: &str) {
     assert_eq!(raw.as_bytes().get(14), Some(&b'8'));
-    assert!(matches!(
-        raw.as_bytes().get(19),
-        Some(b'8' | b'9' | b'a' | b'b')
-    ));
+    assert_matches!(raw.as_bytes().get(19), Some(b'8' | b'9' | b'a' | b'b'));
 }
 
 fn v1_body_hash(signature: &str, body: &str) -> String {

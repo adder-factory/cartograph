@@ -294,6 +294,42 @@ impl CartographDatabase {
         Ok(Some(snapshot))
     }
 
+    /// Report whether readers of this root currently see a published generation.
+    ///
+    /// Failure reports use this single read-only pointer lookup, instead of a
+    /// full status snapshot, to state whether a previous generation is still
+    /// visible. A root that was never registered has no visible generation.
+    /// # Errors
+    ///
+    /// Returns an error if `root_identity` is empty/oversized, the timeout is
+    /// invalid, or the bounded lookup fails or exceeds `statement_timeout`.
+    pub async fn root_has_current_generation(
+        &self,
+        root_identity: &str,
+        statement_timeout: Duration,
+    ) -> Result<bool, StorageError> {
+        validate_root_identity(root_identity)?;
+        let schema = crate::database::quoted_schema(&self.schema);
+        let statement = format!(
+            r#"SELECT current_generation_id IS NOT NULL
+                FROM {schema}."projects"
+                WHERE root_identity = $1"#
+        );
+        let rows = crate::database::read_rows(
+            self,
+            crate::database::RowReadRequest::new(
+                statement,
+                "current-generation-visibility",
+                statement_timeout,
+            ),
+            |statement| statement.bind(root_identity),
+        )
+        .await?;
+        rows.first().map_or(Ok(false), |row| {
+            crate::database::read_stored_bool(row, 0, "current_generation_visible")
+        })
+    }
+
     /// Record exact fact counts and source bytes for a settled generation that
     /// was published before they were persisted. Generations are immutable, so
     /// the backfill is idempotent; returns whether a row was updated.

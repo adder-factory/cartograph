@@ -153,11 +153,7 @@ fn clean_title(raw: &str) -> String {
 }
 
 fn bounded(value: &str, maximum: usize) -> String {
-    let mut boundary = value.len().min(maximum);
-    while !value.is_char_boundary(boundary) {
-        boundary = boundary.saturating_sub(1);
-    }
-    value[..boundary].to_owned()
+    value[..value.floor_char_boundary(maximum)].to_owned()
 }
 
 fn skip_ascii_space(bytes: &[u8], mut index: usize) -> usize {

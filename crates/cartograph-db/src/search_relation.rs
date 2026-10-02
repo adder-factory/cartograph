@@ -6,7 +6,10 @@ use serde::Serialize;
 use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
 use sqlx_postgres::PgConnection;
 
-use crate::{CartographDatabase, CurrentGenerationLookup, StorageError};
+use crate::{
+    CartographDatabase, CurrentGenerationLookup, PrepareGenerationProgress, StorageError,
+    generation::ensure_prepare_active,
+};
 
 const RELATION_PREFIX: &str = "search_g_";
 const BM25_INDEX_SUFFIX: &str = "_bm25";
@@ -54,6 +57,9 @@ pub(crate) struct GenerationSearchBuild<'a> {
     pub(crate) project_id: &'a ProjectId,
     pub(crate) generation_id: &'a GenerationId,
     pub(crate) content_digest: &'a ContentDigest,
+    /// The enclosing supervised prepare, whose cancellation stops the build
+    /// between its statements; `None` outside a supervised prepare.
+    pub(crate) progress: Option<&'a PrepareGenerationProgress>,
 }
 
 pub(crate) async fn rebuild_generation_search_relation(
@@ -61,13 +67,23 @@ pub(crate) async fn rebuild_generation_search_relation(
     input: GenerationSearchBuild<'_>,
 ) -> Result<GenerationSearchRelation, StorageError> {
     let relation = GenerationSearchRelation::from_generation(input.generation_id)?;
+    // A supervised prepare's cancellation is honored before every statement,
+    // so a stop request waits for at most the one statement in flight.
+    ensure_prepare_active(input.progress)?;
     acquire_generation_search_relation_lock(connection, input.schema, input.generation_id).await?;
+    ensure_prepare_active(input.progress)?;
     enforce_relation_bound(connection, input, &relation).await?;
+    ensure_prepare_active(input.progress)?;
     drop_relation(connection, input.schema, &relation).await?;
+    ensure_prepare_active(input.progress)?;
     delete_catalog_record(connection, input).await?;
+    ensure_prepare_active(input.progress)?;
     create_relation(connection, input, &relation).await?;
+    ensure_prepare_active(input.progress)?;
     create_paradedb_index(connection, input.schema, &relation).await?;
+    ensure_prepare_active(input.progress)?;
     let document_count = verify_relation(connection, input, &relation).await?;
+    ensure_prepare_active(input.progress)?;
     record_verified_relation(connection, input, document_count).await?;
     Ok(relation)
 }
@@ -307,6 +323,7 @@ async fn verify_relation(
     if source_count != relation_count || relation_count != distinct_ids || mismatched_rows != 0 {
         return Err(StorageError::SearchRelationUnavailable);
     }
+    ensure_prepare_active(input.progress)?;
     let catalog = query(
         r"SELECT indexes.indisvalid, indexes.indisready, methods.amname,
                   indexes.indrelid = tables.oid AS correct_table
@@ -643,6 +660,7 @@ impl SearchRepairExecution<'_, '_> {
                         project_id: &target.project,
                         generation_id: &target.generation,
                         content_digest: &target.digest,
+                        progress: None,
                     },
                 )
                 .await?;

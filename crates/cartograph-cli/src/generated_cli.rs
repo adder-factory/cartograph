@@ -18,6 +18,9 @@ use serde_json::{Map, Number, Value};
 use crate::{Cli, mcp_handler};
 
 const LOCAL_TOOL_TIMEOUT: Duration = Duration::from_mins(10);
+/// Delay between in-process admin job status polls.
+const ADMIN_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const ADMIN_DEADLINE_EXCEEDED: &str = "admin job exceeded the CLI deadline";
 const PROJECT_PATH_ARGUMENT: &str = "__generated_project_path";
 const PROJECT_PATH_LONG: &str = "project-path";
 const COMPAT_ALIAS_VALUE: &str = "__compat_alias_value";
@@ -1430,10 +1433,23 @@ async fn execute(invocation: GeneratedToolInvocation) -> Result<ToolResult, Stri
     let runtime = std::sync::Arc::new(crate::open_runtime(&invocation.project_path).await?);
     let handler = mcp_handler::CartographMcpHandler::new(runtime)
         .map_err(|_| "generated CLI handler contract is invalid".to_owned())?;
+    let result = call_until_terminal(&handler, invocation).await;
+    // Always cancel and reap (with a bound) an admin job this process started,
+    // including when the CLI deadline elapsed, so the job gets to fail its
+    // staging generation and release its lease instead of being abandoned when
+    // the process exits.
+    handler.shutdown().await;
+    result
+}
+
+async fn call_until_terminal(
+    handler: &mcp_handler::CartographMcpHandler,
+    invocation: GeneratedToolInvocation,
+) -> Result<ToolResult, String> {
     let tool_name = invocation.tool_name;
     let is_admin = tool_name == "cartograph_admin";
     let local_timeout = generated_tool_timeout(&tool_name, &invocation.arguments);
-    let mut result = handler
+    let result = handler
         .call(
             ToolCall {
                 name: tool_name,
@@ -1444,10 +1460,10 @@ async fn execute(invocation: GeneratedToolInvocation) -> Result<ToolResult, Stri
         .await
         .map_err(|error| error.wire_message().to_owned())?;
     if is_admin {
-        result = await_admin_terminal(&handler, result).await?;
+        await_admin_terminal(handler, result).await
+    } else {
+        Ok(result)
     }
-    handler.shutdown().await;
-    Ok(result)
 }
 
 fn generated_tool_timeout(tool_name: &str, arguments: &Map<String, Value>) -> Duration {
@@ -1521,24 +1537,48 @@ async fn await_admin_terminal(
         return Ok(initial);
     }
     let deadline = tokio::time::Instant::now() + LOCAL_TOOL_TIMEOUT;
+    poll_admin_terminal(deadline, || admin_job_status(handler, job_id)).await
+}
+
+async fn admin_job_status(
+    handler: &mcp_handler::CartographMcpHandler,
+    job_id: u64,
+) -> Result<ToolResult, String> {
+    handler
+        .call(
+            ToolCall {
+                name: "cartograph_admin".to_owned(),
+                arguments: Map::from_iter([
+                    ("action".to_owned(), Value::String("status".to_owned())),
+                    ("jobId".to_owned(), Value::Number(Number::from(job_id))),
+                ]),
+            },
+            ToolCallContext::local(LOCAL_TOOL_TIMEOUT),
+        )
+        .await
+        .map_err(|error| error.wire_message().to_owned())
+}
+
+/// Poll an admin job until it leaves the running states.
+///
+/// The absolute deadline bounds every status request as well as the loop, so a
+/// status call that never completes cannot keep the CLI waiting past it.
+async fn poll_admin_terminal<Poll, PollFuture>(
+    deadline: tokio::time::Instant,
+    mut poll: Poll,
+) -> Result<ToolResult, String>
+where
+    Poll: FnMut() -> PollFuture,
+    PollFuture: Future<Output = Result<ToolResult, String>>,
+{
     loop {
         if tokio::time::Instant::now() >= deadline {
-            return Err("admin job exceeded the CLI deadline".to_owned());
+            return Err(ADMIN_DEADLINE_EXCEEDED.to_owned());
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let result = handler
-            .call(
-                ToolCall {
-                    name: "cartograph_admin".to_owned(),
-                    arguments: Map::from_iter([
-                        ("action".to_owned(), Value::String("status".to_owned())),
-                        ("jobId".to_owned(), Value::Number(Number::from(job_id))),
-                    ]),
-                },
-                ToolCallContext::local(LOCAL_TOOL_TIMEOUT),
-            )
+        tokio::time::sleep(ADMIN_STATUS_POLL_INTERVAL).await;
+        let result = tokio::time::timeout_at(deadline, poll())
             .await
-            .map_err(|error| error.wire_message().to_owned())?;
+            .map_err(|_| ADMIN_DEADLINE_EXCEEDED.to_owned())??;
         let Some((_, status)) = admin_job_identity(&result) else {
             return Err("admin status response was malformed".to_owned());
         };
@@ -1782,6 +1822,8 @@ fn render_quiet_affected(result: &ToolResult) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     const ASK_ENDPOINT: &str = "http://127.0.0.1:8082";
@@ -1829,6 +1871,15 @@ mod tests {
             generated_tool_timeout("cartograph_find", &Map::new()),
             LOCAL_TOOL_TIMEOUT
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn admin_wait_deadline_bounds_a_status_call_that_never_completes() {
+        let deadline = tokio::time::Instant::now() + LOCAL_TOOL_TIMEOUT;
+        let waited =
+            poll_admin_terminal(deadline, std::future::pending::<Result<ToolResult, String>>).await;
+        assert_eq!(waited, Err(ADMIN_DEADLINE_EXCEEDED.to_owned()));
+        assert!(tokio::time::Instant::now() >= deadline);
     }
 
     #[test]
@@ -2132,7 +2183,7 @@ mod tests {
         assert_eq!(find.render_mode, CliRenderMode::FindText);
         assert_eq!(find.arguments["compact"], true);
         assert!(!find.arguments.contains_key("format"));
-        assert!(matches!(
+        assert_matches!(
             parse_from([
                 "cartograph",
                 "find",
@@ -2141,9 +2192,10 @@ mod tests {
                 "name",
                 "--format",
                 "yaml",
-            ]),
-            Err(ParseFailure::Clap(_))
-        ));
+            ])
+            .err(),
+            Some(ParseFailure::Clap(_))
+        );
     }
 
     #[test]

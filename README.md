@@ -146,8 +146,10 @@ cartograph upgrade --apply --project-path .
 
 It verifies and smoke-tests the release, switches the stable launcher, applies
 safe migrations, refreshes the current generation, runs `doctor`, proves a
-fresh next-process status, and repairs stale owned host pins. Require
-`completed: true`. If managed-database replacement is necessary, follow only
+next-process status from the installed binary, and repairs stale owned host
+pins. Require `completed: true`; `projectReconciliation.state: source_changed`
+is a completed upgrade whose checkout kept changing, so index again once edits
+pause. If managed-database replacement is necessary, follow only
 the exact backup and confirmation commands in the report, then rerun the same
 upgrade command to resume. Reopen an agent host only when `restartRequired` is
 true; an attached MCP child cannot hot-load a new binary. See

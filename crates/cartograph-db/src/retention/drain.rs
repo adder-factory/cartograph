@@ -838,11 +838,7 @@ pub(super) async fn verify_delete_order(
     .map_err(|_| database_error("verify-delete-order"))?
     .try_get::<bool, _>(0)
     .map_err(|_| database_error("decode-delete-order"))?;
-    if valid {
-        Ok(())
-    } else {
-        Err(database_error("cascade-catalog-mismatch"))
-    }
+    valid.ok_or(database_error("cascade-catalog-mismatch"))
 }
 
 #[cfg(test)]

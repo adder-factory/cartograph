@@ -1,9 +1,11 @@
-use cartograph_agent::{PipelineFailureReason, PipelineStage, ProjectError};
+use cartograph_agent::{IndexFailure, PipelineFailureReason, PipelineStage, ProjectError};
 use serde::Serialize;
 
 pub(crate) const GENERATION_CAPACITY_LIMIT: &str = "maxGenerationBytes";
 pub(crate) const GENERATION_CAPACITY_SCOPE: &str = "cartograph_process";
 pub(crate) const GENERATION_CAPACITY_NEXT_ACTION: &str = "use generationStorage=postgres for a dense repository; maxGenerationBytes cannot exceed 8589934592 bytes (8 GiB), so when that ceiling is already selected exclude machine-generated or compiled artifacts with --exclude or project configuration, then run an explicit cartograph index; auto-sync suppresses itself after five capacity failures";
+/// Stable code for a failed bounded cleanup of index staging state.
+pub(crate) const INDEX_CLEANUP_FAILED_CODE: &str = "index_cleanup_failed";
 
 pub(crate) const fn is_generation_capacity_failure(error: &ProjectError) -> bool {
     matches!(
@@ -246,7 +248,7 @@ const fn index_lifecycle_failure_code(error: &ProjectError) -> Option<&'static s
         ProjectError::IndexRetentionBacklog => Some("retention_backlog"),
         ProjectError::IndexLeaseFailed => Some("lease_failed"),
         ProjectError::IndexPublicationFailed => Some("publication_failed"),
-        ProjectError::IndexCleanupFailed => Some("index_cleanup_failed"),
+        ProjectError::IndexCleanupFailed => Some(INDEX_CLEANUP_FAILED_CODE),
         ProjectError::ScipOverlayInvalid => Some("scip_overlay_invalid"),
         ProjectError::ProjectConfiguration(_) => Some("project_configuration_invalid"),
         _ => None,
@@ -257,6 +259,18 @@ pub(crate) const fn project_index_failure_code(error: &ProjectError) -> Option<&
     match error {
         ProjectError::RequestCancelled => Some("request_cancelled"),
         other => index_stage_failure_code(other),
+    }
+}
+
+/// Text for one failed direct index attempt: the primary failure, then any
+/// secondary cleanup failure so it cannot be mistaken for the primary code.
+pub(crate) fn direct_index_attempt_failure_message(failure: &IndexFailure) -> String {
+    let primary = direct_index_failure_message(failure.error());
+    if failure.cleanup_failed() {
+        let cleanup = ProjectError::IndexCleanupFailed;
+        format!("{primary}; secondary failure: {cleanup} (reason: {INDEX_CLEANUP_FAILED_CODE})")
+    } else {
+        primary
     }
 }
 
@@ -285,7 +299,10 @@ struct DirectIndexFailure<'failure> {
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     stage: Option<PipelineStage>,
-    previous_generation_visible: bool,
+    /// Observed after the failure; `null` when that lookup itself failed.
+    previous_generation_visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cleanup_failure: Option<SecondaryFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     capacity_limit: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -296,6 +313,37 @@ struct DirectIndexFailure<'failure> {
     file_failure: Option<DirectFileFailure<'failure>>,
 }
 
+/// A failure observed after, and subordinate to, the primary failure.
+///
+/// Direct `index --format json` reports it as `cleanup_failure` and MCP admin
+/// job status as `cleanupFailure`; both carry the same `code` and `message`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct SecondaryFailure {
+    code: &'static str,
+    message: String,
+}
+
+impl SecondaryFailure {
+    /// The secondary cleanup failure `failure` carries, if any: bounded
+    /// cleanup of the attempt's own staging generation also failed, and the
+    /// next index attempt retries it.
+    pub(crate) fn index_cleanup(failure: &IndexFailure) -> Option<Self> {
+        failure.cleanup_failed().then(|| Self {
+            code: INDEX_CLEANUP_FAILED_CODE,
+            message: ProjectError::IndexCleanupFailed.to_string(),
+        })
+    }
+}
+
+/// One failed direct index attempt plus what readers still see afterward.
+#[derive(Clone, Copy)]
+pub(crate) struct DirectIndexFailureInput<'failure> {
+    /// The primary failure and any secondary cleanup failure.
+    pub(crate) failure: &'failure IndexFailure,
+    /// Whether a published generation is still current; `None` when unknown.
+    pub(crate) previous_generation_visible: Option<bool>,
+}
+
 #[derive(Serialize)]
 struct DirectFileFailure<'failure> {
     path: &'failure str,
@@ -304,7 +352,14 @@ struct DirectFileFailure<'failure> {
 }
 
 /// Serialize one direct-index failure without adding the ordinary text prefix.
-pub(crate) fn direct_index_failure_json(error: &ProjectError) -> Result<String, serde_json::Error> {
+///
+/// `code` is always the primary failure; a cleanup that also failed is the
+/// separate `cleanup_failure` object, and `previous_generation_visible` is the
+/// observed database state rather than an assumption about the error kind.
+pub(crate) fn direct_index_failure_json(
+    input: DirectIndexFailureInput<'_>,
+) -> Result<String, serde_json::Error> {
+    let error = input.failure.error();
     let (stage, file_failure) = match error {
         ProjectError::IndexStageFailed { stage }
         | ProjectError::IndexStageFailedWithReason { stage, .. } => (Some(*stage), None),
@@ -318,24 +373,14 @@ pub(crate) fn direct_index_failure_json(error: &ProjectError) -> Result<String, 
         ),
         _ => (None, None),
     };
-    let previous_generation_visible = matches!(
-        error,
-        ProjectError::IndexFailed
-            | ProjectError::IndexStageFailed { .. }
-            | ProjectError::IndexStageFailedWithReason { .. }
-            | ProjectError::IndexStageFileFailed { .. }
-            | ProjectError::IndexLeaseFailed
-            | ProjectError::IndexLeaseBusy
-            | ProjectError::IndexRetentionBacklog
-            | ProjectError::IndexPublicationFailed
-    );
     let capacity = is_generation_capacity_failure(error);
     serde_json::to_string_pretty(&DirectIndexFailureReport {
         error: DirectIndexFailure {
             code: project_index_failure_code(error).unwrap_or("index_failed"),
             message: error.to_string(),
             stage,
-            previous_generation_visible,
+            previous_generation_visible: input.previous_generation_visible,
+            cleanup_failure: SecondaryFailure::index_cleanup(input.failure),
             capacity_limit: capacity.then_some(GENERATION_CAPACITY_LIMIT),
             capacity_scope: capacity.then_some(GENERATION_CAPACITY_SCOPE),
             next_action: capacity.then_some(GENERATION_CAPACITY_NEXT_ACTION),
@@ -385,7 +430,11 @@ mod tests {
         assert!(message.contains("exclude machine-generated or compiled artifacts"));
         assert!(!message.contains("raise maxGenerationBytes"));
 
-        let encoded = direct_index_failure_json(&error).unwrap_or_else(|serialization| {
+        let encoded = direct_index_failure_json(DirectIndexFailureInput {
+            failure: &IndexFailure::from(error),
+            previous_generation_visible: Some(true),
+        })
+        .unwrap_or_else(|serialization| {
             panic!("capacity failure JSON was unavailable: {serialization}")
         });
         let report: serde_json::Value = serde_json::from_str(&encoded)
@@ -414,8 +463,11 @@ mod tests {
         let message = direct_index_failure_message(&error);
         assert!(message.contains("`maxGenerationBytes`"));
         assert!(message.contains("8589934592"));
-        let encoded = direct_index_failure_json(&error)
-            .unwrap_or_else(|serialization| panic!("config JSON failed: {serialization}"));
+        let encoded = direct_index_failure_json(DirectIndexFailureInput {
+            failure: &IndexFailure::from(error),
+            previous_generation_visible: Some(false),
+        })
+        .unwrap_or_else(|serialization| panic!("config JSON failed: {serialization}"));
         let report: serde_json::Value = serde_json::from_str(&encoded)
             .unwrap_or_else(|serialization| panic!("config JSON was invalid: {serialization}"));
         assert_eq!(report["error"]["code"], "project_configuration_invalid");
@@ -423,6 +475,67 @@ mod tests {
             report["error"]["message"]
                 .as_str()
                 .is_some_and(|message| message.contains("maxGenerationBytes"))
+        );
+    }
+
+    fn failure_report(input: DirectIndexFailureInput<'_>) -> serde_json::Value {
+        let encoded = direct_index_failure_json(input)
+            .unwrap_or_else(|serialization| panic!("failure JSON failed: {serialization}"));
+        serde_json::from_str(&encoded)
+            .unwrap_or_else(|serialization| panic!("failure JSON was invalid: {serialization}"))
+    }
+
+    #[test]
+    fn direct_cli_cleanup_failure_is_secondary_to_the_retryable_primary_code() {
+        let failure = IndexFailure::from(ProjectError::IndexLeaseBusy).with_failed_cleanup();
+        let report = failure_report(DirectIndexFailureInput {
+            failure: &failure,
+            previous_generation_visible: Some(true),
+        });
+        assert_eq!(report["error"]["code"], "lease_busy");
+        assert_eq!(report["error"]["previous_generation_visible"], true);
+        assert_eq!(
+            report["error"]["cleanup_failure"]["code"],
+            "index_cleanup_failed"
+        );
+        assert!(
+            report["error"]["cleanup_failure"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("cleanup failed"))
+        );
+
+        let message = direct_index_attempt_failure_message(&failure);
+        assert!(message.starts_with(&ProjectError::IndexLeaseBusy.to_string()));
+        assert!(message.contains("(reason: lease_busy); secondary failure:"));
+        assert!(message.ends_with("(reason: index_cleanup_failed)"));
+    }
+
+    #[test]
+    fn direct_cli_visibility_reports_observed_state_not_the_error_kind() {
+        let cleanup = IndexFailure::from(ProjectError::IndexCleanupFailed);
+        let visible = failure_report(DirectIndexFailureInput {
+            failure: &cleanup,
+            previous_generation_visible: Some(true),
+        });
+        assert_eq!(visible["error"]["code"], "index_cleanup_failed");
+        assert_eq!(visible["error"]["previous_generation_visible"], true);
+        assert!(visible["error"].get("cleanup_failure").is_none());
+
+        let first_index = IndexFailure::from(ProjectError::IndexLeaseBusy);
+        let absent = failure_report(DirectIndexFailureInput {
+            failure: &first_index,
+            previous_generation_visible: Some(false),
+        });
+        assert_eq!(absent["error"]["previous_generation_visible"], false);
+
+        let unknown = failure_report(DirectIndexFailureInput {
+            failure: &first_index,
+            previous_generation_visible: None,
+        });
+        assert!(unknown["error"]["previous_generation_visible"].is_null());
+        assert_eq!(
+            direct_index_attempt_failure_message(&first_index),
+            direct_index_failure_message(&ProjectError::IndexLeaseBusy)
         );
     }
 
@@ -443,9 +556,11 @@ mod tests {
         assert!(message.contains("src/broken\\nfile.rs"));
         assert!(message.ends_with("(reason: parse_source_changed)"));
 
-        let encoded = direct_index_failure_json(&error).unwrap_or_else(|serialization| {
-            panic!("failure JSON was unavailable: {serialization}")
-        });
+        let encoded = direct_index_failure_json(DirectIndexFailureInput {
+            failure: &IndexFailure::from(error),
+            previous_generation_visible: Some(true),
+        })
+        .unwrap_or_else(|serialization| panic!("failure JSON was unavailable: {serialization}"));
         let report: serde_json::Value = serde_json::from_str(&encoded)
             .unwrap_or_else(|serialization| panic!("failure JSON was invalid: {serialization}"));
         assert_eq!(report["error"]["code"], "parse_source_changed");

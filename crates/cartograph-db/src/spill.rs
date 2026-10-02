@@ -1195,9 +1195,8 @@ impl NativeGenerationSpill {
                 field: "spill_centrality_scores",
             });
         }
-        if scores
-            .windows(2)
-            .any(|pair| pair[0].symbol_id.as_str() >= pair[1].symbol_id.as_str())
+        if !scores
+            .is_sorted_by(|previous, next| previous.symbol_id.as_str() < next.symbol_id.as_str())
         {
             return Err(StorageError::InvalidInput {
                 field: "spill_centrality_order",
@@ -4038,6 +4037,8 @@ const fn database_error(operation: &'static str) -> StorageError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     #[test]
@@ -4081,14 +4082,15 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("multi-row extraction batch must be valid: {error}"));
         assert_eq!(batch.rows.len(), 2);
-        assert!(matches!(
+        assert_matches!(
             NativeGenerationSpillExtractedBatch::new(
                 i64::MAX.unsigned_abs(),
                 vec![first.into(), second.into()]
-            ),
-            Err(StorageError::InvalidInput {
+            )
+            .err(),
+            Some(StorageError::InvalidInput {
                 field: "spill_batch_sequence"
             })
-        ));
+        );
     }
 }

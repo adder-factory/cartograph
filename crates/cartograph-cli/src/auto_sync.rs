@@ -10,7 +10,8 @@ use std::{
 #[cfg(test)]
 use cartograph_agent::PipelineStage;
 use cartograph_agent::{
-    IndexOptions, PipelineFailureReason, ProjectError, ProjectRuntime, ProjectWatchFilter,
+    IndexFailure, IndexOptions, PipelineFailureReason, ProjectError, ProjectRuntime,
+    ProjectWatchFilter,
 };
 use cartograph_domain::ContentDigest;
 use notify::{Config, Event, EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
@@ -24,7 +25,7 @@ use tokio::{
 
 use crate::error_codes::{
     GENERATION_CAPACITY_LIMIT, GENERATION_CAPACITY_NEXT_ACTION, GENERATION_CAPACITY_SCOPE,
-    is_generation_capacity_failure, project_index_failure_code,
+    INDEX_CLEANUP_FAILED_CODE, is_generation_capacity_failure, project_index_failure_code,
 };
 
 const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(750);
@@ -108,6 +109,7 @@ impl ProjectAutoSync {
                 self.state.last_success_unix_millis.load(Ordering::Acquire),
             ),
             last_error_code: failure.last_error_code,
+            last_cleanup_failure_code: failure.last_cleanup_failure_code,
             last_failure_at: failure.last_failure_at,
             next_retry_at: failure.next_retry_at,
             failed_revision_attempts: failure.attempts,
@@ -148,6 +150,7 @@ struct AutoSyncState {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct AutoSyncFailureStatus {
     last_error_code: Option<&'static str>,
+    last_cleanup_failure_code: Option<&'static str>,
     last_failure_at: Option<u64>,
     next_retry_at: Option<u64>,
     attempts: u8,
@@ -248,15 +251,18 @@ impl AutoSyncState {
         }
     }
 
-    fn record_index_failure(&self, revision: ContentDigest, error: &ProjectError, now: u64) {
-        self.record_failure(FailedRevision::Known(revision), error, now);
+    fn record_index_failure(&self, revision: ContentDigest, failure: &IndexFailure, now: u64) {
+        self.record_failure(FailedRevision::Known(revision), failure, now);
     }
 
-    fn record_unknown_failure(&self, error: &ProjectError, now: u64) {
-        self.record_failure(FailedRevision::Unknown, error, now);
+    fn record_unknown_failure(&self, failure: &IndexFailure, now: u64) {
+        self.record_failure(FailedRevision::Unknown, failure, now);
     }
 
-    fn record_failure(&self, revision: FailedRevision, error: &ProjectError, now: u64) {
+    /// Record one failed automatic attempt. Its primary error decides the
+    /// code and retry policy; a cleanup that also failed is reported beside it.
+    fn record_failure(&self, revision: FailedRevision, attempt: &IndexFailure, now: u64) {
+        let error = attempt.error();
         self.errors.fetch_add(1, Ordering::AcqRel);
         let Ok(mut failure) = self.failure.write() else {
             return;
@@ -313,6 +319,9 @@ impl AutoSyncState {
             persistent_revision_attempts,
             status: AutoSyncFailureStatus {
                 last_error_code: Some(error_code),
+                last_cleanup_failure_code: attempt
+                    .cleanup_failed()
+                    .then_some(INDEX_CLEANUP_FAILED_CODE),
                 last_failure_at: Some(now),
                 next_retry_at,
                 attempts,
@@ -361,6 +370,10 @@ pub(crate) struct AutoSyncStatus {
     pub last_success_unix_millis: Option<u64>,
     /// Stable credential-safe code for the latest failed automatic index.
     pub last_error_code: Option<&'static str>,
+    /// `index_cleanup_failed` when bounded cleanup of that attempt's own
+    /// staging generation also failed; `lastErrorCode` keeps the primary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_cleanup_failure_code: Option<&'static str>,
     /// Unix-millisecond timestamp of the latest failed automatic index.
     pub last_failure_at: Option<u64>,
     /// Unix-millisecond deadline for the next automatic retry of this revision.
@@ -578,7 +591,7 @@ async fn synchronize_if_stale(runtime: &ProjectRuntime, state: &AutoSyncState) {
             }
         }
         Err(_) => {
-            state.record_unknown_failure(&ProjectError::StatusFailed, now);
+            state.record_unknown_failure(&ProjectError::StatusFailed.into(), now);
         }
     }
 }
@@ -626,7 +639,10 @@ async fn synchronize(
     revision: Option<ContentDigest>,
 ) {
     state.sync_attempts.fetch_add(1, Ordering::AcqRel);
-    match runtime.index(IndexOptions::automatic()).await {
+    match runtime
+        .index_with_failure_detail(IndexOptions::automatic())
+        .await
+    {
         Ok(report) => {
             if report.published {
                 state.publications.fetch_add(1, Ordering::AcqRel);
@@ -638,7 +654,7 @@ async fn synchronize(
                 .store(unix_millis(), Ordering::Release);
             state.record_index_success();
         }
-        Err(error) => {
+        Err(failure) => {
             let failed_revision = match revision {
                 Some(revision) => Some(revision),
                 None => match runtime.status().await {
@@ -651,9 +667,9 @@ async fn synchronize(
                 },
             };
             if let Some(failed_revision) = failed_revision {
-                state.record_index_failure(failed_revision, &error, unix_millis());
+                state.record_index_failure(failed_revision, &failure, unix_millis());
             } else {
-                state.record_unknown_failure(&error, unix_millis());
+                state.record_unknown_failure(&failure, unix_millis());
             }
         }
     }
@@ -856,7 +872,7 @@ mod tests {
             let revision = ContentDigest::from_bytes([1; 32]);
             let mut now = 1_000;
             for _ in 0..12 {
-                state.record_index_failure(revision.clone(), &error, now);
+                state.record_index_failure(revision.clone(), &error.clone().into(), now);
                 let status = state.failure_status();
                 assert!(!status.retry_suppressed);
                 assert_eq!(status.repeated_failure_attempts, 0);
@@ -877,7 +893,7 @@ mod tests {
         let revision = ContentDigest::from_bytes([1; 32]);
         let mut now = 1_000;
         for _ in 0..12 {
-            state.record_index_failure(revision.clone(), &ProjectError::IndexLeaseBusy, now);
+            state.record_index_failure(revision.clone(), &ProjectError::IndexLeaseBusy.into(), now);
             now = state
                 .failure_status()
                 .next_retry_at
@@ -894,7 +910,8 @@ mod tests {
                 revision.clone(),
                 &ProjectError::IndexStageFailed {
                     stage: failure_stage,
-                },
+                }
+                .into(),
                 now,
             );
             let status = state.failure_status();
@@ -912,7 +929,7 @@ mod tests {
                     .unwrap_or_else(|| panic!("persistent retry"));
                 state.record_index_failure(
                     revision.clone(),
-                    &ProjectError::SourceChangedDuringIndex,
+                    &ProjectError::SourceChangedDuringIndex.into(),
                     now,
                 );
                 now = state
@@ -921,7 +938,7 @@ mod tests {
                     .unwrap_or_else(|| panic!("transient retry"));
             }
         }
-        state.record_index_failure(revision.clone(), &ProjectError::IndexLeaseBusy, now);
+        state.record_index_failure(revision.clone(), &ProjectError::IndexLeaseBusy.into(), now);
         assert!(state.failure_status().retry_suppressed);
         assert!(!state.automatic_attempt_allowed(&revision, u64::MAX));
         assert!(state.automatic_attempt_allowed(&ContentDigest::from_bytes([2; 32]), now));
@@ -936,7 +953,7 @@ mod tests {
             assert!(state.automatic_attempt_allowed(&revision, now));
             state.record_index_failure(
                 revision.clone(),
-                &ProjectError::SourceChangedDuringIndex,
+                &ProjectError::SourceChangedDuringIndex.into(),
                 now,
             );
             let status = state.failure_status();
@@ -964,7 +981,8 @@ mod tests {
             first_revision.clone(),
             &ProjectError::IndexStageFailed {
                 stage: PipelineStage::Reduce,
-            },
+            }
+            .into(),
             now,
         );
         let first = state.failure_status();
@@ -984,7 +1002,8 @@ mod tests {
                 first_revision.clone(),
                 &ProjectError::IndexStageFailed {
                     stage: PipelineStage::Copy,
-                },
+                }
+                .into(),
                 now,
             );
             let status = state.failure_status();
@@ -1020,7 +1039,7 @@ mod tests {
         for attempt in 1..=MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION {
             let revision = ContentDigest::from_bytes([attempt; 32]);
             assert!(state.automatic_attempt_allowed(&revision, now));
-            state.record_index_failure(revision, &capacity_error, now);
+            state.record_index_failure(revision, &capacity_error.clone().into(), now);
             let status = state.failure_status();
             assert_eq!(status.attempts, 1);
             assert_eq!(status.capacity_failure_attempts, attempt);
@@ -1037,7 +1056,7 @@ mod tests {
         assert_eq!(exhausted.next_retry_at, None);
         assert!(!state.automatic_attempt_allowed(&unseen_revision, u64::MAX));
 
-        state.record_unknown_failure(&ProjectError::StatusFailed, now);
+        state.record_unknown_failure(&ProjectError::StatusFailed.into(), now);
         let status_gap = state.failure_status();
         assert_eq!(
             status_gap.capacity_failure_attempts,
@@ -1062,7 +1081,7 @@ mod tests {
         for attempt in 1..=MAXIMUM_REPEATED_AUTOMATIC_FAILURES {
             let revision = ContentDigest::from_bytes([attempt; 32]);
             assert!(state.automatic_attempt_allowed(&revision, now));
-            state.record_index_failure(revision, &error, now);
+            state.record_index_failure(revision, &error.clone().into(), now);
             let status = state.failure_status();
             assert_eq!(status.attempts, 1);
             assert_eq!(status.repeated_failure_attempts, attempt);
@@ -1094,13 +1113,17 @@ mod tests {
 
         for attempt in 1..=MAXIMUM_REPEATED_AUTOMATIC_FAILURES {
             if attempt > 1 {
-                state.record_unknown_failure(&ProjectError::StatusFailed, now);
+                state.record_unknown_failure(&ProjectError::StatusFailed.into(), now);
                 assert_eq!(
                     state.failure_status().last_error_code,
                     Some("status_failed")
                 );
             }
-            state.record_index_failure(ContentDigest::from_bytes([attempt; 32]), &error, now);
+            state.record_index_failure(
+                ContentDigest::from_bytes([attempt; 32]),
+                &error.clone().into(),
+                now,
+            );
             assert_eq!(state.failure_status().repeated_failure_attempts, attempt);
         }
         assert!(state.failure_status().repeated_failure_retry_suppressed);
@@ -1123,7 +1146,8 @@ mod tests {
                 revision,
                 &ProjectError::IndexStageFailed {
                     stage: failure_stage,
-                },
+                }
+                .into(),
                 now,
             );
             let status = state.failure_status();
@@ -1137,7 +1161,7 @@ mod tests {
         let state = AutoSyncState::default();
         let mut now = 1_000_u64;
 
-        state.record_unknown_failure(&ProjectError::StatusFailed, now);
+        state.record_unknown_failure(&ProjectError::StatusFailed.into(), now);
         let first = state.failure_status();
         assert_eq!(first.last_error_code, Some("status_failed"));
         assert_eq!(first.attempts, 1);
@@ -1152,7 +1176,7 @@ mod tests {
         assert!(state.reconciliation_probe_allowed(now));
 
         for expected_attempts in 2..=MAXIMUM_AUTOMATIC_ATTEMPTS_PER_REVISION.saturating_add(1) {
-            state.record_unknown_failure(&ProjectError::StatusFailed, now);
+            state.record_unknown_failure(&ProjectError::StatusFailed.into(), now);
             let status = state.failure_status();
             assert_eq!(status.attempts, expected_attempts);
             assert!(!status.retry_suppressed);
@@ -1255,6 +1279,93 @@ mod tests {
         for (error, expected) in error_codes {
             assert_eq!(project_error_code(&error), expected);
         }
+    }
+
+    #[test]
+    fn a_failed_cleanup_is_reported_beside_the_latest_failure_code_only() {
+        let state = AutoSyncState::default();
+        let revision = ContentDigest::from_bytes([1; 32]);
+        state.record_index_failure(
+            revision.clone(),
+            &IndexFailure::from(ProjectError::IndexLeaseBusy).with_failed_cleanup(),
+            1_000,
+        );
+        let failed = state.failure_status();
+        assert_eq!(failed.last_error_code, Some("lease_busy"));
+        assert_eq!(
+            failed.last_cleanup_failure_code,
+            Some("index_cleanup_failed")
+        );
+        // The cleanup detail does not change the retry policy of its primary.
+        assert!(failed.next_retry_at.is_some());
+        assert_eq!(failed.repeated_failure_attempts, 0);
+        let wire = serde_json::to_value(AutoSyncStatus {
+            last_error_code: failed.last_error_code,
+            last_cleanup_failure_code: failed.last_cleanup_failure_code,
+            ..AutoSyncStatus::default()
+        })
+        .unwrap_or_else(|error| panic!("auto-sync status did not serialize: {error}"));
+        assert_eq!(wire["lastErrorCode"], "lease_busy");
+        assert_eq!(wire["lastCleanupFailureCode"], "index_cleanup_failed");
+
+        // A later failure whose cleanup completed describes only itself.
+        state.record_index_failure(revision, &ProjectError::IndexLeaseBusy.into(), 2_000);
+        assert_eq!(state.failure_status().last_cleanup_failure_code, None);
+        let wire = serde_json::to_value(AutoSyncStatus::default())
+            .unwrap_or_else(|error| panic!("auto-sync status did not serialize: {error}"));
+        assert!(wire.get("lastCleanupFailureCode").is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn automatic_sync_reports_its_failed_cleanup_beside_the_primary_code() {
+        use crate::tests::index_cleanup_fixture::{HeldSchemaMaintenance, reject_staging_failure};
+        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
+            .unwrap_or_else(|error| panic!("test database: {error}"));
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|error| panic!("clock: {error}"))
+            .as_nanos();
+        let schema = format!("cg_watcher_cleanup_{}_{stamp}", process::id());
+        let guard = cartograph_test_support::TestSchemaGuard::new(&url, &schema)
+            .unwrap_or_else(|error| panic!("guard: {error}"));
+        let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
+            .and_then(|settings| settings.with_schema(&schema))
+            .unwrap_or_else(|error| panic!("settings: {error}"));
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project: {error}"));
+        let source = project.path().join("lib.rs");
+        std::fs::write(&source, "pub fn original() {}\n")
+            .unwrap_or_else(|error| panic!("source: {error}"));
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("runtime: {error}"));
+        runtime
+            .index(IndexOptions::automatic())
+            .await
+            .unwrap_or_else(|error| panic!("initial generation: {error}"));
+        std::fs::write(&source, "pub fn replacement() {}\n")
+            .unwrap_or_else(|error| panic!("edit: {error}"));
+
+        // Schema maintenance refuses the lease after the attempt reserved its
+        // generation, and the fixture makes that generation's cleanup fail.
+        reject_staging_failure(&settings, &schema).await;
+        let maintenance = HeldSchemaMaintenance::hold(&settings, &schema).await;
+        let state = AutoSyncState::default();
+        synchronize(&runtime, &state, None).await;
+        maintenance.release().await;
+
+        let status = state.failure_status();
+        assert_eq!(status.last_error_code, Some("lease_busy"));
+        assert_eq!(
+            status.last_cleanup_failure_code,
+            Some("index_cleanup_failed"),
+            "automatic sync dropped its failed cleanup"
+        );
+        runtime.close().await;
+        guard
+            .cleanup()
+            .await
+            .unwrap_or_else(|error| panic!("cleanup: {error}"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

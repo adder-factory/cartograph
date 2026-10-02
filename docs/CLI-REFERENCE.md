@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-01 (`v2.1.34`).
+Last release audit: 2026-10-02 (`v2.1.35`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds and confirmation phrases in the installed version. This page
@@ -84,6 +84,103 @@ attempt and suppresses itself after five capacity failures across source
 revisions; adjust the reported setting and run an explicit index to clear that
 circuit.
 
+In the `index --format json` failure object, `code` is always the failure
+that ended the attempt. When bounded cleanup of the attempt's own staging
+generation also fails afterward, and the attempt's final unleased-staging
+cleanup does not terminalize that generation either, the object adds a
+separate `cleanup_failure` (`code: index_cleanup_failed`, `message`) instead
+of replacing `code`; the next index retries that cleanup. MCP admin job status
+reports the same object as `cleanupFailure`.
+For a cancelled index, `cleanup_failure` instead reflects the PostgreSQL check
+described below. `code: index_cleanup_failed` alone means the pre-reservation
+recovery of abandoned staging generations itself failed for a reason other
+than contention. `previous_generation_visible` is read from PostgreSQL after the
+failure: `true` when a published generation is still current, `false` when the
+project has none (for example, before its first successful index), and `null`
+when that bounded lookup itself failed. Another live project lease, another
+writer still holding the project lock past the bounded five-second wait, or a
+lock that keeps the read of the project's leases waiting past that same bound
+returns the retryable `lease_busy` before any generation is reserved; an
+unchanged checkout still returns its no-op report. A writer that takes the
+lease or the project lock after that check is still rejected at lease
+acquisition with `lease_busy`. By then the attempt has reserved a generation,
+and it fails that reservation itself only if it gets the project lock within
+another five-second bound. When the other writer holds the lock longer, for
+example inside its prepare transaction, the failure adds `cleanup_failure` and
+the reservation stays `staging` (it never becomes current) until the project
+is free again: the next index's staging recovery, including a supervised
+retry's, then fails it. `lease_failed` means the attempt could not establish,
+keep, or confirm ownership of its own lease: an acquisition that failed for a
+reason other than contention, or a lost or unconfirmed heartbeat. A read of the
+project's leases that fails for another reason reports `index_failed` with the
+message `Cartograph project status is unavailable`, never `lease_failed`: that
+attempt held no lease to lose.
+
+A successful `index --format json` report includes `live_source`. `matched`
+means the live checkout still matched the report's `source_revision` at the
+request's last source check (for an unchanged no-op, that check is the one made
+during preparation). `changed_after_publication` means this request published a
+complete generation, but the checkout changed before the request finished, so
+that current generation is not fresh. An ordinary index never reports
+`changed_after_publication`: when the checkout changes after it publishes, it
+rebuilds a bounded number of times and then fails with
+`source_changed_during_index`. Only the supervised child of `upgrade --apply`
+publishes once and reports the change. That child reports `unverified` when it
+published but cancellation or a scan failure cut the post-publication check
+short; the upgrade's next-process status then decides freshness.
+
+Once its index request has started, `index` stops cooperatively on its first
+SIGINT or SIGTERM (Ctrl-C on Windows): it fails its unpublished staging
+generation, releases its project lease, and exits nonzero with code
+`request_cancelled`. The statement in flight in the
+generation's prepare transaction (a COPY batch, a derived-relation or evidence
+statement, or an `ANALYZE`) finishes or reaches its 3-minute statement bound.
+The transaction then rolls back at its next cancellation check instead of
+running its remaining COPY, derived-relation, evidence, and `ANALYZE`
+statements; at most a few short bookkeeping statements (lock, fence, and state
+checks) run before that check. The code stays `request_cancelled`, including
+for a stop that meets another writer's lease or project lock before reserving
+anything. The failure has no `cleanup_failure` only when PostgreSQL then shows
+that every generation this request reserved is no longer `staging` or `ready`
+and that the project's index lease names none of them; a request stopped
+before it reserved a generation held nothing to clean up. Another writer's
+lease or staging generation on the same project does not affect this.
+Otherwise, for example when the lease expired instead of being released, the
+failure adds `cleanup_failure` (`index_cleanup_failed`), the next index retries
+the cleanup, and any remaining lease expires on its 5-minute TTL. An interrupt
+that arrives after a generation was already published leaves that generation
+current, and the index does not rebuild. The result depends on the
+post-publication recheck of the checkout: the index reports `request_cancelled`
+when the interrupt stopped that recheck or the recheck found a change, but
+still exits successfully with `live_source: matched` when the recheck had
+already finished and matched (an interrupt during the final retention step
+also leaves that success). The supervised child of `upgrade --apply` always
+reports its publication as a success, with `live_source` `matched`,
+`changed_after_publication`, or `unverified`. An interrupt that arrives
+earlier, while `index` resolves its database settings, connects, or applies
+schema migrations, ends the process at once; it holds no project lease or
+generation yet. So does a second interrupt, without cleanup, and any interrupt
+after the request has ended. These exits are the signal's default disposition:
+on Unix the process dies by the received signal, so its parent sees that
+signal rather than an exit status (a shell shows 130 for SIGINT or 143 for
+SIGTERM), and on Windows Ctrl-C exits with `STATUS_CONTROL_C_EXIT`.
+
+A generated `cartograph admin` command that starts a background job, such as
+`admin index`, runs the job in-process and polls its status until it finishes.
+That wait has a ten-minute CLI deadline which also bounds every individual
+status poll. When the deadline elapses, or the wait fails for any other reason,
+the command cancels the job and waits up to four minutes for its cleanup before
+it exits nonzero. Cleanup normally fails the staging generation and releases
+the project's index lease. A job cancelled inside a long synchronous stage
+section first waits up to three minutes past its 10-second cancellation grace
+for that section to finish, keeping its lease renewed meanwhile. If lease
+ownership is lost or its outcome is ambiguous, the section is still running
+when that wait ends, or cleanup outlasts the four-minute wait, the lease is not
+released by this command: it expires on its own and the next writer recovers
+the staging generation. Run index work expected to exceed the deadline
+through `cartograph index` or the `cartograph_admin` job API of a long-lived
+`cartograph serve`.
+
 `embed` carries forward matching content-addressed vectors before calling the
 configured endpoint. Its report distinguishes the complete
 `corpusDocuments`, pre-existing `reusedDocuments`, and newly submitted
@@ -92,12 +189,18 @@ complete. The legacy `documents` field remains the endpoint-work count for
 wire compatibility. `embedding-status` is read-only and should be used before
 requesting an explicit sweep.
 
-`sync-if-dirty` skips a clean, current checkout. If another native watcher or
-manual index owns the project's index lease, it observes that lease for a
-bounded five minutes instead of stealing it or immediately returning
-`lease_failed`. After the competing writer releases, the command succeeds when
-that writer published the now-current source revision; otherwise it retries its
-own complete index.
+`sync-if-dirty` skips a clean, current checkout. If another operation holds a
+live lease on the project (a native watcher or manual index, or a sync, hook,
+migration, or rebuild), it waits for every such lease, within one bounded
+five-minute wait, instead of stealing it or rescanning the checkout while the
+lease is live. After the competing writers release, the command succeeds when
+one of them published the now-current source revision; otherwise it retries its
+own complete index. A collision that no live lease explains, such as a project
+lock held by an operation without a lease, pauses before that retry instead,
+from 15 seconds doubling up to 4 minutes within the same wait, because every
+retry repeats the source scan. A writer that outlasts the five minutes ends the
+command with the retryable `lease_busy`. Like `index`, a failure message names
+a cleanup failure that followed it as a secondary `index_cleanup_failed`.
 
 `scip-export` requires a fresh generation and writes atomically inside the
 project. It emits standard SCIP plus a forward-compatible Cartograph extension
@@ -130,7 +233,7 @@ or database settings.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.34 top-level command advertised
+This inventory contains every non-hidden v2.1.35 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 
@@ -179,8 +282,13 @@ executable. A versioned native installation is registered through the stable
 `~/.cartograph-cli/current/bin/cartograph` launcher, whose target changes
 atomically on upgrade. With `--location local`, installation modifies only
 project-local agent configuration. For a non-default managed port, it also pins
-the non-secret loopback port in the portable server arguments. Restart the host
-after a configuration or binary change.
+the non-secret loopback port in the portable server arguments. A local install
+then indexes the project (starting the managed database first when no
+`CARTOGRAPH_DATABASE_URL` is set) and installs Git hooks unless `--no-hooks`.
+If that index fails or is interrupted, install exits nonzero before installing
+hooks, in either output format; with `--format json` the index failure object
+precedes install's own error line on stderr. Restart the host after a
+configuration or binary change.
 
 Rewriting an existing `cartograph` entry merges instead of replacing it.
 Cartograph owns only `command`, its own server flags in `args` (`serve`,
@@ -212,11 +320,65 @@ That command is safe to repeat. It checksum-verifies and smoke-tests the latest
 native release, atomically switches the stable launcher, starts or reuses the
 project-owned managed database when applicable, applies safe append-only schema
 migrations, reconciles a complete current generation, runs `doctor`, and uses
-the installed executable to require an exact installed-version/fresh-generation
-status. It then repairs stale owned Codex, Claude, and Cursor registrations in
-local and global locations, preserving unrelated configuration and managed-port
-arguments. Running `--apply` when the binary is already current resumes or
-heals the project and registration steps instead of returning early.
+the installed executable to require an exact installed-version status with a
+valid current generation. It then repairs stale owned Codex, Claude, and Cursor
+registrations in local and global locations, preserving unrelated configuration
+and managed-port arguments. Running `--apply` when the binary is already current
+resumes or heals the project and registration steps instead of returning early.
+
+The index step runs the installed binary as a supervised child. It publishes at
+most one generation: if the checkout changes again after that publication, the
+step reports `source_changed` instead of rebuilding in a loop. It leaves the
+optional Git churn/co-change and issue-history refresh to the next explicit
+`cartograph index`, as MCP auto-sync does. When another live writer (for example
+an MCP server's auto-sync, or a maintenance operation) holds the project, the
+child waits up to 30 minutes for it before reporting `another_writer_active`.
+A writer that starts while the child scans the checkout is awaited within the
+same 30 minutes: the child's attempt then reports `lease_busy`, either before
+reserving a generation (its bounded staging recovery found that writer's lease,
+or waited five seconds behind that writer's prepare transaction) or at lease
+acquisition, and is retried after the writer's lease is gone. A `lease_busy`
+that no live lease explains (for example a schema-maintenance lock) is retried
+after a pause that grows from 15 seconds to 4 minutes, within the same 30
+minutes. Each such collision repeats the source scan. The step has no fixed
+wall-clock limit. Instead the child reports progress from its start: while it
+resolves its database, connects, and applies schema migrations, a startup line
+that changes every 2 seconds for at most 30 minutes; then stage, item and byte
+counters, files discovered and hashed by source scans, lease renewals, and the
+other writer's renewals while it waits. The step stops only when no progress
+arrives for 15 minutes (so a startup still running after its 30 minutes is
+stopped 15 minutes later) or after an absolute 210-minute ceiling (the
+30-minute startup allowance, the 30-minute writer wait, and a 150-minute
+allowance for one generation build: the child's 2-hour supervisor budget plus
+the source scans and retention around it). To stop the child, the parent
+closes the child's stdin. The child treats that as a cooperative cancellation.
+Before publication it fails its staging generation, releases its lease, and
+reports `request_cancelled` without a `cleanup_failure` once PostgreSQL
+confirms that cleanup. After publication the generation stays current and the
+child still reports success, which the step accepts. A child that is still
+starting acts on the request when its index request begins, before it holds a
+lease or generation. The parent waits up to 4 minutes for the child to exit
+before it kills it. A killed child, or one that exited without confirming its
+cleanup, can leave its lease to the 5-minute TTL, and a rerun's writer wait
+absorbs that. These bounds apply when the binary that starts `upgrade --apply`
+contains them; an upgrade started from an older release uses that release's
+index orchestration until it is rerun from the new one.
+
+`completed: true` means the verified binary is installed (or was already
+current), the database step is ready, the installed binary published or
+confirmed a complete current generation, `doctor` passed, a next-process status
+reports the installed version and a valid current generation, and no
+registration repair failed. It does not require freshness:
+`projectReconciliation.state` is `ready` when that status is fresh and
+`source_changed` when it proves the generation this upgrade published is
+still current and only the live checkout moved past it. A `source_changed`
+upgrade needs no rerun; run `cartograph index <path>` once edits pause (or let
+MCP auto-sync reconcile). Any edit that changes the live source revision after
+publication counts, including source-discovery or admission settings in
+`.cartograph/config.json`. Staleness that a moved live revision does not
+explain (for example a digest-contract or admission-policy mismatch with an
+unchanged revision, or another writer replacing the published generation) is
+`blocked`.
 
 Each audited registration reports a `commandState`. A direct pin, whose
 `command` is itself a Cartograph executable (file name `cartograph`, or under
@@ -244,6 +406,45 @@ operation), `latestVersion` (the published release), `installedVersion`,
 database, index, doctor, verification, freshness, generation, port, and any
 required confirmation independently. Registration failures likewise leave the
 already-verified binary installed and report only the remaining repair.
+
+`projectReconciliation` has this shape:
+
+- `state`: `ready`, `source_changed`, or `blocked`.
+- `retryable`: true when rerunning the same command, with no other action, is
+  the next step. That is the case when a bounded wait or timeout ended without
+  a failure verdict (a `timed_out` database, index, doctor, or verification
+  step, or `index.state: another_writer_active`), and also when verification
+  is `blocked` because another writer replaced the generation this upgrade
+  published or confirmed and the checkout is not fresh.
+- `database`, `index`, `doctor`, `verification`: each `{state, message}` plus an
+  optional stable `reason`. A step that did not run because an earlier step
+  stopped the reconciliation reports `not_run`.
+- `fresh`, `generationId`, `managedDatabasePort`, `requiredConfirmation`.
+
+`index.state` is one of:
+
+- `ready`
+- `source_changed`
+- `another_writer_active` (`reason: lease_busy`, retryable)
+- `timed_out` (`reason: no_progress` or `ceiling`, retryable; the message says
+  whether the child confirmed a cooperative cleanup (`request_cancelled` with
+  no `cleanup_failure`), exited without confirming it, or was killed)
+- `blocked` (`reason` is the child's stable index failure code, such as
+  `parse_failed`, when one was reported; the next step then names that code and
+  runs `cartograph index <path> --format json` for the full failure, while a
+  `blocked` index without a code points to `cartograph doctor <path>`)
+- `not_run` (the database step did not finish as `ready`)
+
+`verification.state` is `ready`, `source_changed`, `timed_out` (retryable),
+`blocked`, or `not_run` (the database or doctor step was not `ready`, or the
+index step did not end as `ready` or `source_changed`). A `blocked`
+verification is retryable only when the next-process status reports a
+different, non-fresh current generation, meaning another writer replaced the
+generation this upgrade published or confirmed. A status that fails, cannot be
+decoded, or reports another version is `blocked` and not retryable. `doctor`
+and the next-process `status` each rescan the checkout, so each gets a
+10-minute budget. A `timed_out` doctor or verification
+step is retryable and draws no conclusion about the project.
 
 `restartRequired` is deliberately run-local: it is true only when a completed
 invocation changed the installed binary or repaired a configured host pin. A

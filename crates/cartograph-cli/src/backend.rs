@@ -598,10 +598,7 @@ fn local_endpoint(raw: &str) -> Result<Option<(String, String, u16)>, String> {
     let Some(raw_host) = url.host_str() else {
         return Err("configured LLM endpoint has no host".to_owned());
     };
-    let host = raw_host
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-        .unwrap_or(raw_host);
+    let host = raw_host.strip_circumfix('[', ']').unwrap_or(raw_host);
     if !is_loopback(host) {
         return Ok(None);
     }
@@ -1256,11 +1253,9 @@ fn signal_process(pid: u32, force: bool) -> Result<(), String> {
             .stderr(Stdio::null())
             .status()
     };
-    if status.is_ok_and(|status| status.success()) {
-        Ok(())
-    } else {
-        Err(format!("could not signal verified backend pid {pid}"))
-    }
+    status
+        .is_ok_and(|status| status.success())
+        .ok_or_else(|| format!("could not signal verified backend pid {pid}"))
 }
 
 async fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
@@ -2412,7 +2407,7 @@ mod tests {
         let (orphans, warnings) = discover_orphans(&paths.directory, &BTreeSet::new())
             .unwrap_or_else(|error| panic!("orphan discovery failed: {error}"));
         assert_eq!(orphans.len(), 1);
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, [] as [String; 0]);
 
         row.pid_record = Some(record);
         assert_eq!(

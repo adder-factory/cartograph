@@ -124,7 +124,7 @@ fn compute_main() {
 fn wgsl_without_declarations_is_legitimately_empty_rather_than_unsupported() {
     let extracted = extract("shaders/empty.wgsl", "// only a comment\n");
     assert_eq!(extracted.language, SourceLanguage::Wgsl);
-    assert!(extracted.symbols.is_empty());
+    assert_eq!(extracted.symbols, []);
 }
 
 #[test]

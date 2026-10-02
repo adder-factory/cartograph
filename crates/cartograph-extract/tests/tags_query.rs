@@ -58,8 +58,8 @@ end
             "R|Calculator.countdown|countdown|calls|216-225",
         ]
     );
-    assert!(extracted.diagnostics.is_empty());
-    assert!(extracted.import_bindings.is_empty());
+    assert_eq!(extracted.diagnostics, []);
+    assert_eq!(extracted.import_bindings, []);
 
     let top_level = extract("script.exs", "IO.puts(\"hello\")\n");
     assert_eq!(canonical_facts(&top_level), ["R|<file>|puts|calls|3-7"]);
@@ -141,11 +141,11 @@ fn remaining_tags_modes_have_locked_exact_structural_facts() {
 fn tags_queries_bound_failure_cancel_and_sensitive_text_paths() {
     let comment_only = extract("lib/empty.ex", "# just a comment\n");
     assert_eq!(comment_only.parse_status, FileParseStatus::Parsed);
-    assert!(canonical_facts(&comment_only).is_empty());
+    assert_eq!(canonical_facts(&comment_only), [] as [String; 0]);
 
     let damaged = extract("lib/broken.ex", "defmodule Broken do\n  def value(\n");
     assert_eq!(damaged.parse_status, FileParseStatus::Partial);
-    assert!(!damaged.diagnostics.is_empty());
+    assert_ne!(damaged.diagnostics, []);
 
     let documented = extract("lib.ml", "(** Adds one. *)\nlet f x = x + 1\n");
     assert_eq!(

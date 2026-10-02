@@ -466,6 +466,8 @@ fn validate_private_permissions(_file: &File, _path: &Path) -> Result<(), Manage
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     #[cfg(unix)]
@@ -505,10 +507,10 @@ mod tests {
         let store = credential_store(directory.path());
         let _credentials = load_test_credentials(&store);
 
-        assert!(matches!(store.validate_for_removal(), Ok(true)));
-        assert!(matches!(store.remove(), Ok(true)));
+        assert_matches!(store.validate_for_removal(), Ok(true));
+        assert_matches!(store.remove(), Ok(true));
         assert!(!store.path().exists());
-        assert!(matches!(store.remove(), Ok(false)));
+        assert_matches!(store.remove(), Ok(false));
     }
 
     #[cfg(unix)]
@@ -582,10 +584,7 @@ mod tests {
 
         let error = CredentialStore::new(path).load().err();
 
-        assert!(matches!(
-            error,
-            Some(ManagedDatabaseError::CredentialPermissions)
-        ));
+        assert_matches!(error, Some(ManagedDatabaseError::CredentialPermissions));
     }
 
     #[test]
@@ -616,10 +615,10 @@ mod tests {
             panic!("could not create credential symlink: {error}");
         }
 
-        assert!(matches!(
-            CredentialStore::new(link).load(),
-            Err(ManagedDatabaseError::CredentialSymlink)
-        ));
+        assert_matches!(
+            CredentialStore::new(link).load().err(),
+            Some(ManagedDatabaseError::CredentialSymlink)
+        );
     }
 
     #[test]
@@ -640,10 +639,10 @@ mod tests {
         }
         let store = CredentialStore::new(directory.path().join(".cartograph/v2/postgres.password"));
 
-        assert!(matches!(
-            store.load_or_create(),
-            Err(ManagedDatabaseError::CredentialSymlink)
-        ));
+        assert_matches!(
+            store.load_or_create().err(),
+            Some(ManagedDatabaseError::CredentialSymlink)
+        );
         assert!(!external_state.join("v2/postgres.password").exists());
     }
 
@@ -659,10 +658,10 @@ mod tests {
             Ok(lock) => lock,
             Err(error) => panic!("could not acquire first lifecycle lock: {error}"),
         };
-        assert!(matches!(
-            store.acquire_lifecycle_lock(),
-            Err(ManagedDatabaseError::LifecycleBusy)
-        ));
+        assert_matches!(
+            store.acquire_lifecycle_lock().err(),
+            Some(ManagedDatabaseError::LifecycleBusy)
+        );
         drop(first);
         assert!(store.acquire_lifecycle_lock().is_ok());
     }
@@ -684,10 +683,10 @@ mod tests {
         }
         let store = credential_store(directory.path());
 
-        assert!(matches!(
-            store.load_or_create(),
-            Err(ManagedDatabaseError::CredentialStatePermissions)
-        ));
+        assert_matches!(
+            store.load_or_create().err(),
+            Some(ManagedDatabaseError::CredentialStatePermissions)
+        );
         assert!(!store.path().exists());
     }
 
@@ -707,10 +706,10 @@ mod tests {
         }
         create_fifo(store.path());
 
-        assert!(matches!(
-            store.load(),
-            Err(ManagedDatabaseError::CredentialNotRegular)
-        ));
+        assert_matches!(
+            store.load().err(),
+            Some(ManagedDatabaseError::CredentialNotRegular)
+        );
     }
 
     #[test]
@@ -731,10 +730,10 @@ mod tests {
             .join("lifecycle.lock");
         create_fifo(&lock_path);
 
-        assert!(matches!(
-            store.acquire_lifecycle_lock(),
-            Err(ManagedDatabaseError::CredentialNotRegular)
-        ));
+        assert_matches!(
+            store.acquire_lifecycle_lock().err(),
+            Some(ManagedDatabaseError::CredentialNotRegular)
+        );
     }
 
     #[test]
@@ -766,10 +765,10 @@ mod tests {
             panic!("could not set oversized fixture permissions: {error}");
         }
 
-        assert!(matches!(
-            store.load(),
-            Err(ManagedDatabaseError::CredentialTooLarge)
-        ));
+        assert_matches!(
+            store.load().err(),
+            Some(ManagedDatabaseError::CredentialTooLarge)
+        );
     }
 
     #[test]
@@ -794,10 +793,10 @@ mod tests {
         };
         assert!(acl.status.success());
 
-        assert!(matches!(
-            store.load(),
-            Err(ManagedDatabaseError::CredentialExtendedAcl)
-        ));
+        assert_matches!(
+            store.load().err(),
+            Some(ManagedDatabaseError::CredentialExtendedAcl)
+        );
     }
 
     #[test]
@@ -844,10 +843,10 @@ mod tests {
             "short\n",
             "0123456789012345678901234567890!\n",
         ] {
-            assert!(matches!(
-                DatabaseCredentials::parse(contents),
-                Err(ManagedDatabaseError::CredentialFormat)
-            ));
+            assert_matches!(
+                DatabaseCredentials::parse(contents).err(),
+                Some(ManagedDatabaseError::CredentialFormat)
+            );
         }
     }
 

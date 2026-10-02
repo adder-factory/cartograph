@@ -13,7 +13,7 @@ use memchr::memchr_iter;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{ProjectCancellation, ProjectRuntime, discovery_limits, utf8_boundary};
+use crate::{ProjectCancellation, ProjectRuntime, discovery_limits};
 
 const MAXIMUM_RENAME_SITES: u16 = 500;
 const MAXIMUM_TEXTUAL_MENTIONS: u16 = 500;
@@ -611,7 +611,7 @@ fn one_based_line(source: &str, start: usize) -> Result<u32, RenamePlanError> {
 }
 
 fn bounded_text(value: &str, maximum: usize) -> String {
-    let boundary = utf8_boundary(value, maximum);
+    let boundary = value.floor_char_boundary(maximum);
     if boundary < value.len() {
         format!("{} …", &value[..boundary])
     } else {

@@ -496,7 +496,7 @@ fn c_family_bounds_cancellation_nesting_output_and_syntax_damage() {
         damaged.parse_status,
         cartograph_domain::FileParseStatus::Partial
     );
-    assert!(!damaged.diagnostics.is_empty());
+    assert_ne!(damaged.diagnostics, []);
 
     let mut nested = String::from("void deep(void) {\n");
     for _ in 0..300 {
@@ -516,7 +516,7 @@ fn c_family_bounds_cancellation_nesting_output_and_syntax_damage() {
         recovered.diagnostics[0].code,
         cartograph_extract::DiagnosticCode::NestingLimitExceeded
     );
-    assert!(recovered.symbols.is_empty());
+    assert_eq!(recovered.symbols, []);
 
     let mut excessive = String::new();
     for index in 0..20_000 {

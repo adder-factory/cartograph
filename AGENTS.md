@@ -383,25 +383,32 @@ cartograph upgrade --apply --project-path <project> --json
 ```
 
 It installs the verified release when needed, reconciles safe database
-migrations and a fresh current generation, runs `doctor`, proves status through
-the installed binary, and repairs stale owned host pins. Require
+migrations and a complete current generation, runs `doctor`, proves status
+through the installed binary, and repairs stale owned host pins. Require
 `completed: true`; do not mistake `applied: false` for failure when
-`installedVersion` was already current. If `projectReconciliation` requests
+`installedVersion` was already current. `projectReconciliation.state:
+source_changed` is a completed upgrade whose checkout was edited after
+publication; run `cartograph index <project>` once edits pause. When
+`projectReconciliation.retryable` is true (`another_writer_active`, a
+`timed_out` step, or a `blocked` verification because another writer replaced
+the generation this upgrade published or confirmed), rerun the same command;
+for `another_writer_active` or a replaced generation, wait until the other
+writer finishes. A step reported as `not_run` was skipped because an earlier
+step stopped the reconciliation. If `projectReconciliation` requests
 `upgrade-managed-database`, run only its backup and exact confirmed replacement
 steps, then rerun the same command to resume. A failure after the extension
 update retains the new image for that retry and keeps the old image stopped; do
 not manually restart the old container against the possibly newer catalog. An
 interruption between renaming the stopped old container and creating the
 candidate is also resumed by the same confirmed command; do not rename the
-rollback slot by hand.
-Restart or reopen the host only when `restartRequired` is true, because an
-attached process cannot hot-load the new child. That flag describes binary or
-pin changes made by the current
-invocation; false on a no-op rerun does not prove the version of a process left
-attached across an earlier upgrade. Treat a database `timed_out` step as a
-retryable cold-pull/readiness timeout, not as permission to replace a container.
-If the database schema is newer than the loaded binary, use the reported binary
-and supported-schema versions to upgrade before retrying; startup fails closed.
+rollback slot by hand. Restart or reopen the host only when `restartRequired` is
+true, because an attached process cannot hot-load the new child. That flag
+describes binary or pin changes made by the current invocation; false on a no-op
+rerun does not prove the version of a process left attached across an earlier
+upgrade. Treat a database `timed_out` step as a retryable cold-pull/readiness
+timeout, not as permission to replace a container. If the database schema is
+newer than the loaded binary, use the reported binary and supported-schema
+versions to upgrade before retrying; startup fails closed.
 
 ## Development and release gates
 

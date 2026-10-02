@@ -141,18 +141,12 @@ where
 
 /// `text` cut to at most `limit` bytes on a character boundary.
 pub(crate) fn truncated(text: &str, limit: usize) -> &str {
-    if text.len() <= limit {
-        return text;
-    }
-    let mut end = limit;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    &text[..text.floor_char_boundary(limit)]
 }
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::sync::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -330,10 +324,7 @@ mod tests {
         let rejected = Provider::failing(vec![(1, JevError::BackendRejected, 2)]);
         let outcomes = decide_batches(&rejected, echo(&items, 1)).await;
         assert_eq!(outcomes.stopped, None);
-        assert!(matches!(
-            outcomes.batches[1].1,
-            Err(JevError::BackendRejected)
-        ));
+        assert_matches!(outcomes.batches[1].1, Err(JevError::BackendRejected));
         assert_eq!(answers(&outcomes)[2], Some(0.02));
     }
 

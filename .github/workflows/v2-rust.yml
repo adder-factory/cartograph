@@ -159,7 +159,7 @@ jobs:
         if: needs.classify.outputs.full == 'true'
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          rust-version: '1.98.1'
+          rust-version: '1.99.0'
           command: check
           arguments: --all-features
 
@@ -382,7 +382,7 @@ jobs:
           scripts/build-linux-rust-release.sh
           x86_64-unknown-linux-gnu
           linux-x64
-          rust:1.98.1-trixie@sha256:f31fa9eaac4e417505e10009786ec0c636558e02dff3fa662cc92c10894ba065
+          rust:1.99.0-trixie@sha256:9d5e02aa6c7e9c112ed7a4c438900b41f519a792959cd5445c25de42bfb8388b
           debian:13-slim@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c
 
   paradedb:

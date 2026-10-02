@@ -1341,8 +1341,8 @@ fn callable_prefix_through_parameters(line: &str) -> Option<&str> {
 fn contains_colon_atom(value: &str) -> bool {
     value
         .as_bytes()
-        .windows(2)
-        .any(|window| window[0] == b':' && (window[1].is_ascii_alphabetic() || window[1] == b'_'))
+        .array_windows()
+        .any(|&[colon, next]| colon == b':' && (next.is_ascii_alphabetic() || next == b'_'))
 }
 
 fn clean_doc(raw: &str) -> Result<Option<String>, ExtractError> {
@@ -1366,11 +1366,7 @@ fn truncate_with_ellipsis(
         output.push_str(value);
         return Ok(output);
     }
-    let mut end = prefix.min(value.len());
-    while !value.is_char_boundary(end) {
-        end = end.saturating_sub(1);
-    }
-    output.push_str(&value[..end]);
+    output.push_str(&value[..value.floor_char_boundary(prefix)]);
     output.push_str("...");
     Ok(output)
 }

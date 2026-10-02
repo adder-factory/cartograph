@@ -330,8 +330,8 @@ fn literal_content_bounds(raw: &str) -> Option<(usize, usize)> {
     let start = first.checked_add(width)?;
     let end = if triple {
         bytes
-            .windows(TRIPLE_QUOTE_WIDTH)
-            .rposition(|window| window == [delimiter, delimiter, delimiter])?
+            .array_windows()
+            .rposition(|window| *window == [delimiter, delimiter, delimiter])?
     } else {
         bytes.iter().rposition(|byte| *byte == delimiter)?
     };

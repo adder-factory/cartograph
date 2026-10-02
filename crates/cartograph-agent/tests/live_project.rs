@@ -1,6 +1,8 @@
 //! Integration coverage for Cartograph project-runtime and agent evidence contracts.
 
 mod dependency_ownership;
+#[path = "live_project/lease_contention.rs"]
+mod lease_contention;
 #[path = "live_project/retention.rs"]
 mod retention;
 #[path = "live_project/rust_receivers.rs"]
@@ -14,6 +16,7 @@ mod scip_spill;
 #[path = "live_project/architecture_workload.rs"]
 mod architecture_workload;
 
+use std::assert_matches;
 use std::{
     env,
     fmt::Write as _,
@@ -29,7 +32,7 @@ use cartograph_agent::{
     DiffReviewOptions, EmbeddingClientRequest, EmbeddingOptions, FileDriftOptions,
     FileSourceOptions, FileSourceRequest, GenerationRetentionStatus, HistoryIndexOptions,
     ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
-    IndexOptions, IndexReport, LcovLoadOptions, NativeGenerationStorageMetrics,
+    IndexLiveSource, IndexOptions, IndexReport, LcovLoadOptions, NativeGenerationStorageMetrics,
     PipelineFailureReason, ProjectCancellation, ProjectError, ProjectRuntime, RenamePlanError,
     RenamePlanOptions, RenamePlanRequest, RetrievalClientRequest, RetrievalOptions,
     RetrievalRequest, ReviewOptions, ScipExportRequest, ScipImportLimits, ScipImportRequest,
@@ -117,16 +120,16 @@ async fn blocked_latest_migration_reports_exact_older_schema_versions() {
     let connection_result = ProjectRuntime::connect(project.path(), &blocked_settings).await;
     let expected_required = latest_schema_version();
     let expected_database = expected_required - 1;
-    assert!(matches!(
-        connection_result,
-        Err(ProjectError::SchemaMigrationBlocked {
+    assert_matches!(
+        connection_result.err(),
+        Some(ProjectError::SchemaMigrationBlocked {
             database_schema_version,
             required_schema_version,
             pending_migration_version,
         }) if database_schema_version == expected_database
             && required_schema_version == expected_required
             && pending_migration_version == expected_required
-    ));
+    );
 
     lock_transaction
         .rollback()
@@ -277,13 +280,13 @@ async fn automatic_capacity_failure_cleans_its_terminal_generation() {
             .await
             .unwrap_or_else(|error| panic!("capacity runtime connect failed: {error}"));
         let indexed = runtime.index(IndexOptions::automatic()).await;
-        assert!(matches!(
+        assert_matches!(
             indexed,
             Err(ProjectError::IndexStageFailedWithReason {
                 reason: PipelineFailureReason::GenerationCapacityExceeded,
                 ..
             })
-        ));
+        );
         let status = runtime
             .status()
             .await
@@ -391,6 +394,74 @@ async fn run_excludes_define_freshness_drift_and_reconciliation_until_explicitly
                 .and_then(|snapshot| snapshot.current.as_ref())
                 .map(|current| current.source_admission.run_exclude_patterns()),
             Some(0)
+        );
+        runtime.close().await;
+    }
+
+    drop_schema(&settings, &schema).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn inherited_run_excludes_verify_a_reconciliation_publication_under_the_same_policy() {
+    let (schema, settings, project) = live_project_fixture("8");
+    let write = |name: &str, contents: &str| {
+        std::fs::write(project.path().join(name), contents)
+            .unwrap_or_else(|error| panic!("{name} fixture write failed: {error}"));
+    };
+    write("service.rs", "pub fn admitted_source() -> bool { true }\n");
+    write("generated.rs", "pub fn generated_source() -> usize { 1 }\n");
+
+    {
+        let runtime = ProjectRuntime::connect(project.path(), &settings)
+            .await
+            .unwrap_or_else(|error| panic!("inherited-exclusion runtime connect failed: {error}"));
+        let first = runtime
+            .index(
+                IndexOptions::default()
+                    .with_history_refresh(false)
+                    .with_additional_excludes(vec!["generated.rs".to_owned()]),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("excluded index failed: {error}"));
+        assert!(first.published);
+
+        // An admitted edit makes reconciliation publish. It inherits the
+        // exclusion without restating it, and its post-publication check
+        // must scan under that same policy instead of counting the excluded
+        // file as a change and rebuilding until SourceChangedDuringIndex.
+        write("service.rs", "pub fn admitted_source() -> bool { false }\n");
+        let reconciled = runtime
+            .index(IndexOptions::reconciliation().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("inherited-exclusion reconciliation failed: {error}"));
+        assert!(reconciled.published);
+        assert_eq!(reconciled.live_source, IndexLiveSource::Matched);
+
+        write("service.rs", "pub fn admitted_source() -> u8 { 3 }\n");
+        let single = runtime
+            .index(
+                IndexOptions::reconciliation()
+                    .with_history_refresh(false)
+                    .with_single_publication(true),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("single-publication reconciliation failed: {error}"));
+        assert!(single.published);
+        assert_eq!(single.live_source, IndexLiveSource::Matched);
+
+        let status = runtime
+            .status()
+            .await
+            .unwrap_or_else(|error| panic!("inherited-exclusion status failed: {error}"));
+        assert!(status.fresh);
+        assert_eq!(
+            status
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.current.as_ref())
+                .map(|current| current.source_admission.run_exclude_patterns()),
+            Some(1)
         );
         runtime.close().await;
     }
@@ -508,15 +579,10 @@ async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention()
             .register_agent_state_project()
             .await
             .unwrap_or_else(|error| panic!("multi-runtime project registration failed: {error}"));
-        let blocker = coordinator
-            .database()
-            .acquire_lease(LeaseRequest::new(
-                LeaseTarget::new(project_id.clone(), ProjectOperation::Migration, None),
-                LeaseOwner::new(process::id(), "multi-runtime-index-blocker"),
-                Duration::from_mins(1),
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime blocker lease failed: {error}"));
+        // A live project lease is now rejected before any reservation, so the
+        // schema maintenance gate stands in for a writer that wins only after
+        // each contender has reserved its generation.
+        let blocker = lease_contention::hold_schema_maintenance_lock(&settings, &schema).await;
 
         let options = IndexOptions::default()
             .with_force(true)
@@ -558,21 +624,17 @@ async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention()
         assert_eq!(counts.try_get::<i64, _>("staging").ok(), Some(0));
         assert_eq!(counts.try_get::<i64, _>("failed").ok(), Some(4));
 
-        coordinator
-            .database()
-            .release_lease(&blocker)
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime blocker lease did not release: {error}"));
+        blocker.release().await;
         let published = coordinator
             .index(options.clone())
             .await
             .unwrap_or_else(|error| panic!("multi-runtime recovery index failed: {error}"));
         assert!(published.published);
-        assert!(matches!(
+        assert_matches!(
             published.retention,
             GenerationRetentionStatus::Completed { report, .. }
                 if report.failed_removed == 4 && report.staging_remaining == 0
-        ));
+        );
         let status = coordinator
             .status()
             .await
@@ -897,8 +959,9 @@ async fn unchanged_index_terminalizes_all_abandoned_staging_generations() {
             .generation_state(&first.project_id, abandoned.generation_id())
             .await
             .unwrap_or_else(|error| panic!("staging recovery state failed: {error}"));
-        assert!(
-            matches!(recovered_state, None | Some(GenerationState::Failed)),
+        assert_matches!(
+            recovered_state,
+            None | Some(GenerationState::Failed),
             "abandoned generation remained nonterminal: {recovered_state:?}"
         );
         runtime.close().await;
@@ -1074,13 +1137,13 @@ async fn assert_incremental_contract_upgrade(
         .await
         .unwrap_or_else(|error| panic!("upgraded-contract status failed: {error}"));
     assert!(status.fresh);
-    assert!(matches!(
+    assert_matches!(
         status
             .snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.current.as_ref()),
         Some(current) if current.digest_version == GenerationDigestVersion::CURRENT
-    ));
+    );
     assert_eq!(first.source_revision, upgraded.source_revision);
     assert_ne!(first.generation_id, upgraded.generation_id);
     let unchanged = runtime
@@ -1352,7 +1415,7 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
                 ProjectCancellation::new(),
             )
             .await
-            .unwrap_or_else(|error| panic!("SCIP import failed: {error}"));
+            .unwrap_or_else(|error| panic!("SCIP import failed: {error:?}"));
         assert!(imported.index.published);
         assert_ne!(imported.index.generation_id, first.generation_id);
         let overlay = imported
@@ -1821,7 +1884,7 @@ async fn assert_primary_semantic_retrieval(
         .unwrap_or_else(|error| panic!("hybrid search failed: {error}"));
     assert_eq!(hybrid.semantic_readiness(), SemanticReadiness::Ready);
     assert_eq!(hybrid.execution(), RetrievalExecution::Hybrid);
-    assert!(!hybrid.items().is_empty());
+    assert_ne!(hybrid.items(), []);
     assert!(
         hybrid
             .items()
@@ -1864,12 +1927,12 @@ async fn assert_semantic_model_selection(
                 .unwrap_or_else(|error| panic!("ambiguous similar request failed: {error}")),
         )
         .await;
-    assert!(matches!(
+    assert_matches!(
         ambiguous,
         Err(RetrievalError::Semantic(
             SemanticStorageError::AmbiguousActiveModels
         ))
-    ));
+    );
     let selected = retriever
         .similar(
             &SimilarRequest::new(first.project_id.clone(), symbol_id.clone(), 2)
@@ -3433,7 +3496,7 @@ async fn assert_history_can_be_disabled(
         .current_file_history(FileHistoryQuery::new(&indexed.project_id, 10))
         .await
         .unwrap_or_else(|error| panic!("disabled history query failed: {error}"));
-    assert!(history.is_empty());
+    assert_eq!(history, []);
     let cochanges = runtime
         .database()
         .current_file_cochanges(
@@ -3441,7 +3504,7 @@ async fn assert_history_can_be_disabled(
         )
         .await
         .unwrap_or_else(|error| panic!("disabled cochange query failed: {error}"));
-    assert!(cochanges.is_empty());
+    assert_eq!(cochanges, []);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3662,7 +3725,7 @@ async fn assert_issue_generation_fence(
         })
         .await
         .unwrap_or_else(|error| panic!("removed symbol issue read failed: {error}"));
-    assert!(removed_issues.is_empty());
+    assert_eq!(removed_issues, []);
     refreshed
 }
 
@@ -4162,7 +4225,7 @@ async fn changed_file_test_impact_traverses_named_imports_and_reports_barrels() 
             .unwrap_or_else(|error| panic!("filtered test-impact query failed: {error}"))
             .unwrap_or_else(|| panic!("filtered test-impact generation was missing"));
         assert_eq!(filtered.affected_test_file_count(), 0);
-        assert!(filtered.tests().is_empty());
+        assert_eq!(filtered.tests(), []);
         runtime.close().await;
     }
     drop_schema(&settings, &schema).await;

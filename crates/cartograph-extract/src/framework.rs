@@ -19,9 +19,6 @@ const FRAMEWORK_SYMBOL_DOMAIN: &str = "cartograph.v2.framework-symbol.2026-07-24
 const FRAMEWORK_DIGEST_DOMAIN: &str = "cartograph.v2.framework-digest.2026-07-24";
 const MAX_ROUTE_BYTES: usize = 1_024;
 const MAX_SIGNAL_BYTES: usize = 4_096;
-const OPTIONAL_SEGMENT_MINIMUM_BYTES: usize = 4;
-const CATCH_ALL_SEGMENT_MINIMUM_BYTES: usize = 5;
-const CATCH_ALL_PREFIX_BYTES: usize = 4;
 const PYTHON_MULTILINE_DELIMITER_BYTES: usize = 3;
 
 pub(crate) fn skip_ascii_whitespace(value: &str, mut cursor: usize) -> usize {
@@ -1148,18 +1145,21 @@ fn route_from_segments<'segment>(segments: impl IntoIterator<Item = &'segment st
         if raw.is_empty() || raw == "index" {
             continue;
         }
-        let segment = if raw.starts_with("[[")
-            && raw.ends_with("]]")
-            && raw.len() > OPTIONAL_SEGMENT_MINIMUM_BYTES
+        let segment = if let Some(name) = raw
+            .strip_circumfix("[[", "]]")
+            .filter(|name| !name.is_empty())
         {
-            format!(":{}?", &raw[2..raw.len() - 2])
-        } else if raw.starts_with("[...")
-            && raw.ends_with(']')
-            && raw.len() > CATCH_ALL_SEGMENT_MINIMUM_BYTES
+            format!(":{name}?")
+        } else if let Some(name) = raw
+            .strip_circumfix("[...", ']')
+            .filter(|name| !name.is_empty())
         {
-            format!("*{}", &raw[CATCH_ALL_PREFIX_BYTES..raw.len() - 1])
-        } else if raw.starts_with('[') && raw.ends_with(']') && raw.len() > 2 {
-            format!(":{}", &raw[1..raw.len() - 1])
+            format!("*{name}")
+        } else if let Some(name) = raw
+            .strip_circumfix('[', ']')
+            .filter(|name| !name.is_empty())
+        {
+            format!(":{name}")
         } else {
             raw.to_owned()
         };
@@ -1978,12 +1978,8 @@ fn yaml_scalar<'line>(line: &'line str, key: &str) -> Option<(&'line str, usize)
         return None;
     }
     let unquoted = raw
-        .strip_prefix('\'')
-        .and_then(|value| value.strip_suffix('\''))
-        .or_else(|| {
-            raw.strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-        })
+        .strip_circumfix('\'', '\'')
+        .or_else(|| raw.strip_circumfix('"', '"'))
         .unwrap_or(raw);
     let relative = line
         .find(unquoted)

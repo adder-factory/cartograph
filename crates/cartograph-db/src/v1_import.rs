@@ -1146,11 +1146,7 @@ fn validate_active_checkpoint(active: &ActiveImport) -> Result<(), V1PostgresImp
         | GenerationState::Failed
         | GenerationState::Retiring => false,
     };
-    if valid {
-        Ok(())
-    } else {
-        Err(V1PostgresImportError::CorruptCheckpoint)
-    }
+    valid.ok_or(V1PostgresImportError::CorruptCheckpoint)
 }
 
 fn validate_checkpoint_history(run: &ImportRun) -> Result<(), V1PostgresImportError> {
@@ -1193,11 +1189,7 @@ fn validate_checkpoint_state(
         ),
         Some(GenerationState::Failed) => false,
     };
-    if valid {
-        Ok(())
-    } else {
-        Err(V1PostgresImportError::CorruptCheckpoint)
-    }
+    valid.ok_or(V1PostgresImportError::CorruptCheckpoint)
 }
 
 async fn register_import_project(
@@ -3043,6 +3035,7 @@ async fn rebuild_bm25(
             project_id: rebuild.fence.target().project_id(),
             generation_id,
             content_digest: rebuild.content_digest,
+            progress: None,
         },
     )
     .await

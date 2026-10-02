@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-01 (`v2.1.34`).
+Last release audit: 2026-10-02 (`v2.1.35`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -77,12 +77,23 @@ count, retry suppression, cross-revision capacity-failure count, and the exact
 capacity limit/scope/next action. Persistent failures of unchanged revisions use bounded
 exponential backoff and stop after five automatic attempts until source changes.
 Concurrent edits (`source_changed_during_index` or `parse_source_changed`),
-another live lease owner (`lease_busy`), and an undrained failed-generation
-backlog (`retention_backlog`) schedule recovery after 2–30 seconds.
+another live lease owner, a writer still inside its prepare transaction, or a
+lock that keeps the read of the project's leases waiting past its bounded wait
+(`lease_busy`, normally detected before reserving a generation; a writer that
+wins after that check is refused at lease acquisition), and an undrained
+failed-generation backlog (`retention_backlog`) schedule recovery after 2–30
+seconds.
 They do not exhaust the persistent-failure circuit. A retry timer runs even
 when no new filesystem event arrives; it does not wait for the 30-second
-missed-event reconciliation. Actual lease loss and database errors retain
-their separate failure handling.
+missed-event reconciliation. A lease the attempt could not establish, keep,
+or confirm (`lease_failed`: an acquisition that failed for a reason other than
+contention, or a lost or unconfirmed heartbeat) and database errors, including
+a read of the
+project's leases that fails for another reason (`status_failed`), retain their
+separate failure handling. When an attempt's own staging cleanup fails after
+another failure, `lastErrorCode` keeps the first failure's code and its retry
+policy, and the additive `lastCleanupFailureCode` reports
+`index_cleanup_failed`; it is omitted otherwise.
 Five generation-capacity failures trip a separate circuit that new source
 revisions cannot bypass; every automatic failure also attempts bounded cleanup
 of terminal failed generations. Adjust the reported capacity setting and run an
@@ -101,6 +112,18 @@ normalized project-relative `path`, fixed `reason`, and credential-safe
 the previous published generation remains untouched. Absolute checkout paths,
 source/parser text, literals, database URLs, and driver messages are not part of
 the MCP result.
+
+When an `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` admin
+job fails and the bounded cleanup of its own staging generation also fails
+(for `scip-import`, the staging generation of its forced index), its terminal
+status adds an optional `cleanupFailure` object with
+`code: index_cleanup_failed` and `message`, the same object direct
+`index --format json` reports as `cleanup_failure`. It never replaces `failure`,
+which stays the failure that ended the job. A cancelled job has no `failure`;
+like a cancelled direct index, it adds `cleanupFailure` unless PostgreSQL
+confirms that no generation it reserved is still `staging` or `ready` and that
+its lease names none of them. A generation left `staging` is terminalized by the
+next index's staging preflight.
 
 An invalid parser-recovery span or parser stop without cancellation is a
 successful partial-file outcome with `extraction_invalid_span` or

@@ -2429,11 +2429,7 @@ where
             .map_err(|_| StageItemFailure)?;
         cursor = page.next();
     }
-    if expected_sequence == source.files {
-        Ok(())
-    } else {
-        Err(StageItemFailure)
-    }
+    (expected_sequence == source.files).ok_or(StageItemFailure)
 }
 
 struct ParseStageAccumulator {
@@ -3467,11 +3463,7 @@ async fn spill_resolved_files(
         return Err(ResolveGenerationFailure::unclassified());
     }
     let resolved_files = fold.finish().await?;
-    if resolved_files == source.files {
-        Ok(())
-    } else {
-        Err(ResolveGenerationFailure::unclassified())
-    }
+    (resolved_files == source.files).ok_or(ResolveGenerationFailure::unclassified())
 }
 
 /// Fixed per-run scheduling policy for one spilled resolution pass.
@@ -3601,36 +3593,23 @@ async fn spill_derived_generation_facts(
     let maximum_bytes = config.limits.retained.max_generation_bytes;
     let mut derived_sequence = source.files;
     for kind in SpilledDerivedFactKind::ALL {
-        let (mut facts, charged) = derive_spilled_facts(
-            &state.index,
-            DerivedFactBound {
-                cancellation,
-                maximum_bytes,
-            },
-            kind,
-        )
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-        state.high_water = state.high_water.max(charged);
-        scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
-        if !generation_facts_are_empty(&facts) {
-            if state.centrality_enabled {
-                append_spilled_centrality_facts(
-                    &mut state.centrality,
-                    &facts,
-                    &mut state.centrality_budget,
-                )
-                .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-            }
-            let batch = NativeGenerationSpillFactBatch::new(
-                FactBatchInput {
+        // Deriving one kind walks the whole resolution index and validates the
+        // batch synchronously; keep that work off the async worker core so it
+        // cannot hold tasks scheduled on this worker for the whole walk.
+        let batch = block_in_place(|| {
+            derive_spilled_fact_batch(
+                state,
+                DerivedFactBatchRequest {
+                    kind,
                     sequence: derived_sequence,
-                    facts,
-                    limits: state.validation_limits,
+                    bound: DerivedFactBound {
+                        cancellation,
+                        maximum_bytes,
+                    },
                 },
-                || cancellation.is_cancelled(),
             )
-            .map_err(classify_spill_validation_error)?;
-            add_spill_fact_counts(&mut state.counts, batch.counts())?;
+        })?;
+        if let Some(batch) = batch {
             source
                 .spill
                 .append_fact_batch(batch)
@@ -3646,6 +3625,56 @@ async fn spill_derived_generation_facts(
             .map_err(|_| ResolveGenerationFailure::unclassified())?;
     }
     Ok(derived_sequence)
+}
+
+/// One derived fact kind and the batch sequence it would occupy.
+#[derive(Clone, Copy)]
+struct DerivedFactBatchRequest<'request> {
+    kind: SpilledDerivedFactKind,
+    sequence: u64,
+    bound: DerivedFactBound<'request>,
+}
+
+/// Derive, overlay-filter, and validate one derived fact kind.
+///
+/// Returns `None` when the kind produced no facts. Counts and centrality input
+/// are recorded before the batch is returned for durable append.
+fn derive_spilled_fact_batch(
+    state: &mut SpilledResolutionState,
+    request: DerivedFactBatchRequest<'_>,
+) -> Result<Option<NativeGenerationSpillFactBatch>, ResolveGenerationFailure> {
+    let DerivedFactBatchRequest {
+        kind,
+        sequence,
+        bound,
+    } = request;
+    let cancellation = bound.cancellation;
+    let (mut facts, charged) = derive_spilled_facts(&state.index, bound, kind)
+        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+    state.high_water = state.high_water.max(charged);
+    scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
+    if generation_facts_are_empty(&facts) {
+        return Ok(None);
+    }
+    if state.centrality_enabled {
+        append_spilled_centrality_facts(
+            &mut state.centrality,
+            &facts,
+            &mut state.centrality_budget,
+        )
+        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+    }
+    let batch = NativeGenerationSpillFactBatch::new(
+        FactBatchInput {
+            sequence,
+            facts,
+            limits: state.validation_limits,
+        },
+        || cancellation.is_cancelled(),
+    )
+    .map_err(classify_spill_validation_error)?;
+    add_spill_fact_counts(&mut state.counts, batch.counts())?;
+    Ok(Some(batch))
 }
 
 fn append_spilled_centrality_facts(
@@ -3731,8 +3760,10 @@ async fn apply_spilled_centrality(
         cancellation,
         progress,
     } = request;
+    // PageRank, sampled betweenness, and score ordering are whole-graph CPU
+    // work; run them off the async worker core.
     if policy.page_rank {
-        let report = apply_page_rank(facts, || cancellation.is_cancelled())
+        let report = block_in_place(|| apply_page_rank(facts, || cancellation.is_cancelled()))
             .map_err(|_| ResolveGenerationFailure::unclassified())?;
         if report.iterations > 0 {
             progress
@@ -3742,8 +3773,9 @@ async fn apply_spilled_centrality(
         }
     }
     if policy.betweenness {
-        let report = apply_sampled_betweenness(facts, || cancellation.is_cancelled())
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
+        let report =
+            block_in_place(|| apply_sampled_betweenness(facts, || cancellation.is_cancelled()))
+                .map_err(|_| ResolveGenerationFailure::unclassified())?;
         let completed = report.sample_count.max(report.nodes_scored);
         if completed > 0 {
             progress
@@ -3752,6 +3784,27 @@ async fn apply_spilled_centrality(
                 .map_err(|_| ResolveGenerationFailure::unclassified())?;
         }
     }
+    let scores = block_in_place(|| ordered_centrality_scores(facts))?;
+    for batch in scores.chunks(SPILLED_CENTRALITY_UPDATE_ROWS) {
+        if cancellation.is_cancelled() {
+            return Err(ResolveGenerationFailure::unclassified());
+        }
+        spill
+            .apply_centrality_scores(batch)
+            .await
+            .map_err(|error| classify_spill_resolve_error(&error))?;
+        progress
+            .advance_progress(usize_to_u64(batch.len()), 0)
+            .await
+            .map_err(|_| ResolveGenerationFailure::unclassified())?;
+    }
+    Ok(())
+}
+
+/// Centrality scores for every symbol, ordered by symbol identifier.
+fn ordered_centrality_scores(
+    facts: &GenerationFacts,
+) -> Result<Vec<NativeGenerationSpillCentralityScore>, ResolveGenerationFailure> {
     let mut scores = Vec::new();
     scores
         .try_reserve(facts.symbols.len())
@@ -3768,20 +3821,7 @@ async fn apply_spilled_centrality(
     }
     scores
         .sort_unstable_by(|left, right| left.symbol_id().as_str().cmp(right.symbol_id().as_str()));
-    for batch in scores.chunks(SPILLED_CENTRALITY_UPDATE_ROWS) {
-        if cancellation.is_cancelled() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        spill
-            .apply_centrality_scores(batch)
-            .await
-            .map_err(|error| classify_spill_resolve_error(&error))?;
-        progress
-            .advance_progress(usize_to_u64(batch.len()), 0)
-            .await
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-    }
-    Ok(())
+    Ok(scores)
 }
 
 #[derive(Clone, Copy)]
@@ -7447,14 +7487,14 @@ struct SpilledResolutionPreparation {
 async fn build_spilled_resolution_preparation(
     source: &SpilledNativeFacts,
     source_root: &SourceRoot,
-    preparation: ResolutionPreparationRequest<'_>,
+    request: ResolutionPreparationRequest<'_>,
 ) -> Result<(CloneEvidenceMap, ResolutionIndex, u64), StageItemFailure> {
     let ResolutionPreparationRequest {
-        policy,
         maximum_bytes,
         cancellation,
         progress,
-    } = preparation;
+        ..
+    } = request;
     let working_limit = maximum_bytes
         .checked_mul(RESOLVE_WORKING_MULTIPLIER)
         .ok_or(StageItemFailure)?;
@@ -7525,6 +7565,23 @@ async fn build_spilled_resolution_preparation(
         },
     )
     .await?;
+    // Candidate ordering and partial-clone analysis walk every retained symbol
+    // and reread sources; keep that synchronous work off the async worker core.
+    block_in_place(move || finish_spilled_resolution_preparation(preparation, source_root, request))
+}
+
+/// Order resolution candidates, analyze partial clones, and collect clone
+/// evidence for a fully indexed spilled generation.
+fn finish_spilled_resolution_preparation(
+    mut preparation: SpilledResolutionPreparation,
+    source_root: &SourceRoot,
+    request: ResolutionPreparationRequest<'_>,
+) -> Result<(CloneEvidenceMap, ResolutionIndex, u64), StageItemFailure> {
+    let ResolutionPreparationRequest {
+        policy,
+        cancellation,
+        ..
+    } = request;
     let mut cancelled = || cancellation.is_cancelled();
     finalize_resolution_candidate_order(
         &mut preparation.index,
@@ -11061,11 +11118,7 @@ fn insert_parent(
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
     if let Some(existing) = parents.get(&containment.child) {
-        return if existing == &containment.parent {
-            Ok(())
-        } else {
-            Err(StageItemFailure)
-        };
+        return (existing == &containment.parent).ok_or(StageItemFailure);
     }
     budget.charge(
         RESOLUTION_MAP_NODE_ALLOWANCE
@@ -13717,12 +13770,10 @@ fn nearest_typescript_alias_config<'a>(
 }
 
 fn typescript_alias_tail<'a>(specifier: &'a str, pattern: &str) -> Option<&'a str> {
-    let Some(wildcard) = pattern.find('*') else {
+    let Some((prefix, suffix)) = pattern.split_once('*') else {
         return (specifier == pattern).then_some("");
     };
-    specifier
-        .strip_prefix(&pattern[..wildcard])?
-        .strip_suffix(&pattern[wildcard + 1..])
+    specifier.strip_circumfix(prefix, suffix)
 }
 
 fn normalize_typescript_alias_target(base_path: &str, substitution: &str) -> Option<String> {
@@ -15696,6 +15747,7 @@ fn usize_to_u64(value: usize) -> u64 {
 mod tests {
     mod rust_receivers;
 
+    use std::assert_matches;
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};
 
     use cartograph_scip::{
@@ -19843,8 +19895,8 @@ export function secondClone(value: number) {
                 .iter()
                 .all(|symbol| symbol.symbol_kind == SymbolKind::File.as_str())
         );
-        assert!(facts.references().is_empty());
-        assert!(facts.edges().is_empty());
+        assert_eq!(facts.references(), []);
+        assert_eq!(facts.edges(), []);
         assert_eq!(
             facts
                 .documents()
@@ -19879,7 +19931,7 @@ export function secondClone(value: number) {
                 read_manifest_input(&source_root, directory.path(), path),
                 || false,
             );
-            assert!(matches!(result, Ok(None)), "{path}: {result:?}");
+            assert_matches!(result, Ok(None), "{path}: {result:?}");
         }
     }
 
@@ -20464,7 +20516,7 @@ export function secondClone(value: number) {
                         )
                 })
                 .collect::<Vec<_>>();
-            assert!(!private_sites.is_empty());
+            assert_ne!(private_sites, [] as [&ReferenceInput; 0]);
             assert!(private_sites.iter().all(|reference| {
                 reference.target_symbol_id.is_none()
                     && reference.resolution_provenance == RUST_EXTERNAL_UNRESOLVED_PROVENANCE
@@ -20521,7 +20573,7 @@ export function secondClone(value: number) {
                         && reference.reference_name == "public_api"
                 })
                 .collect::<Vec<_>>();
-            assert!(!sites.is_empty());
+            assert_ne!(sites, [] as [&ReferenceInput; 0]);
             assert!(sites.iter().all(|reference| {
                 reference.target_symbol_id.is_none()
                     && reference.resolution_provenance == RUST_EXTERNAL_UNRESOLVED_PROVENANCE
@@ -20828,7 +20880,7 @@ export function secondClone(value: number) {
                     && document.code() == path
             })
             .unwrap_or_else(|| panic!("file search document was missing"));
-        assert!(file_document.qualified_name().is_empty());
+        assert_eq!(file_document.qualified_name(), "");
         assert_eq!(file_document.code(), path);
         let file_symbol_id = file_document
             .symbol_id()
@@ -20886,10 +20938,7 @@ export function secondClone(value: number) {
                 next >= CANCEL_AFTER_POLLS
             },
         );
-        assert!(matches!(
-            result,
-            Err(ResolveGenerationFailure { reason: None })
-        ));
+        assert_matches!(result, Err(ResolveGenerationFailure { reason: None }));
         assert_eq!(polls.get(), CANCEL_AFTER_POLLS);
     }
 
@@ -20921,7 +20970,7 @@ export function secondClone(value: number) {
             polls.set(next);
             next >= INNER_CANCEL_AFTER_POLLS
         });
-        assert!(matches!(result, Err(StageItemFailure)));
+        assert_matches!(result.err(), Some(StageItemFailure));
         assert_eq!(polls.get(), INNER_CANCEL_AFTER_POLLS);
     }
 
@@ -21059,7 +21108,7 @@ export function secondClone(value: number) {
             || false,
         )
         .unwrap_or_else(|_| panic!("policy resolution failed"));
-        assert!(facts.references.is_empty());
+        assert_eq!(facts.references, []);
         assert!(facts.edges.iter().any(|edge| edge.kind == EdgeKind::Calls));
         assert!(facts.documents.iter().all(|document| {
             document.natural_text.is_empty()
@@ -21263,14 +21312,14 @@ export function secondClone(value: number) {
             Some(PipelineFailureReason::DeadlineExceeded)
         );
         assert!(error.file_failure().is_none());
-        assert!(matches!(
+        assert_matches!(
             error,
             NativePipelineError::Stage(StageRunError::Item {
                 stage: PipelineStage::Parse,
                 kind: StageFailureKind::Deadline,
                 ..
             })
-        ));
+        );
     }
 
     #[test]
@@ -21291,12 +21340,12 @@ export function secondClone(value: number) {
             Some(failure),
         );
 
-        assert!(matches!(
+        assert_matches!(
             error,
             NativePipelineError::Spill {
                 stage: PipelineStage::Parse
             }
-        ));
+        );
         assert!(error.file_failure().is_none());
         assert_eq!(error.reason(), None);
     }
@@ -21409,7 +21458,7 @@ export function secondClone(value: number) {
                 .unwrap_or_else(|| panic!("{error} omitted its file diagnostic"));
             assert_eq!(file.path().as_str(), "src/failing.rs");
             assert_eq!(file.reason(), expected);
-            assert!(!expected.description().is_empty());
+            assert_ne!(expected.description(), "");
         }
     }
 
@@ -21498,7 +21547,7 @@ export function secondClone(value: number) {
         let generation = build_native_generation(&runner, source_root, pipeline)
             .await
             .unwrap_or_else(|error| panic!("nesting override did not parse: {error}"));
-        assert!(generation.report().degraded_files().is_empty());
+        assert_eq!(generation.report().degraded_files(), []);
         assert!(
             generation
                 .facts()
@@ -21609,13 +21658,13 @@ export function secondClone(value: number) {
             panic!("malformed overlay unexpectedly produced facts");
         };
         assert_eq!(error.stage(), PipelineStage::Overlay);
-        assert!(matches!(
+        assert_matches!(
             error,
             NativePipelineError::Stage(StageRunError::Item {
                 stage: PipelineStage::Overlay,
                 ..
             })
-        ));
+        );
         drop(cancellation);
         let report = tasks
             .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
@@ -21643,13 +21692,13 @@ export function secondClone(value: number) {
             config_with_generation_limit(SERIAL_WORKERS, REJECTING_GENERATION_BYTES),
         )
         .await;
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(NativePipelineError::StageWithReason {
                 stage: PipelineStage::Parse,
                 reason: PipelineFailureReason::GenerationCapacityExceeded,
             })
-        ));
+        );
         drop(cancellation);
         let report = tasks
             .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
@@ -21859,19 +21908,19 @@ export function secondClone(value: number) {
                 .unwrap_or_else(|error| panic!("stage reservation failed: {error}")),
             TEST_GENERATION_BYTES * RESOLVE_WORKING_MULTIPLIER
         );
-        assert!(matches!(
+        assert_matches!(
             NativePipelineParallelism::new(
                 StageCapacity::new(0, 0),
                 StageCapacity::new(SERIAL_WORKERS, SERIAL_WORKERS),
             ),
             Err(error) if error == NativePipelineConfigError::invalid("read_capacity")
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             NativeRetainedLimits::new(
                 TEST_MANIFEST_BYTES,
                 MAX_PIPELINE_RETAINED_BYTES + 1,
             ),
             Err(error) if error == NativePipelineConfigError::invalid("max_generation_bytes")
-        ));
+        );
     }
 }

@@ -573,7 +573,7 @@ mod tests {
             SearchComponent::Code,
             SearchComponent::NaturalText,
         ];
-        assert!(components.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(components.is_sorted_by(|previous, next| previous < next));
     }
 
     #[test]

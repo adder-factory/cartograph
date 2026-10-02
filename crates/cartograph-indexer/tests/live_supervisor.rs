@@ -3,6 +3,7 @@
 #[path = "../test_support/dependency_ownership.rs"]
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env,
     future::{Future, pending, poll_fn},
@@ -75,6 +76,63 @@ const LEASE_WAIT_ATTEMPTS: usize = 250;
 const LEASE_WAIT_INTERVAL: Duration = Duration::from_millis(20);
 const INSTRUMENTED_STAGE_WAIT_ATTEMPTS: usize = 500;
 const NONCOOPERATIVE_WORK_DURATION: Duration = Duration::from_secs(2);
+// Lease renewal must not depend on how the root work schedules: the blocking
+// test holds a worker thread in synchronous code until it has observed 10
+// heartbeat intervals, requiring only a lenient fraction of renewals. The
+// release bound only ends a section the test failed to release, and stays below
+// the progress timeout.
+const BLOCKING_WORK_OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
+const BLOCKING_WORK_PROGRESS_TIMEOUT: Duration = Duration::from_secs(5);
+const BLOCKING_WORK_RELEASE_BOUND: Duration = Duration::from_secs(4);
+const BLOCKING_OBSERVATION_WINDOW: Duration = Duration::from_secs(1);
+const EXPECTED_HEARTBEATS_WHILE_BLOCKED: u64 = 3;
+// Abort cannot interrupt root work inside a synchronous section, so a cancelled
+// or fenced run must wait for that section to end and keep renewing an owned
+// lease until its cleanup. The settle delay outlasts the cancellation grace plus
+// one more grace or heartbeat request, the bounds after which a run that gave
+// up on its root would already have returned. The release bound only ends a
+// section that a failed test never released.
+const BLOCKED_ROOT_SETTLE: Duration = Duration::from_secs(1);
+const BLOCKED_ROOT_RELEASE_BOUND: Duration = Duration::from_secs(20);
+// The run waits for such a section for one COPY timeout after the grace, so
+// this COPY timeout outlasts the settle delay plus a renewal observation window
+// with a wide margin. The lease outlives the grace, that allowance, one heartbeat
+// interval, and the database finish reserve, as configuration validation needs.
+const BLOCKED_ROOT_OPERATION_TIMEOUT: Duration = Duration::from_secs(20);
+const BLOCKED_ROOT_COPY_TIMEOUT: Duration = Duration::from_secs(5);
+const BLOCKED_ROOT_LEASE_DURATION: Duration = Duration::from_secs(10);
+// Mirrors the supervisor's database finish reserve: five heartbeat requests are
+// kept after the reap ceiling for owned cleanup.
+const SUPERVISOR_FINISH_DATABASE_STEPS: u32 = 5;
+// A root still blocked when its one-COPY-timeout reap allowance ends is reported
+// unreaped. The allowance starts after a quick progress stall and its grace,
+// several seconds before the operation's reap ceiling, the timeout minus the
+// database finish reserve, so a run that kept waiting and renewing until that
+// ceiling misses the result bound.
+const REAP_ALLOWANCE_OPERATION_TIMEOUT: Duration = Duration::from_secs(12);
+const REAP_ALLOWANCE_COPY_TIMEOUT: Duration = Duration::from_secs(1);
+const REAP_ALLOWANCE_LEASE_DURATION: Duration = Duration::from_secs(5);
+const REAP_ALLOWANCE_MINIMUM_WAIT: Duration = STALLED_PROGRESS_TIMEOUT
+    .saturating_add(STANDARD_CANCELLATION_GRACE)
+    .saturating_add(REAP_ALLOWANCE_COPY_TIMEOUT);
+const REAP_ALLOWANCE_CEILING: Duration = REAP_ALLOWANCE_OPERATION_TIMEOUT
+    .saturating_sub(STANDARD_HEARTBEAT_TIMEOUT.saturating_mul(SUPERVISOR_FINISH_DATABASE_STEPS));
+const REAP_ALLOWANCE_CEILING_MARGIN: Duration = Duration::from_secs(1);
+const REAP_ALLOWANCE_RESULT_BOUND: Duration =
+    REAP_ALLOWANCE_CEILING.saturating_sub(REAP_ALLOWANCE_CEILING_MARGIN);
+// Five heartbeat intervals: renewal that continued would move the lease.
+const RENEWAL_STOPPED_OBSERVATION: Duration = Duration::from_millis(500);
+// A reap-time heartbeat whose database request outlasts its client deadline and
+// reap horizon leaves renewal unable to vouch for the token. The stall absorbs
+// the heartbeat's statement timeout and outlasts both 500 ms bounds together.
+const HEARTBEAT_STALL_SECONDS: &str = "2.0";
+// Progress batches reduced inside one poll, as ordered stage reduction does,
+// while concurrent status readers keep the fair progress lock contended.
+const STATUS_READERS: usize = 4;
+const PROGRESS_BATCH_ITEMS: usize = 8;
+const PROGRESS_CONTENTION_WINDOW: Duration = Duration::from_millis(1_500);
+const PROGRESS_DEADLOCK_BOUND: Duration = Duration::from_secs(10);
+const STATUS_READER_JOIN_BOUND: Duration = Duration::from_secs(2);
 const SHORT_CANCELLATION_GRACE: Duration = Duration::from_millis(150);
 const CANCELLING_OBSERVATION_DELAY: Duration = Duration::from_millis(40);
 // This test proves the whole-operation deadline despite continuous work
@@ -116,6 +174,47 @@ const TRANSIENT_HEARTBEAT_PROGRESS_TIMEOUT: Duration = Duration::from_secs(2);
 const TRANSIENT_HEARTBEAT_LEASE_DURATION: Duration = Duration::from_secs(6);
 const TRANSIENT_HEARTBEAT_DELAY_SECONDS: &str = "0.60";
 const TRANSIENT_HEARTBEAT_DELAY_ATTEMPTS: i64 = 2;
+// Work that finishes while a slow but successful heartbeat straddles the work
+// deadline must still yield to that deadline, as the inline monitor did. The
+// first heartbeat starts one interval after acquisition, 2.1 s before the 6 s
+// work window closes when acquisition is instant, and a trigger holds it 2.2 s,
+// below its 2.5 s statement timeout, so it always ends after the window closes;
+// the work, which finishes as soon as it sees that heartbeat, then still
+// finishes inside the window unless acquisition took about 2 s. The operation
+// timeout is the work window plus grace, COPY, and the database finish reserve.
+const HELD_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(5);
+const HELD_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(3_900);
+const HELD_HEARTBEAT_WORK_WINDOW: Duration = Duration::from_secs(6);
+const HELD_HEARTBEAT_OPERATION_TIMEOUT: Duration = HELD_HEARTBEAT_WORK_WINDOW
+    .saturating_add(STANDARD_CANCELLATION_GRACE)
+    .saturating_add(STANDARD_COPY_TIMEOUT)
+    .saturating_add(HELD_HEARTBEAT_TIMEOUT.saturating_mul(SUPERVISOR_FINISH_DATABASE_STEPS));
+const HELD_HEARTBEAT_PROGRESS_TIMEOUT: Duration = Duration::from_millis(3_500);
+const HELD_HEARTBEAT_LEASE_DURATION: Duration = Duration::from_secs(32);
+const HELD_HEARTBEAT_DELAY_SECONDS: &str = "2.20";
+const HELD_HEARTBEAT_DELAY_ATTEMPTS: i64 = 1;
+const HELD_HEARTBEAT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+// The same held heartbeat must also yield to a progress stall that expires
+// while it is held: the work finishes as soon as it sees the heartbeat, then
+// reports no progress for the rest of the 2.2 s hold, which outlasts the 1 s
+// progress timeout, while the work window stays far away.
+const STALL_RACE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+const STALL_RACE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(1);
+const STALL_RACE_WORK_WINDOW: Duration = Duration::from_secs(20);
+const STALL_RACE_OPERATION_TIMEOUT: Duration = STALL_RACE_WORK_WINDOW
+    .saturating_add(STANDARD_CANCELLATION_GRACE)
+    .saturating_add(STANDARD_COPY_TIMEOUT)
+    .saturating_add(HELD_HEARTBEAT_TIMEOUT.saturating_mul(SUPERVISOR_FINISH_DATABASE_STEPS));
+const STALL_RACE_LEASE_DURATION: Duration = Duration::from_secs(30);
+// Children must be reaped as soon as blocked root work is gone, not after the
+// reap-time lease renewal settles. A held renewal heartbeat waits on a locked
+// lease row inside its 1.5 s statement timeout while the child is observed. The
+// COPY timeout, the root's reap allowance, outlasts the settle delay and lock.
+const SETTLING_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
+const SETTLING_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(3);
+const SETTLING_COPY_TIMEOUT: Duration = Duration::from_secs(4);
+const SETTLING_LEASE_DURATION: Duration = Duration::from_secs(20);
+const SETTLING_CHILD_REAP_BOUND: Duration = Duration::from_secs(1);
 const EXPECTED_TRANSIENT_HEARTBEAT_ATTEMPTS: i64 = 3;
 const ABORT_OPERATION_TIMEOUT: Duration = Duration::from_secs(3);
 const ABORT_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(100);
@@ -668,10 +767,7 @@ async fn successful_supervision_renews_releases_and_requires_publication() {
     );
     assert!(!supervisor.cancel());
     assert!(supervisor.status().await.heartbeat_count() >= EXPECTED_MINIMUM_HEARTBEATS);
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -718,10 +814,7 @@ async fn transient_heartbeat_timeouts_retry_within_the_bounded_reap_horizon() {
     );
     assert!(supervisor.status().await.heartbeat_count() > 0);
     assert!(heartbeat_delay_attempts(&fixture).await >= EXPECTED_TRANSIENT_HEARTBEAT_ATTEMPTS);
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -806,10 +899,7 @@ async fn bounded_parallel_stage_reduces_before_supervised_publication() {
         status.completed_bytes(),
         ORDERED_STAGE_ITEMS * ORDERED_STAGE_ITEM_BYTES
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -886,10 +976,7 @@ async fn native_source_pipeline_copies_publishes_and_is_bm25_searchable() {
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -1099,10 +1186,7 @@ async fn cache_hit_revalidation_preserves_source_drift_in_memory_and_postgres_sp
             .unwrap_or_else(|error| panic!("{storage:?} cache build task failed: {error}"));
         assert_cache_drift_failure(&result, storage);
         assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-        assert!(matches!(
-            fixture.database.lease_status(&target).await,
-            Ok(None)
-        ));
+        assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     }
 
     fixture.close().await;
@@ -1159,24 +1243,21 @@ async fn postgres_spill_in_loop_storage_fault_is_not_attributed_to_a_source_file
         .await
         .unwrap_or_else(|error| panic!("spill fault omitted its native failure: {error}"));
 
-    assert!(matches!(
+    assert_matches!(
         native_error,
         NativePipelineError::Spill {
             stage: PipelineStage::Parse
         }
-    ));
+    );
     assert!(native_error.file_failure().is_none());
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Pipeline {
             stage: PipelineStage::Parse
         })
-    ));
+    );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -1242,34 +1323,29 @@ async fn postgres_spill_item_deadline_remains_deadline_without_file_attribution(
         .await
         .unwrap_or_else(|error| panic!("spill deadline omitted its native failure: {error}"));
 
-    assert!(matches!(
+    assert_matches!(
         native_error,
         NativePipelineError::Stage(StageRunError::Item {
             stage: PipelineStage::Parse,
             kind: StageFailureKind::Deadline,
             ..
         })
-    ));
+    );
     assert_eq!(
         native_error.reason(),
         Some(PipelineFailureReason::DeadlineExceeded)
     );
     assert!(native_error.file_failure().is_none());
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::PipelineWithReason {
-                stage: PipelineStage::Parse,
-                reason: PipelineFailureReason::DeadlineExceeded
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::PipelineWithReason {
+            stage: PipelineStage::Parse,
+            reason: PipelineFailureReason::DeadlineExceeded
+        }),
         "spill deadline returned the wrong supervised failure: {result:?}"
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -1991,10 +2067,10 @@ async fn assert_native_unresolved_reference(
         .unwrap_or_else(|error| panic!("could not inspect unresolved reference: {error}"));
     assert!(row.try_get::<bool, _>("has_owner").unwrap_or(false));
     assert!(row.try_get::<bool, _>("unresolved").unwrap_or(false));
-    assert!(matches!(
+    assert_matches!(
         row.try_get::<String, _>("resolution_provenance"),
         Ok(value) if value == "native-unresolved"
-    ));
+    );
 }
 
 async fn assert_native_edge_kind(
@@ -2017,7 +2093,7 @@ async fn assert_native_edge_kind(
         .bind(kind.as_str())
         .fetch_one(&fixture.pool)
         .await;
-    assert!(matches!(row, Ok(row) if row.try_get::<bool, _>("present").unwrap_or(false)));
+    assert_matches!(row, Ok(row) if row.try_get::<bool, _>("present").unwrap_or(false));
 }
 
 fn native_pipeline_config() -> NativePipelineConfig {
@@ -2112,10 +2188,7 @@ async fn large_payload_copy_uses_its_own_stage_deadline() {
         observed_metrics.snapshot().copy_duration() > LARGE_COPY_HEARTBEAT_TIMEOUT,
         "COPY fixture did not exceed the heartbeat request deadline"
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2177,10 +2250,7 @@ async fn recovered_ready_generation_still_publishes_through_supervisor_gate() {
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2216,13 +2286,10 @@ async fn dropped_failed_child_blocks_publication_and_cleans_owned_generation() {
                 .map_err(|_| PipelineFailure::new(PipelineStage::Copy))
         })
         .await;
-    assert!(matches!(result, Err(SupervisorError::WorkerFailed)));
+    assert_matches!(result, Err(SupervisorError::WorkerFailed));
     assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2247,18 +2314,15 @@ async fn propagated_pipeline_failure_precedes_the_observed_worker_poison_bit() {
             Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Parse))
         })
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Pipeline {
             stage: PipelineStage::Parse
         })
-    ));
+    );
     assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2314,10 +2378,7 @@ async fn blocked_supervised_copy_rolls_back_backend_query_and_advisory_locks() {
     assert_generation_advisories_available(&fixture, &target).await;
     assert!(table_lock.rollback().await.is_ok());
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
     assert!(
@@ -2396,21 +2457,18 @@ async fn requested_cancellation_reaps_inflight_copy_before_external_unlock() {
         });
     let result =
         joined.unwrap_or_else(|error| panic!("cancelled COPY supervisor task failed: {error}"));
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: true
         })
-    ));
+    );
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert!(table_lock.rollback().await.is_ok());
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2478,15 +2536,12 @@ async fn aborting_public_run_reaps_inflight_copy_before_external_unlock() {
         panic!("{error}; supervisor outcome: {outcome:?}");
     }
     outer.abort();
-    assert!(matches!(outer.await, Err(error) if error.is_cancelled()));
+    assert_matches!(outer.await, Err(error) if error.is_cancelled());
     wait_for_supervisor_state(&supervisor, SupervisorState::Wedged).await;
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(table_lock.rollback().await.is_ok());
 
     fixture.close().await;
@@ -2541,7 +2596,7 @@ async fn dropping_polled_run_outside_runtime_reaps_inflight_copy() {
             .await
     });
     poll_fn(|context| {
-        assert!(matches!(run.as_mut().poll(context), Poll::Pending));
+        assert_matches!(run.as_mut().poll(context), Poll::Pending);
         Poll::Ready(())
     })
     .await;
@@ -2563,10 +2618,7 @@ async fn dropping_polled_run_outside_runtime_reaps_inflight_copy() {
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(table_lock.rollback().await.is_ok());
 
     fixture.close().await;
@@ -2602,23 +2654,20 @@ async fn requested_cancellation_fails_owned_generation_and_releases_lease() {
     wait_for_lease(&fixture.database, &target).await;
     assert!(supervisor.cancel());
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: false
         })
-    ));
+    );
     assert_eq!(
         supervisor.status().await.state(),
         SupervisorState::Cancelled
     );
     assert!(supervisor.status().await.heartbeat_count() > 0);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2639,13 +2688,13 @@ async fn progress_stall_cancels_work_and_marks_generation_failed() {
             Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Discover))
         })
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::ProgressStalled,
             grace_exceeded: false
         })
-    ));
+    );
     let status = supervisor.status().await;
     assert_eq!(status.state(), SupervisorState::Wedged);
     assert_eq!(
@@ -2653,10 +2702,7 @@ async fn progress_stall_cancels_work_and_marks_generation_failed() {
         Some(CancellationReason::ProgressStalled)
     );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2703,13 +2749,13 @@ async fn lost_lease_cancels_without_mutating_new_owners_generation() {
         Err(error) => panic!("takeover lease acquisition failed: {error}"),
     };
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::LeaseLost,
             grace_exceeded: false
         })
-    ));
+    );
     assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
     let status = match fixture.database.lease_status(&target).await {
         Ok(Some(status)) => status,
@@ -2752,14 +2798,12 @@ async fn operation_deadline_cancels_despite_continuous_progress() {
             }
         })
         .await;
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::OperationDeadline,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::OperationDeadline,
+            grace_exceeded: false
+        }),
         "unexpected operation-deadline result: {result:?}"
     );
     assert_eq!(
@@ -2768,10 +2812,7 @@ async fn operation_deadline_cancels_despite_continuous_progress() {
     );
     assert!(supervisor.status().await.heartbeat_count() > 0);
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -2816,22 +2857,769 @@ async fn noncooperative_work_is_dropped_after_visible_cancellation_grace() {
         SupervisorState::Cancelling
     );
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: true
         })
-    ));
+    );
     let status = supervisor.status().await;
     assert_eq!(status.state(), SupervisorState::Wedged);
     assert!(status.grace_exceeded());
     assert!(dropped.load(Ordering::Acquire));
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn lease_heartbeats_continue_while_root_work_blocks_its_thread() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocking_work_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let (blocking, blocking_started) = oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(request(request_target), move |context| async move {
+                drop(staged);
+                assert!(
+                    context
+                        .progress()
+                        .begin_stage(PipelineStage::Resolve)
+                        .await
+                        .is_ok()
+                );
+                let _ = blocking.send(());
+                // Synchronous code run directly in async context never yields, so
+                // it holds this worker thread until the test has observed renewal.
+                let _ = released.recv_timeout(BLOCKING_WORK_RELEASE_BOUND);
+                Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Resolve))
+            })
+            .await
+    });
+    assert!(blocking_started.await.is_ok());
+    let before = supervisor.status().await.heartbeat_count();
+    tokio::time::sleep(BLOCKING_OBSERVATION_WINDOW).await;
+    let during = supervisor.status().await.heartbeat_count();
+    let _ = release.send(());
+    assert!(
+        during >= before.saturating_add(EXPECTED_HEARTBEATS_WHILE_BLOCKED),
+        "lease renewal stalled while the root work blocked its thread: {before} -> {during}"
+    );
+    let result = join(handle).await;
+    assert_matches!(
+        result,
+        Err(SupervisorError::Pipeline {
+            stage: PipelineStage::Resolve
+        }),
+        "unexpected blocked-work result: {result:?}"
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn concurrent_status_readers_never_deadlock_batched_progress() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), boundary_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                request_with_duration(request_target, BOUNDARY_LEASE_DURATION),
+                move |context| async move {
+                    drop(staged);
+                    let progress = context.progress();
+                    assert!(progress.begin_stage(PipelineStage::Parse).await.is_ok());
+                    let contended_until = tokio::time::Instant::now() + PROGRESS_CONTENTION_WINDOW;
+                    while tokio::time::Instant::now() < contended_until {
+                        // Like ordered stage reduction, several outputs advance
+                        // progress inside one poll before the work yields.
+                        for _ in 0..PROGRESS_BATCH_ITEMS {
+                            assert!(progress.advance(1, 1).await.is_ok());
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                    Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Parse))
+                },
+            )
+            .await
+    });
+    // Status readers model `cartograph admin index` polling the job from the CLI.
+    let reading = Arc::new(AtomicBool::new(true));
+    let readers = (0..STATUS_READERS)
+        .map(|_| {
+            let supervisor = supervisor.clone();
+            let reading = reading.clone();
+            tokio::spawn(async move {
+                while reading.load(Ordering::Acquire) {
+                    let _ = supervisor.status().await;
+                    tokio::task::yield_now().await;
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let joined = tokio::time::timeout(PROGRESS_DEADLOCK_BOUND, handle).await;
+    reading.store(false, Ordering::Release);
+    let result = joined
+        .unwrap_or_else(|_| {
+            panic!("supervised progress deadlocked behind concurrent status readers")
+        })
+        .unwrap_or_else(|error| panic!("contended-progress supervisor task failed: {error}"));
+    for reader in readers {
+        assert_matches!(
+            tokio::time::timeout(STATUS_READER_JOIN_BOUND, reader).await,
+            Ok(Ok(()))
+        );
+    }
+    assert_matches!(
+        result,
+        Err(SupervisorError::Pipeline {
+            stage: PipelineStage::Parse
+        }),
+        "unexpected contended-progress result: {result:?}"
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn work_finished_during_a_held_heartbeat_still_yields_to_the_work_deadline() {
+    let fixture = open_fixture().await;
+    install_heartbeat_delay(
+        &fixture,
+        HELD_HEARTBEAT_DELAY_SECONDS,
+        HELD_HEARTBEAT_DELAY_ATTEMPTS,
+    )
+    .await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), held_heartbeat_config());
+    let pool = fixture.pool.clone();
+    let schema = fixture.schema.clone();
+    let (finished, mut finished_at) = oneshot::channel();
+    // The supervisor's budget starts after this instant, so its work deadline is
+    // no earlier than this instant plus the work window.
+    let window_opened_by = tokio::time::Instant::now();
+    let result = supervisor
+        .run(
+            request_with_duration(target.clone(), HELD_HEARTBEAT_LEASE_DURATION),
+            move |context| async move {
+                let progress = context.progress();
+                progress
+                    .begin_stage(PipelineStage::Copy)
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                let ready = context
+                    .prepare_generation(GenerationContents::new(
+                        staged,
+                        canonical(GenerationFacts::default()),
+                    ))
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                // Finish only once the held heartbeat is in flight. While this
+                // work runs, only the active-work keeper heartbeats; publication
+                // and cleanup heartbeats start after the work has ended.
+                while !heartbeat_delay_started(&pool, &schema).await {
+                    tokio::time::sleep(HELD_HEARTBEAT_POLL_INTERVAL).await;
+                    progress
+                        .advance(1, 1)
+                        .await
+                        .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                }
+                let _ = finished.send(tokio::time::Instant::now());
+                Ok(ready)
+            },
+        )
+        .await;
+    let finished_at = finished_at.try_recv().unwrap_or_else(|_| {
+        panic!("work never saw an active-work heartbeat in flight: {result:?}")
+    });
+    assert!(
+        finished_at < window_opened_by + HELD_HEARTBEAT_WORK_WINDOW,
+        "work finished {:?} after the run began, too late to race the work deadline",
+        finished_at - window_opened_by
+    );
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::OperationDeadline,
+            grace_exceeded: false
+        }),
+        "work finished during a held heartbeat bypassed the work deadline: {result:?}"
+    );
+    assert_eq!(
+        supervisor.status().await.state(),
+        SupervisorState::Cancelled
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn work_finished_during_a_held_heartbeat_still_yields_to_a_progress_stall() {
+    let fixture = open_fixture().await;
+    install_heartbeat_delay(
+        &fixture,
+        HELD_HEARTBEAT_DELAY_SECONDS,
+        HELD_HEARTBEAT_DELAY_ATTEMPTS,
+    )
+    .await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), stall_race_config());
+    let pool = fixture.pool.clone();
+    let schema = fixture.schema.clone();
+    let (finished, mut finished_signal) = oneshot::channel();
+    let result = supervisor
+        .run(
+            request_with_duration(target.clone(), STALL_RACE_LEASE_DURATION),
+            move |context| async move {
+                let progress = context.progress();
+                progress
+                    .begin_stage(PipelineStage::Copy)
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                let ready = context
+                    .prepare_generation(GenerationContents::new(
+                        staged,
+                        canonical(GenerationFacts::default()),
+                    ))
+                    .await
+                    .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                // Progress continues until the held active-work heartbeat is in
+                // flight, then stops; the work finishes at once.
+                while !heartbeat_delay_started(&pool, &schema).await {
+                    tokio::time::sleep(HELD_HEARTBEAT_POLL_INTERVAL).await;
+                    progress
+                        .advance(1, 1)
+                        .await
+                        .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
+                }
+                let _ = finished.send(());
+                Ok(ready)
+            },
+        )
+        .await;
+    assert!(
+        finished_signal.try_recv().is_ok(),
+        "work never saw an active-work heartbeat in flight: {result:?}"
+    );
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::ProgressStalled,
+            grace_exceeded: false
+        }),
+        "work finished during a held heartbeat bypassed the progress watchdog: {result:?}"
+    );
+    let status = supervisor.status().await;
+    assert_eq!(status.state(), SupervisorState::Wedged);
+    assert_eq!(
+        status.cancellation_reason(),
+        Some(CancellationReason::ProgressStalled)
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn children_are_reaped_while_reap_time_lease_renewal_settles() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let child_dropped = Arc::new(AtomicBool::new(false));
+    let child_observer = child_dropped.clone();
+    let (child_started, child_started_receiver) = oneshot::channel();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), settling_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                request_with_duration(request_target, SETTLING_LEASE_DURATION),
+                move |context| async move {
+                    drop(staged);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Resolve)
+                            .await
+                            .is_ok()
+                    );
+                    let _child = match context.spawn(1, async move {
+                        let _child_drop = DropFlag(child_observer);
+                        let _ = child_started.send(());
+                        pending::<Result<(), PipelineFailure>>().await
+                    }) {
+                        Ok(child) => child,
+                        Err(error) => panic!("registered child did not spawn: {error}"),
+                    };
+                    assert!(child_started_receiver.await.is_ok());
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    assert!(supervisor.cancel());
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    // Past the grace the run renews the lease while it waits for the root;
+    // lock the exact lease row so the next renewal heartbeat is held.
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let mut lease_lock = match fixture.pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => panic!("lease-lock transaction failed: {error}"),
+    };
+    let lease_lock_statement = format!(
+        r#"SELECT lease_id FROM "{}"."project_operation_leases"
+            WHERE project_id = CAST($1 AS uuid) AND operation = $2
+            FOR UPDATE"#,
+        fixture.schema
+    );
+    if let Err(error) = query(AssertSqlSafe(lease_lock_statement))
+        .bind(target.project_id().as_str())
+        .bind(target.operation().as_str())
+        .fetch_one(&mut *lease_lock)
+        .await
+    {
+        panic!("could not lock exact lease row: {error}");
+    }
+    wait_for_schema_lock(&fixture.pool, &fixture.schema, "project_operation_leases").await;
+    release.release();
+    let child_reaped = wait_for_flag(&child_dropped, SETTLING_CHILD_REAP_BOUND).await;
+    let renewal_still_held = !handle.is_finished();
+    assert!(lease_lock.rollback().await.is_ok());
+    let result = join(handle).await;
+    assert!(
+        renewal_still_held,
+        "the run finished while its renewal heartbeat was held: {result:?}"
+    );
+    assert!(
+        child_reaped,
+        "registered children waited for reap-time lease renewal to settle: {result:?}"
+    );
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: true
+        }),
+        "unexpected settling-renewal result: {result:?}"
+    );
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn cancellation_waits_for_blocked_root_work_and_renews_until_cleanup() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let root_dropped = Arc::new(AtomicBool::new(false));
+    let root_observer = root_dropped.clone();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocked_root_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                blocked_root_request(request_target),
+                move |context| async move {
+                    drop(staged);
+                    let _root_drop = DropFlag(root_observer);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Resolve)
+                            .await
+                            .is_ok()
+                    );
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    assert!(supervisor.cancel());
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let before = supervisor.status().await.heartbeat_count();
+    tokio::time::sleep(BLOCKING_OBSERVATION_WINDOW).await;
+    let during = supervisor.status().await.heartbeat_count();
+    let lease_while_waiting = fixture.database.lease_status(&target).await;
+    let returned_early = handle.is_finished();
+    release.release();
+    let result = join(handle).await;
+    assert!(
+        !returned_early,
+        "cancellation gave up on root work still in a synchronous section: {result:?}"
+    );
+    assert!(
+        during >= before.saturating_add(EXPECTED_HEARTBEATS_WHILE_BLOCKED),
+        "the lease was not renewed while cancellation waited for root work: {before} -> {during}"
+    );
+    assert_matches!(lease_while_waiting, Ok(Some(_)));
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: true
+        }),
+        "unexpected blocked-root cancellation result: {result:?}"
+    );
+    assert!(root_dropped.load(Ordering::Acquire));
+    let status = supervisor.status().await;
+    assert_eq!(status.state(), SupervisorState::Wedged);
+    assert!(status.grace_exceeded());
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn lease_loss_waits_for_blocked_root_work_before_reporting() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let root_dropped = Arc::new(AtomicBool::new(false));
+    let root_observer = root_dropped.clone();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocked_root_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                blocked_root_request(request_target),
+                move |context| async move {
+                    drop(staged);
+                    let _root_drop = DropFlag(root_observer);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Parse)
+                            .await
+                            .is_ok()
+                    );
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    expire_lease(&fixture, &target).await;
+    let takeover = match fixture
+        .database
+        .acquire_lease(LeaseRequest::new(
+            target.clone(),
+            LeaseOwner::new(process::id(), "blocked-root-takeover"),
+            TEST_LEASE_DURATION,
+        ))
+        .await
+    {
+        Ok(lease) => lease,
+        Err(error) => panic!("takeover lease acquisition failed: {error}"),
+    };
+    wait_for_cancellation_reason(&supervisor, CancellationReason::LeaseLost).await;
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let returned_early = handle.is_finished();
+    release.release();
+    let result = join(handle).await;
+    assert!(
+        !returned_early,
+        "lease loss gave up on root work still in a synchronous section: {result:?}"
+    );
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::LeaseLost,
+            grace_exceeded: false
+        }),
+        "unexpected blocked-root lease-loss result: {result:?}"
+    );
+    assert!(root_dropped.load(Ordering::Acquire));
+    assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
+    let status = match fixture.database.lease_status(&target).await {
+        Ok(Some(status)) => status,
+        Ok(None) => panic!("takeover lease disappeared"),
+        Err(error) => panic!("takeover lease status failed: {error}"),
+    };
+    assert_eq!(status.owner_process_start(), "blocked-root-takeover");
+    assert!(fixture.database.release_lease(&takeover).await.is_ok());
+    fail_recoverable_generation(&fixture, &generation_id).await;
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn dropping_the_run_while_root_work_is_blocked_still_cleans_up() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let root_dropped = Arc::new(AtomicBool::new(false));
+    let root_observer = root_dropped.clone();
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocked_root_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let outer = tokio::spawn(async move {
+        runner
+            .run(
+                blocked_root_request(request_target),
+                move |context| async move {
+                    drop(staged);
+                    let _root_drop = DropFlag(root_observer);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Resolve)
+                            .await
+                            .is_ok()
+                    );
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    outer.abort();
+    assert_matches!(outer.await, Err(error) if error.is_cancelled());
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    let while_blocked = supervisor.status().await;
+    release.release();
+    assert_eq!(
+        while_blocked.state(),
+        SupervisorState::Cancelling,
+        "the dropped run gave up on root work still in a synchronous section"
+    );
+    wait_for_supervisor_state(&supervisor, SupervisorState::Wedged).await;
+    assert!(root_dropped.load(Ordering::Acquire));
+    let status = supervisor.status().await;
+    assert_eq!(
+        status.cancellation_reason(),
+        Some(CancellationReason::Requested)
+    );
+    assert!(status.grace_exceeded());
+    assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
+
+    fixture.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn root_work_blocked_past_its_reap_allowance_is_reported_unreaped() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), reap_allowance_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    // The supervisor's budget starts after this instant, so its stall, grace,
+    // and reap allowance end no earlier, and its reap ceiling no earlier than
+    // this instant plus the ceiling offset.
+    let started_by = tokio::time::Instant::now();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                request_with_duration(request_target, REAP_ALLOWANCE_LEASE_DURATION),
+                move |context| async move {
+                    drop(staged);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Resolve)
+                            .await
+                            .is_ok()
+                    );
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    // The blocked root stalls progress and is cancelled; past the grace the run
+    // renews the lease while it waits one COPY timeout for the root, then gives
+    // up long before the reap ceiling.
+    wait_for_cancellation_reason(&supervisor, CancellationReason::ProgressStalled).await;
+    let heartbeats_at_stall = supervisor.status().await.heartbeat_count();
+    let joined = tokio::time::timeout_at(started_by + REAP_ALLOWANCE_RESULT_BOUND, handle).await;
+    let returned_after = started_by.elapsed();
+    let lease_at_return = fixture.database.lease_status(&target).await;
+    release.release();
+    let result = joined
+        .unwrap_or_else(|_| panic!("the run kept waiting and renewing past its reap allowance"))
+        .unwrap_or_else(|error| panic!("unreaped-root supervisor task failed: {error}"));
+    assert_matches!(
+        result,
+        Err(SupervisorError::UnreapedWorkers),
+        "unexpected unreaped-root result: {result:?}"
+    );
+    let waited_out_allowance = returned_after >= REAP_ALLOWANCE_MINIMUM_WAIT;
+    assert!(
+        waited_out_allowance,
+        "the run gave up on its root work after {returned_after:?}, before its reap allowance"
+    );
+    let reap_renewals = supervisor
+        .status()
+        .await
+        .heartbeat_count()
+        .saturating_sub(heartbeats_at_stall);
+    let renewed_while_waiting = reap_renewals >= EXPECTED_HEARTBEATS_WHILE_BLOCKED;
+    assert!(
+        renewed_while_waiting,
+        "the lease was not renewed while the run waited for its root: {reap_renewals}"
+    );
+    // Renewal ended with the allowance: the unreleased lease is left to expire.
+    let renewed_at = lease_heartbeat_at(lease_at_return);
+    tokio::time::sleep(RENEWAL_STOPPED_OBSERVATION).await;
+    assert_eq!(
+        lease_heartbeat_at(fixture.database.lease_status(&target).await),
+        renewed_at,
+        "the lease was still renewed after the run reported its root unreaped"
+    );
+    assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
+    // Unreaped work forbids owned cleanup; the staging generation is recovered.
+    assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
+    expire_lease(&fixture, &target).await;
+    fail_recoverable_generation(&fixture, &generation_id).await;
+
+    fixture.close().await;
+}
+
+/// Last renewal instant of a lease the run still holds.
+fn lease_heartbeat_at(
+    status: Result<Option<cartograph_db::LeaseStatus>, cartograph_db::LeaseError>,
+) -> String {
+    match status {
+        Ok(Some(status)) => status.heartbeat_at().to_owned(),
+        Ok(None) => panic!("the run released a lease its owned cleanup could not use"),
+        Err(error) => panic!("lease status was unavailable: {error}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn failed_reap_time_renewal_keeps_the_cancellation_primary() {
+    let fixture = open_fixture().await;
+    install_heartbeat_stall(&fixture, HEARTBEAT_STALL_SECONDS).await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let (root, mut release) = blocked_root();
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocked_root_config());
+    let runner = supervisor.clone();
+    let request_target = target.clone();
+    let handle = tokio::spawn(async move {
+        runner
+            .run(
+                blocked_root_request(request_target),
+                move |context| async move {
+                    drop(staged);
+                    assert!(
+                        context
+                            .progress()
+                            .begin_stage(PipelineStage::Resolve)
+                            .await
+                            .is_ok()
+                    );
+                    root.hold();
+                    pending::<Result<ReadyGeneration, PipelineFailure>>().await
+                },
+            )
+            .await
+    });
+    release.started().await;
+    assert!(supervisor.cancel());
+    wait_for_supervisor_state(&supervisor, SupervisorState::Cancelling).await;
+    // Past the grace the run renews the lease while it waits for the root.
+    // Stall the next renewal past its request deadline and reap horizon, so
+    // renewal can no longer vouch for the exact token.
+    tokio::time::sleep(BLOCKED_ROOT_SETTLE).await;
+    arm_heartbeat_stall(&fixture).await;
+    let renewal_stalled = wait_for_heartbeat_delay(&fixture).await;
+    release.release();
+    let result = join(handle).await;
+    assert!(
+        renewal_stalled,
+        "no reap-time renewal reached the stall: {result:?}"
+    );
+    // The requested cancellation ended the run. Without a vouched token the
+    // cleanup only reconciles, finds the lease still owned, and reports that
+    // ambiguity beside the cancellation instead of replacing it.
+    let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
+        panic!("failed reap-time renewal replaced or dropped the cancellation: {result:?}");
+    };
+    assert_matches!(
+        **primary,
+        SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: true,
+        },
+        "unexpected primary failure: {primary:?}"
+    );
+    assert_matches!(
+        **cleanup,
+        SupervisorError::AmbiguousOutcome {
+            operation: "cleanup-heartbeat"
+        },
+        "unexpected secondary cleanup failure: {cleanup:?}"
+    );
+    assert_eq!(supervisor.status().await.state(), SupervisorState::Failed);
+    // No mutation without a confirmed lease: the generation stays staging and
+    // the unreleased lease is left to expire.
+    assert_generation_state(&fixture, &generation_id, GenerationState::Staging).await;
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(Some(_)));
+    assert_no_active_schema_work(&fixture).await;
+    expire_lease(&fixture, &target).await;
+    fail_recoverable_generation(&fixture, &generation_id).await;
 
     fixture.close().await;
 }
@@ -2886,16 +3674,14 @@ async fn cancellation_during_blocked_acquisition_reaps_work_and_leaves_recoverab
     // Cancellation may linearize before the exact probe starts (cancelled) or
     // while the access-exclusive lock prevents proof (ambiguous). Both exits
     // must reap every database task before returning.
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::Requested,
-                grace_exceeded: false
-            } | SupervisorError::AmbiguousOutcome {
-                operation: "acquire"
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: false
+        } | SupervisorError::AmbiguousOutcome {
+            operation: "acquire"
+        }),
         "unexpected blocked acquisition result: {result:?}"
     );
     assert!(!work_called.load(Ordering::Acquire));
@@ -2903,10 +3689,7 @@ async fn cancellation_during_blocked_acquisition_reaps_work_and_leaves_recoverab
     assert_no_active_schema_work(&fixture).await;
     assert_generation_advisories_available(&fixture, &target).await;
     assert!(lock.rollback().await.is_ok());
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(!supervisor.cancel());
     assert_no_active_schema_work(&fixture).await;
     fail_recoverable_generation(&fixture, &generation_id).await;
@@ -2933,18 +3716,15 @@ async fn timed_out_acquisition_keeps_one_exact_attempt_and_recovers_its_token() 
             Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Discover))
         })
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Pipeline {
             stage: PipelineStage::Discover
         })
-    ));
+    );
     assert!(work_called.load(Ordering::Acquire));
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3006,10 +3786,7 @@ async fn publication_gate_rejects_late_cancellation_and_commits_once() {
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
     assert!(!supervisor.cancel());
     drop(lock_connection);
 
@@ -3044,10 +3821,7 @@ async fn timed_out_publication_reconciles_ready_state_retries_and_releases_atomi
         supervisor.status().await.state(),
         SupervisorState::Completed
     );
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3076,18 +3850,15 @@ async fn timed_out_cleanup_reconciles_failure_and_exact_release_atomically() {
     wait_for_lease(&fixture.database, &target).await;
     assert!(supervisor.cancel());
     let result = join(handle).await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(SupervisorError::Cancelled {
             reason: CancellationReason::Requested,
             grace_exceeded: false
         })
-    ));
+    );
     assert_generation_state(&fixture, &generation_id, GenerationState::Failed).await;
-    assert!(matches!(
-        fixture.database.lease_status(&target).await,
-        Ok(None)
-    ));
+    assert_matches!(fixture.database.lease_status(&target).await, Ok(None));
 
     fixture.close().await;
 }
@@ -3134,13 +3905,11 @@ async fn blocked_publication_is_aborted_reaped_and_leaves_no_active_query() {
     let result = result.unwrap_or_else(|error| {
         panic!("blocked publication exceeded its absolute supervisor deadline: {error}")
     });
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::AmbiguousOutcome {
-                operation: "publish-generation"
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::AmbiguousOutcome {
+            operation: "publish-generation"
+        }),
         "unexpected blocked publication result: {result:?}"
     );
     assert_no_active_schema_work(&fixture).await;
@@ -3177,25 +3946,7 @@ async fn blocked_cleanup_is_aborted_reaped_and_leaves_no_active_query() {
     });
     let hold_generation_lock = async {
         wait_for_lease(&fixture.database, &target).await;
-        let generation_lock_statement = format!(
-            r#"SELECT state FROM "{}"."index_generations"
-                WHERE project_id = CAST($1 AS uuid)
-                  AND generation_id = CAST($2 AS uuid)
-                FOR UPDATE"#,
-            fixture.schema
-        );
-        let mut generation_lock = match fixture.pool.begin().await {
-            Ok(transaction) => transaction,
-            Err(error) => panic!("cleanup abort lock transaction failed: {error}"),
-        };
-        if let Err(error) = query(AssertSqlSafe(generation_lock_statement))
-            .bind(fixture.project.as_str())
-            .bind(generation_id.as_str())
-            .fetch_one(&mut *generation_lock)
-            .await
-        {
-            panic!("cleanup abort generation lock failed: {error}");
-        }
+        let generation_lock = lock_generation_row(&fixture, &generation_id).await;
         assert!(
             release_work.send(()).is_ok(),
             "cleanup abort work release was not observed"
@@ -3212,19 +3963,113 @@ async fn blocked_cleanup_is_aborted_reaped_and_leaves_no_active_query() {
     let (result, ()) = joined.unwrap_or_else(|error| {
         panic!("blocked cleanup exceeded its absolute supervisor deadline: {error}")
     });
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::AmbiguousOutcome {
-                operation: "cleanup-generation"
-            })
-        ),
-        "unexpected blocked cleanup result: {result:?}"
+    // The read failure ended the run; the blocked cleanup is secondary detail
+    // and must not replace the primary failure that callers classify.
+    let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
+        panic!("blocked cleanup replaced or dropped the primary failure: {result:?}");
+    };
+    assert_matches!(
+        **primary,
+        SupervisorError::Pipeline {
+            stage: PipelineStage::Read
+        },
+        "unexpected primary failure: {primary:?}"
+    );
+    assert_matches!(
+        **cleanup,
+        SupervisorError::AmbiguousOutcome {
+            operation: "cleanup-generation"
+        },
+        "unexpected secondary cleanup failure: {cleanup:?}"
     );
     expire_lease(&fixture, &target).await;
     fail_recoverable_generation(&fixture, &generation_id).await;
 
     fixture.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
+async fn blocked_cleanup_after_cancellation_keeps_the_cancellation_primary() {
+    let fixture = open_fixture().await;
+    let staged = begin_generation(&fixture).await;
+    let generation_id = staged.generation_id().clone();
+    let target = target(&fixture.project, &generation_id);
+    let supervisor = IndexerSupervisor::new(fixture.database.clone(), blocked_cleanup_config());
+    let run = supervisor.run(request(target.clone()), move |context| async move {
+        drop(staged);
+        let mut cancellation = context.cancellation();
+        cancellation.cancelled().await;
+        Err::<ReadyGeneration, _>(PipelineFailure::new(PipelineStage::Read))
+    });
+    let cancel_with_cleanup_blocked = async {
+        wait_for_lease(&fixture.database, &target).await;
+        let generation_lock = lock_generation_row(&fixture, &generation_id).await;
+        assert!(supervisor.cancel(), "cancellation was not newly requested");
+        wait_for_supervisor_state(&supervisor, SupervisorState::Failed).await;
+        assert_no_active_schema_work(&fixture).await;
+        assert_generation_advisories_available(&fixture, &target).await;
+        assert!(generation_lock.rollback().await.is_ok());
+    };
+    let joined = tokio::time::timeout(ABORT_RESULT_BOUND, async {
+        tokio::join!(run, cancel_with_cleanup_blocked)
+    })
+    .await;
+    let (result, ()) = joined.unwrap_or_else(|error| {
+        panic!("cancelled blocked cleanup exceeded its absolute supervisor deadline: {error}")
+    });
+    // The requested cancellation ended the run; the blocked cleanup that
+    // followed is secondary detail and must not replace it.
+    let Err(SupervisorError::CleanupFailed { primary, cleanup }) = &result else {
+        panic!("blocked cleanup replaced or dropped the cancellation: {result:?}");
+    };
+    assert_matches!(
+        **primary,
+        SupervisorError::Cancelled {
+            reason: CancellationReason::Requested,
+            grace_exceeded: false,
+        },
+        "unexpected primary failure: {primary:?}"
+    );
+    assert_matches!(
+        **cleanup,
+        SupervisorError::AmbiguousOutcome {
+            operation: "cleanup-generation"
+        },
+        "unexpected secondary cleanup failure: {cleanup:?}"
+    );
+    expire_lease(&fixture, &target).await;
+    fail_recoverable_generation(&fixture, &generation_id).await;
+
+    fixture.close().await;
+}
+
+/// Hold the generation row lock that owned cleanup must take, as a
+/// concurrent writer would, until the returned transaction ends.
+async fn lock_generation_row(
+    fixture: &DatabaseFixture,
+    generation_id: &GenerationId,
+) -> sqlx_core::transaction::Transaction<'static, sqlx_postgres::Postgres> {
+    let generation_lock_statement = format!(
+        r#"SELECT state FROM "{}"."index_generations"
+            WHERE project_id = CAST($1 AS uuid)
+              AND generation_id = CAST($2 AS uuid)
+            FOR UPDATE"#,
+        fixture.schema
+    );
+    let mut generation_lock = match fixture.pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => panic!("cleanup block lock transaction failed: {error}"),
+    };
+    if let Err(error) = query(AssertSqlSafe(generation_lock_statement))
+        .bind(fixture.project.as_str())
+        .bind(generation_id.as_str())
+        .fetch_one(&mut *generation_lock)
+        .await
+    {
+        panic!("cleanup block generation lock failed: {error}");
+    }
+    generation_lock
 }
 
 #[tokio::test]
@@ -3287,14 +4132,12 @@ async fn heartbeat_uncertainty_drops_root_and_reaps_registered_children_without_
         });
     let result = joined
         .unwrap_or_else(|error| panic!("uncertain-heartbeat supervisor task failed: {error}"));
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::LeaseHeartbeatFailed,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::LeaseHeartbeatFailed,
+            grace_exceeded: false
+        }),
         "unexpected uncertain-heartbeat result: {result:?}"
     );
     assert!(root_dropped.load(Ordering::Acquire));
@@ -3396,14 +4239,12 @@ async fn heartbeat_uncertainty_reaps_concurrent_copy_before_returning() {
         });
     let result = joined
         .unwrap_or_else(|error| panic!("combined uncertainty supervisor task failed: {error}"));
-    assert!(
-        matches!(
-            result,
-            Err(SupervisorError::Cancelled {
-                reason: CancellationReason::LeaseHeartbeatFailed,
-                grace_exceeded: false
-            })
-        ),
+    assert_matches!(
+        result,
+        Err(SupervisorError::Cancelled {
+            reason: CancellationReason::LeaseHeartbeatFailed,
+            grace_exceeded: false
+        }),
         "unexpected combined-uncertainty result: {result:?}"
     );
     assert_no_active_schema_work(&fixture).await;
@@ -3424,6 +4265,60 @@ fn standard_config() -> SupervisorConfig {
         .with_progress_timeout(STANDARD_PROGRESS_TIMEOUT)
         .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
         .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn blocking_work_config() -> SupervisorConfig {
+    SupervisorConfig::new(BLOCKING_WORK_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STANDARD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(STANDARD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(BLOCKING_WORK_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn held_heartbeat_config() -> SupervisorConfig {
+    SupervisorConfig::new(HELD_HEARTBEAT_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(HELD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(HELD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(HELD_HEARTBEAT_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn stall_race_config() -> SupervisorConfig {
+    SupervisorConfig::new(STALL_RACE_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STALL_RACE_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(HELD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(STALL_RACE_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(STANDARD_COPY_TIMEOUT)
+}
+
+fn settling_config() -> SupervisorConfig {
+    SupervisorConfig::new(SETTLING_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STANDARD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(SETTLING_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(BLOCKING_WORK_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(SETTLING_COPY_TIMEOUT)
+}
+
+fn blocked_root_config() -> SupervisorConfig {
+    SupervisorConfig::new(BLOCKED_ROOT_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STANDARD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(STANDARD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(BLOCKING_WORK_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(BLOCKED_ROOT_COPY_TIMEOUT)
+}
+
+fn reap_allowance_config() -> SupervisorConfig {
+    SupervisorConfig::new(REAP_ALLOWANCE_OPERATION_TIMEOUT)
+        .with_heartbeat_interval(STANDARD_HEARTBEAT_INTERVAL)
+        .with_heartbeat_timeout(STANDARD_HEARTBEAT_TIMEOUT)
+        .with_progress_timeout(STALLED_PROGRESS_TIMEOUT)
+        .with_cancellation_grace(STANDARD_CANCELLATION_GRACE)
+        .with_copy_timeout(REAP_ALLOWANCE_COPY_TIMEOUT)
 }
 
 fn stalled_config() -> SupervisorConfig {
@@ -3553,6 +4448,11 @@ fn request(target: LeaseTarget) -> SupervisorRequest {
     request_with_duration(target, TEST_LEASE_DURATION)
 }
 
+/// A request whose lease outlives the blocked-root configuration's whole finish.
+fn blocked_root_request(target: LeaseTarget) -> SupervisorRequest {
+    request_with_duration(target, BLOCKED_ROOT_LEASE_DURATION)
+}
+
 fn request_with_duration(target: LeaseTarget, duration: Duration) -> SupervisorRequest {
     SupervisorRequest::new(
         target,
@@ -3574,6 +4474,54 @@ struct DropFlag(Arc<AtomicBool>);
 impl Drop for DropFlag {
     fn drop(&mut self) {
         self.0.store(true, Ordering::Release);
+    }
+}
+
+/// Root work side of a synchronous section that abort cannot interrupt.
+struct BlockedRoot {
+    started: oneshot::Sender<()>,
+    released: std::sync::mpsc::Receiver<()>,
+}
+
+/// Test side of a [`BlockedRoot`] section.
+struct RootRelease {
+    started: oneshot::Receiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+fn blocked_root() -> (BlockedRoot, RootRelease) {
+    let (started, started_receiver) = oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    (
+        BlockedRoot { started, released },
+        RootRelease {
+            started: started_receiver,
+            release,
+        },
+    )
+}
+
+impl BlockedRoot {
+    /// Report the section started, then block this worker thread under
+    /// `block_in_place` until the test releases it or the bound elapses.
+    fn hold(self) {
+        let _ = self.started.send(());
+        tokio::task::block_in_place(|| {
+            let _ = self.released.recv_timeout(BLOCKED_ROOT_RELEASE_BOUND);
+        });
+    }
+}
+
+impl RootRelease {
+    async fn started(&mut self) {
+        assert!(
+            (&mut self.started).await.is_ok(),
+            "root work never reached its blocked section"
+        );
+    }
+
+    fn release(&self) {
+        let _ = self.release.send(());
     }
 }
 
@@ -3861,7 +4809,7 @@ async fn assert_generation_advisories_available(fixture: &DatabaseFixture, targe
     .execute(&mut *connection)
     .await;
     assert!(released.is_ok());
-    assert!(matches!(acquired, Ok((true, true))));
+    assert_matches!(acquired, Ok((true, true)));
 }
 
 async fn wait_for_supervisor_stage(supervisor: &IndexerSupervisor, expected: PipelineStage) {
@@ -3888,6 +4836,34 @@ async fn wait_for_supervisor_state(supervisor: &IndexerSupervisor, expected: Sup
     assert_eq!(
         actual, expected,
         "supervisor did not reach its expected terminal state"
+    );
+}
+
+/// Wait up to `bound` for `flag` to be set; true once it is.
+async fn wait_for_flag(flag: &AtomicBool, bound: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + bound;
+    while !flag.load(Ordering::Acquire) {
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(LEASE_WAIT_INTERVAL).await;
+    }
+    true
+}
+
+async fn wait_for_cancellation_reason(
+    supervisor: &IndexerSupervisor,
+    expected: CancellationReason,
+) {
+    for _ in 0..LEASE_WAIT_ATTEMPTS {
+        if supervisor.status().await.cancellation_reason() == Some(expected) {
+            return;
+        }
+        tokio::time::sleep(LEASE_WAIT_INTERVAL).await;
+    }
+    panic!(
+        "supervisor did not select {expected:?}; final status: {:?}",
+        supervisor.status().await
     );
 }
 
@@ -3958,6 +4934,16 @@ async fn install_one_shot_acquisition_delay(fixture: &DatabaseFixture) {
 }
 
 async fn install_one_shot_heartbeat_delay(fixture: &DatabaseFixture) {
+    install_heartbeat_delay(
+        fixture,
+        TRANSIENT_HEARTBEAT_DELAY_SECONDS,
+        TRANSIENT_HEARTBEAT_DELAY_ATTEMPTS,
+    )
+    .await;
+}
+
+/// Delay the first `attempts` lease heartbeats by `seconds` inside PostgreSQL.
+async fn install_heartbeat_delay(fixture: &DatabaseFixture, seconds: &str, attempts: i64) {
     let sequence = format!(
         r#"CREATE SEQUENCE "{}"."heartbeat_delay_sequence""#,
         fixture.schema
@@ -3969,8 +4955,8 @@ async fn install_one_shot_heartbeat_delay(fixture: &DatabaseFixture) {
             AS $delay$
             BEGIN
                 IF nextval('"{}"."heartbeat_delay_sequence"'::regclass)
-                   <= {TRANSIENT_HEARTBEAT_DELAY_ATTEMPTS} THEN
-                    PERFORM pg_sleep({TRANSIENT_HEARTBEAT_DELAY_SECONDS});
+                   <= {attempts} THEN
+                    PERFORM pg_sleep({seconds});
                 END IF;
                 RETURN NEW;
             END
@@ -3989,6 +4975,93 @@ async fn install_one_shot_heartbeat_delay(fixture: &DatabaseFixture) {
             panic!("could not install one-shot heartbeat delay: {error}");
         }
     }
+}
+
+/// Install a stall for the first lease heartbeat after [`arm_heartbeat_stall`],
+/// as a request the network or server never answers in time would.
+///
+/// The heartbeat's statement timeout cancels the first sleep, which the
+/// trigger absorbs before sleeping again, so the row update outlasts the
+/// request deadline and its reap horizon. The client then abandons the
+/// request, and its transaction never commits. Heartbeats before arming and
+/// after the stalled one run normally.
+async fn install_heartbeat_stall(fixture: &DatabaseFixture, seconds: &str) {
+    let armed = format!(
+        r#"CREATE SEQUENCE "{}"."heartbeat_stall_armed""#,
+        fixture.schema
+    );
+    let sequence = format!(
+        r#"CREATE SEQUENCE "{}"."heartbeat_delay_sequence""#,
+        fixture.schema
+    );
+    // Nested conditions keep the stall sequence untouched until arming.
+    let function = format!(
+        r#"CREATE FUNCTION "{}"."stall_armed_heartbeat"()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $stall$
+            BEGIN
+                IF (SELECT is_called FROM "{}"."heartbeat_stall_armed") THEN
+                    IF nextval('"{}"."heartbeat_delay_sequence"'::regclass) = 1 THEN
+                        BEGIN
+                            PERFORM pg_sleep({seconds});
+                        EXCEPTION WHEN query_canceled THEN
+                            PERFORM pg_sleep({seconds});
+                        END;
+                    END IF;
+                END IF;
+                RETURN NEW;
+            END
+            $stall$"#,
+        fixture.schema, fixture.schema, fixture.schema
+    );
+    let trigger = format!(
+        r#"CREATE TRIGGER stall_armed_heartbeat
+            BEFORE UPDATE OF heartbeat_at
+            ON "{}"."project_operation_leases"
+            FOR EACH ROW EXECUTE FUNCTION "{}"."stall_armed_heartbeat"()"#,
+        fixture.schema, fixture.schema
+    );
+    for statement in [armed, sequence, function, trigger] {
+        if let Err(error) = query(AssertSqlSafe(statement)).execute(&fixture.pool).await {
+            panic!("could not install heartbeat stall: {error}");
+        }
+    }
+}
+
+/// Arm the installed heartbeat stall without DDL, so a running heartbeat
+/// never queues behind a table lock taken to arm it.
+async fn arm_heartbeat_stall(fixture: &DatabaseFixture) {
+    let statement = format!(
+        r#"SELECT nextval('"{}"."heartbeat_stall_armed"'::regclass)"#,
+        fixture.schema
+    );
+    if let Err(error) = query(AssertSqlSafe(statement)).execute(&fixture.pool).await {
+        panic!("could not arm heartbeat stall: {error}");
+    }
+}
+
+/// Wait until a delayed or stalled heartbeat has entered its trigger; true
+/// once it has.
+async fn wait_for_heartbeat_delay(fixture: &DatabaseFixture) -> bool {
+    for _ in 0..LEASE_WAIT_ATTEMPTS {
+        if heartbeat_delay_started(&fixture.pool, &fixture.schema).await {
+            return true;
+        }
+        tokio::time::sleep(LEASE_WAIT_INTERVAL).await;
+    }
+    false
+}
+
+/// Whether a delayed heartbeat has started executing its delay trigger.
+async fn heartbeat_delay_started(pool: &sqlx_postgres::PgPool, schema: &str) -> bool {
+    let statement = format!(r#"SELECT is_called FROM "{schema}"."heartbeat_delay_sequence""#);
+    query(AssertSqlSafe(statement))
+        .fetch_one(pool)
+        .await
+        .ok()
+        .and_then(|row| row.try_get::<bool, _>(0).ok())
+        .unwrap_or(false)
 }
 
 async fn heartbeat_delay_attempts(fixture: &DatabaseFixture) -> i64 {
@@ -4108,8 +5181,7 @@ async fn assert_generation_state(
         .database
         .generation_state(&fixture.project, generation)
         .await;
-    assert!(
-        matches!(&actual, Ok(Some(state)) if *state == expected),
+    assert_matches!(&actual, Ok(Some(state)) if *state == expected,
         "generation did not reach {expected:?}: {actual:?}"
     );
 }

@@ -1096,7 +1096,7 @@ fn alias_tail<'a>(specifier: &'a str, pattern: &str) -> Option<&'a str> {
     };
     let prefix = &pattern[..wildcard];
     let suffix = &pattern[wildcard + 1..];
-    specifier.strip_prefix(prefix)?.strip_suffix(suffix)
+    specifier.strip_circumfix(prefix, suffix)
 }
 
 fn read_small_file(path: &Path) -> Option<String> {
@@ -1482,7 +1482,7 @@ fn expression_precedes(byte: u8) -> bool {
 }
 
 fn bounded_signature(value: &str) -> (String, bool) {
-    let boundary = crate::utf8_boundary(value, MAXIMUM_SIGNATURE_BYTES);
+    let boundary = value.floor_char_boundary(MAXIMUM_SIGNATURE_BYTES);
     (value[..boundary].to_owned(), boundary < value.len())
 }
 

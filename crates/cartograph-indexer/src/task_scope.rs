@@ -405,6 +405,7 @@ impl CompletionSummary {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::{
         future::pending,
         sync::{
@@ -461,10 +462,12 @@ mod tests {
         assert!(!report.unobserved_results);
         assert!(dropped.load(Ordering::Acquire));
         assert_eq!(task.join().await, Err(ScopedTaskError::Cancelled));
-        assert!(matches!(
-            scope.spawn(ONE_BYTE, async { Ok::<(), PipelineFailure>(()) }),
-            Err(ScopedTaskError::ScopeClosed)
-        ));
+        assert_matches!(
+            scope
+                .spawn(ONE_BYTE, async { Ok::<(), PipelineFailure>(()) })
+                .err(),
+            Some(ScopedTaskError::ScopeClosed)
+        );
     }
 
     #[tokio::test]
@@ -472,10 +475,12 @@ mod tests {
         let task_limited = TaskScope::new(SINGLE_TASK_CAPACITY, TEST_BYTE_CAPACITY);
         let first = task_limited.spawn(FOUR_BYTES, pending::<Result<(), PipelineFailure>>());
         assert!(first.is_ok());
-        assert!(matches!(
-            task_limited.spawn(ONE_BYTE, async { Ok::<(), PipelineFailure>(()) }),
-            Err(ScopedTaskError::TaskCapacityExceeded)
-        ));
+        assert_matches!(
+            task_limited
+                .spawn(ONE_BYTE, async { Ok::<(), PipelineFailure>(()) })
+                .err(),
+            Some(ScopedTaskError::TaskCapacityExceeded)
+        );
         let report = task_limited
             .close_abort_and_reap(Instant::now() + REAP_TIMEOUT)
             .await;
@@ -484,14 +489,18 @@ mod tests {
         let byte_limited = TaskScope::new(TEST_TASK_CAPACITY, SMALL_BYTE_CAPACITY);
         let first = byte_limited.spawn(THREE_BYTES, pending::<Result<(), PipelineFailure>>());
         assert!(first.is_ok());
-        assert!(matches!(
-            byte_limited.spawn(TWO_BYTES, async { Ok::<(), PipelineFailure>(()) }),
-            Err(ScopedTaskError::ByteCapacityExceeded)
-        ));
-        assert!(matches!(
-            byte_limited.spawn(0, async { Ok::<(), PipelineFailure>(()) }),
-            Err(ScopedTaskError::InvalidByteReservation)
-        ));
+        assert_matches!(
+            byte_limited
+                .spawn(TWO_BYTES, async { Ok::<(), PipelineFailure>(()) })
+                .err(),
+            Some(ScopedTaskError::ByteCapacityExceeded)
+        );
+        assert_matches!(
+            byte_limited
+                .spawn(0, async { Ok::<(), PipelineFailure>(()) })
+                .err(),
+            Some(ScopedTaskError::InvalidByteReservation)
+        );
         let report = byte_limited
             .close_abort_and_reap(Instant::now() + REAP_TIMEOUT)
             .await;

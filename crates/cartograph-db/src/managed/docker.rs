@@ -1047,8 +1047,8 @@ async fn run_command(
         })?;
     Ok(CommandOutput {
         status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        stdout: String::from_utf8_lossy_owned(output.stdout),
+        stderr: String::from_utf8_lossy_owned(output.stderr),
     })
 }
 
@@ -1235,6 +1235,8 @@ fn validate_volume_ownership(
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
 
     const LOCAL_DOCKER_ENDPOINTS: [&str; 6] = [
@@ -1340,8 +1342,8 @@ mod tests {
         ] {
             assert!(
                 rendered
-                    .windows(2)
-                    .any(|pair| pair[0] == flag && pair[1] == value),
+                    .array_windows()
+                    .any(|[argument, bound]| *argument == flag && *bound == value),
                 "managed create arguments did not bind {flag} to its supported value"
             );
         }
@@ -1351,9 +1353,9 @@ mod tests {
     fn extension_initialization_installs_pgvector_before_pg_search_and_heap_measurement() {
         let arguments = initialize_extension_arguments("cartograph-v2-test");
         let commands: Vec<_> = arguments
-            .windows(2)
-            .filter(|pair| pair[0] == "--command")
-            .map(|pair| pair[1].to_string_lossy())
+            .array_windows()
+            .filter(|[flag, _]| *flag == "--command")
+            .map(|[_, command]| command.to_string_lossy())
             .collect();
 
         assert_eq!(
@@ -1429,23 +1431,23 @@ mod tests {
     #[test]
     fn volume_ownership_rejects_foreign_resources() {
         assert!(validate_volume_ownership("true\t0123456789abcdef", &identity()).is_ok());
-        assert!(matches!(
+        assert_matches!(
             validate_volume_ownership("<no value>\t<no value>", &identity()),
             Err(ManagedDatabaseError::ForeignVolume)
-        ));
+        );
     }
 
     #[test]
     fn malformed_inspection_is_rejected_instead_of_assumed_owned() {
-        assert!(matches!(
-            parse_container_inspection("true\tonly-two-fields"),
-            Err(ManagedDatabaseError::DockerResponse)
-        ));
+        assert_matches!(
+            parse_container_inspection("true\tonly-two-fields").err(),
+            Some(ManagedDatabaseError::DockerResponse)
+        );
         let without_command = parse_container_inspection(
             "true\t0123456789abcdef\trunning\thealthy\timage\t127.0.0.1\t55432\t1\t1\t1\t1\t1\t[]\tnull",
         )
         .unwrap_or_else(|error| panic!("a null command must still parse: {error}"));
-        assert!(without_command.command.is_empty());
+        assert_eq!(without_command.command, [] as [String; 0]);
         assert!(!has_current_postgres_settings(&without_command));
     }
 
@@ -1579,8 +1581,8 @@ mod tests {
         );
         assert!(
             rendered_restore
-                .windows(2)
-                .any(|pair| pair == ["--dbname", MAINTENANCE_DATABASE_NAME])
+                .array_windows()
+                .any(|pair| *pair == ["--dbname", MAINTENANCE_DATABASE_NAME])
         );
         assert!(rendered_reset.iter().any(|argument| argument == "dropdb"));
         assert!(rendered_reset.iter().any(|argument| argument == "--force"));

@@ -24,6 +24,12 @@ use crate::host::{
     detect_install_targets_in, host_home,
 };
 use crate::install::{self, InstallLocation, InstallRequest, InstallRequestInput, InstallTarget};
+use index_child::{
+    ChildStop, DEFAULT_INDEX_CHILD_POLICY, IndexChildOutcome, IndexChildPolicy, IndexChildReport,
+    IndexChildTimeout,
+};
+
+mod index_child;
 
 const REMOTE: &str = "https://github.com/adder-factory/cartograph.git";
 const RELEASE_BASE: &str = "https://github.com/adder-factory/cartograph/releases/download";
@@ -35,9 +41,12 @@ const MAXIMUM_CHECKSUM_BYTES: usize = 1024 * 1024;
 const MAXIMUM_BINARY_BYTES: usize = 200 * 1024 * 1024;
 const MAXIMUM_STAGED_BINARY_LAUNCH_ATTEMPTS: usize = 3;
 const STAGED_BINARY_LAUNCH_RETRY_DELAY: Duration = Duration::from_millis(25);
-const PROJECT_UPGRADE_TIMEOUT: Duration = Duration::from_mins(30);
 const MANAGED_START_TIMEOUT: Duration = Duration::from_mins(15);
 const PROJECT_VERIFICATION_TIMEOUT: Duration = Duration::from_mins(2);
+/// Doctor and the next-process status each rescan the whole checkout (status
+/// twice when the generation changes underneath it), so on a large project
+/// they get a source-scan budget rather than a database probe's.
+const SOURCE_VERIFICATION_TIMEOUT: Duration = Duration::from_mins(10);
 const MAXIMUM_STATUS_PROBE_BYTES: usize = 8 * 1024 * 1024;
 const LOWER_HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 const HIGH_NIBBLE_SHIFT: u8 = 4;
@@ -127,12 +136,23 @@ struct RegistrationRepairInput<'input> {
 struct UpgradeStep {
     state: &'static str,
     message: String,
+    /// Stable machine-readable cause, when the step has one: the index
+    /// child's failure code, or which bound stopped it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectReconciliation {
+    /// `ready`, `source_changed` (complete, but edits continued after
+    /// publication), or `blocked`.
     state: &'static str,
+    /// Rerunning the same upgrade command, without another action, is the
+    /// next step: a bounded wait or timeout ended without a failure verdict,
+    /// or another writer replaced the generation this upgrade published
+    /// before verification could prove it fresh.
+    retryable: bool,
     database: UpgradeStep,
     index: UpgradeStep,
     doctor: UpgradeStep,
@@ -162,11 +182,14 @@ enum ProjectCommand {
 }
 
 impl ProjectCommand {
+    /// Wall-clock bound for a plain child; the index child is instead
+    /// supervised by progress under [`index_child::DEFAULT_INDEX_CHILD_POLICY`].
     const fn timeout(self) -> Duration {
         match self {
             Self::ManagedStart => MANAGED_START_TIMEOUT,
-            Self::Index => PROJECT_UPGRADE_TIMEOUT,
-            Self::ManagedStatus | Self::Doctor | Self::Status => PROJECT_VERIFICATION_TIMEOUT,
+            Self::Index => index_child::INDEX_ABSOLUTE_CEILING,
+            Self::ManagedStatus => PROJECT_VERIFICATION_TIMEOUT,
+            Self::Doctor | Self::Status => SOURCE_VERIFICATION_TIMEOUT,
         }
     }
 }
@@ -178,54 +201,18 @@ enum ProjectProcessOutcome {
     TimedOut,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReconciliationPhase {
-    Index,
-    Doctor,
-}
-
-impl ReconciliationPhase {
-    const fn command(self) -> ProjectCommand {
-        match self {
-            Self::Index => ProjectCommand::Index,
-            Self::Doctor => ProjectCommand::Doctor,
-        }
-    }
-
-    const fn ready_message(self) -> &'static str {
-        match self {
-            Self::Index => "The new binary completed schema and current-generation reconciliation.",
-            Self::Doctor => {
-                "The new binary passed PostgreSQL, ParadeDB, pgvector, and project doctor checks."
-            }
-        }
-    }
-
-    const fn blocked_message(self) -> &'static str {
-        match self {
-            Self::Index => "The new binary could not reconcile a complete current generation.",
-            Self::Doctor => "The new binary's capability and project doctor did not pass.",
-        }
-    }
-
-    const fn timeout_message(self) -> &'static str {
-        match self {
-            Self::Index => {
-                "Generation reconciliation timed out; rerun the same upgrade command to resume."
-            }
-            Self::Doctor => {
-                "Doctor verification timed out; rerun the same upgrade command to retry it."
-            }
-        }
-    }
-
-    const fn report_step(self, report: &mut ProjectReconciliation) -> &mut UpgradeStep {
-        match self {
-            Self::Index => &mut report.index,
-            Self::Doctor => &mut report.doctor,
-        }
-    }
-}
+/// `projectReconciliation.state` once every step passed and status is fresh.
+const RECONCILED_FRESH: &str = "ready";
+/// `projectReconciliation.state` (and the index/verification step state) when
+/// the installed binary published a complete current generation but the
+/// checkout changed after publication.
+const RECONCILED_SOURCE_CHANGED: &str = "source_changed";
+/// Index step state when another Cartograph operation (a project writer, or
+/// a schema maintenance step that refuses new leases) kept the project busy
+/// throughout the child's bounded wait.
+const ANOTHER_WRITER_ACTIVE: &str = "another_writer_active";
+/// Index child failure code for a project that stayed busy.
+const LEASE_BUSY_CODE: &str = "lease_busy";
 
 struct ProjectProcessInput<'input> {
     executable: &'input Path,
@@ -493,7 +480,7 @@ fn report_upgrade_audit(input: ResolvedUpgradeInput<'_>) -> UpgradeReport {
         restart_required: false,
         message: format!("Cartograph {current_text} -> {latest_text} is available."),
         next_steps: vec![
-            "Run `cartograph upgrade --apply --project-path <path>` once; it installs the verified release, repairs owned registrations, migrates safe schema changes, refreshes the index, and verifies a fresh next-process status."
+            "Run `cartograph upgrade --apply --project-path <path>` once; it installs the verified release, repairs owned registrations, migrates safe schema changes, refreshes the index, and verifies a next-process status from the installed binary."
                 .to_owned(),
         ],
         registration_repair: None,
@@ -624,7 +611,7 @@ async fn complete_upgrade(input: CompletionInput<'_>) -> UpgradeReport {
         };
     let project_ready = project_reconciliation
         .as_ref()
-        .is_none_or(|report| report.state == "ready");
+        .is_none_or(ProjectReconciliation::upgrade_completed);
     let registration_repair = if project_ready {
         repair_stale_registrations(&path, project_path).await
     } else {
@@ -760,16 +747,34 @@ fn add_project_reconciliation_steps(
     let Some(reconciliation) = reconciliation else {
         return;
     };
-    if reconciliation.state == "ready" {
+    if reconciliation.state == RECONCILED_FRESH {
         next_steps.push(
             "Database migrations, index refresh, doctor checks, and fresh next-process status all passed."
                 .to_owned(),
         );
         return;
     }
+    if reconciliation.state == RECONCILED_SOURCE_CHANGED {
+        next_steps.push(
+            "The upgrade is complete: the installed binary migrated the database, published or confirmed a complete current generation, and passed doctor and next-process status. The checkout changed after that generation was published, so the index is not fresh; run `cartograph index <path>` once edits pause, or let MCP auto-sync reconcile it. Rerunning the upgrade is not required."
+                .to_owned(),
+        );
+        return;
+    }
+    if let Some(step) = index_next_step(&reconciliation.index) {
+        next_steps.push(step);
+        return;
+    }
     if reconciliation.database.state == "timed_out" {
         next_steps.push(
             "The managed start timed out without concluding that the database is incompatible; rerun `cartograph upgrade --apply --project-path <path>` to resume the cold image pull or readiness wait."
+                .to_owned(),
+        );
+        return;
+    }
+    if reconciliation.retryable {
+        next_steps.push(
+            "A verification step ended without a failure verdict, or another writer replaced the generation this upgrade published (see `projectReconciliation.doctor` and `projectReconciliation.verification`); rerun `cartograph upgrade --apply --project-path <path>` to retry it once no other writer is active."
                 .to_owned(),
         );
         return;
@@ -817,6 +822,7 @@ async fn reconcile_project(
         project_path: &project_path,
         installed_version,
         database_mode,
+        index_policy: DEFAULT_INDEX_CHILD_POLICY,
     })
     .await
 }
@@ -826,6 +832,27 @@ struct CompletionProjectInput<'input> {
     project_path: &'input Path,
     installed_version: &'input str,
     database_mode: ProjectDatabaseMode,
+    index_policy: IndexChildPolicy,
+}
+
+impl CompletionProjectInput<'_> {
+    const fn process(&self, command: ProjectCommand) -> ProjectProcessInput<'_> {
+        ProjectProcessInput {
+            executable: self.executable,
+            project_path: self.project_path,
+            database_mode: self.database_mode,
+            command,
+        }
+    }
+}
+
+impl ProjectReconciliation {
+    /// Whether the project part of the upgrade completed. Freshness is
+    /// reported separately: a checkout edited after publication still
+    /// completes the upgrade, as `source_changed`.
+    fn upgrade_completed(&self) -> bool {
+        self.state == RECONCILED_FRESH || self.state == RECONCILED_SOURCE_CHANGED
+    }
 }
 
 async fn reconcile_project_with(input: CompletionProjectInput<'_>) -> ProjectReconciliation {
@@ -833,19 +860,20 @@ async fn reconcile_project_with(input: CompletionProjectInput<'_>) -> ProjectRec
     if !reconcile_database(&input, &mut report).await {
         return report;
     }
-    if !reconcile_phase(&input, &mut report, ReconciliationPhase::Index).await {
+    let Some(index) = reconcile_index(&input, &mut report).await else {
+        return report;
+    };
+    if !reconcile_doctor(&input, &mut report).await {
         return report;
     }
-    if !reconcile_phase(&input, &mut report, ReconciliationPhase::Doctor).await {
-        return report;
-    }
-    reconcile_status(&input, &mut report).await;
+    reconcile_status(&input, &mut report, &index).await;
     report
 }
 
 fn started_project_reconciliation(database_mode: ProjectDatabaseMode) -> ProjectReconciliation {
     ProjectReconciliation {
         state: "blocked",
+        retryable: false,
         database: upgrade_step("not_run", "Database reconciliation did not run."),
         index: upgrade_step("not_run", "Index reconciliation did not run."),
         doctor: upgrade_step("not_run", "Doctor verification did not run."),
@@ -891,6 +919,7 @@ async fn reconcile_database(
                 "timed_out",
                 "The managed database start exceeded its cold-image-pull and readiness budget; no compatibility conclusion was made.",
             );
+            report.retryable = true;
             return false;
         }
         ProjectProcessOutcome::Failed => {}
@@ -912,54 +941,231 @@ async fn reconcile_database(
     false
 }
 
-async fn reconcile_phase(
+/// Run the supervised index child; `Some` carries the generation it
+/// published or confirmed so verification can prove what is current.
+async fn reconcile_index(
     input: &CompletionProjectInput<'_>,
     report: &mut ProjectReconciliation,
-    phase: ReconciliationPhase,
-) -> bool {
-    let outcome = run_project_process(ProjectProcessInput {
-        executable: input.executable,
-        project_path: input.project_path,
-        database_mode: input.database_mode,
-        command: phase.command(),
-    })
-    .await;
-    let (state, message, ready) = match outcome {
-        ProjectProcessOutcome::Succeeded => ("ready", phase.ready_message(), true),
-        ProjectProcessOutcome::Failed => ("blocked", phase.blocked_message(), false),
-        ProjectProcessOutcome::TimedOut => ("timed_out", phase.timeout_message(), false),
-    };
-    *phase.report_step(report) = upgrade_step(state, message);
-    ready
+) -> Option<IndexChildReport> {
+    let command = configured_project_command(&input.process(ProjectCommand::Index));
+    let outcome = index_child::run_index_child(command, input.index_policy).await;
+    let (step, retryable) = index_step(&outcome);
+    report.index = step;
+    report.retryable = retryable;
+    match outcome {
+        IndexChildOutcome::Completed(index) => Some(index),
+        IndexChildOutcome::Failed { .. } | IndexChildOutcome::TimedOut(_) => None,
+    }
 }
 
-async fn reconcile_status(input: &CompletionProjectInput<'_>, report: &mut ProjectReconciliation) {
-    match run_status_probe(
-        ProjectProcessInput {
-            executable: input.executable,
-            project_path: input.project_path,
-            database_mode: input.database_mode,
-            command: ProjectCommand::Status,
-        },
+/// The reported index step and whether rerunning the same command is the
+/// next action.
+fn index_step(outcome: &IndexChildOutcome) -> (UpgradeStep, bool) {
+    match outcome {
+        IndexChildOutcome::Completed(index) if index.changed_after_publication => (
+            upgrade_step(
+                RECONCILED_SOURCE_CHANGED,
+                "The new binary published a complete current generation, but the checkout changed again before the index finished; it reported that instead of rebuilding in a loop.",
+            ),
+            false,
+        ),
+        IndexChildOutcome::Completed(_) => (
+            upgrade_step(
+                "ready",
+                "The new binary completed schema and current-generation reconciliation.",
+            ),
+            false,
+        ),
+        IndexChildOutcome::Failed { code } if code.as_deref() == Some(LEASE_BUSY_CODE) => (
+            reasoned_step(
+                ANOTHER_WRITER_ACTIVE,
+                format!(
+                    "Another Cartograph operation, such as an MCP server's auto-sync or a schema maintenance step, kept this project busy for the whole {}-minute bounded wait; this run published nothing.",
+                    whole_minutes(crate::supervised_index::SUPERVISED_WRITER_WAIT)
+                ),
+                LEASE_BUSY_CODE,
+            ),
+            true,
+        ),
+        IndexChildOutcome::Failed { code } => (
+            UpgradeStep {
+                state: "blocked",
+                message: "The new binary could not reconcile a complete current generation."
+                    .to_owned(),
+                reason: code.clone(),
+            },
+            false,
+        ),
+        IndexChildOutcome::TimedOut(timeout) => (
+            reasoned_step(
+                "timed_out",
+                timed_out_message(*timeout),
+                timeout.trigger.reason(),
+            ),
+            true,
+        ),
+    }
+}
+
+fn timed_out_message(timeout: IndexChildTimeout) -> String {
+    let bound = match timeout.trigger {
+        index_child::DeadlineTrigger::NoProgress => {
+            let minutes = whole_minutes(index_child::INDEX_INACTIVITY_TIMEOUT);
+            format!("reported no progress for {minutes} minutes")
+        }
+        index_child::DeadlineTrigger::Ceiling => format!(
+            "reached its {}-minute absolute ceiling",
+            whole_minutes(index_child::INDEX_ABSOLUTE_CEILING)
+        ),
+    };
+    let stop = match timeout.stop {
+        ChildStop::Cooperative => {
+            "it stopped cooperatively and confirmed that it released its project lease and failed any unpublished staging generation".to_owned()
+        }
+        ChildStop::Unconfirmed => {
+            "it exited after the cooperative stop request without confirming its cleanup, so its project lease may remain until its 5-minute TTL; a rerun waits for that".to_owned()
+        }
+        ChildStop::Forced => {
+            let minutes = whole_minutes(index_child::INDEX_TERMINATION_GRACE);
+            format!(
+                "it did not exit within the {minutes}-minute cooperative stop grace and was killed, so its project lease expires on its own 5-minute TTL; a rerun waits for that"
+            )
+        }
+    };
+    format!(
+        "The index {bound}; {stop}. Rerun the same upgrade command to resume, or run `cartograph index <path>` directly to see the stage that is not advancing."
+    )
+}
+
+const fn whole_minutes(duration: Duration) -> u64 {
+    duration.as_secs() / SECONDS_PER_MINUTE
+}
+
+const SECONDS_PER_MINUTE: u64 = 60;
+
+/// The single next step that the index step's own outcome decides: a rerun
+/// after a retryable state, or, for an index failure with a stable code, the
+/// direct index command that reports that failure in full. A failure without
+/// a code (the child crashed or never reported one) leaves the step to doctor.
+fn index_next_step(index: &UpgradeStep) -> Option<String> {
+    match (index.state, index.reason.as_deref()) {
+        (ANOTHER_WRITER_ACTIVE, _) => Some(
+            "Another Cartograph operation kept this project busy; nothing is broken. Rerun `cartograph upgrade --apply --project-path <path>` after it finishes; the installed binary resumes the remaining steps."
+                .to_owned(),
+        ),
+        ("timed_out", _) => Some(
+            "The index step was stopped at a bound without a failure verdict (see `projectReconciliation.index`). Rerun `cartograph upgrade --apply --project-path <path>` to resume; if it repeats, run `cartograph index <path>` directly to see the stage that is not advancing."
+                .to_owned(),
+        ),
+        ("blocked", Some(code)) => Some(format!(
+            "The index step failed with `{code}` (see `projectReconciliation.index`). Run the installed binary's `cartograph index <path> --format json` for the full failure, fix that boundary, then rerun `cartograph upgrade --apply --project-path <path>`."
+        )),
+        _ => None,
+    }
+}
+
+async fn reconcile_doctor(
+    input: &CompletionProjectInput<'_>,
+    report: &mut ProjectReconciliation,
+) -> bool {
+    let (state, message) = match run_project_process(input.process(ProjectCommand::Doctor)).await {
+        ProjectProcessOutcome::Succeeded => (
+            "ready",
+            "The new binary passed PostgreSQL, ParadeDB, pgvector, and project doctor checks.",
+        ),
+        ProjectProcessOutcome::Failed => (
+            "blocked",
+            "The new binary's capability and project doctor did not pass.",
+        ),
+        ProjectProcessOutcome::TimedOut => (
+            "timed_out",
+            "Doctor verification timed out; rerun the same upgrade command to retry it.",
+        ),
+    };
+    report.doctor = upgrade_step(state, message);
+    report.retryable = state == "timed_out";
+    state == "ready"
+}
+
+async fn reconcile_status(
+    input: &CompletionProjectInput<'_>,
+    report: &mut ProjectReconciliation,
+    index: &IndexChildReport,
+) {
+    let probe = run_status_probe(
+        input.process(ProjectCommand::Status),
         input.installed_version,
     )
-    .await
-    {
-        Ok(generation_id) => {
-            report.state = "ready";
-            report.verification = upgrade_step(
-                "ready",
-                "A next-process status reports the installed version and a fresh current generation.",
-            );
-            report.fresh = true;
-            report.generation_id = Some(generation_id);
-        }
-        Err(()) => {
-            report.verification = upgrade_step(
-                "blocked",
-                "The next-process version/freshness proof did not pass.",
-            );
-        }
+    .await;
+    let verdict = match &probe {
+        Ok(probe) => status_verdict(probe, index),
+        Err(ProbeFailure::TimedOut) => StatusVerdict::TimedOut,
+        Err(ProbeFailure::Failed) => StatusVerdict::Unproven,
+    };
+    let (state, message) = match verdict {
+        StatusVerdict::Fresh => (
+            RECONCILED_FRESH,
+            "A next-process status reports the installed version and a fresh current generation.",
+        ),
+        StatusVerdict::SourceChanged => (
+            RECONCILED_SOURCE_CHANGED,
+            "A next-process status reports the installed version with the generation this upgrade published still current; only the checkout changed after publication.",
+        ),
+        StatusVerdict::Superseded => (
+            "blocked",
+            "Another writer replaced the generation this upgrade published and the checkout is not fresh; rerun the same upgrade command once that writer finishes.",
+        ),
+        StatusVerdict::Unproven => (
+            "blocked",
+            "The next-process version/freshness proof did not pass.",
+        ),
+        StatusVerdict::TimedOut => (
+            "timed_out",
+            "The next-process status exceeded its source-scan budget without a verdict; rerun the same upgrade command to retry it.",
+        ),
+    };
+    report.verification = upgrade_step(state, message);
+    report.retryable = matches!(verdict, StatusVerdict::Superseded | StatusVerdict::TimedOut);
+    if let (Ok(probe), StatusVerdict::Fresh | StatusVerdict::SourceChanged) = (probe, verdict) {
+        report.state = state;
+        report.fresh = verdict == StatusVerdict::Fresh;
+        report.generation_id = Some(probe.generation_id);
+    }
+}
+
+/// What a next-process status proves about the generation the index step
+/// published or confirmed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StatusVerdict {
+    /// Installed version with a fresh current generation.
+    Fresh,
+    /// That exact generation is still current and only the live checkout
+    /// moved past its source revision.
+    SourceChanged,
+    /// A different generation became current and it is not fresh.
+    Superseded,
+    /// No version/generation proof.
+    Unproven,
+    /// The probe ran out of time before it could prove anything.
+    TimedOut,
+}
+
+fn status_verdict(probe: &StatusProbe, index: &IndexChildReport) -> StatusVerdict {
+    if probe.fresh {
+        return StatusVerdict::Fresh;
+    }
+    if probe.generation_id != index.generation_id {
+        return StatusVerdict::Superseded;
+    }
+    let ours = probe.current_source_revision == index.source_revision;
+    let moved = probe
+        .live_source_revision
+        .as_deref()
+        .is_some_and(|live| live != index.source_revision);
+    if ours && moved {
+        StatusVerdict::SourceChanged
+    } else {
+        StatusVerdict::Unproven
     }
 }
 
@@ -977,6 +1183,7 @@ fn unresolved_database_reconciliation() -> ProjectReconciliation {
 fn blocked_project_reconciliation(message: &str, port: Option<u16>) -> ProjectReconciliation {
     ProjectReconciliation {
         state: "blocked",
+        retryable: false,
         database: upgrade_step("blocked", message),
         index: upgrade_step("not_run", "Index reconciliation did not run."),
         doctor: upgrade_step("not_run", "Doctor verification did not run."),
@@ -992,6 +1199,15 @@ fn upgrade_step(state: &'static str, message: &str) -> UpgradeStep {
     UpgradeStep {
         state,
         message: message.to_owned(),
+        reason: None,
+    }
+}
+
+fn reasoned_step(state: &'static str, message: String, reason: &str) -> UpgradeStep {
+    UpgradeStep {
+        state,
+        message,
+        reason: Some(reason.to_owned()),
     }
 }
 
@@ -1030,61 +1246,90 @@ fn managed_status_requires_upgrade(value: &serde_json::Value) -> bool {
                 == Some(false))
 }
 
+/// Why a JSON probe produced no usable document.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeFailure {
+    /// The probe exceeded its command budget and was stopped.
+    TimedOut,
+    /// It failed to start, exited nonzero, overflowed, or was malformed.
+    Failed,
+}
+
 async fn run_status_probe(
     input: ProjectProcessInput<'_>,
     installed_version: &str,
-) -> Result<String, ()> {
+) -> Result<StatusProbe, ProbeFailure> {
     let value = run_project_json(input).await?;
-    decode_status_probe(&value, installed_version)
+    decode_status_probe(&value, installed_version).map_err(|()| ProbeFailure::Failed)
 }
 
-fn decode_status_probe(value: &serde_json::Value, installed_version: &str) -> Result<String, ()> {
-    if value.get("version").and_then(serde_json::Value::as_str) != Some(installed_version)
-        || value
-            .pointer("/project/fresh")
-            .and_then(serde_json::Value::as_bool)
-            != Some(true)
-        || value
-            .pointer("/project/snapshot/current")
-            .is_none_or(serde_json::Value::is_null)
-    {
+/// A next-process status that reports the installed version and a valid
+/// current generation, with its freshness evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StatusProbe {
+    generation_id: String,
+    current_source_revision: String,
+    live_source_revision: Option<String>,
+    fresh: bool,
+}
+
+fn decode_status_probe(
+    value: &serde_json::Value,
+    installed_version: &str,
+) -> Result<StatusProbe, ()> {
+    if value.get("version").and_then(serde_json::Value::as_str) != Some(installed_version) {
         return Err(());
     }
-    value
-        .pointer("/project/snapshot/current/generation_id")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|value| GenerationId::parse(value).ok())
-        .map(|generation_id| generation_id.as_str().to_owned())
-        .ok_or(())
+    let text = |pointer| {
+        value
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    let generation_id = text("/project/snapshot/current/generation_id")
+        .and_then(|value| GenerationId::parse(&value).ok())
+        .ok_or(())?;
+    Ok(StatusProbe {
+        generation_id: generation_id.as_str().to_owned(),
+        current_source_revision: text("/project/snapshot/current/source_revision").ok_or(())?,
+        live_source_revision: text("/project/live_source_revision"),
+        fresh: value
+            .pointer("/project/fresh")
+            .and_then(serde_json::Value::as_bool)
+            .ok_or(())?,
+    })
 }
 
-async fn run_project_json(input: ProjectProcessInput<'_>) -> Result<serde_json::Value, ()> {
+async fn run_project_json(
+    input: ProjectProcessInput<'_>,
+) -> Result<serde_json::Value, ProbeFailure> {
+    let budget = input.command.timeout();
     let mut command = configured_project_command(&input);
     command.stdout(Stdio::piped()).stderr(Stdio::null());
-    let mut child = command.spawn().map_err(|_| ())?;
-    let stdout = child.stdout.take().ok_or(())?;
+    let mut child = command.spawn().map_err(|_| ProbeFailure::Failed)?;
+    let stdout = child.stdout.take().ok_or(ProbeFailure::Failed)?;
     let probe = async move {
         let mut bytes = Vec::with_capacity(MAXIMUM_STATUS_PROBE_BYTES.min(64 * 1024));
         stdout
             .take((MAXIMUM_STATUS_PROBE_BYTES + 1) as u64)
             .read_to_end(&mut bytes)
             .await
-            .map_err(|_| ())?;
+            .map_err(|_| ProbeFailure::Failed)?;
         if bytes.len() > MAXIMUM_STATUS_PROBE_BYTES {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Err(());
+            return Err(ProbeFailure::Failed);
         }
-        let status = child.wait().await.map_err(|_| ())?;
+        let status = child.wait().await.map_err(|_| ProbeFailure::Failed)?;
         Ok((status, bytes))
     };
-    let (status, stdout) = tokio::time::timeout(PROJECT_VERIFICATION_TIMEOUT, probe)
+    let (status, stdout) = tokio::time::timeout(budget, probe)
         .await
-        .map_err(|_| ())??;
+        .map_err(|_| ProbeFailure::TimedOut)??;
     if !status.success() {
-        return Err(());
+        return Err(ProbeFailure::Failed);
     }
-    serde_json::from_slice(&stdout).map_err(|_| ())
+    serde_json::from_slice(&stdout).map_err(|_| ProbeFailure::Failed)
 }
 
 fn configured_project_command(input: &ProjectProcessInput<'_>) -> Command {
@@ -1117,6 +1362,7 @@ fn project_command_arguments(input: &ProjectProcessInput<'_>) -> Vec<OsString> {
             OsString::from("index"),
             input.project_path.as_os_str().to_owned(),
             OsString::from("--preserve-current-excludes"),
+            OsString::from("--supervised"),
         ],
         ProjectCommand::Doctor => vec![
             OsString::from("doctor"),
@@ -1802,31 +2048,16 @@ fn replace_executable(staged: TempPath, executable: &Path) -> Result<(), String>
     })
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-darwin-arm64");
-
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const ASSET_NAME: Result<&str, &str> =
-    Err("Intel macOS is not supported; use Apple Silicon with macOS 26 or newer");
-
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-linux-arm64");
-
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-linux-x64");
-
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-const ASSET_NAME: Result<&str, &str> = Ok("cartograph-windows-x64.exe");
-
-#[cfg(not(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "macos", target_arch = "x86_64"),
-    all(target_os = "linux", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "x86_64"),
-    all(target_os = "windows", target_arch = "x86_64")
-)))]
-const ASSET_NAME: Result<&str, &str> =
-    Err("no native release asset exists for this operating system and architecture");
+const ASSET_NAME: Result<&str, &str> = cfg_select! {
+    all(target_os = "macos", target_arch = "aarch64") => Ok("cartograph-darwin-arm64"),
+    all(target_os = "macos", target_arch = "x86_64") => {
+        Err("Intel macOS is not supported; use Apple Silicon with macOS 26 or newer")
+    }
+    all(target_os = "linux", target_arch = "aarch64") => Ok("cartograph-linux-arm64"),
+    all(target_os = "linux", target_arch = "x86_64") => Ok("cartograph-linux-x64"),
+    all(target_os = "windows", target_arch = "x86_64") => Ok("cartograph-windows-x64.exe"),
+    _ => Err("no native release asset exists for this operating system and architecture"),
+};
 
 fn parse_version(raw: &str) -> Option<Version> {
     let raw = raw.trim().strip_prefix('v').unwrap_or(raw.trim());
@@ -2077,9 +2308,59 @@ mod tests {
             ProjectCommand::ManagedStart.timeout(),
             Duration::from_mins(15)
         );
-        assert_eq!(ProjectCommand::Index.timeout(), Duration::from_mins(30));
-        assert_eq!(ProjectCommand::Doctor.timeout(), Duration::from_mins(2));
-        assert_eq!(ProjectCommand::Status.timeout(), Duration::from_mins(2));
+        assert_eq!(
+            ProjectCommand::ManagedStatus.timeout(),
+            Duration::from_mins(2)
+        );
+        // Doctor and status each rescan the checkout, so they get a
+        // source-scan budget rather than the database probe's.
+        assert_eq!(ProjectCommand::Doctor.timeout(), Duration::from_mins(10));
+        assert_eq!(ProjectCommand::Status.timeout(), Duration::from_mins(10));
+    }
+
+    #[test]
+    fn verification_timeouts_stay_retryable_and_distinct_from_failures() {
+        let mut report = started_project_reconciliation(ProjectDatabaseMode::External);
+        report.doctor = upgrade_step("timed_out", "fixture doctor timeout");
+        report.retryable = true;
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1);
+        assert!(steps[0].contains("rerun"));
+        assert!(!steps[0].contains("doctor <path>` for the exact failure"));
+
+        report.retryable = false;
+        report.doctor = upgrade_step("blocked", "fixture doctor failure");
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert!(steps[0].contains("for the exact failure"));
+    }
+
+    #[test]
+    fn index_bounds_fit_large_projects_without_becoming_unbounded() {
+        // A 26-minute full index on a large project must fit, and so must a
+        // startup that migrates the schema for its whole liveness allowance,
+        // then a competing writer's wait followed by a full two-hour build.
+        assert_eq!(
+            index_child::INDEX_ABSOLUTE_CEILING,
+            Duration::from_mins(210)
+        );
+        assert_eq!(ProjectCommand::Index.timeout(), Duration::from_mins(210));
+        assert!(
+            index_child::INDEX_ABSOLUTE_CEILING
+                >= crate::supervised_index::SUPERVISED_STARTUP_ALLOWANCE
+                    + crate::supervised_index::SUPERVISED_WRITER_WAIT
+                    + Duration::from_hours(2)
+        );
+        // The backstop leaves the child's own 10-minute stall detector to
+        // report the precise stage first.
+        assert_eq!(
+            index_child::INDEX_INACTIVITY_TIMEOUT,
+            Duration::from_mins(15)
+        );
+        // A forced stop never leaves a lease longer than the 5-minute TTL
+        // the old immediate kill did.
+        assert!(index_child::INDEX_TERMINATION_GRACE < Duration::from_mins(5));
     }
 
     #[test]
@@ -2117,6 +2398,7 @@ mod tests {
                 "index",
                 "/fixture/project",
                 "--preserve-current-excludes",
+                "--supervised",
                 "--format",
                 "json",
             ]
@@ -2176,27 +2458,50 @@ mod tests {
         })));
     }
 
-    #[test]
-    fn status_probe_requires_the_installed_version_and_fresh_generation() {
-        let generation_id = "11111111-1111-4111-8111-111111111111";
-        let status = serde_json::json!({
+    const FIXTURE_GENERATION: &str = "11111111-1111-4111-8111-111111111111";
+    const OTHER_GENERATION: &str = "22222222-2222-4222-8222-222222222222";
+
+    fn fixture_status(fresh: bool, live_source_revision: &str) -> serde_json::Value {
+        serde_json::json!({
             "version": "2.1.7",
             "project": {
-                "fresh": true,
-                "snapshot": {"current": {"generation_id": generation_id}}
+                "fresh": fresh,
+                "live_source_revision": live_source_revision,
+                "snapshot": {"current": {
+                    "generation_id": FIXTURE_GENERATION,
+                    "source_revision": "published-revision"
+                }}
             }
-        });
+        })
+    }
+
+    fn fixture_index_report() -> IndexChildReport {
+        IndexChildReport {
+            generation_id: FIXTURE_GENERATION.to_owned(),
+            source_revision: "published-revision".to_owned(),
+            changed_after_publication: true,
+        }
+    }
+
+    #[test]
+    fn status_probe_requires_the_installed_version_and_a_valid_current_generation() {
+        let status = fixture_status(true, "published-revision");
         assert_eq!(
             decode_status_probe(&status, "2.1.7"),
-            Ok(generation_id.to_owned())
+            Ok(StatusProbe {
+                generation_id: FIXTURE_GENERATION.to_owned(),
+                current_source_revision: "published-revision".to_owned(),
+                live_source_revision: Some("published-revision".to_owned()),
+                fresh: true,
+            })
         );
 
         let mut wrong_version = status.clone();
         wrong_version["version"] = serde_json::json!("2.1.6");
         assert_eq!(decode_status_probe(&wrong_version, "2.1.7"), Err(()));
-        let mut stale = status.clone();
-        stale["project"]["fresh"] = serde_json::json!(false);
-        assert_eq!(decode_status_probe(&stale, "2.1.7"), Err(()));
+        let mut missing_freshness = status.clone();
+        missing_freshness["project"]["fresh"] = serde_json::Value::Null;
+        assert_eq!(decode_status_probe(&missing_freshness, "2.1.7"), Err(()));
         let mut missing_generation = status.clone();
         missing_generation["project"]["snapshot"]["current"] = serde_json::Value::Null;
         assert_eq!(decode_status_probe(&missing_generation, "2.1.7"), Err(()));
@@ -2204,6 +2509,46 @@ mod tests {
         malformed_generation["project"]["snapshot"]["current"]["generation_id"] =
             serde_json::json!("not-a-generation");
         assert_eq!(decode_status_probe(&malformed_generation, "2.1.7"), Err(()));
+    }
+
+    #[test]
+    fn stale_status_completes_only_with_proof_that_only_the_checkout_moved() {
+        let decode = |value: &serde_json::Value| {
+            decode_status_probe(value, "2.1.7")
+                .unwrap_or_else(|()| panic!("fixture status did not decode: {value}"))
+        };
+        let index = fixture_index_report();
+        assert_eq!(
+            status_verdict(&decode(&fixture_status(true, "published-revision")), &index),
+            StatusVerdict::Fresh
+        );
+        assert_eq!(
+            status_verdict(&decode(&fixture_status(false, "edited-revision")), &index),
+            StatusVerdict::SourceChanged
+        );
+        // Not fresh although the checkout still matches what was published:
+        // a digest-contract or admission mismatch, not an edit.
+        assert_eq!(
+            status_verdict(
+                &decode(&fixture_status(false, "published-revision")),
+                &index
+            ),
+            StatusVerdict::Unproven
+        );
+        let mut without_live_revision = fixture_status(false, "edited-revision");
+        without_live_revision["project"]["live_source_revision"] = serde_json::Value::Null;
+        assert_eq!(
+            status_verdict(&decode(&without_live_revision), &index),
+            StatusVerdict::Unproven
+        );
+        // Another writer replaced the generation this upgrade published.
+        let mut superseded = fixture_status(false, "edited-revision");
+        superseded["project"]["snapshot"]["current"]["generation_id"] =
+            serde_json::json!(OTHER_GENERATION);
+        assert_eq!(
+            status_verdict(&decode(&superseded), &index),
+            StatusVerdict::Superseded
+        );
     }
 
     #[test]
@@ -2237,18 +2582,47 @@ mod tests {
         assert!(!steps[0].contains("doctor"));
     }
 
+    /// Write an executable fake `cartograph` that dispatches on its subcommand.
+    #[cfg(unix)]
+    fn fixture_cartograph(
+        directory: &Path,
+        script: &str,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let executable = directory.join("fixture-cartograph");
+        fs::write(&executable, script)?;
+        let mut permissions = fs::metadata(&executable)?.permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&executable, permissions)?;
+        Ok(executable)
+    }
+
+    #[cfg(unix)]
+    async fn reconcile_with_fixture(
+        script: &str,
+    ) -> Result<ProjectReconciliation, Box<dyn std::error::Error>> {
+        let project = tempfile::tempdir()?;
+        let executable = fixture_cartograph(project.path(), script)?;
+        Ok(reconcile_project_with(CompletionProjectInput {
+            executable: &executable,
+            project_path: project.path(),
+            installed_version: "2.1.7",
+            database_mode: ProjectDatabaseMode::External,
+            index_policy: DEFAULT_INDEX_CHILD_POLICY,
+        })
+        .await)
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn project_reconciliation_runs_index_doctor_and_next_process_status_in_order()
     -> Result<(), Box<dyn std::error::Error>> {
-        let project = tempfile::tempdir()?;
-        let executable = project.path().join("fixture-cartograph");
-        fs::write(
-            &executable,
+        let report = reconcile_with_fixture(
             r#"#!/bin/sh
 case "$1" in
   index)
+    test "$3" = --preserve-current-excludes && test "$4" = --supervised || exit 24
     : > "$PWD/.upgrade-indexed"
+    printf '%s\n' '{"generation_id":"11111111-1111-4111-8111-111111111111","source_revision":"rev-1","live_source":"matched"}'
     ;;
   doctor)
     test -f "$PWD/.upgrade-indexed" || exit 21
@@ -2256,36 +2630,175 @@ case "$1" in
     ;;
   status)
     test -f "$PWD/.upgrade-doctored" || exit 22
-    printf '%s\n' '{"version":"2.1.7","project":{"fresh":true,"snapshot":{"current":{"generation_id":"11111111-1111-4111-8111-111111111111"}}}}'
+    printf '%s\n' '{"version":"2.1.7","project":{"fresh":true,"live_source_revision":"rev-1","snapshot":{"current":{"generation_id":"11111111-1111-4111-8111-111111111111","source_revision":"rev-1"}}}}'
     ;;
   *)
     exit 23
     ;;
 esac
 "#,
-        )?;
-        let mut permissions = fs::metadata(&executable)?.permissions();
-        permissions.set_mode(0o700);
-        fs::set_permissions(&executable, permissions)?;
-
-        let report = reconcile_project_with(CompletionProjectInput {
-            executable: &executable,
-            project_path: project.path(),
-            installed_version: "2.1.7",
-            database_mode: ProjectDatabaseMode::External,
-        })
-        .await;
+        )
+        .await?;
         assert_eq!(report.state, "ready");
+        assert!(!report.retryable);
         assert_eq!(report.database.state, "ready");
         assert_eq!(report.index.state, "ready");
         assert_eq!(report.doctor.state, "ready");
         assert_eq!(report.verification.state, "ready");
         assert!(report.fresh);
+        assert!(report.upgrade_completed());
         assert_eq!(
             report.generation_id.as_deref(),
             Some("11111111-1111-4111-8111-111111111111")
         );
         Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_checkout_edited_after_publication_completes_the_upgrade_as_source_changed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let report = reconcile_with_fixture(
+            r#"#!/bin/sh
+case "$1" in
+  index)
+    printf '%s\n' '{"generation_id":"11111111-1111-4111-8111-111111111111","source_revision":"rev-1","live_source":"changed_after_publication"}'
+    ;;
+  doctor)
+    ;;
+  status)
+    printf '%s\n' '{"version":"2.1.7","project":{"fresh":false,"live_source_revision":"rev-2","snapshot":{"current":{"generation_id":"11111111-1111-4111-8111-111111111111","source_revision":"rev-1"}}}}'
+    ;;
+  *)
+    exit 23
+    ;;
+esac
+"#,
+        )
+        .await?;
+        assert_eq!(report.state, RECONCILED_SOURCE_CHANGED);
+        assert_eq!(report.index.state, RECONCILED_SOURCE_CHANGED);
+        assert_eq!(report.verification.state, RECONCILED_SOURCE_CHANGED);
+        assert!(!report.fresh);
+        assert!(!report.retryable);
+        assert!(report.upgrade_completed());
+        assert_eq!(
+            report.generation_id.as_deref(),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1);
+        assert!(steps[0].contains("upgrade is complete"));
+        assert!(steps[0].contains("cartograph index"));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn another_live_writer_is_a_distinct_retryable_outcome()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let report = reconcile_with_fixture(
+            r#"#!/bin/sh
+case "$1" in
+  index)
+    printf '{\n  "error": {\n    "code": "lease_busy",\n    "message": "busy",\n    "previous_generation_visible": true\n  }\n}\n' >&2
+    exit 1
+    ;;
+  *)
+    exit 23
+    ;;
+esac
+"#,
+        )
+        .await?;
+        assert_eq!(report.state, "blocked");
+        assert!(report.retryable);
+        assert_eq!(report.index.state, ANOTHER_WRITER_ACTIVE);
+        assert_eq!(report.index.reason.as_deref(), Some(LEASE_BUSY_CODE));
+        assert_eq!(report.doctor.state, "not_run");
+        assert!(!report.upgrade_completed());
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1);
+        assert!(steps[0].contains("kept this project busy"));
+        assert!(steps[0].contains("upgrade --apply"));
+        assert!(!steps[0].contains("doctor"));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_index_failure_reports_the_child_code_instead_of_a_generic_block()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let report = reconcile_with_fixture(
+            r#"#!/bin/sh
+case "$1" in
+  index)
+    printf '{\n  "error": {\n    "code": "parse_failed"\n  }\n}\n' >&2
+    exit 1
+    ;;
+  *)
+    exit 23
+    ;;
+esac
+"#,
+        )
+        .await?;
+        assert_eq!(report.index.state, "blocked");
+        assert_eq!(report.index.reason.as_deref(), Some("parse_failed"));
+        assert!(!report.retryable);
+        // The database and doctor were not the problem: the next step names
+        // the code and the command that reports the full index failure.
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1, "{steps:?}");
+        assert!(steps[0].contains("`parse_failed`"), "{steps:?}");
+        assert!(
+            steps[0].contains("`cartograph index <path> --format json`"),
+            "{steps:?}"
+        );
+        assert!(steps[0].contains("upgrade --apply"), "{steps:?}");
+        assert!(!steps[0].contains("doctor"), "{steps:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn an_index_failure_without_a_code_still_points_to_doctor() {
+        // A child that crashed or failed before it could report a code
+        // leaves no index failure to rerun; doctor finds the boundary.
+        let mut report = started_project_reconciliation(ProjectDatabaseMode::External);
+        report.index = upgrade_step("blocked", "fixture index failure without a code");
+        let mut steps = Vec::new();
+        add_project_reconciliation_steps(&mut steps, Some(&report));
+        assert_eq!(steps.len(), 1, "{steps:?}");
+        assert!(steps[0].contains("doctor <path>` for the exact failure"));
+    }
+
+    #[test]
+    fn index_timeouts_name_the_bound_and_whether_cleanup_was_confirmed() {
+        let step = |stop| {
+            index_step(&IndexChildOutcome::TimedOut(IndexChildTimeout {
+                trigger: index_child::DeadlineTrigger::NoProgress,
+                stop,
+            }))
+        };
+        let (cooperative, retryable) = step(ChildStop::Cooperative);
+        assert!(retryable);
+        assert_eq!(cooperative.state, "timed_out");
+        assert_eq!(cooperative.reason.as_deref(), Some("no_progress"));
+        assert!(cooperative.message.contains("confirmed that it released"));
+        let (unconfirmed, _) = step(ChildStop::Unconfirmed);
+        assert!(!unconfirmed.message.contains("confirmed that it released"));
+        assert!(unconfirmed.message.contains("TTL"));
+        let (forced, _) = step(ChildStop::Forced);
+        assert!(forced.message.contains("killed"));
+        let (ceiling, _) = index_step(&IndexChildOutcome::TimedOut(IndexChildTimeout {
+            trigger: index_child::DeadlineTrigger::Ceiling,
+            stop: ChildStop::Cooperative,
+        }));
+        assert_eq!(ceiling.reason.as_deref(), Some("ceiling"));
+        assert!(ceiling.message.contains("210-minute"));
     }
 
     #[test]
@@ -2533,7 +3046,7 @@ esac
             fs::read_to_string(elsewhere.path().join("mcp.json"))?,
             wrapped
         );
-        assert!(fixture.invocations().is_empty());
+        assert_eq!(fixture.invocations(), "");
         let mut rendered = String::new();
         render_registration_repair(&mut rendered, &report);
         assert!(rendered.contains("cursor global (~/.cursor/mcp.json): manual: Edit"));

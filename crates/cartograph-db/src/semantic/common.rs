@@ -238,11 +238,7 @@ pub(crate) fn require_generation(
     actual: &GenerationId,
     expected: &GenerationId,
 ) -> Result<(), SemanticStorageError> {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(SemanticStorageError::CurrentGenerationChanged)
-    }
+    (actual == expected).ok_or(SemanticStorageError::CurrentGenerationChanged)
 }
 
 pub(crate) fn vector_text(vector: &[f32]) -> Result<String, SemanticStorageError> {
@@ -278,11 +274,7 @@ pub(crate) fn validate_normalization(
         .map(|value| f64::from(*value).powi(2))
         .sum::<f64>()
         .sqrt();
-    if (magnitude - 1.0).abs() <= 0.001 {
-        Ok(())
-    } else {
-        Err(super::types::invalid("embedding_normalization"))
-    }
+    ((magnitude - 1.0).abs() <= 0.001).ok_or(super::types::invalid("embedding_normalization"))
 }
 
 pub(crate) struct DocumentSource {

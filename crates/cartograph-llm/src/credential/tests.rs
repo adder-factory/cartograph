@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::assert_matches;
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
@@ -307,7 +309,7 @@ async fn a_hanging_helper_is_stopped_at_its_deadline() {
         },
     )
     .await;
-    assert!(matches!(outcome, Err(CredentialCommandFailure::TimedOut)));
+    assert_matches!(outcome, Err(CredentialCommandFailure::TimedOut));
     assert!(started.elapsed() < Duration::from_secs(SLOW_HELPER_SECONDS));
 }
 

@@ -2,6 +2,7 @@
 
 mod dependency_ownership;
 
+use std::assert_matches;
 use std::{
     env, process,
     sync::atomic::{AtomicU32, Ordering},
@@ -97,20 +98,20 @@ async fn setup_semantic_scenario(fixture: &Fixture) -> SemanticScenario {
     let registered_a = register_model(&fixture.database, model_a.clone()).await;
     let repeated_a = register_model(&fixture.database, model_a).await;
     assert_eq!(registered_a, repeated_a);
-    assert!(matches!(
+    assert_matches!(
         fixture
             .database
             .register_embedding_model(conflicting_model(), STATEMENT_TIMEOUT)
             .await,
         Err(SemanticStorageError::ModelConflict)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         fixture
             .database
             .register_embedding_model(conflicting_fingerprint_model(), STATEMENT_TIMEOUT)
             .await,
         Err(SemanticStorageError::ModelConflict)
-    ));
+    );
     let hnsw_a = fixture
         .database
         .ensure_embedding_model_hnsw(&selector_a, STATEMENT_TIMEOUT)
@@ -263,10 +264,7 @@ async fn assert_vector_similarity(fixture: &Fixture, scenario: &SemanticScenario
     assert_eq!(hits[0].document_id().as_str(), DOCUMENT_A);
     assert_eq!(hits[1].document_id().as_str(), DOCUMENT_B);
     assert_eq!(hits[2].document_id().as_str(), DOCUMENT_C);
-    assert!(
-        hits.windows(2)
-            .all(|pair| pair[0].distance() <= pair[1].distance())
-    );
+    assert!(hits.is_sorted_by_key(cartograph_db::VectorSearchHit::distance));
     let rerank_text = hits[0]
         .rerank_text()
         .unwrap_or_else(|| panic!("vector hit omitted bounded reranker text"));
@@ -580,7 +578,7 @@ async fn assert_generation_cursor_refresh(
     );
     let current_page = pending_page(&fixture.database, project, selector_b, None).await;
     assert_eq!(current_page.generation_id(), &second);
-    assert!(current_page.documents().is_empty());
+    assert_eq!(current_page.documents(), []);
     assert_readiness(
         &fixture.database,
         project,
@@ -737,7 +735,7 @@ async fn retired_embedding_maintenance_is_auditable_dry_run_first_and_model_scop
     assert_eq!(after.historical_embeddings, 0);
     assert_eq!(after.retired_model_embeddings, 0);
     assert_eq!(after.model_indexes, 1);
-    assert!(matches!(
+    assert_matches!(
         fixture
             .database
             .embedding_storage_audit(&project, Duration::ZERO)
@@ -745,8 +743,8 @@ async fn retired_embedding_maintenance_is_auditable_dry_run_first_and_model_scop
         Err(SemanticStorageError::InvalidInput {
             field: "statement_timeout"
         })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         fixture
             .database
             .cleanup_retired_embeddings(&project, false, Duration::ZERO)
@@ -754,7 +752,7 @@ async fn retired_embedding_maintenance_is_auditable_dry_run_first_and_model_scop
         Err(SemanticStorageError::InvalidInput {
             field: "statement_timeout"
         })
-    ));
+    );
 
     drop(fixture.database);
     drop_schema(&fixture.pool, &fixture.schema).await;

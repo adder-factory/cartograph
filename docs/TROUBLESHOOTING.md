@@ -22,6 +22,7 @@ MCP call is the control evidence.
 | Database capability or extension check fails | [PostgreSQL capability failure](#postgresql-capability-failure) |
 | Shell commands work but the agent cannot connect | [Doctor works in a shell but MCP cannot connect](#doctor-works-in-a-shell-but-mcp-cannot-connect) |
 | Status reports stale source | [Index is stale](#index-is-stale) |
+| Index reports `lease_busy` or `index_cleanup_failed` | [Index reports `lease_busy` or `index_cleanup_failed`](#index-reports-lease_busy-or-index_cleanup_failed) |
 | A large index reaches a hard bound | [Native generation reaches its capacity bound](#native-generation-reaches-its-capacity-bound) |
 | Hybrid retrieval skips semantic search | [Semantic search is skipped](#semantic-search-is-skipped) |
 | Doctor warns that an LLM credential is not set | [An LLM credential is missing from doctor's shell](#an-llm-credential-is-missing-from-doctors-shell) |
@@ -94,6 +95,60 @@ open across an earlier upgrade has been inspected. A database step with
 not that incompatibility was detected; rerun the same command without invoking
 the destructive database replacement path.
 
+On a large or continuously edited project, read `projectReconciliation.index`:
+
+- `source_changed`: the installed binary published a complete generation once,
+  then saw the checkout change because another session kept editing it; it
+  reports that instead of rebuilding. The upgrade then completes as
+  `projectReconciliation.state: source_changed` only if `doctor` and the
+  next-process status also pass (a status that finds the checkout fresh by then
+  reports `ready` instead), so confirm with `projectReconciliation.state` and
+  the top-level `completed`. The index is not fresh: run
+  `cartograph index <path>` once edits pause, or let MCP auto-sync reconcile it.
+- `another_writer_active` (`retryable: true`): another Cartograph operation,
+  usually an MCP server's auto-sync in another session (or a schema maintenance
+  step), kept the project busy for the whole 30-minute wait and this run
+  published nothing. Rerun the same upgrade command after it finishes. A
+  writer that starts during the index's source scan is awaited too (the
+  index's attempt reports `lease_busy` and is retried), but each such
+  collision repeats the scan, so an auto-sync that re-syncs continuously can
+  use up the whole wait; pause edits in the other session (or stop its MCP
+  server) before rerunning.
+- `timed_out` (`retryable: true`, `reason: no_progress` or `ceiling`): the index
+  reported no progress for 15 minutes (its database connection and schema
+  migration count as progress for their first 30 minutes), or reached the
+  210-minute ceiling. Its stdin was closed so that it stopped cooperatively.
+  The message says whether it confirmed releasing its lease
+  (`request_cancelled` without a `cleanup_failure`), exited without confirming
+  it, or was killed after 4 minutes; in the last two cases the lease can
+  remain for up to its 5-minute TTL. A rerun waits for that instead of failing
+  with `lease_busy`. If
+  the timeout repeats, run `cartograph index <path>` directly to see the stage
+  that is not advancing.
+- `blocked` with a `reason`: the index failed with that stable code. Run
+  `cartograph index <path> --format json` for the full failure.
+- `not_run`: the database step did not finish as `ready`, so the index never
+  started; read `projectReconciliation.database`.
+
+A `doctor` or `verification` step with `state: timed_out` means that rescan of
+the checkout exceeded its 10-minute budget; it is retryable and says nothing
+about the project's health. A `blocked` verification is also retryable when
+another writer replaced the generation this upgrade published or confirmed;
+rerun after that writer finishes. `not_run` on `doctor` or `verification` means
+an earlier step stopped the reconciliation.
+
+Once its index request has started, `cartograph index` stops cooperatively on
+SIGINT or SIGTERM and releases its lease before exiting with
+`request_cancelled`; a second interrupt ends it at once by that signal and
+leaves the lease to expire. An interrupt while it still connects or migrates
+the schema ends it at once as well, before it holds a lease. An interrupt that
+arrives after the index already published leaves that generation current and
+can still end in success when the post-publication recheck had already matched
+the checkout. With
+`--format json`, a `request_cancelled` failure without `cleanup_failure` means
+PostgreSQL confirmed this index's own cleanup; another session's lease or
+staging generation on the same project does not add a `cleanup_failure`.
+
 If startup says the database schema is newer than the binary, do not retry the
 old process. The error reports the running binary version, database schema
 version, and maximum supported schema version. Upgrade the native binary,
@@ -145,7 +200,56 @@ Before that no-op decision, index/sync also terminalizes every unleased
 `staging` generation for the project under a bounded project lock. A staging
 generation protected by a live lease is preserved. This lets an unchanged
 retry recover work abandoned by an interrupted client without forcing a full
-re-index; normal retention may subsequently remove the failed row.
+re-index; normal retention may subsequently remove the failed row. While
+another operation holds a live project lease, or still holds the project lock
+after the bounded five-second wait, or a lock keeps the read of the project's
+leases waiting past that bound, that recovery is deferred to a later attempt:
+an unchanged checkout still returns its no-op, and a changed checkout returns
+`lease_busy` without reserving a generation.
+
+## Index reports `lease_busy` or `index_cleanup_failed`
+
+`lease_busy` is retryable contention. Another operation owns a live project
+lease, or another writer (for example, an MCP server's automatic sync inside
+its long prepare/COPY transaction) still holds the project lock, or a lock (for
+example, a concurrent schema change) keeps the read of the project's leases
+waiting past its bounded five-second wait. Contention seen before reservation
+reserves no generation. A writer that wins after that check is still rejected
+at lease acquisition; the attempt's reserved generation is failed at once only
+if the project lock frees within five seconds. Otherwise the failure also
+carries `cleanup_failure`, and that generation stays `staging` (never current)
+until the next index that finds the project free fails it in its staging
+recovery. The current generation stays published. Wait for the writer to
+finish and retry. `sync-if-dirty` already waits, up to five minutes in total,
+for every live lease on the project (index, sync, hook, migration, or rebuild)
+before it retries, pauses first when no live lease explains the collision, and
+reports `lease_busy` if a writer outlasts that wait;
+automatic sync schedules the retry. `admin unlock` removes only
+database-clock-expired leases and cannot clear a live writer.
+
+When an attempt fails and the bounded cleanup of its own staging generation
+also fails afterward (for example, because its own interrupted transaction
+still holds the project lock), `index --format json` keeps the first failure as
+`code` and reports the cleanup as `cleanup_failure` with
+`index_cleanup_failed`; MCP admin job status reports it as `cleanupFailure`
+beside its unchanged `failure`, and `autoSync` as `lastCleanupFailureCode`
+beside its unchanged `lastErrorCode`. A cancelled index (`request_cancelled`)
+reports `cleanup_failure` unless PostgreSQL confirms that no generation it
+reserved is still `staging` or `ready` and that its lease names none of them.
+The next index retries that cleanup. `lease_failed` means the attempt could not
+establish, keep, or confirm ownership of its own lease: an acquisition that
+failed for a reason other than contention, or a lost or unconfirmed heartbeat.
+A read of the project's leases that fails before reservation for a reason
+other than that bounded wait is a project-status failure (`Cartograph project
+status is unavailable`), never `lease_failed`: the attempt held no lease to
+lose; check PostgreSQL health. `code: index_cleanup_failed` on its own means
+the pre-reservation staging recovery failed for a reason other than
+contention; inspect PostgreSQL health and generation retention before retrying.
+
+`previous_generation_visible` reports what PostgreSQL shows after the failure:
+`true` when a published generation is still current, `false` when the project
+has none yet, and `null` when that bounded lookup failed. Index failures never
+unpublish the current generation.
 
 ## Index fails during the parse stage
 
@@ -268,6 +372,20 @@ progress while it runs: stage, completed items/bytes, heartbeat count, idle
 time, completed stage timings, total elapsed time, and cancellation state. A
 busy host is therefore distinguishable from a stalled stage without exposing
 source or database text.
+
+The index lease is renewed by its own task, independently of how pipeline work
+is scheduled: the heartbeat count keeps advancing while a stage performs long
+CPU work, and polling status can no longer stall the pipeline's progress
+updates. A heartbeat count that stops advancing while a job is active therefore
+points at PostgreSQL or lease trouble, or a starved host, rather than a busy
+stage. Renewal pauses during a cancellation grace period, so a supervisor state
+that stays `cancelling` (or `wedged`, after a progress stall) while the
+heartbeat count advances means the cancelled work is still finishing a long
+synchronous section. The job waits for that section for at most one COPY
+timeout after the grace, three minutes for index jobs. It then fails its
+staging generation and releases the lease, or, if the section is still
+running, ends unreaped: renewal stops, and the job leaves both for lease expiry
+and recovery.
 
 ## Semantic search is skipped
 

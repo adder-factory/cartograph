@@ -1432,14 +1432,7 @@ fn ascii_lower_prefix(source: &str) -> String {
 }
 
 fn bounded_prefix(source: &str, maximum_bytes: usize) -> &str {
-    if source.len() <= maximum_bytes {
-        return source;
-    }
-    let mut end = maximum_bytes;
-    while !source.is_char_boundary(end) {
-        end -= 1;
-    }
-    &source[..end]
+    &source[..source.floor_char_boundary(maximum_bytes)]
 }
 
 /// A canonical project-relative source path with forward-slash separators.
@@ -1946,6 +1939,7 @@ fn has_windows_drive_prefix(raw: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::collections::BTreeSet;
 
     use super::{
@@ -1965,7 +1959,7 @@ mod tests {
     #[test]
     fn paths_canonicalize_and_spans_reject_escaping_coordinates() {
         let canonical = NormalizedPath::parse(r"src\feature\.\service.ts");
-        assert!(matches!(canonical, Ok(path) if path.as_str() == "src/feature/service.ts"));
+        assert_matches!(canonical, Ok(path) if path.as_str() == "src/feature/service.ts");
         assert!(NormalizedPath::parse("../secret.ts").is_err());
         assert!(NormalizedPath::parse("/absolute.ts").is_err());
         assert!(NormalizedPath::parse("C:\\absolute.ts").is_err());
@@ -2029,7 +2023,7 @@ mod tests {
     #[test]
     fn language_registry_preserves_v1_contract_and_tracks_v2_additions_separately() {
         let stable_ids = SourceLanguage::ALL.map(SourceLanguage::as_str);
-        assert!(stable_ids.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(stable_ids.is_sorted_by(|previous, next| previous < next));
         assert_eq!(stable_ids.into_iter().collect::<BTreeSet<_>>().len(), 132);
         assert_eq!(
             SourceLanguage::ALL
@@ -2064,9 +2058,9 @@ mod tests {
         );
         assert_eq!(SourceLanguage::Python.v1_extensions(), &[".py", ".pyw"]);
         assert_eq!(SourceLanguage::Python.additional_extensions(), &[".pyi"]);
-        assert!(SourceLanguage::Rhai.v1_extensions().is_empty());
+        assert_eq!(SourceLanguage::Rhai.v1_extensions(), [] as [&str; 0]);
         assert_eq!(SourceLanguage::Rhai.additional_extensions(), &[".rhai"]);
-        assert!(SourceLanguage::Toml.v1_extensions().is_empty());
+        assert_eq!(SourceLanguage::Toml.v1_extensions(), [] as [&str; 0]);
         assert_eq!(SourceLanguage::Toml.additional_extensions(), &[".toml"]);
         assert!(SourceLanguage::is_v1_candidate_path("src/service.py"));
         assert!(!SourceLanguage::is_v1_candidate_path("src/service.pyi"));

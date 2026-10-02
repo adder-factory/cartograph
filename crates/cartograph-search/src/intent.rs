@@ -247,8 +247,8 @@ fn contains_term(tokens: &[&str], candidates: &[&str]) -> bool {
 }
 
 fn asks_for_tests(tokens: &[&str]) -> bool {
-    tokens.windows(2).any(|pair| {
-        matches!(pair[0], "which" | "what" | "select") && matches!(pair[1], "test" | "tests")
+    tokens.array_windows().any(|&[first, second]| {
+        matches!(first, "which" | "what" | "select") && matches!(second, "test" | "tests")
     })
 }
 

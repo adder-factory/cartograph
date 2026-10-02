@@ -1448,11 +1448,7 @@ pub(crate) async fn require_expected_current_generation(
         .map_err(|_| database_error("expected-generation-read"))?
         .and_then(|row| row.try_get::<Option<bool>, _>("matches").ok().flatten())
         .unwrap_or(false);
-    if matches {
-        Ok(())
-    } else {
-        Err(StorageError::CurrentGenerationChanged)
-    }
+    matches.ok_or(StorageError::CurrentGenerationChanged)
 }
 
 pub(crate) async fn commit_bounded_read(

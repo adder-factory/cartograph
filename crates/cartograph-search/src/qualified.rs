@@ -230,10 +230,7 @@ fn push_owned(values: &mut Vec<String>, value: String) -> bool {
 }
 
 fn unquote(value: &str) -> &str {
-    value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .unwrap_or(value)
+    value.strip_circumfix('"', '"').unwrap_or(value)
 }
 
 fn parse_centrality(value: &str) -> Option<CentralityFilter> {

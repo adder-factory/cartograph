@@ -88,10 +88,7 @@ fn normalized_endpoint_path(path: &str, target: EndpointPath) -> String {
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    let host = host
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-        .unwrap_or(host);
+    let host = host.strip_circumfix('[', ']').unwrap_or(host);
     host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<std::net::IpAddr>()

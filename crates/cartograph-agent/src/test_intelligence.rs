@@ -357,11 +357,7 @@ fn clean_title(raw: &str, quote: u8) -> String {
 }
 
 fn bounded_title(title: &str) -> String {
-    let mut boundary = title.len().min(MAXIMUM_TEST_TITLE_BYTES);
-    while !title.is_char_boundary(boundary) {
-        boundary = boundary.saturating_sub(1);
-    }
-    title[..boundary].to_owned()
+    title[..title.floor_char_boundary(MAXIMUM_TEST_TITLE_BYTES)].to_owned()
 }
 
 fn skip_ascii_space(bytes: &[u8], mut index: usize) -> usize {

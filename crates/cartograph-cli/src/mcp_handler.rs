@@ -18,16 +18,17 @@ use cartograph_agent::{
     FileDriftError, FileDriftOptions, FileSourceOptions, FileSourceRequest, GitLineHistory,
     GitLineHistoryRequest, GitLineRange, GitRenameEvidence, HistoryIndexError, HistoryIndexOptions,
     ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
-    IndexOptions, IssueHistoryIndexError, IssueHistoryIndexOptions, IssueHistoryIndexRequest,
-    JEV_ROLE_MODEL, LayerAnalysisError, LayerAnalysisReport, LcovLoadOptions,
-    MAXIMUM_UNIX_MILLISECONDS, NavigationPolicy, NavigationRequest, PipelineFailureReason,
-    PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime, ProjectStatus,
-    RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions, RetrievalRequest,
-    ReviewError, ReviewOptions, RoleCandidate, RoleVerdict, ScipExportRequest, ScipImportLimits,
-    ScipImportRequest, SourceCompareError, SourceCompareOptions, SourceContextOptions,
-    SourceContextRequest, SourceSearchError, SourceSearchHit, SourceSearchOptions,
-    SupervisorStatus, SymbolSourceContext, TestEvidenceError, TestEvidenceOptions,
-    TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest, judge_dead_code_candidates,
+    IndexFailure, IndexOptions, IssueHistoryIndexError, IssueHistoryIndexOptions,
+    IssueHistoryIndexRequest, JEV_ROLE_MODEL, LayerAnalysisError, LayerAnalysisReport,
+    LcovLoadOptions, MAXIMUM_UNIX_MILLISECONDS, NavigationPolicy, NavigationRequest,
+    PipelineFailureReason, PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime,
+    ProjectStatus, RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions,
+    RetrievalRequest, ReviewError, ReviewOptions, RoleCandidate, RoleVerdict, ScipExportRequest,
+    ScipImportLimits, ScipImportRequest, SourceCompareError, SourceCompareOptions,
+    SourceContextOptions, SourceContextRequest, SourceSearchError, SourceSearchHit,
+    SourceSearchOptions, SupervisorStatus, SymbolSourceContext, TestEvidenceError,
+    TestEvidenceOptions, TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest,
+    judge_dead_code_candidates,
 };
 use cartograph_db::{
     AgentArtifactContent, AgentArtifactKind, AgentArtifactQuery, AgentArtifactScope,
@@ -100,10 +101,13 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::auto_sync::{AutoSyncError, AutoSyncStatus, ProjectAutoSync};
 use crate::byte_format::format_binary_bytes;
-use crate::error_codes::index_stage_failure_code;
+use crate::error_codes::{SecondaryFailure, index_stage_failure_code};
 use crate::host::{
     DiagnosticLocation, HostInspectionError, ProjectDiscoveryRequest, detect_install_targets,
     discover_projects,
+};
+use crate::supervised_index::{
+    CancellableIndex, IndexSupervision, run_cancellable_index, with_cleanup_proof,
 };
 
 #[cfg(test)]
@@ -2686,8 +2690,65 @@ struct AdminJobView {
     failure_detail: Option<AdminJobFailureDetail>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file_failure: Option<AdminJobFileFailure>,
+    /// Bounded cleanup of the job's own staging generation also failed. It
+    /// accompanies the primary `failure`, or a cancellation, without
+    /// replacing it, exactly as direct `index --format json` reports it: index
+    /// jobs run the CLI's direct cancellable index, so PostgreSQL settles a
+    /// cancelled job's cleanup the same way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cleanup_failure: Option<SecondaryFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     progress: Option<SupervisorStatus>,
+}
+
+impl AdminJobView {
+    /// A job that has not finished.
+    const fn running(job_id: u64, action: AdminAction) -> Self {
+        Self {
+            job_id,
+            action,
+            status: AdminJobStatus::Running,
+            report: None,
+            failure: None,
+            failure_detail: None,
+            file_failure: None,
+            cleanup_failure: None,
+            progress: None,
+        }
+    }
+
+    /// The terminal view of one finished job. A cancellation reports no
+    /// primary failure but keeps a failed cleanup of what the job held.
+    fn finished(job_id: u64, action: AdminAction, result: Result<Value, IndexFailure>) -> Self {
+        let running = Self::running(job_id, action);
+        let failure = match result {
+            Ok(report) => {
+                return Self {
+                    status: AdminJobStatus::Succeeded,
+                    report: Some(report),
+                    ..running
+                };
+            }
+            Err(failure) => failure,
+        };
+        let cleanup_failure = SecondaryFailure::index_cleanup(&failure);
+        let error = failure.error();
+        if matches!(error, ProjectError::RequestCancelled) {
+            return Self {
+                status: AdminJobStatus::Cancelled,
+                cleanup_failure,
+                ..running
+            };
+        }
+        Self {
+            status: AdminJobStatus::Failed,
+            failure: Some(admin_job_failure(error)),
+            failure_detail: admin_job_failure_detail(error),
+            file_failure: admin_job_file_failure(error),
+            cleanup_failure,
+            ..running
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -2769,12 +2830,16 @@ impl AdminJobs {
         }
     }
 
-    async fn start<Operation>(
+    /// Start one background job. An operation fails with a [`ProjectError`],
+    /// or with an [`IndexFailure`] when it also reports whether the bounded
+    /// cleanup of its own staging generation failed.
+    async fn start<Operation, Failure>(
         &self,
         input: AdminJobRequest<Operation>,
     ) -> Result<AdminJobView, ToolError>
     where
-        Operation: Future<Output = Result<Value, ProjectError>> + Send + 'static,
+        Operation: Future<Output = Result<Value, Failure>> + Send + 'static,
+        Failure: Into<IndexFailure> + Send + 'static,
     {
         let AdminJobRequest {
             action,
@@ -2794,31 +2859,9 @@ impl AdminJobs {
             .next_id
             .checked_add(1)
             .ok_or_else(ToolError::internal)?;
-        let view = AdminJobView {
-            job_id,
-            action,
-            status: AdminJobStatus::Running,
-            report: None,
-            failure: None,
-            failure_detail: None,
-            file_failure: None,
-            progress: None,
-        };
+        let view = AdminJobView::running(job_id, action);
         let handle = tokio::spawn(async move {
-            let result = operation.await;
-            let (status, report, failure, failure_detail, file_failure) = match result {
-                Ok(report) => (AdminJobStatus::Succeeded, Some(report), None, None, None),
-                Err(ProjectError::RequestCancelled) => {
-                    (AdminJobStatus::Cancelled, None, None, None, None)
-                }
-                Err(error) => (
-                    AdminJobStatus::Failed,
-                    None,
-                    Some(admin_job_failure(&error)),
-                    admin_job_failure_detail(&error),
-                    admin_job_file_failure(&error),
-                ),
-            };
+            let result = operation.await.map_err(Into::into);
             let mut state = shared.state.lock().await;
             let Some(active) = state.active.take() else {
                 return;
@@ -2827,16 +2870,7 @@ impl AdminJobs {
                 state.active = Some(active);
                 return;
             }
-            state.latest = Some(AdminJobView {
-                job_id,
-                action: active.view.action,
-                status,
-                report,
-                failure,
-                failure_detail,
-                file_failure,
-                progress: None,
-            });
+            state.latest = Some(AdminJobView::finished(job_id, active.view.action, result));
             drop(state);
         });
         state.active = Some(ActiveAdminJob {
@@ -2952,14 +2986,8 @@ impl AdminJobs {
                 return;
             };
             state.latest = Some(AdminJobView {
-                job_id: active.view.job_id,
-                action: active.view.action,
                 status: AdminJobStatus::Cancelled,
-                report: None,
-                failure: None,
-                failure_detail: None,
-                file_failure: None,
-                progress: None,
+                ..AdminJobView::running(active.view.job_id, active.view.action)
             });
             active.handle
         };
@@ -3792,9 +3820,13 @@ fn append_detected_llm_presets(presets: &mut Vec<Value>, detected: &[Value]) {
     }
 }
 
+/// Project LLM tiers that must be configured before semantic tools can run;
+/// every other tier is optional.
+const REQUIRED_LLM_TIERS: [ProjectLlmTier; 1] = [ProjectLlmTier::Embedding];
+
 fn required_llm_tiers_missing(root: &Path) -> Result<BTreeSet<ProjectLlmTier>, ToolError> {
     let mut missing = BTreeSet::new();
-    for tier in [ProjectLlmTier::Embedding] {
+    for tier in REQUIRED_LLM_TIERS {
         if load_project_llm_tier(root, tier)
             .map_err(project_llm_error)?
             .is_none()
@@ -11976,16 +12008,21 @@ impl AdminCoreTools<'_> {
             action,
             cancellation,
             operation: async move {
-                let index = target_runtime
-                    .index_with_cancellation(options, operation_cancellation.clone())
-                    .await?;
+                let index = run_cancellable_index(CancellableIndex {
+                    runtime: &target_runtime,
+                    options,
+                    cancellation: operation_cancellation.clone(),
+                    supervision: IndexSupervision::Direct,
+                    interrupts: None,
+                })
+                .await?;
                 let enrichment = Box::pin(run_post_index_enrichment(
                     target_runtime,
                     enrichment,
                     operation_cancellation,
                 ))
                 .await?;
-                Ok(json!({
+                Ok::<Value, IndexFailure>(json!({
                     "initialization": initialization,
                     "index": index,
                     "enrichment": enrichment,
@@ -12576,16 +12613,21 @@ impl AdminLifecycleTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let report = runtime
-                        .index_with_cancellation(options, operation_cancellation.clone())
-                        .await?;
+                    let report = run_cancellable_index(CancellableIndex {
+                        runtime: &runtime,
+                        options,
+                        cancellation: operation_cancellation.clone(),
+                        supervision: IndexSupervision::Direct,
+                        interrupts: None,
+                    })
+                    .await?;
                     let enrichment = Box::pin(run_post_index_enrichment(
                         runtime,
                         enrichment,
                         operation_cancellation,
                     ))
                     .await?;
-                    Ok(json!({
+                    Ok::<Value, IndexFailure>(json!({
                         "report": report,
                         "enrichment": enrichment,
                         "forceRequested": force,
@@ -12688,10 +12730,15 @@ impl AdminLifecycleTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let report = runtime
-                        .import_scip_with_cancellation(request, operation_cancellation)
-                        .await?;
-                    serde_json::to_value(report).map_err(|_| ProjectError::IndexFailed)
+                    let report = with_cleanup_proof(
+                        &runtime,
+                        &operation_cancellation,
+                        runtime
+                            .import_scip_with_cancellation(request, operation_cancellation.clone()),
+                    )
+                    .await?;
+                    serde_json::to_value(report)
+                        .map_err(|_| IndexFailure::from(ProjectError::IndexFailed))
                 },
             })
             .await?;
@@ -12734,14 +12781,19 @@ impl AdminLifecycleTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let index = runtime
-                        .index_with_cancellation(index_options, operation_cancellation.clone())
-                        .await?;
+                    let index = run_cancellable_index(CancellableIndex {
+                        runtime: &runtime,
+                        options: index_options,
+                        cancellation: operation_cancellation.clone(),
+                        supervision: IndexSupervision::Direct,
+                        interrupts: None,
+                    })
+                    .await?;
                     let graph_reused = !index.published;
                     let embedding = runtime
                         .embed_current_with_cancellation(embedding_options, operation_cancellation)
                         .await?;
-                    Ok(json!({
+                    Ok::<Value, IndexFailure>(json!({
                         "index": index,
                         "embedding": embedding,
                         "graphPreserved": true,
@@ -15451,7 +15503,7 @@ fn normalize_rollup_summary(content: &str) -> Result<String, ProjectError> {
         return Ok(compact);
     }
     let maximum_body = FILE_SUMMARY_MAXIMUM_TEXT_BYTES.saturating_sub(" …".len());
-    let boundary = utf8_boundary_for_tool(&compact, maximum_body);
+    let boundary = compact.floor_char_boundary(maximum_body);
     let head = &compact[..boundary];
     let sentence = [head.rfind(". "), head.rfind("! "), head.rfind("? ")]
         .into_iter()
@@ -19897,7 +19949,7 @@ fn substitute_macro_value(
 }
 
 fn whole_macro_placeholder(value: &str) -> Option<usize> {
-    let index = value.strip_prefix("${")?.strip_suffix('}')?;
+    let index = value.strip_circumfix("${", '}')?;
     (!index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| index.parse().ok())
         .flatten()
@@ -20197,16 +20249,8 @@ fn trace_result_summary(result: &Result<ToolResult, ToolError>) -> (bool, String
 }
 
 fn bounded_utf8_text(value: &str, maximum: usize) -> (String, bool) {
-    let boundary = utf8_boundary_for_tool(value, maximum);
+    let boundary = value.floor_char_boundary(maximum);
     (value[..boundary].to_owned(), boundary < value.len())
-}
-
-fn utf8_boundary_for_tool(value: &str, maximum: usize) -> usize {
-    let mut boundary = maximum.min(value.len());
-    while !value.is_char_boundary(boundary) {
-        boundary = boundary.saturating_sub(1);
-    }
-    boundary
 }
 
 fn playbook_tool(arguments: &Map<String, Value>) -> Result<ToolResult, ToolError> {
@@ -25285,6 +25329,7 @@ fn safe_error(code: ToolErrorCode, message: impl Into<String>) -> ToolError {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::{
         env,
         fmt::Write as _,
@@ -25312,6 +25357,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::tests::index_cleanup_fixture::{HeldSchemaMaintenance, reject_staging_failure};
 
     const TEST_DEFAULT_LIMIT: u16 = 10;
     const TEST_VALID_LIMIT: u16 = 20;
@@ -25864,7 +25910,7 @@ mod tests {
         let plan = build_llm_apply_plan(&arguments, "cli-bridge")
             .unwrap_or_else(|error| panic!("CLI bridge MCP plan failed: {error:?}"));
         assert_eq!(plan.inputs.len(), 1);
-        assert!(plan.cleared.is_empty());
+        assert_eq!(plan.cleared, []);
 
         let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         write_project_llm_configuration(root.path(), &plan.inputs, &plan.cleared)
@@ -26991,7 +27037,7 @@ mod tests {
             .len(),
             1
         );
-        assert!(
+        assert_eq!(
             filter_layer_findings(
                 layers,
                 LayerFindingFilter {
@@ -27002,8 +27048,8 @@ mod tests {
                     minimum_centrality: Some(0.001),
                     excluded_path: None,
                 },
-            )
-            .is_empty()
+            ),
+            [] as [Value; 0]
         );
     }
 
@@ -28104,11 +28150,11 @@ app.get('/orders', forward);
         assert!(!cached.source_changed());
         let cancelled = ProjectCancellation::new();
         cancelled.cancel();
-        assert!(matches!(
+        assert_matches!(
             cartograph_agent::run_structural_summary_sweep(runtime.clone(), policy, cancelled)
                 .await,
             Err(ProjectError::RequestCancelled)
-        ));
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -28474,6 +28520,68 @@ pub fn root() -> u32 {
         assert_eq!(report["current_preserved"], 1);
         assert_eq!(report["superseded_removed"], 1);
         assert_eq!(report["superseded_preserved"], 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+    async fn admin_index_job_reports_its_failed_cleanup_beside_the_primary_failure() {
+        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| panic!("live admin cleanup database is not configured"));
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let schema = format!("cg_cli_admin_cleanup_{}_{}", process::id(), nanos);
+        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
+            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
+        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
+            .and_then(|settings| settings.with_schema(&schema))
+            .unwrap_or_else(|error| panic!("admin cleanup settings failed: {error}"));
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
+        let source = project.path().join("lib.rs");
+        std::fs::write(&source, "fn cleaned() -> u32 { 1 }\n")
+            .unwrap_or_else(|error| panic!("admin cleanup fixture write failed: {error}"));
+        let runtime = Arc::new(
+            ProjectRuntime::connect(project.path(), &settings)
+                .await
+                .unwrap_or_else(|error| panic!("admin cleanup runtime failed: {error}")),
+        );
+        runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await
+            .unwrap_or_else(|error| panic!("admin cleanup initial index failed: {error}"));
+        let handler = CartographMcpHandler::new(runtime.clone())
+            .unwrap_or_else(|error| panic!("admin cleanup handler failed: {error}"));
+        std::fs::write(&source, "fn cleaned() -> u32 { 2 }\n")
+            .unwrap_or_else(|error| panic!("admin cleanup edit failed: {error}"));
+
+        // Schema maintenance refuses the lease after the job reserved its
+        // generation, and the fixture makes that generation's cleanup fail.
+        reject_staging_failure(&settings, &schema).await;
+        let maintenance = HeldSchemaMaintenance::hold(&settings, &schema).await;
+        AdminLifecycleTools(&handler)
+            .start_index_job(AdminAction::Index, &Map::new())
+            .await
+            .unwrap_or_else(|error| panic!("admin cleanup job failed to start: {error}"));
+        let started = handler
+            .admin_jobs
+            .status(None)
+            .await
+            .unwrap_or_else(|error| panic!("admin cleanup status failed: {error}"));
+        let terminal =
+            wait_for_admin_status(&handler.admin_jobs, started.job_id, AdminJobStatus::Failed)
+                .await;
+        maintenance.release().await;
+
+        let wire = serde_json::to_value(&terminal)
+            .unwrap_or_else(|error| panic!("admin cleanup view did not serialize: {error}"));
+        assert_eq!(wire["failure"], "lease_failed", "{wire}");
+        assert_eq!(
+            wire["cleanupFailure"]["code"], "index_cleanup_failed",
+            "the job dropped its failed cleanup: {wire}"
+        );
+        drop(handler);
+        drop(runtime);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -28888,7 +28996,7 @@ pub fn target(value: u32) -> u32 {
             .register_agent_state_project()
             .await
             .unwrap_or_else(|error| panic!("role project lookup failed: {error}"));
-        assert!(
+        assert_eq!(
             runtime
                 .database()
                 .pending_symbol_roles(
@@ -28897,8 +29005,8 @@ pub fn target(value: u32) -> u32 {
                     1
                 )
                 .await
-                .unwrap_or_else(|error| panic!("structural role cache lookup failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("structural role cache lookup failed: {error}")),
+            []
         );
         (
             project_id,
@@ -28937,13 +29045,13 @@ pub fn target(value: u32) -> u32 {
             .join()
             .unwrap_or_else(|_| panic!("role fixture server panicked"));
 
-        assert!(
+        assert_eq!(
             runtime
                 .database()
                 .pending_symbol_roles(project_id, RoleSweepModel::Judge("fixture-role"), 1)
                 .await
-                .unwrap_or_else(|error| panic!("role pending lookup failed: {error}"))
-                .is_empty()
+                .unwrap_or_else(|error| panic!("role pending lookup failed: {error}")),
+            []
         );
         let roles = runtime
             .database()
@@ -29342,7 +29450,7 @@ pub fn target(value: u32) -> u32 {
                 "similar_to"
             ])
         );
-        assert!(matches!(parse_edge_kind("calls"), Ok(EdgeKind::Calls)));
+        assert_matches!(parse_edge_kind("calls"), Ok(EdgeKind::Calls));
         assert!(parse_edge_kind("similar_to").is_err());
         assert_eq!(graph["inputSchema"]["properties"]["minScore"]["maximum"], 1);
         for mode in ["auto", "bm25", "hybrid"] {
@@ -29351,7 +29459,7 @@ pub fn target(value: u32) -> u32 {
         for mode in ["name", "path", "reference"] {
             assert_eq!(find_query_maximum_bytes(mode), CONTEXT_ANCHOR_MAXIMUM_BYTES);
         }
-        assert!(matches!(parse_search_mode("auto"), Ok(SearchMode::Auto)));
+        assert_matches!(parse_search_mode("auto"), Ok(SearchMode::Auto));
         assert!(parse_search_mode("semantic-only").is_err());
 
         let exact = Map::from_iter([(
@@ -29561,6 +29669,56 @@ pub fn target(value: u32) -> u32 {
         assert_eq!(terminal.failure, Some(AdminJobFailure::OperationFailed));
     }
 
+    fn admin_job_wire(result: Result<Value, IndexFailure>) -> Value {
+        serde_json::to_value(AdminJobView::finished(1, AdminAction::Index, result))
+            .unwrap_or_else(|error| panic!("admin job view did not serialize: {error}"))
+    }
+
+    #[test]
+    fn admin_job_view_adds_a_failed_cleanup_beside_the_primary_like_the_cli() {
+        let primary_with_cleanup =
+            IndexFailure::from(ProjectError::IndexPublicationFailed).with_failed_cleanup();
+        let failed = admin_job_wire(Err(primary_with_cleanup.clone()));
+        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["failure"], "publication_failed");
+        assert_eq!(
+            failed["cleanupFailure"],
+            json!({
+                "code": "index_cleanup_failed",
+                "message": ProjectError::IndexCleanupFailed.to_string(),
+            })
+        );
+        // The MCP object is the CLI's `cleanup_failure`, field for field.
+        let direct = crate::error_codes::direct_index_failure_json(
+            crate::error_codes::DirectIndexFailureInput {
+                failure: &primary_with_cleanup,
+                previous_generation_visible: Some(true),
+            },
+        )
+        .unwrap_or_else(|error| panic!("direct failure did not serialize: {error}"));
+        let direct = serde_json::from_str::<Value>(&direct)
+            .unwrap_or_else(|error| panic!("direct failure was not JSON: {error}"));
+        assert_eq!(failed["cleanupFailure"], direct["error"]["cleanup_failure"]);
+
+        // Without a failed cleanup the existing view is unchanged.
+        let plain = admin_job_wire(Err(ProjectError::IndexPublicationFailed.into()));
+        assert_eq!(plain["failure"], "publication_failed");
+        assert!(plain.get("cleanupFailure").is_none());
+        assert!(
+            admin_job_wire(Ok(json!({})))
+                .get("cleanupFailure")
+                .is_none()
+        );
+
+        // A cancelled job has no primary failure but keeps its failed cleanup.
+        let cancelled = admin_job_wire(Err(
+            IndexFailure::from(ProjectError::RequestCancelled).with_failed_cleanup()
+        ));
+        assert_eq!(cancelled["status"], "cancelled");
+        assert!(cancelled.get("failure").is_none());
+        assert_eq!(cancelled["cleanupFailure"]["code"], "index_cleanup_failed");
+    }
+
     #[test]
     fn status_statement_timeout_has_a_stable_public_code_and_remediation() {
         let error = status_storage_error(&StorageError::StatementTimeout {
@@ -29608,7 +29766,7 @@ pub fn target(value: u32) -> u32 {
             intent_summary_tokens("parse token parse AND normalize_value"),
             vec!["parse", "token", "normalize_value"]
         );
-        assert!(intent_summary_tokens("a or xy").is_empty());
+        assert_eq!(intent_summary_tokens("a or xy"), [] as [String; 0]);
         assert_eq!(
             intent_summary_tokens(&vec!["symbol"; INTENT_PRIORITY_MAXIMUM_TOKENS + 5].join(" ")),
             vec!["symbol"]
@@ -29675,7 +29833,7 @@ pub fn target(value: u32) -> u32 {
             .unwrap_or_else(|_| panic!("cancelled maintenance operation did not stop"))
             .unwrap_or_else(|error| panic!("maintenance cancellation task failed: {error}"));
 
-        assert!(matches!(result, Err(ProjectError::RequestCancelled)));
+        assert_matches!(result, Err(ProjectError::RequestCancelled));
         assert!(dropped.load(Ordering::SeqCst));
     }
 
@@ -30014,11 +30172,11 @@ pub fn target(value: u32) -> u32 {
         let evidence = &compact["structuredContent"]["evidence"];
         assert_eq!(evidence["navigation"]["stop"], "low_tokens_requested");
         assert_eq!(evidence["summaryOnly"], false);
-        assert!(
+        assert_eq!(
             evidence["sourceWindows"]
                 .as_array()
-                .unwrap_or_else(|| panic!("source windows"))
-                .is_empty()
+                .unwrap_or_else(|| panic!("source windows")),
+            &[] as &[Value; 0]
         );
         assert!(evidence["packet"]["retrieval"].get("items").is_none());
         assert!(
@@ -30069,10 +30227,10 @@ pub fn target(value: u32) -> u32 {
         )
         .await;
         let low_token_find_evidence = &low_token_find["structuredContent"]["evidence"];
-        assert!(matches!(
+        assert_matches!(
             low_token_find_evidence["execution"].as_str(),
             Some("lexical" | "hybrid")
-        ));
+        );
         assert!(
             low_token_find_evidence["items"]
                 .as_array()
@@ -30832,7 +30990,7 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
                 .unwrap_or_else(|| panic!("role prompt missing"));
             let evidence: Vec<Value> = serde_json::from_str(prompt)
                 .unwrap_or_else(|error| panic!("role evidence JSON failed: {error}"));
-            assert!(!evidence.is_empty());
+            assert_ne!(evidence, [] as [Value; 0]);
             assert!(evidence.iter().all(|item| item["code"].is_string()));
             let roles = evidence
                 .iter()
@@ -30985,7 +31143,7 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
                     let evidence = evidence
                         .as_array()
                         .unwrap_or_else(|| panic!("symbol summary evidence was not an array"));
-                    assert!(!evidence.is_empty());
+                    assert_ne!(evidence, &[] as &[Value; 0]);
                     assert!(evidence.iter().all(|item| item["code"].is_string()));
                     let summaries = evidence
                     .iter()
@@ -31216,11 +31374,9 @@ test("handles an order", () => expect(handleOrder("42")).toContain("42"));
                 if view.status == expected {
                     return view;
                 }
-                assert!(
-                    matches!(
-                        view.status,
-                        AdminJobStatus::Running | AdminJobStatus::Cancelling
-                    ),
+                assert_matches!(
+                    view.status,
+                    AdminJobStatus::Running | AdminJobStatus::Cancelling,
                     "admin job reached unexpected terminal state: expected {expected:?}, got {:?} ({:?})",
                     view.status,
                     view.failure

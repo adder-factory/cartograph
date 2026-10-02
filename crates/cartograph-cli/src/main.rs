@@ -17,9 +17,10 @@ use std::{
 };
 
 use cartograph_agent::{
-    EmbeddingOptions, IndexOptions, IndexReport, ProjectError, ProjectRuntime, ProjectStatus,
-    RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport, SourceContextOptions,
-    SourceContextRequest, WorkingTreeOverlayRequest, semantic_readiness_from_database,
+    EmbeddingOptions, IndexFailure, IndexOptions, IndexReport, ProjectCancellation, ProjectError,
+    ProjectRuntime, ProjectStatus, RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport,
+    SourceContextOptions, SourceContextRequest, WorkingTreeOverlayRequest,
+    semantic_readiness_from_database,
 };
 use cartograph_config::{DATABASE_URL_ENV, DatabaseSettings};
 use cartograph_db::{
@@ -75,10 +76,12 @@ mod install;
 mod llm_commands;
 mod mcp_budget;
 mod mcp_handler;
+mod supervised_index;
 mod upgrade;
 
 use byte_format::format_binary_bytes;
 use graph_export::{DEFAULT_NODE_LIMIT, GraphExportFormat, GraphExportRequest};
+use supervised_index::{CancellableIndex, IndexSupervision, InterruptForwarding};
 
 const MANAGED_DATABASE_PORT_ENV: &str = "CARTOGRAPH_MANAGED_DATABASE_PORT";
 const V1_IMPORT_CONFIRMATION: &str = "import-v1-postgres";
@@ -95,8 +98,10 @@ const DEFAULT_IMPORT_OUTPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_IMPORT_WORKING_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAINTENANCE_LEASE_DURATION: Duration = Duration::from_mins(5);
 const MAINTENANCE_STATEMENT_TIMEOUT: Duration = Duration::from_mins(4);
+/// Longest `sync-if-dirty` waits for other project writers' leases in total.
 const SYNC_IF_DIRTY_LEASE_WAIT: Duration = Duration::from_mins(5);
-const SYNC_IF_DIRTY_LEASE_POLL: Duration = Duration::from_millis(200);
+/// Bound on the post-failure lookup of whether a generation is still current.
+const FAILURE_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAXIMUM_TRANSIENT_FILE_BYTES: usize = 10 * 1024 * 1024;
 const KIBIBYTE: usize = 1_024;
 const MEBIBYTE: usize = KIBIBYTE * KIBIBYTE;
@@ -150,6 +155,13 @@ enum Command {
         /// reconciliation call does not supply replacements.
         #[arg(long, hide = true)]
         preserve_current_excludes: bool,
+        /// Run as the supervised child of `upgrade --apply`: stdin EOF requests
+        /// cooperative cancellation, changed progress is written as JSON lines
+        /// on stderr, other live project writers are awaited within a bound, a
+        /// checkout change after publication is reported instead of rebuilt,
+        /// and the optional Git history refresh is left to the next index.
+        #[arg(long, hide = true)]
+        supervised: bool,
         /// Output format for humans or automation.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
@@ -1057,6 +1069,7 @@ struct IndexArguments {
     force: bool,
     exclude: Vec<String>,
     preserve_current_excludes: bool,
+    supervised: bool,
     format: OutputFormat,
     managed_database_port: Option<u16>,
 }
@@ -1323,6 +1336,7 @@ async fn run_index_command(command: Command) -> Result<ExitCode, String> {
             force,
             exclude,
             preserve_current_excludes,
+            supervised,
             format,
         } => {
             run_index(IndexArguments {
@@ -1331,6 +1345,7 @@ async fn run_index_command(command: Command) -> Result<ExitCode, String> {
                 force,
                 exclude,
                 preserve_current_excludes,
+                supervised,
                 format,
                 managed_database_port: None,
             })
@@ -2735,11 +2750,12 @@ impl AgentInstallContext {
             force: false,
             exclude: Vec::new(),
             preserve_current_excludes: false,
+            supervised: false,
             format: self.format,
             managed_database_port: self.managed_database_port,
         })
         .await
-        .map(|_| ())
+        .and_then(local_index_outcome)
     }
 
     fn install_hooks(&self) {
@@ -3099,6 +3115,23 @@ fn managed_mcp_preflight_error(status: &ManagedDatabaseStatus) -> Option<String>
     ))
 }
 
+/// Message when `install`'s initial index failed after reporting its own
+/// failure (JSON format) or was cancelled.
+const LOCAL_INDEX_INCOMPLETE: &str = "the initial project index did not complete (see the index failure above); install stopped before Git hooks. Rerun `cartograph index <path>`, then rerun install";
+
+/// `install` continues only after its initial index succeeded. A JSON-format
+/// index reports its failure itself and returns a failing exit code instead
+/// of an error, which must stop `install` too.
+fn local_index_outcome(code: ExitCode) -> Result<(), String> {
+    (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_INDEX_INCOMPLETE.to_owned())
+}
+
+/// Run one `cartograph index` request.
+///
+/// An interrupt during the startup (settings, connection, schema migrations),
+/// when nothing could act on a cooperative stop yet, ends the process; only
+/// the cancellable request turns one into a cooperative stop (see
+/// [`supervised_index::run_cancellable_index`]).
 async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
     let IndexArguments {
         project_path,
@@ -3106,27 +3139,57 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
         force,
         exclude,
         preserve_current_excludes,
+        supervised,
         format,
         managed_database_port,
     } = arguments;
-    let settings =
-        resolve_database_settings_with_port(&project_path, managed_database_port).await?;
-    let runtime = ProjectRuntime::connect(&project_path, &settings)
-        .await
-        .map_err(|error| error.to_string())?;
+    let cancellation = ProjectCancellation::new();
+    // Installed before any work and kept for the rest of the process: tokio
+    // never restores a signal's default disposition, and the listener also
+    // replaces a SIGINT disposition inherited as ignored, so every interrupt
+    // is acted on.
+    let interrupts = InterruptForwarding::install(
+        cancellation.clone(),
+        !supervised && matches!(format, OutputFormat::Text),
+    );
+    let supervision = if supervised {
+        supervised_index::cancel_on_stdin_eof(cancellation.clone())?;
+        IndexSupervision::Supervised
+    } else {
+        IndexSupervision::Direct
+    };
+    let runtime = supervised_index::start_up(
+        supervision,
+        connect_index_runtime(&project_path, managed_database_port),
+    )
+    .await?;
     let mut options = if preserve_current_excludes {
         IndexOptions::reconciliation()
     } else {
         IndexOptions::default()
     }
     .with_force(force)
-    .with_additional_excludes(exclude);
+    .with_additional_excludes(exclude)
+    .with_single_publication(supervised);
+    if supervised {
+        // Upgrade reconciliation leaves the optional Git history passes to the
+        // next explicit index, as automatic sync does: their persistence is
+        // unsupervised work that would otherwise extend the supervised run.
+        options = options.with_history_refresh(false);
+    }
     if let Some(workers) = workers {
         options = options
             .with_max_workers(workers)
             .map_err(|error| error.to_string())?;
     }
-    let result = runtime.index(options).await;
+    let result = supervised_index::run_cancellable_index(CancellableIndex {
+        runtime: &runtime,
+        options,
+        cancellation,
+        supervision,
+        interrupts: Some(&interrupts),
+    })
+    .await;
     match result {
         Ok(report) => {
             let rendered = print_index_report(&report, format);
@@ -3134,19 +3197,52 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
             rendered?;
             Ok(ExitCode::SUCCESS)
         }
-        Err(error) if matches!(format, OutputFormat::Json) => {
-            let rendered = error_codes::direct_index_failure_json(&error)
+        Err(failure) if matches!(format, OutputFormat::Json) => {
+            let previous_generation_visible = observed_generation_visibility(&runtime).await;
+            let rendered =
+                error_codes::direct_index_failure_json(error_codes::DirectIndexFailureInput {
+                    failure: &failure,
+                    previous_generation_visible,
+                })
                 .map_err(|_| "could not serialize the index failure".to_owned())?;
             runtime.close().await;
             eprintln!("{rendered}");
             Ok(ExitCode::FAILURE)
         }
-        Err(error) => {
-            let rendered = error_codes::direct_index_failure_message(&error);
+        Err(failure) => {
+            let rendered = error_codes::direct_index_attempt_failure_message(&failure);
             runtime.close().await;
             Err(rendered)
         }
     }
+}
+
+/// The startup of one index request: resolve the database settings, then
+/// connect and apply the append-only schema migrations.
+async fn connect_index_runtime(
+    project_path: &PathBuf,
+    managed_database_port: Option<u16>,
+) -> Result<ProjectRuntime, String> {
+    let settings = resolve_database_settings_with_port(project_path, managed_database_port).await?;
+    ProjectRuntime::connect(project_path, &settings)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Whether readers still see a published generation after a failed index.
+///
+/// `None` means the lookup failed or missed its deadline, so the report says
+/// unknown instead of guessing from the failure kind. The client deadline also
+/// covers connection acquisition, which the statement timeout cannot bound, so
+/// this diagnostic never holds back the already-known primary failure.
+async fn observed_generation_visibility(runtime: &ProjectRuntime) -> Option<bool> {
+    let lookup = runtime
+        .database()
+        .root_has_current_generation(runtime.root_identity(), FAILURE_VISIBILITY_TIMEOUT);
+    tokio::time::timeout(FAILURE_VISIBILITY_TIMEOUT, lookup)
+        .await
+        .ok()
+        .and_then(Result::ok)
 }
 
 async fn run_sync_if_dirty(
@@ -3180,7 +3276,7 @@ async fn run_sync_if_dirty(
     };
     let outcome = sync_if_dirty_index(&runtime, project_id, options)
         .await
-        .map_err(|error| error_codes::direct_index_failure_message(&error))?;
+        .map_err(|failure| error_codes::direct_index_attempt_failure_message(&failure))?;
     if !quiet {
         match outcome {
             SyncIfDirtyIndexOutcome::Indexed { published: true } => {
@@ -3205,56 +3301,45 @@ enum SyncIfDirtyIndexOutcome {
     JoinedCurrentGeneration,
 }
 
+/// Index until an attempt is not refused by another project writer.
+///
+/// After a `lease_busy` attempt it waits, within one bound of
+/// [`SYNC_IF_DIRTY_LEASE_WAIT`] across all attempts, for every live operation
+/// lease on the project to end, then joins a generation that writer already
+/// made current or retries its own index. A bound that expires first reports
+/// that last collision: the retryable `lease_busy`, plus its cleanup failure
+/// if one followed it. An index failure keeps its secondary cleanup failure.
 async fn sync_if_dirty_index(
     runtime: &ProjectRuntime,
     project_id: ProjectId,
     options: IndexOptions,
-) -> Result<SyncIfDirtyIndexOutcome, ProjectError> {
-    let mut wait_deadline = None;
+) -> Result<SyncIfDirtyIndexOutcome, IndexFailure> {
+    let mut writer_wait = None;
     loop {
-        match runtime.index(options.clone()).await {
+        let collision = match runtime.index_with_failure_detail(options.clone()).await {
             Ok(report) => {
                 return Ok(SyncIfDirtyIndexOutcome::Indexed {
                     published: report.published,
                 });
             }
-            Err(ProjectError::IndexLeaseBusy) => {}
-            Err(error) => return Err(error),
+            Err(failure) if matches!(failure.error(), ProjectError::IndexLeaseBusy) => failure,
+            Err(failure) => return Err(failure),
+        };
+
+        let wait = writer_wait.get_or_insert_with(|| {
+            supervised_index::WriterCollisionWait::until(
+                tokio::time::Instant::now() + SYNC_IF_DIRTY_LEASE_WAIT,
+            )
+        });
+        if wait.after_collision(runtime, &project_id).await.is_err() {
+            return Err(collision);
         }
-
-        let deadline = *wait_deadline
-            .get_or_insert_with(|| tokio::time::Instant::now() + SYNC_IF_DIRTY_LEASE_WAIT);
-        let target = LeaseTarget::new(project_id.clone(), ProjectOperation::Index, None);
-        wait_for_competing_index(runtime, &target, deadline).await?;
-
-        let status = tokio::time::timeout_at(deadline, runtime.status())
-            .await
-            .map_err(|_| ProjectError::IndexLeaseFailed)??;
-        if status.fresh {
+        let Ok(status) = tokio::time::timeout_at(wait.deadline(), runtime.status()).await else {
+            return Err(collision);
+        };
+        if status?.fresh {
             return Ok(SyncIfDirtyIndexOutcome::JoinedCurrentGeneration);
         }
-    }
-}
-
-async fn wait_for_competing_index(
-    runtime: &ProjectRuntime,
-    target: &LeaseTarget,
-    deadline: tokio::time::Instant,
-) -> Result<(), ProjectError> {
-    loop {
-        let status = tokio::time::timeout_at(deadline, runtime.database().lease_status(target))
-            .await
-            .map_err(|_| ProjectError::IndexLeaseFailed)?
-            .map_err(|_| ProjectError::IndexLeaseFailed)?;
-        if status
-            .as_ref()
-            .is_none_or(cartograph_db::LeaseStatus::expired)
-        {
-            return Ok(());
-        }
-        tokio::time::timeout_at(deadline, tokio::time::sleep(SYNC_IF_DIRTY_LEASE_POLL))
-            .await
-            .map_err(|_| ProjectError::IndexLeaseFailed)?;
     }
 }
 
@@ -5711,11 +5796,14 @@ fn render_doctor_report(report: &DoctorReport) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use clap::Parser;
 
     mod doctor_llm;
     mod documentation_contract;
+    pub(crate) mod index_cleanup_fixture;
 
     fn walk_cli_contract(
         command: &clap::Command,
@@ -6558,25 +6646,27 @@ mod tests {
                 force,
                 exclude,
                 preserve_current_excludes,
+                supervised,
                 format,
             } => {
                 assert_eq!(project_path, PathBuf::from("workspace"));
                 assert_eq!(workers, Some(4));
                 assert!(force);
-                assert!(exclude.is_empty());
+                assert_eq!(exclude, [] as [String; 0]);
                 assert!(!preserve_current_excludes);
-                assert!(matches!(format, OutputFormat::Json));
+                assert!(!supervised);
+                assert_matches!(format, OutputFormat::Json);
             }
             _ => panic!("index parsed as the wrong command"),
         }
 
         let status = Cli::try_parse_from(["cartograph", "status", "workspace"])
             .unwrap_or_else(|error| panic!("status CLI did not parse: {error}"));
-        assert!(matches!(status.command, Command::Status { .. }));
+        assert_matches!(status.command, Command::Status { .. });
 
         let guide = Cli::try_parse_from(["cartograph", "guide"])
             .unwrap_or_else(|error| panic!("guide CLI did not parse: {error}"));
-        assert!(matches!(guide.command, Command::Guide));
+        assert_matches!(guide.command, Command::Guide);
 
         let serve = Cli::try_parse_from([
             "cartograph",
@@ -6591,7 +6681,7 @@ mod tests {
             "--no-auto-sync",
         ])
         .unwrap_or_else(|error| panic!("serve CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             serve.command,
             Command::Serve {
                 mcp: true,
@@ -6600,7 +6690,7 @@ mod tests {
                 no_auto_sync: true,
                 ..
             }
-        ));
+        );
     }
 
     #[test]
@@ -6691,7 +6781,7 @@ mod tests {
         })
         .await;
 
-        assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
+        assert_matches!(result, Ok(code) if code == ExitCode::SUCCESS);
     }
 
     #[test]
@@ -6735,7 +6825,7 @@ mod tests {
             "workspace",
         ])
         .unwrap_or_else(|error| panic!("show CLI did not parse: {error}"));
-        assert!(matches!(show.command, Command::Show { .. }));
+        assert_matches!(show.command, Command::Show { .. });
 
         let graph_path = generated_cli::parse_from([
             "cartograph",
@@ -6828,7 +6918,7 @@ mod tests {
             "55435",
         ])
         .unwrap_or_else(|error| panic!("install CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             install.command,
             Command::Install {
                 target: Some(ref target),
@@ -6836,7 +6926,7 @@ mod tests {
                 yes: true,
                 ..
             } if target == "codex"
-        ));
+        );
 
         let llm_install = Cli::try_parse_from([
             "cartograph",
@@ -6861,24 +6951,24 @@ mod tests {
             "--database-ssl",
         ])
         .unwrap_or_else(|error| panic!("LLM install compatibility CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             llm_install.command,
             Command::Llm {
                 command: llm_commands::LlmCommand::Install(_)
             }
-        ));
+        );
     }
 
     #[test]
     fn cli_parses_database_lifecycle_and_maintenance_commands() {
         let database = Cli::try_parse_from(["cartograph", "db", "start"])
             .unwrap_or_else(|error| panic!("database start CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             database.command,
             Command::Db {
                 command: DatabaseCommand::Start(DatabaseStartArguments { port: None, .. })
             }
-        ));
+        );
 
         let import = Cli::try_parse_from([
             "cartograph",
@@ -6889,7 +6979,7 @@ mod tests {
             "--dry-run",
         ])
         .unwrap_or_else(|error| panic!("database import CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             import.command,
             Command::Db {
                 command: DatabaseCommand::ImportV1(V1ImportArguments {
@@ -6899,7 +6989,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
         assert!(
             Cli::try_parse_from([
                 "cartograph",
@@ -6926,12 +7016,12 @@ mod tests {
             "json",
         ])
         .unwrap_or_else(|error| panic!("database usage CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             usage.command,
             Command::Db {
                 command: DatabaseCommand::Usage(DatabaseUsageArguments { limit: 32, .. })
             }
-        ));
+        );
 
         let compact = Cli::try_parse_from([
             "cartograph",
@@ -6944,7 +7034,7 @@ mod tests {
             "1073741824",
         ])
         .unwrap_or_else(|error| panic!("database compact CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             compact.command,
             Command::Db {
                 command: DatabaseCommand::Compact(DatabaseCompactArguments {
@@ -6954,7 +7044,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
         assert!(
             Cli::try_parse_from([
                 "cartograph",
@@ -6981,7 +7071,7 @@ mod tests {
             RETENTION_CONFIRMATION,
         ])
         .unwrap_or_else(|error| panic!("database prune CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             prune.command,
             Command::Db {
                 command: DatabaseCommand::Prune(PruneArguments {
@@ -6990,7 +7080,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
         for invalid in ["0", "68719476737"] {
             assert!(
                 Cli::try_parse_from([
@@ -7033,7 +7123,7 @@ mod tests {
             "1073741824",
         ])
         .unwrap_or_else(|error| panic!("database heap compact CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             heap.command,
             Command::Db {
                 command: DatabaseCommand::Compact(DatabaseCompactArguments {
@@ -7044,7 +7134,7 @@ mod tests {
                     ..
                 })
             }
-        ));
+        );
     }
 
     #[test]
@@ -7058,12 +7148,12 @@ mod tests {
             "summarize=CARTOGRAPH_CHAT_KEY",
         ])
         .unwrap_or_else(|error| panic!("credential migration CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             credential_migration.command,
             Command::Llm {
                 command: llm_commands::LlmCommand::MigrateCredentials(_)
             }
-        ));
+        );
 
         let backend_cleanup = Cli::try_parse_from([
             "cartograph",
@@ -7074,12 +7164,12 @@ mod tests {
             "48",
         ])
         .unwrap_or_else(|error| panic!("backend cleanup CLI did not parse: {error}"));
-        assert!(matches!(
+        assert_matches!(
             backend_cleanup.command,
             Command::Backend {
                 command: backend::BackendCommand::Cleanup(_)
             }
-        ));
+        );
     }
 
     #[test]

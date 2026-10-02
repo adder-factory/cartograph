@@ -829,11 +829,7 @@ fn selected_step(
 }
 
 fn bounded_signature(signature: &str) -> String {
-    let mut end = signature.len().min(SIGNATURE_TEXT_LIMIT);
-    while !signature.is_char_boundary(end) {
-        end -= 1;
-    }
-    signature[..end].to_owned()
+    signature[..signature.floor_char_boundary(SIGNATURE_TEXT_LIMIT)].to_owned()
 }
 
 #[cfg(test)]

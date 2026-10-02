@@ -1254,7 +1254,9 @@ const fn is_identifier_byte(byte: u8) -> bool {
 }
 
 fn contains_jwt_literal(text: &str) -> bool {
-    text.as_bytes().windows(3).any(|window| window == b"eyJ")
+    text.as_bytes()
+        .array_windows()
+        .any(|window| window == b"eyJ")
 }
 
 fn contains_aws_access_key_literal(text: &str) -> bool {
@@ -2862,16 +2864,11 @@ fn push_cancellable(
 
 pub(super) fn unquote(raw: &str) -> &str {
     let trimmed = raw.trim();
-    let bytes = trimmed.as_bytes();
-    if bytes.len() >= 2
-        && matches!(
-            (bytes.first(), bytes.last()),
-            (Some(b'\''), Some(b'\'')) | (Some(b'"'), Some(b'"')) | (Some(b'`'), Some(b'`'))
-        )
-    {
-        return &trimmed[1..trimmed.len() - 1];
-    }
     trimmed
+        .strip_circumfix('\'', '\'')
+        .or_else(|| trimmed.strip_circumfix('"', '"'))
+        .or_else(|| trimmed.strip_circumfix('`', '`'))
+        .unwrap_or(trimmed)
 }
 
 pub(crate) fn collect_diagnostics(
@@ -3041,6 +3038,7 @@ fn text_for<'source>(source: &'source str, node: Node<'_>) -> &'source str {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::fmt::Write as _;
 
     use tree_sitter::Parser;
@@ -3080,7 +3078,7 @@ mod tests {
             polls > FLAT_CANCEL_AFTER_POLLS
         });
 
-        assert!(matches!(result, Err(ExtractError::Cancelled)));
+        assert_matches!(result, Err(ExtractError::Cancelled));
         assert_eq!(polls, FLAT_EXPECTED_POLLS);
     }
 
@@ -3101,7 +3099,7 @@ mod tests {
             polls > LARGE_CANCEL_AFTER_POLLS
         });
 
-        assert!(matches!(result, Err(ExtractError::Cancelled)));
+        assert_matches!(result, Err(ExtractError::Cancelled));
         assert_eq!(polls, LARGE_EXPECTED_POLLS);
     }
 

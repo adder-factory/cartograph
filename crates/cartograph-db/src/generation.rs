@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use crate::{
     CartographDatabase, CurrentGenerationLookup, LeaseFence, StorageError,
-    database::audited_query,
+    database::{audited_query, classify_statement_error},
     ingest::{
         CanonicalGenerationFacts, CopyGenerationAttempt, CopyGenerationContext,
         CopyGenerationRequest, CopyTableDurations, copy_generation_facts,
@@ -524,10 +524,12 @@ pub struct PrepareGenerationMetrics {
     inner: Arc<PrepareGenerationMetricsInner>,
 }
 
-/// Cloneable monotonic evidence that a durable prepare operation completed bounded work.
+/// Cloneable monotonic evidence that a durable prepare operation completed
+/// bounded work, and the owner's request that it stop.
 #[derive(Clone, Default)]
 pub struct PrepareGenerationProgress {
     sequence: Arc<AtomicU64>,
+    cancelled: Arc<AtomicBool>,
 }
 
 /// Point-in-time prepare metrics retained after the generation contents move.
@@ -594,13 +596,42 @@ impl PrepareGenerationProgress {
         self.sequence.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn advance(&self) {
-        let _ = self
-            .sequence
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                Some(value.saturating_add(1))
-            });
+    /// Ask the prepare that shares this observer to stop at its next
+    /// cancellation check: the step in flight finishes (each is bounded by
+    /// the prepare statement timeout), then the whole transaction rolls back
+    /// instead of running every remaining COPY, derived-relation, evidence,
+    /// and `ANALYZE` step. Checks sit between those steps and between the
+    /// heavy validation reads; short lock, fence, and state statements
+    /// between two checks still run.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
     }
+
+    /// Record one completed step, then fail when the owner asked the prepare
+    /// to stop, so the caller rolls the transaction back.
+    pub(crate) fn advance(&self) -> Result<(), StorageError> {
+        self.sequence
+            .update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.saturating_add(1)
+            });
+        self.ensure_active()
+    }
+
+    /// Fail when the owner asked the prepare to stop; checked between the
+    /// statements of one multi-statement step.
+    pub(crate) fn ensure_active(&self) -> Result<(), StorageError> {
+        if self.cancelled.load(Ordering::Relaxed) {
+            return Err(database_error("prepare-cancelled"));
+        }
+        Ok(())
+    }
+}
+
+/// Check an optional prepare observer between statements of one step.
+pub(crate) fn ensure_prepare_active(
+    progress: Option<&PrepareGenerationProgress>,
+) -> Result<(), StorageError> {
+    progress.map_or(Ok(()), PrepareGenerationProgress::ensure_active)
 }
 
 fn observed_duration(value: &AtomicU64) -> Duration {
@@ -915,6 +946,9 @@ impl CartographDatabase {
     ///
     /// Returns an error if the deadline is invalid, the advisory lock fails,
     /// or PostgreSQL cannot prove and terminalize the exact unleased staging row.
+    /// A project lock wait that exceeds `statement_timeout` is
+    /// [`StorageError::StatementTimeout`]: another project writer still holds
+    /// the project lock, so the row is left for a later bounded retry.
     pub async fn fail_unleased_staging_generation_bounded(
         &self,
         request: GenerationRecoveryRequest<'_>,
@@ -940,9 +974,12 @@ impl CartographDatabase {
             .bind(project_lock_key(&self.schema, request.project_id))
             .execute(&mut *transaction)
             .await;
-        if lock.is_err() {
+        if let Err(error) = lock {
             return match transaction.rollback().await {
-                Ok(()) => Err(database_error("fail-unleased-staging-lock")),
+                Ok(()) => Err(classify_statement_error(
+                    &error,
+                    "fail-unleased-staging-lock",
+                )),
                 Err(_) => Err(database_error("fail-unleased-staging-rollback")),
             };
         }
@@ -990,7 +1027,10 @@ impl CartographDatabase {
     /// # Errors
     ///
     /// Returns an error if the timeout is invalid, the project lock cannot be
-    /// acquired, or the exact guarded update cannot commit.
+    /// acquired, or the exact guarded update cannot commit. A project lock wait
+    /// that exceeds `statement_timeout` is [`StorageError::StatementTimeout`]:
+    /// another project writer still holds the project lock, which callers
+    /// report as contention rather than as a cleanup failure.
     pub async fn fail_abandoned_staging_generations_bounded(
         &self,
         project_id: &ProjectId,
@@ -1016,9 +1056,12 @@ impl CartographDatabase {
             .bind(project_lock_key(&self.schema, project_id))
             .execute(&mut *transaction)
             .await;
-        if lock.is_err() {
+        if let Err(error) = lock {
             return match transaction.rollback().await {
-                Ok(()) => Err(database_error("fail-abandoned-staging-lock")),
+                Ok(()) => Err(classify_statement_error(
+                    &error,
+                    "fail-abandoned-staging-lock",
+                )),
                 Err(_) => Err(database_error("fail-abandoned-staging-rollback")),
             };
         }
@@ -1942,7 +1985,7 @@ async fn prepare_transaction(
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
     rebuild_generation_search_relation(
         connection,
         GenerationSearchBuild {
@@ -1950,10 +1993,11 @@ async fn prepare_transaction(
             project_id: input.generation.project_id(),
             generation_id: input.generation.generation_id(),
             content_digest: &content_digest,
+            progress: input.progress,
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
     carry_forward_unchanged_generation_evidence(
         connection,
         GenerationEvidenceCarry {
@@ -1965,9 +2009,9 @@ async fn prepare_transaction(
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
-    analyze_copied_relations(connection, input.schema).await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
+    analyze_copied_relations(connection, input.schema, input.progress).await?;
+    advance_prepare_progress(input.progress)?;
     mark_generation_ready(
         connection,
         ReadyTransition {
@@ -1980,7 +2024,7 @@ async fn prepare_transaction(
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
     Ok(())
 }
 
@@ -2014,7 +2058,9 @@ async fn validate_spilled_prepare_authority(
         FenceCheck::Observe,
     )
     .await?;
+    ensure_prepare_active(input.progress)?;
     lock_generation_mutation(connection, input.schema, input.fence).await?;
+    ensure_prepare_active(input.progress)?;
     check_generation_fence(connection, input.schema, input.fence).await?;
     validate_generation_state(
         connection,
@@ -2028,6 +2074,7 @@ async fn validate_spilled_prepare_authority(
         FenceCheck::Observe,
     )
     .await?;
+    ensure_prepare_active(input.progress)?;
     let spill_sql = format!(
         r#"SELECT phase
             FROM {quoted_schema}."native_generation_spills"
@@ -2054,6 +2101,7 @@ async fn validate_spilled_prepare_authority(
             requested: "canonicalized",
         });
     }
+    ensure_prepare_active(input.progress)?;
     let counts = canonical_fact_counts(
         connection,
         crate::spill::SpillScope {
@@ -2074,7 +2122,7 @@ async fn finalize_spilled_prepare(
     input: &SpilledPrepareTransactionInput<'_>,
     quoted_schema: &str,
 ) -> Result<(), StorageError> {
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
     rebuild_generation_search_relation(
         connection,
         GenerationSearchBuild {
@@ -2082,10 +2130,11 @@ async fn finalize_spilled_prepare(
             project_id: input.generation.project_id(),
             generation_id: input.generation.generation_id(),
             content_digest: input.digest.digest(),
+            progress: input.progress,
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
     carry_forward_unchanged_generation_evidence(
         connection,
         GenerationEvidenceCarry {
@@ -2097,9 +2146,9 @@ async fn finalize_spilled_prepare(
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
-    analyze_copied_relations(connection, input.schema).await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
+    analyze_copied_relations(connection, input.schema, input.progress).await?;
+    advance_prepare_progress(input.progress)?;
     let delete_spill = format!(
         r#"DELETE FROM {quoted_schema}."native_generation_spills"
             WHERE project_id = CAST($1 AS uuid)
@@ -2114,6 +2163,7 @@ async fn finalize_spilled_prepare(
     if deleted.rows_affected() != 1 {
         return Err(StorageError::GenerationSpillConflict);
     }
+    ensure_prepare_active(input.progress)?;
     mark_generation_ready(
         connection,
         ReadyTransition {
@@ -2126,14 +2176,14 @@ async fn finalize_spilled_prepare(
         },
     )
     .await?;
-    advance_prepare_progress(input.progress);
+    advance_prepare_progress(input.progress)?;
     Ok(())
 }
 
-fn advance_prepare_progress(progress: Option<&PrepareGenerationProgress>) {
-    if let Some(progress) = progress {
-        progress.advance();
-    }
+fn advance_prepare_progress(
+    progress: Option<&PrepareGenerationProgress>,
+) -> Result<(), StorageError> {
+    progress.map_or(Ok(()), PrepareGenerationProgress::advance)
 }
 
 async fn mark_generation_ready(
@@ -2196,22 +2246,20 @@ async fn mark_generation_ready(
         .execute(&mut *connection)
         .await
         .map_err(|_| database_error("mark-generation-ready"))?;
-    if result.rows_affected() == 1 {
-        Ok(())
-    } else {
-        Err(StorageError::InvalidGenerationTransition {
-            actual: "changed concurrently".to_owned(),
-            requested: GenerationState::Ready.as_str(),
-        })
-    }
+    (result.rows_affected() == 1).ok_or_else(|| StorageError::InvalidGenerationTransition {
+        actual: "changed concurrently".to_owned(),
+        requested: GenerationState::Ready.as_str(),
+    })
 }
 
 async fn analyze_copied_relations(
     connection: &mut PgConnection,
     schema: &cartograph_config::DatabaseSchema,
+    progress: Option<&PrepareGenerationProgress>,
 ) -> Result<(), StorageError> {
     let quoted_schema = crate::database::quoted_schema(schema);
     for (relation, columns) in COPIED_RELATION_PLANNER_COLUMNS {
+        ensure_prepare_active(progress)?;
         let statement = format!(r#"ANALYZE {quoted_schema}."{relation}" ({columns})"#);
         audited_query(statement)
             .execute(&mut *connection)
@@ -2486,11 +2534,12 @@ async fn carry_forward_unchanged_generation_evidence(
         generation,
         content_digest,
         digest_version,
-        ..
+        progress,
     } = input;
     let project_id = generation.project_id().as_str();
     let generation_id = generation.generation_id().as_str();
 
+    ensure_prepare_active(progress)?;
     let coverage =
         include_str!("sql/generation_carry_coverage.sql").replace("{quoted_schema}", quoted_schema);
     audited_query(coverage)
@@ -2504,6 +2553,7 @@ async fn carry_forward_unchanged_generation_evidence(
     // identical. Partial carry-forward would preserve stale ranks after a
     // neighbor changed; omitting the build metadata intentionally makes reads
     // fall back to authoritative live pgvector search instead.
+    ensure_prepare_active(progress)?;
     let similarity_edges = include_str!("sql/generation_carry_similarity_edges.sql")
         .replace("{quoted_schema}", quoted_schema);
     audited_query(similarity_edges)
@@ -2514,6 +2564,7 @@ async fn carry_forward_unchanged_generation_evidence(
         .execute(&mut *connection)
         .await
         .map_err(|_| database_error("prepare-carry-similarity-edges"))?;
+    ensure_prepare_active(progress)?;
     let similarity_builds = include_str!("sql/generation_carry_similarity_builds.sql")
         .replace("{quoted_schema}", quoted_schema);
     audited_query(similarity_builds)
@@ -2566,7 +2617,7 @@ async fn carry_forward_embeddings(
             .map_err(|_| database_error("prepare-carry-embeddings"))?;
         let page = EmbeddingCarryPage::decode(&row)?;
         carried = carried.saturating_add(page.carried);
-        advance_prepare_progress(input.progress);
+        advance_prepare_progress(input.progress)?;
         if page.scanned < EMBEDDING_CARRY_BATCH_DOCUMENTS {
             return Ok(carried);
         }
@@ -2706,11 +2757,7 @@ pub(crate) async fn check_staging_generation_fence(
         .await
         .map_err(|_| database_error("check-staging-generation-fence"))?
         .is_some();
-    if live {
-        Ok(())
-    } else {
-        Err(StorageError::LeaseFenceLost)
-    }
+    live.ok_or(StorageError::LeaseFenceLost)
 }
 
 async fn require_generation_fence(
@@ -2740,11 +2787,7 @@ async fn require_generation_fence(
         .fetch_optional(connection)
         .await
         .map_err(|_| database_error(input.check.operation()))?;
-    if row.is_some() {
-        Ok(())
-    } else {
-        Err(StorageError::LeaseFenceLost)
-    }
+    row.is_some().ok_or(StorageError::LeaseFenceLost)
 }
 
 async fn lock_generation_mutation(
@@ -2801,11 +2844,7 @@ async fn delete_generation_fence(
         .execute(connection)
         .await
         .map_err(|_| database_error("delete-generation-fence"))?;
-    if deleted.rows_affected() == 1 {
-        Ok(())
-    } else {
-        Err(StorageError::LeaseFenceLost)
-    }
+    (deleted.rows_affected() == 1).ok_or(StorageError::LeaseFenceLost)
 }
 
 fn fence_matches_generation(
@@ -3170,8 +3209,23 @@ mod tests {
         let progress = PrepareGenerationProgress::new();
         let observed = progress.clone();
         assert_eq!(observed.sequence(), 0);
-        progress.advance();
-        progress.advance();
+        assert!(progress.advance().is_ok());
+        assert!(progress.advance().is_ok());
         assert_eq!(observed.sequence(), 2);
+    }
+
+    #[test]
+    fn a_cancelled_prepare_fails_its_next_statement_boundary() {
+        let prepare = PrepareGenerationProgress::new();
+        let owner = prepare.clone();
+        assert!(prepare.advance().is_ok());
+        owner.cancel();
+        // The step that just finished still counts as progress, but the
+        // prepare must roll back instead of starting another statement.
+        assert_eq!(
+            prepare.advance(),
+            Err(super::database_error("prepare-cancelled"))
+        );
+        assert_eq!(owner.sequence(), 2);
     }
 }

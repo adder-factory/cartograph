@@ -352,20 +352,20 @@ where
     for row in batch.rows {
         if let Some(rows) = statements.push(encode(&context, &row)) {
             copy_text_rows(connection, &spec, rows).await?;
-            advance_prepare_progress(prepare_progress);
+            advance_prepare_progress(prepare_progress)?;
         }
     }
     if let Some(rows) = statements.finish() {
         copy_text_rows(connection, &spec, rows).await?;
-        advance_prepare_progress(prepare_progress);
+        advance_prepare_progress(prepare_progress)?;
     }
     Ok(())
 }
 
-fn advance_prepare_progress(progress: Option<&PrepareGenerationProgress>) {
-    if let Some(progress) = progress {
-        progress.advance();
-    }
+fn advance_prepare_progress(
+    progress: Option<&PrepareGenerationProgress>,
+) -> Result<(), StorageError> {
+    progress.map_or(Ok(()), PrepareGenerationProgress::advance)
 }
 
 async fn copy_text_rows<I>(

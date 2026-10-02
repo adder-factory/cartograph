@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-10-01 (`v2.1.34`).
+Last implementation review: 2026-10-02 (`v2.1.35`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -365,6 +365,38 @@ Write-bearing operations acquire a project/operation lease with:
 An expired/replaced lease fails the operation and rolls back. Cleanup/release
 errors cannot mask the primary lost-fence error.
 
+The indexer supervisor runs pipeline work, lease renewal, and its monitor as
+separate tasks. Renewal is woken only by its own interval timer, its bounded
+heartbeat request, and a stop signal, so a long synchronous pipeline section
+cannot delay the heartbeat. The monitor never polls work inline, so none of its
+branches can wait on progress state that a suspended work future already holds
+a pending acquisition for. An in-flight heartbeat verdict, a cancellation
+request, the work deadline, and a progress stall still take precedence over
+work completion, as before: whenever a heartbeat overlapped the monitor's wait
+for the event it accepts, even one that finished just before the acceptance,
+the monitor re-checks them once that heartbeat is done. Whole-graph CPU
+sections of the spilled resolver run under `block_in_place` so they do not hold
+an async worker.
+
+Aborting a task cannot interrupt such a synchronous section. Cancelled work
+gets the cooperative signal and its grace; if the work is still inside a
+section after that, the supervisor waits up to one COPY timeout for the section
+to end, never past the operation's reap ceiling (the operation deadline minus
+the database finish reserve), before it reaps registered workers and runs the
+normal owned cleanup. That is the reap allowance the
+finish reserve keeps after the grace, and configuration validation keeps it,
+with the grace, one heartbeat interval, and the database finish reserve, inside
+one lease duration. While it waits, the lease keeps being renewed when
+publication or owned cleanup can still follow, but not after lease loss or an
+uncertain heartbeat; registered workers are reaped as soon as the work is gone,
+without waiting for that renewal to settle. If that renewal loses the lease or
+cannot vouch for it, the cancellation stays the primary outcome: the cleanup
+heartbeat re-verifies ownership before any mutation and, without a confirmed
+token, cleanup only reconciles and reports its failure beside the cancellation.
+Work that is still running when the allowance ends is reported as unreaped and
+its owned cleanup is skipped, so renewal stops, the lease expires, and the next
+writer recovers the staging generation.
+
 ## BM25 and exact retrieval
 
 The covering search document includes project/generation/file/symbol identity,
@@ -590,21 +622,23 @@ maintenance step and report whether it completed or was deferred.
 Terminal failure cleanup also deletes the exact generation's PostgreSQL spill
 root in the same fenced transaction. Its cascaded staging payload becomes
 reusable immediately instead of remaining live until a later prune.
-Pre-supervisor failures terminalize
-their exact staging generation under the same project advisory lock used by
-lease acquisition. A later batch can collect staging only when it is old,
-unleased, and not referenced by an incomplete import. Ready work becomes
-eligible only after a longer age floor when it is unleased, non-current, and
-outside import recovery. `db prune` uses the same bounded engine for larger
-explicit batches of stale staging/ready, failed, and old superseded generations,
-always preserving current, recent/leased work, import recovery state, and
-configured recent histories. Its generation-count limit is independent from
-the 64-derived-relation DDL cap, so relation-free failed backlogs can use the
-full requested bounded batch. Retention locks
-publication, rechecks its exact migration lease before commit, drops selected
-derived BM25 relations transactionally, and reports admitted cascade rows,
-relation count, and physical relation bytes. Status and doctor expose all
-generation-state counts and a conservative retained-byte estimate.
+Pre-supervisor failures attempt to
+terminalize their exact staging generation under the same project advisory lock
+used by lease acquisition; when that lock stays held past the bounded cleanup
+wait, the generation stays `staging` and the next writer's recovery fails it.
+A later batch can collect staging only when it is old, unleased, and not
+referenced by an incomplete import. Ready work becomes eligible only after a
+longer age floor when it is unleased, non-current, and outside import recovery.
+`db prune` uses the same bounded engine for larger explicit batches of stale
+staging/ready, failed, and old superseded generations, always preserving
+current, recent/leased work, import recovery state, and configured recent
+histories. Its generation-count limit is independent from the
+64-derived-relation DDL cap, so relation-free failed backlogs can use the full
+requested bounded batch. Retention locks publication, rechecks its exact
+migration lease before commit, drops selected derived BM25 relations
+transactionally, and reports admitted cascade rows, relation count, and physical
+relation bytes. Status and doctor expose all generation-state counts and a
+conservative retained-byte estimate.
 
 Routine status reads compact whole-database and schema heap/index/TOAST totals
 under a separate five-second bound and preserves the rest of status if those

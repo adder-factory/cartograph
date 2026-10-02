@@ -69,7 +69,7 @@ fn computed_dynamic_imports_never_invent_static_bindings() {
         "src/computed.ts",
         "export async function load(name: string) { const module = await import(name); return module; }\n",
     );
-    assert!(extracted.import_bindings.is_empty());
+    assert_eq!(extracted.import_bindings, []);
     assert!(extracted.references.iter().all(|reference| {
         reference.name != "import" && reference.kind != ReferenceKind::Imports
     }));

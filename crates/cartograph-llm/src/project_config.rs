@@ -2686,6 +2686,8 @@ fn write_config_value_if_unchanged(
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use std::{
         fs,
@@ -3071,10 +3073,10 @@ mod tests {
             r#"{"llm":{"embeddingLlm":{"provider":"anthropic-api","model":"invalid"}}}"#,
         )
         .unwrap_or_else(|error| panic!("invalid provider fixture failed: {error}"));
-        assert!(matches!(
+        assert_matches!(
             load_project_llm_tier(root.path(), ProjectLlmTier::Embedding),
             Err(ProjectLlmConfigError::InvalidTier)
-        ));
+        );
     }
 
     #[test]
@@ -3219,10 +3221,10 @@ mod tests {
             r#"{"llm":{"minBodyLinesByKind":{"method":-1}}}"#,
         )
         .unwrap_or_else(|error| panic!("invalid summary fixture failed: {error}"));
-        assert!(matches!(
+        assert_matches!(
             load_project_summary_settings(root.path()),
             Err(ProjectLlmConfigError::InvalidConfig)
-        ));
+        );
     }
 
     #[test]

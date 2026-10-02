@@ -81,10 +81,10 @@ async fn cache_retention_survives_generation_failure_and_protects_the_exact_poli
         .index(options)
         .await
         .unwrap_or_else(|error| panic!("maintenance recovery failed: {error}"));
-    assert!(matches!(
+    assert_matches!(
         recovered.retention,
         GenerationRetentionStatus::Completed { .. }
-    ));
+    );
     let usage = runtime
         .database()
         .storage_usage(&first.project_id, 10, Duration::from_secs(10))
@@ -169,8 +169,9 @@ async fn automatic_index_drains_failed_generations_before_reserving_another() {
     // Cleanup progresses but cannot finish in one bounded attempt, so the
     // automatic attempt defers instead of reserving another generation.
     let deferred = runtime.index(IndexOptions::automatic()).await;
-    assert!(
-        matches!(deferred, Err(ProjectError::IndexRetentionBacklog)),
+    assert_matches!(
+        deferred,
+        Err(ProjectError::IndexRetentionBacklog),
         "automatic indexing reserved a generation over a draining backlog: {deferred:?}"
     );
     assert_eq!(reserved().await, 0);

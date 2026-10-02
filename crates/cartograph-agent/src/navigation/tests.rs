@@ -1,3 +1,4 @@
+use std::assert_matches;
 use std::{
     fmt::Write as _,
     sync::atomic::{AtomicUsize, Ordering},
@@ -420,8 +421,9 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
     verify_native_evidence_and_candidate_kinds(&runtime, &project, &packet).await;
     let mut nav = navigator(&runtime, &project, &packet);
     let changed = nav.run_bounded(&ChangedSource { root: root.path() }).await;
-    assert!(
-        matches!(changed, Err(ProjectError::SourceContextUnavailable)),
+    assert_matches!(
+        changed,
+        Err(ProjectError::SourceContextUnavailable),
         "changed source result: {changed:?}"
     );
     runtime
@@ -429,10 +431,10 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
         .await
         .unwrap_or_else(|e| panic!("new generation: {e}"));
     let mut nav = navigator(&runtime, &project, &packet);
-    assert!(matches!(
+    assert_matches!(
         nav.run_bounded(&Pending).await,
         Err(ProjectError::SourceContextUnavailable)
-    ));
+    );
     verify_truncation(&runtime, root.path(), &project).await;
     runtime.close().await;
     guard
@@ -547,7 +549,7 @@ async fn verify_native_evidence_and_candidate_kinds(
             .all(|step| matches!(step.action, Action::Finish) && step.completed),
         "an unexecuted chosen operation must not be reported"
     );
-    assert!(sufficient.ledger.report.source_windows.is_empty());
+    assert_eq!(sufficient.ledger.report.source_windows, []);
     let mut nav = Navigator::new(runtime, request, ProjectCancellation::new());
     nav.run_bounded(&NativeEvidenceProbe)
         .await
@@ -578,7 +580,7 @@ async fn verify_native_and_outage(
             .await
             .unwrap_or_else(|e| panic!("native: {e}"));
         assert_eq!(result.stop, stop);
-        assert!(result.source_windows.is_empty());
+        assert_eq!(result.source_windows, []);
     }
     for error_after_read in [false, true] {
         let mut nav = navigator(runtime, project, packet);
@@ -622,10 +624,10 @@ async fn verify_cancel_and_deadline(
     packet: &ContextPacket,
 ) {
     let mut nav = navigator(runtime, project, packet);
-    assert!(matches!(
+    assert_matches!(
         nav.run_with_deadline(&Pending, SHORT_DEADLINE).await,
         Err(ProjectError::SourceContextUnavailable)
-    ));
+    );
     let mut nav = navigator(runtime, project, packet);
     let cancellation = nav.caller_cancellation.clone();
     let cancel = async {
@@ -633,7 +635,7 @@ async fn verify_cancel_and_deadline(
         cancellation.cancel();
     };
     let (result, ()) = tokio::join!(nav.run_bounded(&Pending), cancel);
-    assert!(matches!(result, Err(ProjectError::RequestCancelled)));
+    assert_matches!(result, Err(ProjectError::RequestCancelled));
 
     let held = runtime
         .source_scan_permits
@@ -641,23 +643,17 @@ async fn verify_cancel_and_deadline(
         .acquire_owned()
         .await
         .unwrap_or_else(|e| panic!("scan admission: {e}"));
-    let observations = runtime.source_scan_observations.load(Ordering::Relaxed);
+    let observations = runtime.source_scan_observations();
     let mut nav = navigator(runtime, project, packet);
     let result = tokio::time::timeout(
         Duration::from_secs(1),
         nav.run_with_deadline(&Pending, SHORT_DEADLINE),
     )
     .await;
-    assert!(matches!(
-        result,
-        Ok(Err(ProjectError::SourceContextUnavailable))
-    ));
+    assert_matches!(result, Ok(Err(ProjectError::SourceContextUnavailable)));
     assert!(nav.cancellation.is_cancelled());
     assert!(!nav.caller_cancellation.is_cancelled());
-    assert_eq!(
-        runtime.source_scan_observations.load(Ordering::Relaxed),
-        observations
-    );
+    assert_eq!(runtime.source_scan_observations(), observations);
     drop(held);
     assert_eq!(runtime.source_scan_permits.available_permits(), 1);
 }
@@ -677,7 +673,7 @@ async fn verify_stop_conditions(
             .await
             .unwrap_or_else(|e| panic!("terminal decision: {e}"));
         assert_eq!(nav.ledger.report.stop, expected);
-        assert!(nav.ledger.report.source_windows.is_empty());
+        assert_eq!(nav.ledger.report.source_windows, []);
         if choice == "not_offered" {
             assert_eq!(
                 nav.ledger.report.provider_error,
@@ -701,10 +697,10 @@ async fn verify_stop_conditions(
         "invalid\0task".to_owned(),
         "x".repeat(cartograph_search::CONTEXT_QUERY_MAXIMUM_BYTES + 1),
     ] {
-        assert!(matches!(
-            NavigationRequest::new(project, &task, packet),
-            Err(ProjectError::InvalidOptions)
-        ));
+        assert_matches!(
+            NavigationRequest::new(project, &task, packet).err(),
+            Some(ProjectError::InvalidOptions)
+        );
     }
     std::fs::create_dir_all(runtime.root.join(".cartograph"))
         .unwrap_or_else(|e| panic!("config directory: {e}"));
@@ -777,10 +773,7 @@ async fn deadline_cancels_and_joins_an_active_source_worker_before_returning() {
     release
         .send(())
         .unwrap_or_else(|e| panic!("worker release: {e}"));
-    assert!(matches!(
-        task.await,
-        Ok(Err(ProjectError::SourceContextUnavailable))
-    ));
+    assert_matches!(task.await, Ok(Err(ProjectError::SourceContextUnavailable)));
     assert_eq!(permits.available_permits(), 1);
     assert!(!caller.is_cancelled());
 }

@@ -641,7 +641,7 @@ fn assert_clean(extracted: &ExtractedFile) {
         "facts={:?}",
         canonical_facts(extracted),
     );
-    assert!(extracted.import_bindings.is_empty());
+    assert_eq!(extracted.import_bindings, []);
     assert_unique_ids(extracted);
     let rendered = format!("{extracted:?}");
     for forbidden in [

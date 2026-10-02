@@ -61,12 +61,8 @@ pub(super) fn description_from_context(
     };
     let raw = context.text(description).trim();
     let stripped = raw
-        .strip_prefix("\"\"\"")
-        .and_then(|value| value.strip_suffix("\"\"\""))
-        .or_else(|| {
-            raw.strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-        })
+        .strip_circumfix("\"\"\"", "\"\"\"")
+        .or_else(|| raw.strip_circumfix('"', '"'))
         .unwrap_or(raw)
         .trim();
     if stripped.is_empty() {

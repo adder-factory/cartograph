@@ -260,6 +260,8 @@ fn decode_response(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::assert_matches;
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -460,8 +462,9 @@ mod tests {
                 failure: crate::CredentialCommandFailure::Exited { code: Some(2) },
             })
         );
-        assert!(
-            matches!(unused.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        assert_matches!(
+            unused.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
         );
     }
 

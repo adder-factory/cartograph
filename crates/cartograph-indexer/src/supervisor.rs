@@ -16,7 +16,7 @@ use cartograph_domain::{ContentDigest, GenerationId, NormalizedPath, ProjectId};
 use thiserror::Error;
 use tokio::{
     sync::watch,
-    time::{Instant, MissedTickBehavior, interval_at, sleep_until, timeout_at},
+    time::{Instant, sleep_until, timeout_at},
 };
 
 use crate::{
@@ -27,8 +27,14 @@ use crate::{
     task_scope::{ReapReport, TaskScope},
 };
 
-const HEARTBEAT_DATABASE_ATTEMPTS: u8 = 3;
-const MIN_HEARTBEAT_RETRY_BUDGET: Duration = Duration::from_secs(1);
+mod lease_keeper;
+mod root_work;
+
+use lease_keeper::{
+    HEARTBEAT_OPERATION, HeartbeatRequest, KeeperExit, LeaseKeeper, LeaseRenewal, LeaseVerdict,
+    RenewalWindow, run_bounded_heartbeat,
+};
+use root_work::{SupervisedWork, WorkCompletion};
 
 /// Lease acquisition boundary for one supervised project operation.
 #[derive(Clone, Debug)]
@@ -465,7 +471,7 @@ impl RunCoordinator<'_> {
     ) -> Result<CurrentGeneration, SupervisorError>
     where
         Work: FnOnce(SupervisorContext) -> WorkFuture,
-        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>>,
+        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>> + Send + 'static,
     {
         self.config.validate_for(request.lease_duration)?;
         if request.target.generation_id().is_none() {
@@ -493,7 +499,7 @@ impl RunCoordinator<'_> {
     ) -> Result<CurrentGeneration, SupervisorError>
     where
         Work: FnOnce(SupervisorContext) -> WorkFuture,
-        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>>,
+        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>> + Send + 'static,
     {
         let StartedRun {
             request,
@@ -586,7 +592,7 @@ impl RunCoordinator<'_> {
     ) -> Result<CurrentGeneration, SupervisorError>
     where
         Work: FnOnce(SupervisorContext) -> WorkFuture,
-        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>>,
+        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>> + Send + 'static,
     {
         let OwnedRun {
             mut operation,
@@ -620,47 +626,141 @@ impl RunCoordinator<'_> {
             self.progress.mark_failed().await;
             return Err(SupervisorError::LifecycleUnavailable);
         };
-        let outcome = WorkMonitor {
-            database: self.database.clone(),
+        // Work and lease renewal each run on their own task so that neither a
+        // monitor branch nor a work future that blocks its thread can stop the
+        // other from being polled.
+        let monitored = MonitoredTasks {
+            work: SupervisedWork::spawn(work(context)),
+            keeper: LeaseKeeper::spawn(
+                self.lease_renewal(
+                    operation.budget,
+                    RenewalWindow::active_work(self.config, operation.budget),
+                ),
+                lease,
+            ),
+        };
+        let MonitoredRun {
+            outcome,
+            lease,
+            tasks: MonitoredTasks { work, .. },
+        } = WorkMonitor {
             config: self.config,
             budget: operation.budget,
             progress: self.progress.clone(),
             cancellation: &self.cancellation,
             receiver,
             lifecycle: &self.lifecycle,
-            lease: Some(lease),
             prepares: prepares.clone(),
         }
-        .run(work(context))
+        .run(monitored)
         .await;
-        let (outcome, lease) = outcome;
         operation.lease = lease;
-        let reap_deadline = OperationBudget::request_deadline(
-            match &outcome {
+        let monitored = self
+            .reap_work(
+                &mut operation,
+                WorkReap {
+                    outcome,
+                    work,
+                    tasks: &tasks,
+                    prepares: &prepares,
+                },
+            )
+            .await;
+        self.finish(&mut operation, monitored).await
+    }
+
+    /// Reap the root work, then registered children and the prepare task.
+    ///
+    /// Abort cannot interrupt a synchronous section of the root work, which the
+    /// former inline monitor waited out before it dropped the work. The root
+    /// wait therefore has its own bounded allowance (see
+    /// `OperationBudget::root_reap_deadline`), so cleanup is not abandoned
+    /// while the work finishes such a section, yet a wedged root neither keeps
+    /// the lease renewed nor holds the run itself until the operation's reap
+    /// ceiling; the prepare task keeps its own reap bounds. When publication or
+    /// owned cleanup may follow, the lease is renewed during that wait so that
+    /// they still hold authority: no heartbeat starts after it, though one
+    /// already running settles within its own bounded horizon. As the inline
+    /// future was dropped when its monitor returned, children and the prepare
+    /// task are reaped only once the root is gone, but without waiting for that
+    /// renewal to settle. A root task still running when its allowance ends is
+    /// reported as unreaped.
+    async fn reap_work(
+        &self,
+        operation: &mut OwnedOperation,
+        reaping: WorkReap<'_>,
+    ) -> MonitoredWork {
+        let WorkReap {
+            outcome,
+            mut work,
+            tasks,
+            prepares,
+        } = reaping;
+        let budget = operation.budget;
+        let ceiling = budget.reap_ceiling(self.config);
+        let root_deadline = budget.root_reap_deadline(self.config);
+        let mut renewal = if work.has_ended() || !outcome.keeps_authority() {
+            None
+        } else {
+            operation.lease.take().map(|lease| {
+                LeaseKeeper::spawn(
+                    self.lease_renewal(budget, RenewalWindow::reaping(root_deadline)),
+                    lease,
+                )
+            })
+        };
+        let work_reaped = work.abort_and_reap(root_deadline).await;
+        let children_deadline = self.children_reap_deadline(&outcome, ceiling);
+        let registered = async {
+            let reap = tasks.close_abort_and_reap(children_deadline).await;
+            let prepare = prepares
+                .close_and_reap(ceiling, budget.final_deadline)
+                .await;
+            (reap, prepare)
+        };
+        let settlement = async {
+            match renewal.as_mut() {
+                Some(keeper) => Some(keeper.stop(budget.durable_ceiling(self.config)).await),
+                None => None,
+            }
+        };
+        let ((reap, prepare), settled) = tokio::join!(registered, settlement);
+        if let Some(exit) = settled {
+            settle_reap_renewal(operation, exit);
+        }
+        MonitoredWork {
+            outcome,
+            work_reaped,
+            reap,
+            prepare,
+        }
+    }
+
+    /// Bound for reaping registered children once the root work is gone: one
+    /// cancellation grace, or one heartbeat request when lease authority is
+    /// uncertain, capped at the reap ceiling.
+    fn children_reap_deadline(&self, outcome: &MonitorOutcome, ceiling: Instant) -> Instant {
+        OperationBudget::request_deadline(
+            match outcome {
                 MonitorOutcome::Cancelled(CancelledWork {
                     reason: CancellationReason::LeaseLost | CancellationReason::LeaseHeartbeatFailed,
                     ..
                 }) => self.config.deadlines.heartbeat_request,
                 _ => self.config.deadlines.cancellation_grace,
             },
-            operation.budget.final_deadline - self.config.deadlines.database_finish_reserve(),
-        );
-        let reap = tasks.close_abort_and_reap(reap_deadline).await;
-        let prepare = prepares
-            .close_and_reap(
-                operation.budget.prepare_reap_deadline(self.config),
-                operation.budget.final_deadline,
-            )
-            .await;
-        self.finish(
-            &mut operation,
-            MonitoredWork {
-                outcome,
-                reap,
-                prepare,
-            },
+            ceiling,
         )
-        .await
+    }
+
+    /// Inputs for a lease keeper that renews within `window`.
+    fn lease_renewal(&self, budget: OperationBudget, window: RenewalWindow) -> LeaseRenewal {
+        LeaseRenewal {
+            database: self.database.clone(),
+            config: self.config,
+            budget,
+            progress: self.progress.clone(),
+            window,
+        }
     }
 
     async fn cancel_before_work(
@@ -688,6 +788,7 @@ impl RunCoordinator<'_> {
     ) -> Result<CurrentGeneration, SupervisorError> {
         let MonitoredWork {
             outcome,
+            work_reaped,
             reap,
             prepare,
         } = monitored;
@@ -697,7 +798,7 @@ impl RunCoordinator<'_> {
                 operation: "prepare-generation",
             });
         }
-        if !reap.all_joined {
+        if !work_reaped || !reap.all_joined {
             self.progress.mark_failed().await;
             return Err(SupervisorError::UnreapedWorkers);
         }
@@ -787,10 +888,13 @@ impl RunCoordinator<'_> {
         cancellation: CancelledWork,
     ) -> Result<CurrentGeneration, SupervisorError> {
         if !cancellation.reason.is_authority_uncertain()
-            && let Err(error) = self.durable().cleanup_owned_failure(operation).await
+            && let Err(cleanup) = self.durable().cleanup_owned_failure(operation).await
         {
             self.progress.mark_failed().await;
-            return Err(error);
+            return Err(cleanup_failed(
+                cancelled(cancellation.reason, cancellation.grace_exceeded),
+                cleanup,
+            ));
         }
         self.progress
             .mark_cancelled(cancellation.reason, cancellation.grace_exceeded)
@@ -811,7 +915,7 @@ impl RunCoordinator<'_> {
         self.progress.mark_failed().await;
         match cleanup {
             Ok(()) => Err(error),
-            Err(cleanup) => Err(cleanup),
+            Err(cleanup) => Err(cleanup_failed(error, cleanup)),
         }
     }
 
@@ -1083,7 +1187,7 @@ impl DurableCoordinator<'_> {
         owned.lease = Some(attempt.lease);
         match (late, result) {
             (_, Ok(())) => {
-                self.progress.mark_heartbeat().await;
+                self.progress.mark_heartbeat();
                 Ok(())
             }
             (_, Err(LeaseError::Lost)) => Err(SupervisorError::OwnershipLost { operation }),
@@ -1420,6 +1524,7 @@ struct OwnedRun<Work> {
 
 struct MonitoredWork {
     outcome: MonitorOutcome,
+    work_reaped: bool,
     reap: ReapReport,
     prepare: PrepareReap,
 }
@@ -1431,188 +1536,340 @@ enum MonitorOutcome {
     SupervisorFailed(SupervisorError),
 }
 
+impl MonitorOutcome {
+    /// Whether finishing this outcome may still act under the lease, by
+    /// publishing or by owned cleanup.
+    const fn keeps_authority(&self) -> bool {
+        match self {
+            Self::Ready(_) | Self::Failed(_) => true,
+            Self::Cancelled(cancelled) => !cancelled.reason.is_authority_uncertain(),
+            Self::SupervisorFailed(error) => !error.forbids_cleanup(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CancelledWork {
     reason: CancellationReason,
     grace_exceeded: bool,
 }
 
+/// The monitor outcome and everything still to reap under it.
+struct WorkReap<'a> {
+    outcome: MonitorOutcome,
+    work: SupervisedWork,
+    tasks: &'a TaskScope,
+    prepares: &'a PrepareScope,
+}
+
+/// Return the lease token recovered from reap-time renewal.
+///
+/// The outcome that ended the work stays primary whatever renewal reports.
+/// A heartbeat that lost or failed to renew the token hands it back, so the
+/// cleanup heartbeat re-verifies ownership before any mutation. Renewal that
+/// could not vouch for the token leaves none, so owned cleanup can only
+/// reconcile and report its failure beside the primary outcome: it never
+/// mutates without a confirmed lease.
+fn settle_reap_renewal(operation: &mut OwnedOperation, exit: KeeperExit) {
+    let KeeperExit { lease, verdict } = exit;
+    operation.lease = match verdict {
+        Some(LeaseVerdict::Failed(_)) => None,
+        Some(LeaseVerdict::Cancel(_)) | None => lease,
+    };
+}
+
 struct WorkMonitor<'a> {
-    database: CartographDatabase,
     config: SupervisorConfig,
     budget: OperationBudget,
     progress: SharedProgress,
     cancellation: &'a watch::Sender<bool>,
     receiver: watch::Receiver<bool>,
     lifecycle: &'a Arc<Mutex<LifecycleGate>>,
-    lease: Option<ProjectLease>,
     prepares: PrepareScope,
 }
 
+/// The pipeline work and lease-renewal tasks one monitor supervises.
+struct MonitoredTasks {
+    work: SupervisedWork,
+    keeper: LeaseKeeper,
+}
+
+/// Monitor outcome plus the exact lease token and the tasks still to reap.
+struct MonitoredRun {
+    outcome: MonitorOutcome,
+    lease: Option<ProjectLease>,
+    tasks: MonitoredTasks,
+}
+
+/// First terminal event the monitor observed.
+enum MonitorEvent {
+    Cancel(CancellationReason),
+    WorkCompleted(WorkCompletion),
+    KeeperExited(KeeperExit),
+}
+
+/// A terminal monitor event together with the lease keeper's final verdict.
+struct Resolution {
+    verdict: Option<LeaseVerdict>,
+    event: Option<MonitorEvent>,
+}
+
+/// Watchdog state for the operation's one retained prepare/COPY task.
+struct PrepareWatch {
+    sequence: u64,
+    observed_at: Instant,
+    was_running: bool,
+}
+
+/// Progress watchdog state, shared by the monitor loop and the priority
+/// re-check after an in-flight heartbeat.
+struct ProgressWatchdog {
+    /// When the watchdog next re-evaluates progress.
+    deadline: Instant,
+    /// Prepare/COPY progress last observed by the watchdog.
+    prepare: PrepareWatch,
+}
+
 impl WorkMonitor<'_> {
-    async fn run<WorkFuture>(mut self, work: WorkFuture) -> (MonitorOutcome, Option<ProjectLease>)
-    where
-        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>>,
-    {
-        tokio::pin!(work);
-        if *self.receiver.borrow_and_update() {
-            let outcome = self
-                .cancel_work(CancellationReason::Requested, &mut work)
-                .await;
-            return (outcome, self.lease.take());
+    async fn run(mut self, mut tasks: MonitoredTasks) -> MonitoredRun {
+        let mut watchdog = self.progress_watchdog().await;
+        let event = if *self.receiver.borrow_and_update() {
+            MonitorEvent::Cancel(CancellationReason::Requested)
+        } else {
+            self.monitor_events(&mut tasks, &mut watchdog).await
+        };
+        let (exit, event) = match event {
+            MonitorEvent::KeeperExited(exit) => (exit, None),
+            event => {
+                // Accepting the event freezes renewal: no heartbeat can start
+                // afterwards. Any heartbeat in flight since the select
+                // iteration that selected it began is reported, even one that
+                // finished before this freeze; the stop below waits out one
+                // still running.
+                let renewal_overlapped = tasks.keeper.freeze_renewal();
+                let exit = tasks.keeper.stop(self.keeper_stop_deadline()).await;
+                let event = if renewal_overlapped {
+                    self.supersede(event, &mut watchdog).await
+                } else {
+                    event
+                };
+                (exit, Some(event))
+            }
+        };
+        let KeeperExit { lease, verdict } = exit;
+        let outcome = self
+            .resolve(Resolution { verdict, event }, &mut tasks.work)
+            .await;
+        MonitoredRun {
+            outcome,
+            lease,
+            tasks,
         }
-        let outcome = self.monitor_events(&mut work).await;
-        (outcome, self.lease.take())
     }
 
-    async fn monitor_events<WorkFuture>(
+    /// Arm the progress watchdog one progress timeout after the last progress.
+    async fn progress_watchdog(&self) -> ProgressWatchdog {
+        ProgressWatchdog {
+            deadline: self.progress.last_progress().await + self.config.deadlines.progress,
+            prepare: PrepareWatch {
+                sequence: self.prepares.progress_sequence(),
+                observed_at: Instant::now(),
+                was_running: self.prepares.is_running(),
+            },
+        }
+    }
+
+    async fn monitor_events(
         &mut self,
-        work: &mut std::pin::Pin<&mut WorkFuture>,
-    ) -> MonitorOutcome
-    where
-        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>>,
-    {
+        tasks: &mut MonitoredTasks,
+        watchdog: &mut ProgressWatchdog,
+    ) -> MonitorEvent {
         let operation_deadline = sleep_until(self.budget.work_deadline);
-        let progress_deadline =
-            sleep_until(self.progress.last_progress().await + self.config.deadlines.progress);
-        let mut prepare_progress_sequence = self.prepares.progress_sequence();
-        let mut prepare_progress_at = Instant::now();
-        let mut prepare_was_running = self.prepares.is_running();
-        let mut heartbeat = interval_at(
-            Instant::now() + self.config.deadlines.heartbeat_interval,
-            self.config.deadlines.heartbeat_interval,
-        );
-        heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let progress_deadline = sleep_until(watchdog.deadline);
         tokio::pin!(operation_deadline);
         tokio::pin!(progress_deadline);
 
         loop {
+            // Record renewal before this iteration can select an event, so the
+            // freeze that accepts it also sees a heartbeat that was in flight
+            // at the selection but finished before the freeze.
+            tasks.keeper.observe_renewal();
             tokio::select! {
                 biased;
                 changed = self.receiver.changed() => {
                     if changed.is_err() || *self.receiver.borrow_and_update() {
-                        break self.cancel_work(CancellationReason::Requested, work).await;
+                        break MonitorEvent::Cancel(CancellationReason::Requested);
                     }
                 },
                 () = &mut operation_deadline => {
-                    break self.cancel_work(CancellationReason::OperationDeadline, work).await;
+                    break MonitorEvent::Cancel(CancellationReason::OperationDeadline);
                 },
                 () = &mut progress_deadline => {
-                    let now = Instant::now();
-                    let prepare_running = self.prepares.is_running();
-                    if prepare_running {
-                        let sequence = self.prepares.progress_sequence();
-                        if !prepare_was_running || sequence != prepare_progress_sequence {
-                            prepare_progress_sequence = sequence;
-                            prepare_progress_at = now;
+                    match self.next_progress_deadline(&mut watchdog.prepare).await {
+                        Some(next) => {
+                            watchdog.deadline = next;
+                            progress_deadline.as_mut().reset(next);
                         }
-                        prepare_was_running = true;
-                        let durable_deadline = prepare_progress_at + self.config.deadlines.copy_timeout();
-                        if durable_deadline > now {
-                            progress_deadline.as_mut().reset(
-                                durable_deadline.min(now + self.config.deadlines.progress)
-                            );
-                            continue;
-                        }
-                    } else {
-                        prepare_was_running = false;
-                    }
-                    let next = self.progress.last_progress().await + self.config.deadlines.progress;
-                    if next <= now {
-                        break self.cancel_work(CancellationReason::ProgressStalled, work).await;
-                    }
-                    progress_deadline.as_mut().reset(next);
-                },
-                result = &mut *work => break self.complete_work(result),
-                _ = heartbeat.tick() => {
-                    match self.renew_lease().await {
-                        Ok(None) => {}
-                        Ok(Some(reason)) => break self.cancel_work(reason, work).await,
-                        Err(error) => break MonitorOutcome::SupervisorFailed(error),
+                        None => break MonitorEvent::Cancel(CancellationReason::ProgressStalled),
                     }
                 },
-                () = self.progress.notified() => {
-                    let next = self.progress.last_progress().await + self.config.deadlines.progress;
-                    progress_deadline.as_mut().reset(next);
+                completion = tasks.work.completion() => {
+                    break MonitorEvent::WorkCompleted(completion);
                 },
+                exit = tasks.keeper.exited() => break MonitorEvent::KeeperExited(exit),
             }
         }
     }
 
-    async fn renew_lease(&mut self) -> Result<Option<CancellationReason>, SupervisorError> {
-        let lease = self
-            .lease
-            .take()
-            .ok_or(SupervisorError::LifecycleUnavailable)?;
-        let attempt = run_bounded_heartbeat(HeartbeatRequest {
-            database: self.database.clone(),
-            config: self.config,
-            budget: self.budget,
-            ceiling: self.budget.work_deadline,
-            operation: "heartbeat",
-            lease,
-        })
-        .await?;
-        self.lease = Some(attempt.lease);
-        match attempt.result {
-            Ok(()) => {
-                self.progress.mark_heartbeat().await;
-                Ok(None)
+    /// Re-arm the progress watchdog after it fires; `None` means work stalled.
+    ///
+    /// Progress is evaluated from the shared last-progress instant when the
+    /// watchdog fires, so the monitor needs no wake-up per progress update.
+    async fn next_progress_deadline(&self, prepare: &mut PrepareWatch) -> Option<Instant> {
+        let now = Instant::now();
+        if self.prepares.is_running() {
+            let sequence = self.prepares.progress_sequence();
+            if !prepare.was_running || sequence != prepare.sequence {
+                prepare.sequence = sequence;
+                prepare.observed_at = now;
             }
-            Err(LeaseError::Lost) => Ok(Some(CancellationReason::LeaseLost)),
-            Err(_) => Ok(Some(CancellationReason::LeaseHeartbeatFailed)),
+            prepare.was_running = true;
+            let durable_deadline = prepare.observed_at + self.config.deadlines.copy_timeout();
+            if durable_deadline > now {
+                return Some(durable_deadline.min(now + self.config.deadlines.progress));
+            }
+        } else {
+            prepare.was_running = false;
+        }
+        let next = self.progress.last_progress().await + self.config.deadlines.progress;
+        (next > now).then_some(next)
+    }
+
+    /// Re-apply the monitor's branch priority after an in-flight heartbeat.
+    ///
+    /// The former inline monitor finished a running heartbeat before it polled
+    /// any other branch, so a cancellation request, the work deadline, or a
+    /// progress stall that arrived during that heartbeat outranked the event,
+    /// in that order. Only used when a heartbeat was in flight at some moment
+    /// of the select iteration that accepted the event, which over-approximates
+    /// one in flight at its selection; otherwise the event stands, as it did
+    /// when the inline monitor acted on it immediately.
+    async fn supersede(
+        &mut self,
+        event: MonitorEvent,
+        watchdog: &mut ProgressWatchdog,
+    ) -> MonitorEvent {
+        if *self.receiver.borrow_and_update() {
+            return MonitorEvent::Cancel(CancellationReason::Requested);
+        }
+        let now = Instant::now();
+        if now >= self.budget.work_deadline {
+            return MonitorEvent::Cancel(CancellationReason::OperationDeadline);
+        }
+        if now >= watchdog.deadline
+            && self
+                .next_progress_deadline(&mut watchdog.prepare)
+                .await
+                .is_none()
+        {
+            return MonitorEvent::Cancel(CancellationReason::ProgressStalled);
+        }
+        event
+    }
+
+    /// Decide the outcome of one monitored run.
+    ///
+    /// A verdict from a heartbeat that was in flight when the event arrived is
+    /// applied first, exactly as the former inline monitor always finished a
+    /// running heartbeat before it observed any other event.
+    async fn resolve(&self, resolution: Resolution, work: &mut SupervisedWork) -> MonitorOutcome {
+        match resolution {
+            Resolution {
+                verdict: Some(LeaseVerdict::Cancel(reason)),
+                ..
+            }
+            | Resolution {
+                verdict: None,
+                event: Some(MonitorEvent::Cancel(reason)),
+            } => self.cancel_work(reason, work).await,
+            Resolution {
+                verdict: Some(LeaseVerdict::Failed(error)),
+                ..
+            } => self.fail_supervision(error),
+            Resolution {
+                verdict: None,
+                event: Some(MonitorEvent::WorkCompleted(completion)),
+            } => self.complete_work(completion),
+            // A keeper only exits on its own with a verdict; fail closed otherwise.
+            Resolution { verdict: None, .. } => {
+                self.fail_supervision(ambiguous(HEARTBEAT_OPERATION))
+            }
         }
     }
 
-    fn complete_work(&self, result: Result<ReadyGeneration, PipelineFailure>) -> MonitorOutcome {
+    /// Fail supervision when lease renewal can no longer vouch for authority.
+    ///
+    /// The cooperative signal reaches work and children that poll it in
+    /// synchronous sections, which task abortion alone cannot interrupt; no
+    /// cancellation reason is selected, so the failure and its cleanup ban hold.
+    fn fail_supervision(&self, error: SupervisorError) -> MonitorOutcome {
+        self.cancellation.send_replace(true);
+        MonitorOutcome::SupervisorFailed(error)
+    }
+
+    /// Absolute bound for a keeper to finish an in-flight heartbeat.
+    ///
+    /// The heartbeat is already bounded by its own request and reap horizons,
+    /// which the former inline monitor awaited without a further limit, and it
+    /// started before the work deadline, so it ends well before this durable
+    /// ceiling; a slow but healthy heartbeat is never failed early. The cap only
+    /// guards a keeper that never stops.
+    fn keeper_stop_deadline(&self) -> Instant {
+        self.budget.durable_ceiling(self.config)
+    }
+
+    fn complete_work(&self, completion: WorkCompletion) -> MonitorOutcome {
         let transition = self.lifecycle.lock();
         let Ok(mut lifecycle) = transition else {
             return MonitorOutcome::Failed(PipelineFailure::new(PipelineStage::Reduce));
         };
-        match result {
-            Ok(ready) => match lifecycle.begin_publication() {
+        match completion {
+            WorkCompletion::Finished(Ok(ready)) => match lifecycle.begin_publication() {
                 Ok(()) => MonitorOutcome::Ready(ready),
-                Err(reason) => MonitorOutcome::Cancelled(CancelledWork {
-                    reason,
-                    grace_exceeded: false,
-                }),
+                Err(reason) => cancelled_outcome(reason),
             },
-            Err(failure) => match lifecycle.begin_finishing() {
-                Some(reason) => MonitorOutcome::Cancelled(CancelledWork {
-                    reason,
-                    grace_exceeded: false,
-                }),
+            WorkCompletion::Finished(Err(failure)) => match lifecycle.begin_finishing() {
+                Some(reason) => cancelled_outcome(reason),
                 None => MonitorOutcome::Failed(failure),
+            },
+            WorkCompletion::Interrupted => match lifecycle.begin_finishing() {
+                Some(reason) => cancelled_outcome(reason),
+                None => MonitorOutcome::SupervisorFailed(SupervisorError::WorkerFailed),
             },
         }
     }
 
-    async fn cancel_work<WorkFuture>(
-        &mut self,
+    async fn cancel_work(
+        &self,
         reason: CancellationReason,
-        work: &mut std::pin::Pin<&mut WorkFuture>,
-    ) -> MonitorOutcome
-    where
-        WorkFuture: Future<Output = Result<ReadyGeneration, PipelineFailure>>,
-    {
+        work: &mut SupervisedWork,
+    ) -> MonitorOutcome {
         let selected = self.lifecycle.lock().map_or(reason, |mut lifecycle| {
             lifecycle.select_cancellation(reason)
         });
-        self.progress.mark_cancelling(selected).await;
+        // Signal before progress stops accepting updates: work on its own task
+        // that sees `NotActive` must already observe cancellation, or it would
+        // record a stage failure that overrides the selected reason.
         self.cancellation.send_replace(true);
+        self.progress.mark_cancelling(selected).await;
         if selected.is_authority_uncertain() {
-            return MonitorOutcome::Cancelled(CancelledWork {
-                reason: selected,
-                grace_exceeded: false,
-            });
+            return cancelled_outcome(selected);
         }
-        let cleanup_reserve = self.config.deadlines.database_finish_reserve();
-        let grace_ceiling = self.budget.final_deadline - cleanup_reserve;
         let grace_deadline = OperationBudget::request_deadline(
             self.config.deadlines.cancellation_grace,
-            grace_ceiling,
+            self.budget.reap_ceiling(self.config),
         );
-        let completed = timeout_at(grace_deadline, work).await.is_ok();
+        let completed = work.finished_by(grace_deadline).await;
         MonitorOutcome::Cancelled(CancelledWork {
             reason: selected,
             grace_exceeded: !completed,
@@ -1620,87 +1877,11 @@ impl WorkMonitor<'_> {
     }
 }
 
-struct HeartbeatAttempt {
-    lease: ProjectLease,
-    result: Result<(), LeaseError>,
-    late: bool,
-}
-
-struct HeartbeatRequest {
-    database: CartographDatabase,
-    config: SupervisorConfig,
-    budget: OperationBudget,
-    ceiling: Instant,
-    operation: &'static str,
-    lease: ProjectLease,
-}
-
-async fn run_bounded_heartbeat(
-    request: HeartbeatRequest,
-) -> Result<HeartbeatAttempt, SupervisorError> {
-    let HeartbeatRequest {
-        database,
-        config,
-        budget,
-        ceiling,
-        operation,
-        mut lease,
-    } = request;
-    let request_deadline = OperationBudget::database_deadline(config, ceiling)?;
-    let mut task = tokio::spawn(async move {
-        let statement_timeout = config.deadlines.statement_timeout();
-        let mut attempts_remaining =
-            if config.deadlines.heartbeat_request >= MIN_HEARTBEAT_RETRY_BUDGET {
-                HEARTBEAT_DATABASE_ATTEMPTS
-            } else {
-                1
-            };
-        // Each exact-token update is idempotent and server-capped at half one request. Three
-        // attempts consume at most one and a half requests, leaving half of the already-bounded
-        // request-plus-reap horizon for transaction setup and rollback. Sub-second custom
-        // budgets use one attempt because their fixed transaction overhead cannot safely reserve
-        // that margin. Lost ownership is never retried, and the outer deadlines still abort and
-        // reap exhaustion.
-        let result = loop {
-            let result = database
-                .heartbeat_lease_bounded(&mut lease, statement_timeout)
-                .await;
-            attempts_remaining = attempts_remaining.saturating_sub(1);
-            if attempts_remaining == 0
-                || !matches!(&result, Err(LeaseError::DatabaseOperation { .. }))
-            {
-                break result;
-            }
-        };
-        (lease, result)
-    });
-    match timeout_at(request_deadline, &mut task).await {
-        Ok(Ok((lease, result))) => Ok(HeartbeatAttempt {
-            lease,
-            result,
-            late: false,
-        }),
-        Ok(Err(_)) => Err(ambiguous(operation)),
-        Err(_) => {
-            let reap_deadline = OperationBudget::request_deadline(
-                config.deadlines.heartbeat_request,
-                budget.final_deadline,
-            );
-            match timeout_at(reap_deadline, &mut task).await {
-                Ok(Ok((lease, result))) => Ok(HeartbeatAttempt {
-                    lease,
-                    result,
-                    late: true,
-                }),
-                Ok(Err(_)) => Err(ambiguous(operation)),
-                Err(_) => {
-                    task.abort();
-                    let _ = task.await;
-                    Err(SupervisorError::UnreapedDurableOperation { operation })
-                }
-            }
-        }
-    }
+const fn cancelled_outcome(reason: CancellationReason) -> MonitorOutcome {
+    MonitorOutcome::Cancelled(CancelledWork {
+        reason,
+        grace_exceeded: false,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -1740,8 +1921,26 @@ impl OperationBudget {
         self.final_deadline - config.deadlines.heartbeat_request
     }
 
-    fn prepare_reap_deadline(self, config: SupervisorConfig) -> Instant {
+    /// Latest instant for cancellation grace and for reaping the root work,
+    /// registered children, and the prepare task; it leaves the database finish
+    /// reserve for owned cleanup.
+    fn reap_ceiling(self, config: SupervisorConfig) -> Instant {
         self.final_deadline - config.deadlines.database_finish_reserve()
+    }
+
+    /// Latest instant to wait, from now, for stopped root work to leave a
+    /// synchronous section that abort cannot interrupt, renewing the lease
+    /// meanwhile when cleanup can follow.
+    ///
+    /// The wait gets one COPY timeout, capped at the reap ceiling: the reap
+    /// allowance the finish reserve keeps after the cancellation grace, which a
+    /// cancellation at the work deadline always had. Validation keeps the grace,
+    /// that allowance, one heartbeat interval, and the database finish reserve
+    /// inside one lease duration, so a wedged section is renewed for less than
+    /// one lease duration, and cleanup after a section that ends in time still
+    /// fits the budget the lease was sized for.
+    fn root_reap_deadline(self, config: SupervisorConfig) -> Instant {
+        Self::request_deadline(config.deadlines.copy_timeout(), self.reap_ceiling(config))
     }
 }
 
@@ -2104,13 +2303,14 @@ pub enum SupervisorError {
     /// A work future returned while a registered child was still running.
     #[error("Cartograph indexing returned before all registered workers completed")]
     UnjoinedWorkers,
-    /// A registered worker panicked before the task scope was joined.
+    /// A registered worker or the root pipeline task panicked before it was joined.
     #[error("Cartograph indexing registered worker failed")]
     WorkerFailed,
     /// A registered worker result was dropped instead of being joined.
     #[error("Cartograph indexing registered worker result was not observed")]
     UnobservedWorkers,
-    /// An aborted registered worker could not be joined by the absolute deadline.
+    /// An aborted registered worker or root pipeline task could not be joined by
+    /// its bounded reap deadline.
     #[error("Cartograph indexing could not reap all registered workers by its deadline")]
     UnreapedWorkers,
     /// An acquisition, heartbeat, publication, or cleanup task could not be reaped.
@@ -2125,6 +2325,17 @@ pub enum SupervisorError {
     /// The in-process lifecycle gate became unavailable.
     #[error("Cartograph indexer lifecycle gate is unavailable")]
     LifecycleUnavailable,
+    /// Owned cleanup failed after the failure that ended the run.
+    ///
+    /// The primary failure stays authoritative for classification and retry;
+    /// the cleanup failure is secondary detail about the owned generation.
+    #[error("{primary}; owned generation cleanup also failed: {cleanup}")]
+    CleanupFailed {
+        /// The failure or cancellation that ended the run.
+        primary: Box<SupervisorError>,
+        /// The owned-generation cleanup failure observed afterward.
+        cleanup: Box<SupervisorError>,
+    },
 }
 
 impl SupervisorError {
@@ -2144,6 +2355,13 @@ const fn cancelled(reason: CancellationReason, grace_exceeded: bool) -> Supervis
     SupervisorError::Cancelled {
         reason,
         grace_exceeded,
+    }
+}
+
+fn cleanup_failed(primary: SupervisorError, cleanup: SupervisorError) -> SupervisorError {
+    SupervisorError::CleanupFailed {
+        primary: Box::new(primary),
+        cleanup: Box::new(cleanup),
     }
 }
 

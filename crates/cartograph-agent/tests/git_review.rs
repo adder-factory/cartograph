@@ -186,14 +186,14 @@ async fn history_blame_and_trace_culprits_use_bounded_exact_git_evidence() {
     let history = discover_git_history(repository.path(), path.clone(), 10)
         .await
         .unwrap_or_else(|error| panic!("history failed: {error}"));
-    assert!(!history.commits().is_empty());
+    assert_ne!(history.commits(), []);
     let line_history = discover_git_line_history(
         repository.path(),
         GitLineHistoryRequest::new(GitLineRange::new(path.clone(), 1, 1), 10),
     )
     .await
     .unwrap_or_else(|error| panic!("line history failed: {error}"));
-    assert!(!line_history.commits().is_empty());
+    assert_ne!(line_history.commits(), []);
     assert!(!line_history.truncated());
     let commit_paths = discover_git_commit_paths(
         repository.path(),

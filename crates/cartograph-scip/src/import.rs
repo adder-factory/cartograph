@@ -1181,11 +1181,7 @@ fn bounded_documentation(values: &[String]) -> String {
 }
 
 fn bounded_text(value: &str, maximum: usize) -> String {
-    let mut end = value.len().min(maximum);
-    while !value.is_char_boundary(end) {
-        end = end.saturating_sub(1);
-    }
-    value[..end].to_owned()
+    value[..value.floor_char_boundary(maximum)].to_owned()
 }
 
 fn imported_provenance(value: &str) -> Result<String, ScipError> {

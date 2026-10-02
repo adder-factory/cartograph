@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use cartograph_db::{
     GenerationContents, NativeGenerationSpill, NativeGenerationSpillPolicy, ReadyGeneration,
@@ -7,7 +13,7 @@ use cartograph_db::{
 use serde::Serialize;
 use thiserror::Error;
 use tokio::{
-    sync::{Notify, RwLock, watch},
+    sync::{RwLock, watch},
     time::Instant,
 };
 
@@ -100,7 +106,8 @@ pub enum SupervisorState {
     Queued,
     /// Lease-owned work is running and making bounded progress.
     Active,
-    /// Cancellation was signalled and the grace period is active.
+    /// Cancellation was signalled; the work is inside its grace period or,
+    /// past it, still finishing a synchronous section before cleanup.
     Cancelling,
     /// Progress stalled or cooperative cancellation exceeded its grace period.
     Wedged,
@@ -213,10 +220,20 @@ struct ProgressRecord {
     stage_started: Option<Instant>,
 }
 
+/// Supervisor progress shared by pipeline work, the monitor, and status readers.
+///
+/// The record sits behind Tokio's fair `RwLock`: a pending write acquisition
+/// already owns permits, and later readers queue behind it. A task must never
+/// await this lock while one of its own suspended futures (for example pipeline
+/// work polled inline in a `select!`) holds a pending acquisition, or the two
+/// deadlock and every status reader blocks behind them. The supervisor therefore
+/// drives pipeline work on its own task.
 #[derive(Clone)]
 pub(crate) struct SharedProgress {
     record: Arc<RwLock<ProgressRecord>>,
-    notification: Arc<Notify>,
+    /// Successful lease renewals, kept outside the record lock so the lease
+    /// keeper never waits on (or is woken by) pipeline progress updates.
+    heartbeats: Arc<AtomicU64>,
 }
 
 impl SharedProgress {
@@ -240,7 +257,7 @@ impl SharedProgress {
                 operation_started: None,
                 stage_started: None,
             })),
-            notification: Arc::new(Notify::new()),
+            heartbeats: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -257,6 +274,7 @@ impl SharedProgress {
     pub(crate) async fn status(&self) -> SupervisorStatus {
         let record = self.record.read().await;
         let mut status = record.status.clone();
+        status.heartbeat_count = self.heartbeats.load(Ordering::Acquire);
         status.progress_idle_millis = millis(record.last_progress.elapsed());
         if let Some(started) = record.operation_started {
             status.total_elapsed_millis = millis(started.elapsed());
@@ -276,13 +294,13 @@ impl SharedProgress {
         record.operation_started = Some(now);
         record.stage_started = None;
         record.last_progress = now;
-        drop(record);
-        self.notification.notify_one();
     }
 
-    pub(crate) async fn mark_heartbeat(&self) {
-        let mut record = self.record.write().await;
-        record.status.heartbeat_count = record.status.heartbeat_count.saturating_add(1);
+    pub(crate) fn mark_heartbeat(&self) {
+        self.heartbeats
+            .update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                count.saturating_add(1)
+            });
     }
 
     pub(crate) async fn mark_cancelling(&self, reason: CancellationReason) {
@@ -321,10 +339,6 @@ impl SharedProgress {
         record.status.grace_exceeded = grace_exceeded;
     }
 
-    pub(crate) async fn notified(&self) {
-        self.notification.notified().await;
-    }
-
     pub(crate) async fn last_progress(&self) -> Instant {
         self.record.read().await.last_progress
     }
@@ -342,8 +356,6 @@ impl SharedProgress {
         let now = Instant::now();
         record.stage_started = Some(now);
         record.last_progress = now;
-        drop(record);
-        self.notification.notify_one();
         Ok(())
     }
 
@@ -366,8 +378,6 @@ impl SharedProgress {
             .checked_add(bytes)
             .ok_or(ProgressError::CounterOverflow)?;
         record.last_progress = Instant::now();
-        drop(record);
-        self.notification.notify_one();
         Ok(())
     }
 }

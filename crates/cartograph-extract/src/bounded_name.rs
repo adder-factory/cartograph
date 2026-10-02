@@ -38,10 +38,7 @@ pub(crate) fn shortened_canonical_name(name: &str, limit: usize) -> Option<Strin
     let digest = digest.as_str().get(..TRUNCATION_DIGEST_CHARS)?;
 
     let prefix_budget = limit.saturating_sub(TRUNCATION_SUFFIX_BYTES);
-    let mut boundary = prefix_budget.min(name.len());
-    while boundary > 0 && !name.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
+    let boundary = name.floor_char_boundary(prefix_budget);
     let mut shortened = String::with_capacity(boundary + TRUNCATION_SUFFIX_BYTES);
     shortened.push_str(name.get(..boundary)?);
     shortened.push(TRUNCATION_MARKER);

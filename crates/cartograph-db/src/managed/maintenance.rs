@@ -1240,6 +1240,8 @@ async fn repair_bm25_relations(
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use crate::managed::ManagedDatabase;
 
@@ -1298,17 +1300,17 @@ mod tests {
         let empty = directory.path().join("empty.dump");
         fs::write(&empty, b"")
             .unwrap_or_else(|error| panic!("could not write empty archive: {error}"));
-        assert!(matches!(
+        assert_matches!(
             verify_archive_file(&empty),
             Err(ManagedDatabaseError::RestoreArchiveInvalid)
-        ));
+        );
         let plain = directory.path().join("plain.dump");
         fs::write(&plain, b"not a postgres archive")
             .unwrap_or_else(|error| panic!("could not write plain archive: {error}"));
-        assert!(matches!(
+        assert_matches!(
             verify_archive_file(&plain),
             Err(ManagedDatabaseError::RestoreArchiveInvalid)
-        ));
+        );
 
         #[cfg(unix)]
         {
@@ -1320,10 +1322,10 @@ mod tests {
             let link = directory.path().join("archive-link.dump");
             symlink(&archive, &link)
                 .unwrap_or_else(|error| panic!("could not create archive symlink: {error}"));
-            assert!(matches!(
+            assert_matches!(
                 verify_archive_file(&link),
                 Err(ManagedDatabaseError::RestoreArchiveInvalid)
-            ));
+            );
         }
     }
 
@@ -1568,13 +1570,13 @@ mod tests {
             .maintenance()
             .upgrade(confirmation(database, ManagedDestructiveOperation::Upgrade))
             .await;
-        assert!(matches!(
+        assert_matches!(
             rejected,
             Err(ManagedDatabaseError::UpgradeStorageHeadroom {
                 available_bytes,
                 required_bytes,
             }) if available_bytes == constrained_available && required_bytes == expected_required
-        ));
+        );
         let primary = database
             .docker
             .containers()
@@ -1853,10 +1855,10 @@ mod tests {
                 confirmation(database, ManagedDestructiveOperation::Restore),
             )
             .await;
-        assert!(matches!(
+        assert_matches!(
             malformed_restore,
             Err(ManagedDatabaseError::RestoreArchiveInvalid)
-        ));
+        );
         assert_eq!(read_marker(database).await, "rollback-protected");
     }
 
@@ -2209,10 +2211,10 @@ mod tests {
                 ManagedDestructiveOperation::Upgrade,
             ))
             .await;
-        assert!(matches!(
+        assert_matches!(
             failed_upgrade,
             Err(ManagedDatabaseError::DatabaseStartupTimeout)
-        ));
+        );
         wait_for_owned_health(database, false).await;
         let rolled_back = database
             .docker
@@ -2252,10 +2254,7 @@ mod tests {
             .maintenance()
             .upgrade(confirmation(database, ManagedDestructiveOperation::Upgrade))
             .await;
-        assert!(matches!(
-            failed_upgrade,
-            Err(ManagedDatabaseError::SchemaMigration)
-        ));
+        assert_matches!(failed_upgrade, Err(ManagedDatabaseError::SchemaMigration));
 
         wait_for_owned_health(database, true).await;
         let candidate = database
