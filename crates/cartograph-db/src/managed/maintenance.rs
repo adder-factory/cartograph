@@ -1267,6 +1267,10 @@ mod tests {
         "paradedb/paradedb:0.25.10@sha256:",
         "188591a0bc317beb2c6d6d3f9ef0cb3e859d09ecc15a71dda5e9a027876686cf"
     );
+    const LAST_RELEASE_MANAGED_DATABASE_IMAGE: &str = concat!(
+        "paradedb/paradedb:0.25.11@sha256:",
+        "a9cbdcfd8a1c349ab21590fd6d6dcbe7da489878df6502922d032dd64c1a7ae7"
+    );
 
     struct LiveDockerCleanup {
         container_name: String,
@@ -1893,6 +1897,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "starts the last release's real ParadeDB image and resumes interrupted upgrade"]
+    async fn managed_upgrade_from_last_release_resumes_after_interrupted_rename() {
+        assert_interrupted_upgrade_resumes(LAST_RELEASE_MANAGED_DATABASE_IMAGE, "0.25.11").await;
+    }
+
+    #[tokio::test]
     #[ignore = "requires Docker and an isolated managed PostgreSQL database"]
     async fn managed_upgrade_applies_current_postgres_settings_to_an_older_container() {
         let directory = tempfile::tempdir()
@@ -2024,6 +2034,13 @@ mod tests {
     #[ignore = "starts the previous release's real ParadeDB image and exercises upgrade recovery"]
     async fn managed_upgrade_from_previous_release_recovers_around_extension_catalog_mutation() {
         assert_catalog_mutation_upgrade_recovers(PREVIOUS_MANAGED_DATABASE_IMAGE, "0.25.10").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "starts the last release's real ParadeDB image and exercises extension-catalog recovery"]
+    async fn managed_upgrade_from_last_release_recovers_around_extension_catalog_mutation() {
+        assert_catalog_mutation_upgrade_recovers(LAST_RELEASE_MANAGED_DATABASE_IMAGE, "0.25.11")
+            .await;
     }
 
     #[tokio::test]
@@ -2284,7 +2301,7 @@ mod tests {
         );
         assert_eq!(
             read_extension_version(database, "pg_search").await,
-            "0.25.11"
+            "0.26.0"
         );
         let connection = open_test_database(database).await;
         let capabilities = connection

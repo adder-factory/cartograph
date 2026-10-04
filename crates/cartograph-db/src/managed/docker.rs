@@ -1362,9 +1362,9 @@ mod tests {
             commands,
             [
                 "CREATE EXTENSION IF NOT EXISTS vector;",
-                "ALTER EXTENSION vector UPDATE TO '0.8.4';",
+                "ALTER EXTENSION vector UPDATE TO '0.8.6';",
                 "CREATE EXTENSION IF NOT EXISTS pg_search;",
-                "ALTER EXTENSION pg_search UPDATE TO '0.25.11';",
+                "ALTER EXTENSION pg_search UPDATE TO '0.26.0';",
                 "CREATE EXTENSION IF NOT EXISTS pgstattuple;",
             ]
         );
