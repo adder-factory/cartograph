@@ -1784,6 +1784,9 @@ const STABLE_SYMBOL_KINDS: [SymbolKind; 25] = [
 ];
 
 impl SymbolKind {
+    /// Every symbol kind, in stable storage order.
+    pub const ALL: [Self; STABLE_SYMBOL_KINDS.len()] = STABLE_SYMBOL_KINDS;
+
     /// Parse the stable storage/protocol spelling of a symbol kind.
     #[must_use]
     pub fn from_stable_str(value: &str) -> Option<Self> {

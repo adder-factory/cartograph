@@ -22,8 +22,9 @@ cartograph export --format cytoscape --language typescript --out graph.cy.json
 ```
 
 > [!IMPORTANT]
-> `export` requires a fresh current generation and refuses a stale one; index
-> the project first.
+> `export` requires a fresh current generation and has no `--allow-stale`
+> override: a stale index fails with "synchronize it with `cartograph index`
+> and retry". Index the project first.
 
 ## Versioned JSON
 
@@ -95,7 +96,8 @@ changing the selected membership semantics.
 
 The default cap is 1,000 nodes and the accepted maximum is 50,000. Filters are
 exact comma-separated kind/edge/language values, with a normalized
-project-relative file prefix. `--kind` and `--edge-kind` accept the stored
+project-relative file prefix. `--kind` accepts every stored symbol kind
+(including `union`) and `--edge-kind` every stored edge kind, in their
 underscore spellings (for example `type_of` or `field_access`); an unsupported
 value fails with the allowed list. `stats.truncatedNodes` (Cytoscape:
 `metadata.stats.truncatedNodes`) and the JSON generation ID make partial/stale

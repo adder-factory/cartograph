@@ -1829,7 +1829,7 @@ async fn run_graph_export_command(
 ) -> Result<ExitCode, String> {
     let runtime = open_runtime(&project_path).await?;
     let (project_id, freshness) = current_project(&runtime).await?;
-    require_freshness(freshness, false)?;
+    require_current(freshness)?;
     let output = graph_export::run_graph_export(
         runtime.database(),
         GraphExportRequest {
@@ -2555,6 +2555,10 @@ async fn current_project(runtime: &ProjectRuntime) -> Result<(ProjectId, IndexFr
     ))
 }
 
+/// Stale-index failure for a command that cannot be told to accept stale evidence.
+const STALE_WITHOUT_OVERRIDE_MESSAGE: &str =
+    "Cartograph index is stale; synchronize it with `cartograph index` and retry";
+
 fn require_freshness(freshness: IndexFreshness, allow_stale: bool) -> Result<(), String> {
     if freshness == IndexFreshness::Current || allow_stale {
         Ok(())
@@ -2565,6 +2569,15 @@ fn require_freshness(freshness: IndexFreshness, allow_stale: bool) -> Result<(),
 
 fn stale_index_message() -> String {
     "Cartograph index is stale; synchronize it or explicitly pass --allow-stale".to_owned()
+}
+
+/// Freshness gate for commands that offer no `--allow-stale` override.
+fn require_current(freshness: IndexFreshness) -> Result<(), String> {
+    if freshness == IndexFreshness::Current {
+        Ok(())
+    } else {
+        Err(STALE_WITHOUT_OVERRIDE_MESSAGE.to_owned())
+    }
 }
 
 fn traversal_request(arguments: TraversalArguments<'_>) -> Result<TraversalRequest, String> {
@@ -6848,6 +6861,17 @@ mod tests {
         .await;
 
         assert_matches!(result, Ok(code) if code == ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn stale_export_names_only_overrides_the_command_accepts() {
+        // `export` has no `--allow-stale`; its stale failure must not tell callers to pass one.
+        assert!(generated_cli::parse_from(["cartograph", "export", "--allow-stale"]).is_err());
+        let failure = require_current(IndexFreshness::Stale)
+            .err()
+            .unwrap_or_else(|| panic!("a stale index must fail the export gate"));
+        assert!(!failure.contains("--allow-stale"), "{failure}");
+        assert!(require_current(IndexFreshness::Current).is_ok());
     }
 
     #[test]

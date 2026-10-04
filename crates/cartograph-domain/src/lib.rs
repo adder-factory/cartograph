@@ -599,6 +599,9 @@ const EDGE_KINDS: [EdgeKind; EdgeKind::Contains as usize + 1] = [
 ];
 
 impl EdgeKind {
+    /// Every edge kind, in stable storage order.
+    pub const ALL: [Self; EDGE_KINDS.len()] = EDGE_KINDS;
+
     /// Stable PostgreSQL representation.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
