@@ -36,9 +36,9 @@ Cartograph v2 is:
 
 - a native Rust executable;
 - PostgreSQL 18.4 or newer within major version 18;
-- code-aware BM25 through ParadeDB `pg_search` 0.25.11;
-- pgvector 0.8.4 or newer (0.8.6 recommended for external PostgreSQL; the
-  managed ParadeDB 0.25.11 image bundles `pg_search` 0.25.11 and pgvector 0.8.4);
+- code-aware BM25 through ParadeDB `pg_search` 0.26.0;
+- pgvector 0.8.4 or newer (0.8.7 recommended for external PostgreSQL; the
+  managed ParadeDB 0.26.0 image bundles `pg_search` 0.26.0 and pgvector 0.8.6);
 - useful without an LLM through exact, lexical, graph, review, and test-impact
   retrieval.
 
@@ -98,7 +98,7 @@ older containers are reported rather than silently replaced.
 ### External PostgreSQL (all supported platforms)
 
 The database administrator must install PostgreSQL 18.4 or newer within major
-version 18, `pg_search` 0.25.11, and pgvector 0.8.4 or newer, then create pgvector
+version 18, `pg_search` 0.26.0, and pgvector 0.8.4 or newer, then create pgvector
 before creating `pg_search`. Supply the URL through the environment:
 
 ```sh

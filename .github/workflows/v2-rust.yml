@@ -401,7 +401,7 @@ jobs:
       CARTOGRAPH_POSTGRES_PASSWORD: cartograph-v2-ci-only
       CARTOGRAPH_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
       CARTOGRAPH_TEST_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
-      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.25.11@sha256:a9cbdcfd8a1c349ab21590fd6d6dcbe7da489878df6502922d032dd64c1a7ae7
+      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.26.0@sha256:52fc9c95fdfd462201168d1d82334ed61f85cbd921957cab083ec39800a217ac
     steps:
       - name: Documentation-only required-check fast path
         if: needs.classify.outputs.docs_only == 'true'

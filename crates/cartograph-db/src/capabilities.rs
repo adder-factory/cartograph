@@ -8,8 +8,8 @@ use crate::DatabaseError;
 
 const MINIMUM_POSTGRES_VERSION_NUM: i32 = 180_004;
 const NEXT_POSTGRES_MAJOR_VERSION_NUM: i32 = 190_000;
-pub(crate) const SUPPORTED_PG_SEARCH_VERSION: &str = "0.25.11";
-pub(crate) const MANAGED_PGVECTOR_VERSION: &str = "0.8.4";
+pub(crate) const SUPPORTED_PG_SEARCH_VERSION: &str = "0.26.0";
+pub(crate) const MANAGED_PGVECTOR_VERSION: &str = "0.8.6";
 const MINIMUM_PGVECTOR_VERSION: [u32; 3] = [0, 8, 4];
 const DEFAULT_CAPABILITY_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const EXPECTED_SOURCE_CODE_TOKENS: [&str; 5] = ["cartograph", "search", "snake", "case", "42"];
@@ -243,13 +243,13 @@ fn build_report(facts: ProbeFacts) -> CapabilityReport {
             id: "pg-search-extension",
             passed: pg_search_version_supported,
             message: extension_message("pg_search", pg_search_version.as_deref()),
-            remediation: "Install the Cartograph-supported pg_search 0.25.11 build, add it to shared_preload_libraries, restart PostgreSQL, and create or update the extension to 0.25.11.",
+            remediation: "Install the Cartograph-supported pg_search 0.26.0 build, add it to shared_preload_libraries, restart PostgreSQL, and create or update the extension to 0.26.0.",
         }),
         check(CheckInput {
             id: "pgvector-extension",
             passed: pgvector_version_supported,
             message: extension_message("vector", pgvector_version.as_deref()),
-            remediation: "Install pgvector 0.8.4 or newer and create or update the vector extension in the Cartograph database; 0.8.6 is recommended for external PostgreSQL.",
+            remediation: "Install pgvector 0.8.4 or newer and create or update the vector extension in the Cartograph database; 0.8.7 is recommended for external PostgreSQL.",
         }),
         check(CheckInput {
             id: "pg-search-preload",
@@ -269,7 +269,7 @@ fn build_report(facts: ProbeFacts) -> CapabilityReport {
             } else {
                 "ParadeDB index access method is unavailable".to_owned()
             },
-            remediation: "Verify that pg_search 0.25.11 is installed, preloaded, and exposes the paradedb access method.",
+            remediation: "Verify that pg_search 0.26.0 is installed, preloaded, and exposes the paradedb access method.",
         }),
         check(CheckInput {
             id: "source-code-tokenizer",
@@ -373,7 +373,7 @@ mod tests {
         let mut facts = ready_facts();
         facts
             .extensions
-            .insert("pg_search".to_owned(), "0.25.11".to_owned());
+            .insert("pg_search".to_owned(), "0.26.0".to_owned());
         facts
             .extensions
             .insert("vector".to_owned(), "0.8.4".to_owned());
@@ -494,6 +494,7 @@ mod tests {
         assert!(pgvector_version_is_supported("0.8.4"));
         assert!(pgvector_version_is_supported("0.8.5"));
         assert!(pgvector_version_is_supported("0.8.6"));
+        assert!(pgvector_version_is_supported("0.8.7"));
         assert!(pgvector_version_is_supported("0.9.0"));
         assert!(!pgvector_version_is_supported("0.8.3"));
         assert!(!pgvector_version_is_supported("0.8.4.1"));
