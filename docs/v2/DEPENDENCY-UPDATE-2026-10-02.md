@@ -1,5 +1,10 @@
 # Dependency update — 2026-10-02
 
+[Documentation home](../README.md) · [Changelog](../RELEASES.md#dependency-audits) · [V2 architecture](ARCHITECTURE.md)
+
+> [!NOTE]
+> Dated historical record of the 2026-10-02 toolchain audit; these selections shipped in [v2.1.35](../releases/v2.1.35.md).
+
 This audit records the move to Rust 1.99.0, which the
 [2026-10-01 audit](DEPENDENCY-UPDATE-2026-10-01.md) deferred until the official
 build image was published. Publication requires the separate local, live,

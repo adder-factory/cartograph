@@ -1,5 +1,10 @@
 # Dependency update — 2026-10-04
 
+[Documentation home](../README.md) · [Changelog](../RELEASES.md#dependency-audits) · [V2 architecture](ARCHITECTURE.md)
+
+> [!NOTE]
+> Dated historical record of the 2026-10-04 dependency audit; these selections shipped in [v2.1.39](../releases/v2.1.39.md).
+
 This audit records the dependency selection for Cartograph v2.1.39. Publication
 requires the local, live, Sonar, reviewer, and remote artifact gates.
 

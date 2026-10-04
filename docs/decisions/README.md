@@ -6,6 +6,12 @@
 Use this directory for durable architecture decisions whose tradeoffs should be
 visible after the original review context is gone.
 
+## Records
+
+| Record | Status | Last reviewed |
+| --- | --- | --- |
+| [0001 — Keep llama.cpp as the managed local default; keep other providers external](0001-mlx-vs-llama-cpp-backends.md) | Accepted for Cartograph v2 | 2026-10-04 |
+
 ## When to add one
 
 Add a decision record when a change chooses or preserves a project posture for:

@@ -2986,7 +2986,7 @@ impl ProjectSourcePolicy {
     }
 }
 
-/// Observed corpus size and overlay state one storage selection weighs.
+/// Observed corpus size and generation bound one storage selection weighs.
 #[derive(Clone, Copy)]
 struct GenerationStorageSignals {
     files: usize,

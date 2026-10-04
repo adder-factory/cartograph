@@ -6,33 +6,51 @@
 
 Last implementation audit: 2026-10-04 (`v2.1.39`).
 
-Cartograph v2 supports all 73 v1.1.33 language modes, native TOML, 52
-dedicated textual game-scripting modes, the WGSL and Metal shader modes added
-in v2.1.12, first-class Slang and WESL added in v2.1.15, and Ada/SPARK and VHDL
-added in v2.1.27: 132 modes total.
-The source of truth is `cartograph_domain::SourceLanguage::ALL`; native
-extractor strategy lives in `crates/cartograph-extract/src/language.rs`, and
-framework/cross-language enrichment lives in the focused Rust modules beside
-it.
-
 Use this page to decide whether Cartograph can extract useful graph structure
 from a project before you install it. A supported language means files are
 recognized and indexed. Framework-aware signals add routes, entry points,
 dynamic references, or cross-language bridge edges when Cartograph detects a
 known framework shape.
 
-`Tree-sitter parser-only` means Cartograph recognizes the file, parses it with
-the statically linked native grammar, emits the file node, and surfaces syntax
-diagnostics, but does not yet extract language-specific symbols from that
-grammar.
+**At a glance**
 
-[Languages](#languages) ·
+| Inventory | Modes | Detail |
+|---|---:|---|
+| Production-admitted total | **132** | Source of truth: `cartograph_domain::SourceLanguage::ALL` |
+| v1.1.33 parity modes | 73 | All 163 v1 extensions, plus additive v2 `.pyi` for Python |
+| Dedicated game scripting | 52 | Bounded, non-executing scanners; see [below](#dedicated-game-scripting-modes) |
+| Additive v2 modes | 7 | Native TOML; WGSL and Metal (v2.1.12); first-class Slang and WESL (v2.1.15); Ada/SPARK and VHDL (v2.1.27) |
+| Grammar-backed | 67 | 61 pinned native grammar bindings; some are shared: Metal→C++, WESL→WGSL, Zsh→Bash, JSX→JavaScript, Jupyter→JSON, KHN→Lua |
+| Bounded Rust scanners | 65 | 12 custom v1 modes, TOML, and the 52 game-scripting modes |
+
+Cartograph v2 supports all 73 v1.1.33 language modes, native TOML, 52
+dedicated textual game-scripting modes, the WGSL and Metal shader modes added
+in v2.1.12, first-class Slang and WESL added in v2.1.15, and Ada/SPARK and VHDL
+added in v2.1.27: 132 modes total. Native extractor strategy lives in
+`crates/cartograph-extract/src/language.rs`, grammar selection in
+`crates/cartograph-extract/src/grammars.rs`, and framework/cross-language
+enrichment in the focused Rust modules beside them.
+
+**On this page:** [Languages](#languages) ·
 [Game scripting](#dedicated-game-scripting-modes) ·
+[Special cases](#special-cases) ·
 [Framework signals](#framework-aware-signals) ·
 [Embedded DSLs](#embedded-dsls-and-derived-signals) ·
-[Extending support](#extending-support)
+[Extending support](#extending-support) ·
+[Tree-sitter catalog](#tree-sitter-catalog-notes)
 
 ## Languages
+
+The **Extractor path** column uses these terms:
+
+| Extractor path | Meaning |
+|---|---|
+| Tree-sitter | A pinned, statically linked native grammar plus a structural walker: a dedicated family (JavaScript/TypeScript, Rust/Python/Go, C-family, shell, managed, JVM-dynamic, shader, Ada/VHDL) or the conservative generic structural walker. Emits declarations and references. |
+| Tree-sitter tags query | Grammar-backed, query-driven declaration and call-reference extraction. |
+| Tree-sitter parser-only | Cartograph recognizes the file, parses it with the statically linked native grammar, emits the file node, and surfaces syntax diagnostics, but does not yet extract language-specific symbols from that grammar. |
+| C-family / shader-family slice, or another mode's grammar | The mode reuses the grammar and walker of a related language (for example Metal uses the C++ grammar, WESL the WGSL grammar, KHN the Lua grammar). |
+| Custom extractor | A bounded Rust scanner with no tree-sitter grammar. |
+| Bounded native structural scanner | TOML only: the scanner emits the file node (a structural-file floor); see the TOML row. |
 
 | Language mode | Extensions / scope | Extractor path |
 |---|---|---|
@@ -40,11 +58,11 @@ grammar.
 | Ada / SPARK | `.adb`, `.ads`, `.ada`; SPARK uses the Ada source mode | Tree-sitter with case-insensitive unit, `with`/`use`, declaration, and call extraction |
 | Apex | `.cls`, `.trigger` | Tree-sitter |
 | ArkTS | `.ets` | Tree-sitter |
-| Astro | `.astro` | Tree-sitter plus frontmatter/template extractor |
+| Astro | `.astro` | Tree-sitter generic walker: template PascalCase and custom elements become component symbols; frontmatter is not extracted |
 | Aura | `.cmp`, `.app`, `.evt`, `.intf`, `.design`, `.auradoc` in Aura source paths or Aura markup | Custom extractor |
 | Bash | `.sh`, `.bash` | Tree-sitter |
 | BG3 Anubis | `.ann`, `.anc`, `Scripts/anubis/node/*.ann`, `Scripts/anubis/config/*.anc` | Custom extractor |
-| BG3 Resource Data | `.lsx`, `.lsf`, `.lsfx`, `.lsefx`, `.tbl`, `.stats`, `.mei`, `.lsj`, `Localization/*/*.xml` | Custom extractor |
+| BG3 Resource Data | `.lsx`, `.lsf`, `.lsfx`, `.lsefx`, `.tbl`, `.stats`, `.mei`, `.lsj`, `Localization/*/*.xml`, `Public/<dir>/**/*.xml`, `Mods/<dir>/**/*.xml` | Custom extractor |
 | BG3 Stats DSL | `Stats/Generated/**/*.txt`, `Stats/Generated/*.txt` | Custom extractor |
 | C | `.c`, `.h` | Tree-sitter |
 | Clojure / ClojureScript | `.clj`, `.cljs`, `.cljc`, `.edn`, `.bb` | Tree-sitter |
@@ -54,7 +72,7 @@ grammar.
 | CUDA | `.cu`, `.cuh` | Tree-sitter |
 | CSS | `.css` | Tree-sitter parser-only |
 | Dart | `.dart` | Tree-sitter |
-| Elixir | `.ex`, `.exs` | Tree-sitter |
+| Elixir | `.ex`, `.exs` | Tree-sitter tags query |
 | ERB / EJS | `.erb`, `.ejs`, `.eta`, `.etlua` | Tree-sitter parser-only |
 | Fish | `.fish` | Tree-sitter |
 | F# | `.fs`, `.fsx` | Tree-sitter |
@@ -65,11 +83,11 @@ grammar.
 | Groovy | `.groovy`, `.gradle` | Tree-sitter |
 | Haskell | `.hs` | Tree-sitter tags query |
 | HCL / Terraform / OpenTofu | `.tf`, `.tfvars`, `.hcl`, `.tofu` | Tree-sitter |
-| HTML | `.html`, `.htm` | Tree-sitter parser-only |
+| HTML | `.html`, `.htm` | Tree-sitter generic walker: custom elements and PascalCase elements become component symbols |
 | Java | `.java` | Tree-sitter |
 | JavaScript | `.js`, `.mjs`, `.cjs`, `.xsjs`, `.xsjslib` | Tree-sitter |
 | JSDoc | `.jsdoc` | Tree-sitter parser-only |
-| JSON | `.json` | Tree-sitter parser-only |
+| JSON | `.json` | Tree-sitter parser-only; `package.json` and `composer.json` add package/workspace manifest facts |
 | Jupyter Notebook | `.ipynb` | Tree-sitter parser-only via JSON grammar |
 | JSX | `.jsx` | Tree-sitter |
 | Julia | `.jl` | Tree-sitter tags query |
@@ -85,7 +103,7 @@ grammar.
 | OCaml | `.ml` | Tree-sitter tags query |
 | OCaml Interface | `.mli` | Tree-sitter tags query |
 | Osiris Story | `.div`, `Story/RawFiles/Goals/*.txt` | Custom extractor |
-| Pascal / Delphi | `.pas`, `.dpr`, `.dpk`, `.lpr`, `.dfm`, `.fmx` | Tree-sitter plus form-file extractor |
+| Pascal / Delphi | `.pas`, `.dpr`, `.dpk`, `.lpr`, `.dfm`, `.fmx` | Tree-sitter; `.dfm` / `.fmx` form files parse with the Pascal grammar only (no form-file extractor) |
 | PHP | `.php`, `.module`, `.install`, `.theme`, `.inc` | Tree-sitter |
 | PowerShell | `.ps1`, `.psm1`, `.psd1` | Tree-sitter |
 | Prisma | `.prisma` | Tree-sitter |
@@ -102,7 +120,7 @@ grammar.
 | Slang | `.slang` | Tree-sitter with module/import, interface/generic, and shader-stage facts |
 | Svelte | `.svelte` | Custom extractor |
 | Swift | `.swift` | Tree-sitter |
-| TOML | `.toml` (additive v2 mode) | Bounded native structural scanner |
+| TOML | `.toml` (additive v2 mode) | Bounded native structural scanner: file node only (structural-file floor); `Cargo.toml` adds package/workspace manifest facts |
 | TSX | `.tsx` | Tree-sitter |
 | TypeScript | `.ts`, `.mts`, `.cts` | Tree-sitter |
 | Visual Basic 6 | `.bas`, `.frm`, `.ctl`, `.dob`, `.dsr`, `.pag`, `.vbp`, VB6 `.cls` by content | Custom extractor |
@@ -178,41 +196,51 @@ scope, collision policy, exclusions, and primary-source trail are in
 | Yarn Spinner | `.yarn` |
 | ZScript | `.zs`, `zscript.txt` |
 
-Special cases:
+### Special cases
+
+**Detection and routing**
 
 - Play Framework route files at `conf/routes` and `conf/*.routes` are treated
   as YAML so route declarations can be extracted.
 - BG3 Anubis `.ann` / `.anc` files, `Stats/Generated/**/*.txt`,
-  `Story/RawFiles/Goals/*.txt`, and `Localization/<language>/*.xml` paths use
-  BG3-specific extractors because several extensions are otherwise generic
-  text/XML or Lua-derived DSL files.
+  `Story/RawFiles/Goals/*.txt`, `Localization/<language>/*.xml`, and `.xml`
+  files below a directory under `Public/` or `Mods/` (`Public/<dir>/**/*.xml`,
+  `Mods/<dir>/**/*.xml`) use BG3-specific extractors because several
+  extensions are otherwise generic text/XML or Lua-derived DSL files. These
+  path rules match case-insensitively.
 - abapGit-style `*.clas.abap` / `*.intf.abap` paths are covered through the
   `.abap` extension; implementation blocks provide ABAP method containment.
-- Astro files emit a component node, extract TypeScript frontmatter, and mine
-  PascalCase template component references plus expression calls.
 - Salesforce DX source roots such as `force-app/main/default` are recognized.
   Apex `.cls` / `.trigger` files use a tree-sitter grammar, while Aura and
   Visualforce markup use custom extractors for controller refs, component refs,
   fields, routes, and action calls. Aura/Visualforce extension detection is
   path/content gated so unrelated `.app` or `.component` files are not claimed.
 - Visual Basic 6 class modules also use `.cls`; Apex remains the extension
-  owner, and VB6 wins only when the source has VB6 IDE headers such as
-  `VERSION ... CLASS` or `Attribute VB_Name = "..."`.
+  owner, and VB6 wins only when the first 8 KiB of source has a VB6 IDE header
+  such as `VERSION ... CLASS`, `Attribute VB_Name = "..."`, or `Begin VB.`, or
+  has `Option Explicit` together with a `Sub`, `Function`, or `Property`
+  routine.
 - Objective-C header files are detected by content so `.h` can resolve to C,
   C++, or Objective-C.
-- Liquid can also be detected from YAML front matter in `.html` / `.md` files
-  under Jekyll convention directories such as `_layouts`, `_includes`,
-  `_posts`, and `_drafts`.
+- Liquid can also be detected from YAML front matter (a `---` block that opens
+  on the first line). Any `.html` file with front matter is Liquid, for example
+  `layouts/default.html`; `.md` files are considered only under Jekyll
+  convention directories such as `_layouts`, `_includes`, `_posts`, and
+  `_drafts`.
+
+**Extraction and resolution**
+
+- Astro files use the generic structural walker over the Astro grammar:
+  PascalCase and custom (hyphenated) template elements become component
+  symbols. Frontmatter and template expressions are not extracted.
 - C# primary constructors are extracted as constructor-shaped method nodes, and
   C# generic/qualified type references are mined from type positions.
-- TypeScript type aliases index direct string-literal generic arguments as
-  alias-contained property symbols, which covers typed RPC/service contract
-  tuples such as `Service<'method_name', Req, Resp>`.
 - Go receiver methods are associated with same-package structs even when the
   struct and methods live in different files, so implementation and owner edges
-  are available after the post-index hooks run.
-- PHP `include`, `include_once`, `require`, and `require_once` statements emit
-  file import edges when they use string-literal paths.
+  are available. That ownership is computed during project-wide resolution,
+  before publication.
+- PHP `include` and `require` expressions emit file import edges when they use
+  string-literal paths. `include_once` and `require_once` are not matched.
 - Python `from pkg import module` calls can resolve through the imported module
   to top-level members in `pkg/module.py`.
 - SAP HANA XSJS `.xsjs` / `.xsjslib` files use the JavaScript extractor and
@@ -225,16 +253,16 @@ Special cases:
 
 | Ecosystem | Signals |
 |---|---|
-| JavaScript / TypeScript | Angular routes, Express routes, Hono routes and mounted sub-routers, Fastify object-form routes, Bun.serve routes, NestJS HTTP/GraphQL/message/WebSocket handlers, React components, Vue/Nuxt aliases/routes, SvelteKit routes, Commander/Yargs/CAC CLI commands |
+| JavaScript / TypeScript | Angular routes, Express routes, Hono routes and mounted sub-routers, Fastify object-form routes, Bun.serve routes, NestJS HTTP/GraphQL/message/WebSocket handlers, React components, Vue/Nuxt aliases/routes, Next.js `pages/` and `app/` file routes, Nuxt `server/api` routes and `middleware/` functions, SvelteKit routes, Commander/Yargs/CAC CLI commands |
 | Python | Django, Flask, FastAPI route/controller patterns, and NeuG graph resource landmarks |
-| PHP | Laravel facades/routes, Drupal routes/services/hooks/plugins/service tags, Symfony routes/controllers, and CodeIgniter 3 routes/controller/model/library conventions |
+| PHP | Laravel `Route::` facade routes, Drupal routes/services/hooks/plugins/service tags, Symfony YAML routes with controller references (attribute routes are not extracted), and CodeIgniter 3 routes/controller/model/library conventions |
 | Ruby | Rails routes and controller conventions |
-| JVM | Spring route/config references including `@Value` and `@ConditionalOnProperty`, Play routes, MyBatis Java/XML bindings including `SqlSessionTemplate` statement ids, Kotlin/Scala source extraction |
+| JVM | Spring route mappings and `${…}` placeholder config references (for example in `@Value`), Play routes, MyBatis mapper-interface ↔ XML statement bindings, Kotlin/Scala source extraction |
 | Go | Gin, Echo, Chi, net/http, Cobra commands, interface implementation edges |
-| Rust | Framework and route patterns recognized by the Rust resolver |
+| Rust | Actix Web, Axum, Rocket, and warp route patterns: route attributes such as `#[get("/…")]`, `.route("/…", get(…))` registrations, and literal-path route calls |
 | C# | ASP.NET route/controller patterns |
 | Dart / Flutter | `MaterialApp.routes` and `GoRoute(path:)` route nodes with widget references |
-| Swift / Apple | SwiftUI, UIKit, Vapor, Swift/Objective-C bridge edges |
+| Swift / Apple | SwiftUI, Vapor, Swift/Objective-C bridge edges |
 | React Native / Expo | Legacy bridge, TurboModules, Expo Modules, Fabric/Paper view components and native implementation edges |
 | Salesforce | LWC `@salesforce/apex` imports, LWC/Aura component refs, Aura client/server actions, Visualforce controller/actions |
 
@@ -260,7 +288,9 @@ framework, so generic codebases do not pay the full resolver cost.
 
 ## Extending Support
 
-To add a language, start with [Adding a language](ADDING-A-LANGUAGE.md).
+To add a language, start with [Adding a language](ADDING-A-LANGUAGE.md). The
+full registration checklist and required gates are in
+[Extending extraction and resolution](EXTENDING-EXTRACTORS-RESOLVERS.md).
 
 ## Tree-sitter Catalog Notes
 
