@@ -33,9 +33,9 @@ touches.
 
 A language that needs more than the conservative generic walker gets its own
 extraction family. Follow the `AdaFamily` precedent: an `ExtractionStrategy`
-variant in `language.rs`, an `ExtractionFamily` variant and family slice in
-`walk.rs` (the `usage_family_slice!` macro wires a module that exposes
-`visit_declaration` and `capture_usage`), and the walker in
+variant in `language.rs` registered in `GRAMMAR_STRATEGIES`, a language list and
+`FAMILY_SLICES` entry in `walk.rs` (`FamilySlice::capturing` wires a module that
+exposes `visit_declaration` and `capture_usage`), and the walker in
 `walk/<language>_family.rs`. The
 [dedicated extraction families](EXTENDING-EXTRACTORS-RESOLVERS.md#dedicated-extraction-families)
 section lists every step and the shared helpers.

@@ -206,21 +206,23 @@ ReScript, Solidity, VB.NET, Apex, HCL, Astro) follow it:
 
 1. **Strategy.** Add an `ExtractionStrategy` variant in
    `crates/cartograph-extract/src/language.rs`, list it in `is_executable`, and
-   map the language to it in `grammar_strategy` (removing it from
-   `fallback_strategy`).
-2. **Walker family.** In `crates/cartograph-extract/src/walk.rs`, add an
-   `ExtractionFamily` variant, map the language to it (a language list such as
-   `ADA_LANGUAGES` checked in `extraction_family`, or an arm in
-   `single_language_family`), and remove the language from
-   `GENERIC_LANGUAGES`.
-3. **Family slice.** Register the family's entry points in one of the
-   `family_slice_*` lookups. A module that exposes
+   register the language for it in the `GRAMMAR_STRATEGIES` table (removing it
+   from `fallback_strategy`).
+2. **Walker family.** In `crates/cartograph-extract/src/walk.rs`, give the
+   family a language list such as `ADA_LANGUAGES` and remove the language from
+   `GENERIC_LANGUAGES`. Language lists are disjoint: a language selects at most
+   one family.
+3. **Family slice.** Add one entry to the `FAMILY_SLICES` table, which pairs the
+   language list with the family's entry points so a family cannot be wired
+   into one traversal and forgotten in the other. A module that exposes
    `visit_declaration(builder, node, depth) -> Result<bool, ExtractError>` and
-   `capture_usage(builder, node) -> Result<(), ExtractError>` uses the
-   `usage_family_slice!(module)` macro, whose usage pass records the module's
-   own usage facts before visiting the node's children. A family whose usage
-   pass only visits children (Pascal, HCL, Lisp, Lean, Astro) writes its
-   `FamilySlice` by hand.
+   `capture_usage(builder, node) -> Result<(), ExtractError>` uses
+   `FamilySlice::capturing`, whose usage pass records the module's own usage
+   facts before visiting the node's children. A family whose declaration pass
+   records every fact (Pascal, HCL, Lisp, Lean, Astro) uses
+   `FamilySlice::declarative`; one that drives its own usage traversal uses
+   `FamilySlice::custom`. Name both functions as paths in the entry: that is
+   also how the code graph sees they are used.
 4. **Module.** Implement the family in `walk/<language>_family.rs` (or a
    directory module for larger families). Reuse the shared helpers:
    `walk/family_support.rs` for declaration emission (Lisp, Lean, ReScript,
