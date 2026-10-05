@@ -846,6 +846,107 @@ fn swift_extraction_is_deterministic_and_swiftui_views_are_structs() {
     symbol(&view, SymbolKind::Component, "ContentView");
 }
 
+#[test]
+fn swift_optional_chained_and_force_unwrapped_calls_keep_their_call() {
+    let extracted = extract(
+        "Sources/Cells/Profile.swift",
+        "class Profile {\n    func load() {\n        delegate?.profileDidUpdate(user)\n        cache!.flush()\n        a?.b?.c()\n        let ready = flag ? check() : skip()\n        \"swift_literal_sentinel?.member\"()\n        \"swift_tick`sentinel\"()\n        \"swift_plain_sentinel\"()\n    }\n}\n",
+    );
+    let load = symbol(&extracted, SymbolKind::Method, "load");
+    for name in [
+        "delegate.profileDidUpdate",
+        "cache.flush",
+        "a.b.c",
+        "check",
+        "skip",
+    ] {
+        assert!(
+            has_reference(
+                &extracted,
+                ReferenceQuery::new(ReferenceKind::Calls, name, Some(load))
+            ),
+            "missing call {name}: {:?}",
+            extracted.references
+        );
+    }
+    assert!(
+        extracted
+            .references
+            .iter()
+            .all(|reference| !reference.name.contains(['?', '!'])
+                && !reference.name.contains("sentinel")),
+        "unwrap markers and string contents never enter a name: {:?}",
+        extracted.references
+    );
+}
+
+#[test]
+fn swiftui_main_app_entry_is_a_class_landmark() {
+    // v1 resolution/frameworks/swift.ts marks `@main struct X: App` as the
+    // SwiftUI app entry, a class node beside the struct declaration.
+    let extracted = extract(
+        "Sources/App/ShopApp.swift",
+        "import SwiftUI\n\n@main\nstruct ShopApp: App {\n    var body: some Scene { WindowGroup { ContentView() } }\n}\n\nstruct Helper: App {}\n",
+    );
+    let entry = symbol(&extracted, SymbolKind::Class, "ShopApp");
+    assert_eq!(entry.span.start_line(), 3);
+    assert!(
+        entry.implementation.declaration_only,
+        "the struct, not the landmark, defines the type"
+    );
+    let shop = symbol(&extracted, SymbolKind::Struct, "ShopApp");
+    assert!(!shop.implementation.declaration_only);
+    assert!(
+        symbols_named(&extracted, SymbolKind::Class, "Helper").is_empty(),
+        "only the @main entry is an app landmark"
+    );
+
+    let commented = extract(
+        "Sources/App/Entries.swift",
+        "import SwiftUI\n@main /* { */ struct Shop: App { var body: some Scene { WindowGroup {} } }\n",
+    );
+    symbol(&commented, SymbolKind::Class, "Shop");
+    let impostors = extract(
+        "Sources/App/Cli.swift",
+        "import SwiftUI\n@main struct Cli: Entry /* App */ { static func main() {} }\n",
+    );
+    assert!(
+        symbols_named(&impostors, SymbolKind::Class, "Cli").is_empty(),
+        "a commented-out base is no conformance"
+    );
+    let constrained = extract(
+        "Sources/App/Box.swift",
+        "import SwiftUI\n@main struct Box<T>: Entry where T: App { static func main() {} }\n",
+    );
+    assert!(
+        symbols_named(&constrained, SymbolKind::Class, "Box").is_empty(),
+        "a generic constraint is no conformance"
+    );
+
+    let attributed = extract(
+        "Sources/App/Legacy.swift",
+        "import SwiftUI\n@available(*, deprecated, message: \"a struct { kept }\")\n@main struct Legacy: App { var body: some Scene { WindowGroup {} } }\n",
+    );
+    symbol(&attributed, SymbolKind::Class, "Legacy");
+    for (path, source, name) in [
+        (
+            "Sources/App/Gen.swift",
+            "import SwiftUI\n@main struct Gen<T: App>: Entry { static func main() {} }\n",
+            "Gen",
+        ),
+        (
+            "Sources/App/Wrap.swift",
+            "import SwiftUI\n@main struct Wrap: Entry<App> { static func main() {} }\n",
+            "Wrap",
+        ),
+    ] {
+        assert!(
+            symbols_named(&extract(path, source), SymbolKind::Class, name).is_empty(),
+            "{name}: an `App` generic argument or parameter bound is no conformance"
+        );
+    }
+}
+
 fn symbol<'file>(
     extracted: &'file ExtractedFile,
     kind: SymbolKind,

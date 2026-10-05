@@ -252,9 +252,12 @@ fn finalize_object<'source>(
     let qualified_name = uuid.map_or_else(|| format!("{prefix}::{name}"), str::to_owned);
     // A UUID is a game-global identity: other files reference it directly.
     let addressable = state.regions.len() == 1 || uuid.is_some();
+    // As in v1, the declaration starts at its own `<node>` tag. v1 recorded
+    // no end (it defaulted to the start line); the span here runs through
+    // the attribute value that names it.
     let id = builder.add_symbol(
         CustomSymbolInput::new(SymbolKind::Resource, name, qualified_name)
-            .at(name_offset, name_offset + name.len())
+            .at(tag.start.min(name_offset), name_offset + name.len())
             .with_options(SymbolOptions {
                 body_search_text: format!("bg3 resource {name}"),
                 export: SymbolExportFlags::named(addressable),

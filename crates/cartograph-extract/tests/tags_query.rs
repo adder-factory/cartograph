@@ -212,6 +212,63 @@ fn tags_queries_bound_failure_cancel_and_sensitive_text_paths() {
     );
 }
 
+#[test]
+fn definitions_sharing_one_syntax_node_all_extract_instead_of_failing_the_file() {
+    let haskell = extract(
+        "src/Util/Strings.hs",
+        "module Util.Strings (shout) where\n\nshout :: String -> String\nshout = map toUpper\n",
+    );
+    let elixir = extract(
+        "lib/shop/cart.ex",
+        "defmodule Shop.Cart do\n  defstruct items: []\n  def new, do: %__MODULE__{}\nend\n",
+    );
+
+    assert_eq!(
+        top_level_symbols(&haskell),
+        [
+            ("module", "Strings"),
+            ("module", "Util"),
+            ("function", "shout"),
+        ]
+    );
+    assert_eq!(
+        top_level_symbols(&elixir),
+        [("module", "Shop.Cart"), ("struct", "Shop.Cart")]
+    );
+    let new = elixir
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "new")
+        .unwrap_or_else(|| panic!("Shop.Cart.new was not extracted: {:?}", elixir.symbols));
+    assert_eq!(new.qualified_name, "Shop.Cart.new");
+    for extracted in [&haskell, &elixir] {
+        assert_eq!(extracted.parse_status, FileParseStatus::Parsed);
+        let mut ids = extracted
+            .symbols
+            .iter()
+            .map(|symbol| symbol.id.as_str())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), extracted.symbols.len(), "symbol ids collide");
+    }
+}
+
+/// Kind and qualified name of every symbol no containment nests.
+fn top_level_symbols(extracted: &ExtractedFile) -> Vec<(&str, &str)> {
+    extracted
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            extracted
+                .containments
+                .iter()
+                .all(|containment| containment.child != symbol.id)
+        })
+        .map(|symbol| (symbol.kind.as_str(), symbol.qualified_name.as_str()))
+        .collect()
+}
+
 fn canonical_facts(extracted: &ExtractedFile) -> Vec<String> {
     let mut facts = Vec::new();
     let names = extracted

@@ -4,7 +4,7 @@ use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use crate::{
-    ExtractError, ExtractedReference,
+    ExtractError, ExtractedReference, ExtractedSymbol, LEXICAL_SCOPE_RESOLUTION_PREFIX,
     walk::{
         AstVisitBudget, ExtractionBuilder, SingleChildUnwrap,
         javascript_scopes::{NearestBinding, read_binding},
@@ -29,19 +29,70 @@ const VALUE_IDENTIFIER_UNWRAP: SingleChildUnwrap = SingleChildUnwrap::new(
 /// containment never nests deeper than the walker's own depth limit.
 const MAX_SCOPE_DEPTH: usize = crate::MAXIMUM_AST_DEPTH;
 
+/// Nested declarations a value position passes as a value (a callback, a
+/// handler, a component class). A name that only nested scopes bind names
+/// one of these when the scope binding the read declares it; nested plain
+/// locals and parameters keep one binding per name (see
+/// `LexicalTargets::candidate`).
+const NESTED_VALUE_KINDS: [SymbolKind; 3] = [
+    SymbolKind::Function,
+    SymbolKind::Class,
+    SymbolKind::Component,
+];
+
 /// The lexical bindings one scope declares under one name.
 enum ScopeBinding {
     Unique(SymbolId),
     Ambiguous,
 }
 
+/// The bindings of one name, by the scope (parent symbol, `None` at the top
+/// level) that declares them.
+type NameScopes = BTreeMap<Option<SymbolId>, ScopeBinding>;
+
+/// Every lexical binding of one name.
+#[derive(Default)]
+struct NameBindings {
+    /// The bindings by declaring scope.
+    scopes: NameScopes,
+    /// Whether a nested binding of the name is of a [`NESTED_VALUE_KINDS`]
+    /// kind, so a read of a name only nested scopes bind can name one.
+    nested_value: bool,
+}
+
+/// How a read of a nested binding resolves to exactly that binding.
+enum NestedIdentity {
+    /// The binding's qualified name, which no other symbol of the file
+    /// carries: the resolver's exact same-file pass binds it.
+    Qualified(String),
+    /// Another symbol of the file shares the binding's qualified name, so the
+    /// exact pass could bind the namesake; the read resolves by the
+    /// resolver's scope walk alone.
+    Shared,
+}
+
 /// Every lexical binding of the file, by name and by the scope (parent
 /// symbol, `None` at the top level) that declares it.
 struct LexicalTargets {
-    by_name: BTreeMap<String, BTreeMap<Option<SymbolId>, ScopeBinding>>,
+    by_name: BTreeMap<String, NameBindings>,
     parents: BTreeMap<SymbolId, SymbolId>,
     /// The byte range each lexical binding is declared at.
     spans: BTreeMap<SymbolId, (u64, u64)>,
+    /// Nested bindings of a [`NESTED_VALUE_KINDS`] kind.
+    nested_values: BTreeSet<SymbolId>,
+    /// The resolution identity of every nested lexical binding, computed
+    /// once per file so each admitted read costs a map lookup.
+    identities: BTreeMap<SymbolId, NestedIdentity>,
+}
+
+/// One read of a name that only nested scopes bind.
+struct NestedRead<'targets, 'owner> {
+    /// The bindings of the read's name.
+    scopes: &'targets NameScopes,
+    /// Byte range of the scope holding the read's nearest binding.
+    scope: (usize, usize),
+    /// The read's closest enclosing symbol.
+    owner: Option<&'owner SymbolId>,
 }
 
 impl LexicalTargets {
@@ -57,8 +108,10 @@ impl LexicalTargets {
             .filter(|containment| Some(&containment.parent) != module_owner.as_ref())
             .map(|containment| (containment.child.clone(), containment.parent.clone()))
             .collect::<BTreeMap<_, _>>();
-        let mut by_name = BTreeMap::<String, BTreeMap<Option<SymbolId>, ScopeBinding>>::new();
+        let mut by_name = BTreeMap::<String, NameBindings>::new();
         let mut spans = BTreeMap::new();
+        let mut nested_values = BTreeSet::new();
+        let mut nested = Vec::new();
         for symbol in &builder.facts.symbols {
             let scope = parents.get(&symbol.id).cloned();
             if !names_a_lexical_binding(symbol.kind, scope.as_ref()) {
@@ -68,26 +121,40 @@ impl LexicalTargets {
                 symbol.id.clone(),
                 (symbol.span.start_byte(), symbol.span.end_byte()),
             );
-            if let Some(scopes) = by_name.get_mut(&symbol.name) {
-                scopes
-                    .entry(scope)
-                    .and_modify(|binding| *binding = ScopeBinding::Ambiguous)
-                    .or_insert_with(|| ScopeBinding::Unique(symbol.id.clone()));
-                continue;
+            if scope.is_some() {
+                nested
+                    .try_reserve(1)
+                    .map_err(|_| ExtractError::OutputLimit)?;
+                nested.push((&symbol.id, symbol.qualified_name.as_str()));
             }
-            let mut name = String::new();
-            name.try_reserve(symbol.name.len())
-                .map_err(|_| ExtractError::OutputLimit)?;
-            name.push_str(&symbol.name);
-            by_name.insert(
-                name,
-                BTreeMap::from([(scope, ScopeBinding::Unique(symbol.id.clone()))]),
-            );
+            let nested_value = scope.is_some() && NESTED_VALUE_KINDS.contains(&symbol.kind);
+            if nested_value {
+                nested_values.insert(symbol.id.clone());
+            }
+            if !by_name.contains_key(&symbol.name) {
+                let mut name = String::new();
+                name.try_reserve(symbol.name.len())
+                    .map_err(|_| ExtractError::OutputLimit)?;
+                name.push_str(&symbol.name);
+                by_name.insert(name, NameBindings::default());
+            }
+            let bindings = by_name
+                .get_mut(&symbol.name)
+                .ok_or(ExtractError::OutputLimit)?;
+            bindings.nested_value |= nested_value;
+            bindings
+                .scopes
+                .entry(scope)
+                .and_modify(|binding| *binding = ScopeBinding::Ambiguous)
+                .or_insert_with(|| ScopeBinding::Unique(symbol.id.clone()));
         }
+        let identities = nested_identities(&builder.facts.symbols, &nested)?;
         Ok(Self {
             by_name,
             parents,
             spans,
+            nested_values,
+            identities,
         })
     }
 
@@ -98,19 +165,48 @@ impl LexicalTargets {
     /// bare name to a same-named top-level declaration before it walks
     /// enclosing scopes. Which of the two a read names is then settled by its
     /// nearest enclosing binding (see `ValueScanner::admitted_target`). A
-    /// name bound only in several nested scopes
-    /// names nothing, which keeps parameter and local reads at one binding
-    /// per name, so the per-file value-reference cap stays a ceiling real
-    /// files do not reach.
+    /// name bound only in several nested scopes names a nested function,
+    /// class, or component the read's own scope declares, and nothing else
+    /// (see [`Self::nested_value`]), which keeps parameter and local reads
+    /// at one binding per name, so the per-file value-reference cap stays a
+    /// ceiling real files do not reach.
     fn candidate(&self, name: &str) -> Option<ValueTarget<'_>> {
-        let scopes = self.by_name.get(name)?;
+        let bindings = self.by_name.get(name)?;
+        let scopes = &bindings.scopes;
         if let (1, Some(ScopeBinding::Unique(id))) = (scopes.len(), scopes.values().next()) {
             return Some(ValueTarget::Unique(id));
         }
         match scopes.get(&None) {
             Some(ScopeBinding::Unique(id)) => Some(ValueTarget::TopLevel(id)),
-            _ => None,
+            None if bindings.nested_value => Some(ValueTarget::Nested(scopes)),
+            Some(ScopeBinding::Ambiguous) | None => None,
         }
+    }
+
+    /// The nested function, class, or component a read names when only
+    /// nested scopes bind its name and its nearest binding is a local
+    /// declaration. The innermost enclosing symbol of the read that binds the
+    /// name inside the read's binding scope declares the binding the read
+    /// names; the read names a value only when that one binding is of a
+    /// [`NESTED_VALUE_KINDS`] kind. A function nested deeper than the read is
+    /// never on the read's chain of enclosing symbols, so its namesake cannot
+    /// answer, and an unknown or too deep chain names nothing.
+    fn nested_value<'targets>(
+        &'targets self,
+        read: &NestedRead<'targets, '_>,
+    ) -> Option<&'targets SymbolId> {
+        let mut scope = read.owner;
+        for _ in 0..=MAX_SCOPE_DEPTH {
+            let current = scope?;
+            match read.scopes.get(&Some(current.clone())) {
+                Some(ScopeBinding::Unique(id)) if self.declared_within(id, Some(read.scope)) => {
+                    return self.nested_values.contains(id).then_some(id);
+                }
+                Some(ScopeBinding::Ambiguous) => return None,
+                _ => scope = self.parents.get(current),
+            }
+        }
+        None
     }
 
     /// Whether a binding is declared at the top level of the file.
@@ -157,6 +253,41 @@ impl LexicalTargets {
     }
 }
 
+/// The resolution identity of each nested lexical binding: its qualified
+/// name, unless another symbol of the file (a class method `outer::handler`
+/// beside a local `function handler` of an object method `outer`) shares it.
+/// One pass over the file's symbols counts the namesakes of every nested
+/// binding's qualified name.
+fn nested_identities(
+    symbols: &[ExtractedSymbol],
+    nested: &[(&SymbolId, &str)],
+) -> Result<BTreeMap<SymbolId, NestedIdentity>, ExtractError> {
+    let mut carriers = nested
+        .iter()
+        .map(|(_, qualified_name)| (*qualified_name, 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    for symbol in symbols {
+        if let Some(count) = carriers.get_mut(symbol.qualified_name.as_str()) {
+            *count = count.saturating_add(1);
+        }
+    }
+    let mut identities = BTreeMap::new();
+    for (id, qualified_name) in nested {
+        let identity = if carriers.get(qualified_name).is_some_and(|count| *count > 1) {
+            NestedIdentity::Shared
+        } else {
+            let mut owned = String::new();
+            owned
+                .try_reserve(qualified_name.len())
+                .map_err(|_| ExtractError::OutputLimit)?;
+            owned.push_str(qualified_name);
+            NestedIdentity::Qualified(owned)
+        };
+        identities.insert((*id).clone(), identity);
+    }
+    Ok(identities)
+}
+
 /// What a bare read may name.
 #[derive(Clone, Copy)]
 enum ValueTarget<'targets> {
@@ -164,6 +295,8 @@ enum ValueTarget<'targets> {
     Unique(&'targets SymbolId),
     /// The unique top-level binding of a name nested scopes also bind.
     TopLevel(&'targets SymbolId),
+    /// The bindings of a name that only nested scopes bind.
+    Nested(&'targets NameScopes),
 }
 
 /// Whether the resolver can bind a bare name to this symbol, declared in
@@ -333,13 +466,48 @@ impl ValueScanner<'_, '_, '_, '_> {
         if owner.as_ref() == Some(target) || !self.budget.admit(owner.as_ref(), target, node)? {
             return Ok(());
         }
+        let resolution_name = self.nested_identity(&name, target)?;
         self.builder.emit_reference(ExtractedReference {
             owner,
             name,
-            resolution_name: None,
+            resolution_name,
             kind: ReferenceKind::References,
             span,
         })
+    }
+
+    /// The identity a read of a nested binding resolves by. The resolver
+    /// binds a name to a same-file candidate of that exact qualified name
+    /// before it walks enclosing scopes, and an embedded component script's
+    /// file component is such a candidate that the lexical targets never see
+    /// (`handler.vue` declares a component `handler`), so a bare name could
+    /// bind the component instead of the nested binding the read names. A
+    /// nested binding resolves by its qualified name when no other symbol of
+    /// the file carries it; otherwise (a class method `outer::handler` beside
+    /// a local `function handler` of an object method `outer`) the exact pass
+    /// could pick the namesake, so the read is marked to resolve by the
+    /// resolver's scope walk from its owner alone, which finds the binding the
+    /// read's own scopes declare. A top-level target keeps its bare name, which
+    /// is its qualified name.
+    fn nested_identity(
+        &self,
+        name: &str,
+        target: &SymbolId,
+    ) -> Result<Option<String>, ExtractError> {
+        if self.targets.is_top_level(target) {
+            return Ok(None);
+        }
+        let (prefix, identity) = match self.targets.identities.get(target) {
+            Some(NestedIdentity::Qualified(qualified_name)) => ("", qualified_name.as_str()),
+            Some(NestedIdentity::Shared) | None => (LEXICAL_SCOPE_RESOLUTION_PREFIX, name),
+        };
+        let mut resolution = String::new();
+        resolution
+            .try_reserve(prefix.len().saturating_add(identity.len()))
+            .map_err(|_| ExtractError::OutputLimit)?;
+        resolution.push_str(prefix);
+        resolution.push_str(identity);
+        Ok(Some(resolution))
     }
 }
 
@@ -352,16 +520,32 @@ impl<'targets> ValueScanner<'_, '_, '_, 'targets> {
     /// `catch`, loop, or expression-name binding has no symbol of its own
     /// (`items.map(save => run(save))`), so such a read names nothing; a
     /// local bound by `require` or `import()` names its declarator's symbol
-    /// when it has one.
+    /// when it has one. A read of a name only nested scopes bind names the
+    /// nested function, class, or component its own scope declares, if any.
     fn admitted_target(
         &mut self,
         node: Node<'_>,
         candidate: ValueTarget<'targets>,
     ) -> Result<Option<(&'targets SymbolId, Option<SymbolId>)>, ExtractError> {
         let targets = self.targets;
-        let (ValueTarget::Unique(target) | ValueTarget::TopLevel(target)) = candidate;
-        let top_level = targets.is_top_level(target);
         let binding = read_binding(self.builder, node)?;
+        let target = match candidate {
+            ValueTarget::Unique(target) | ValueTarget::TopLevel(target) => target,
+            ValueTarget::Nested(scopes) => {
+                let (NearestBinding::Local, Some(scope)) = (binding.nearest, binding.scope) else {
+                    return Ok(None);
+                };
+                let owner = owner_for_node(self.builder, node);
+                let read = NestedRead {
+                    scopes,
+                    scope,
+                    owner: owner.as_ref(),
+                };
+                let target = targets.nested_value(&read);
+                return Ok(target.map(|target| (target, owner)));
+            }
+        };
+        let top_level = targets.is_top_level(target);
         let admissible = match binding.nearest {
             NearestBinding::Module => top_level,
             NearestBinding::ModuleBlock => {

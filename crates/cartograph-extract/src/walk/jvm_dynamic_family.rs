@@ -4,7 +4,7 @@ use cartograph_domain::{
 };
 use tree_sitter::Node;
 
-use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
+use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind, code_scan::CodeScan};
 
 use super::{
     ExtractionBuilder, PendingReference, PendingSymbol, current_owner_kind_in, references,
@@ -19,6 +19,13 @@ const MAX_SIGNATURE_BYTES: usize = 512;
 const MAX_REFERENCE_TARGET_BYTES: usize = 512;
 const MAX_TYPE_DEPTH: usize = 64;
 const MAX_DOC_BYTES: usize = 16 * 1024;
+/// Groovy grammar node for a juxtaposed (parenthesis-free) command call.
+const GROOVY_COMMAND_CALL: &str = "juxt_function_call";
+/// Groovy declarations that may follow the constants of a recovered enum body.
+const GROOVY_ENUM_MEMBER_DECLARATIONS: &[&str] =
+    &["function_definition", "function_declaration", "declaration"];
+/// Most bytes of one error-recovered line scanned for an open literal before a call.
+const MAX_LINE_PREFIX_SCAN_BYTES: usize = 4_096;
 const JVM_TYPE_OWNER_KINDS: &[SymbolKind] = &[
     SymbolKind::Class,
     SymbolKind::Struct,
@@ -288,6 +295,15 @@ fn visit_groovy_recovered_enum(
                 },
             )?;
         }
+    }
+    // Declarations after the constants (methods, fields) parse cleanly inside
+    // the recovered body and belong to the enum. A constant-specific body
+    // (`FORMAL { String foo() {} }`) parses as a call with a closure argument
+    // and is not an enum member declaration, so it is left alone.
+    for member in
+        named_children(body).filter(|child| GROOVY_ENUM_MEMBER_DECLARATIONS.contains(&child.kind()))
+    {
+        builder.visit(member, depth.saturating_add(1))?;
     }
     builder.qualifiers.pop();
     builder.native_owner_kinds.pop();
@@ -2166,7 +2182,10 @@ fn capture_groovy_usage(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     match node.kind() {
-        "function_call" if !is_groovy_construction_target(node) => {
+        "function_call" | GROOVY_COMMAND_CALL
+            if !is_groovy_construction_target(node)
+                && is_groovy_call(builder.context.source(), node) =>
+        {
             let Some(target) = node.child_by_field_name("function") else {
                 return Ok(());
             };
@@ -2203,7 +2222,10 @@ fn capture_groovy_usage(
                 },
             )
         }
-        "dotted_identifier" if !is_groovy_call_target(node) => {
+        "dotted_identifier"
+            if !is_groovy_call_target(builder.context.source(), node)
+                && !is_recovered_literal_word(builder.context.source(), node) =>
+        {
             capture_terminal_member(builder, node)
         }
         _ => Ok(()),
@@ -2257,13 +2279,104 @@ fn is_scala_call_target(node: Node<'_>) -> bool {
     })
 }
 
-fn is_groovy_call_target(node: Node<'_>) -> bool {
+fn is_groovy_call_target(source: &str, node: Node<'_>) -> bool {
     node.parent().is_some_and(|parent| {
-        parent.kind() == "function_call"
+        matches!(parent.kind(), "function_call" | GROOVY_COMMAND_CALL)
+            && is_groovy_call(source, parent)
             && parent
                 .child_by_field_name("function")
                 .is_some_and(|target| same_node(target, node))
     })
+}
+
+/// Whether a Groovy call node is a call: it is not a word of an error-recovered
+/// literal, and a juxtaposed command call (`receiver.method args`) calls
+/// through a member path.
+///
+/// Error recovery turns the words of a string-named method into calls
+/// (`def "greets with a tone"()` becomes `with a` and `tone "..."`,
+/// `def "uses a.b c"()` becomes `a.b c` and `def "uses a.b() c"()` becomes
+/// `a.b()`), so a call recovered inside a literal, or a bare juxtaposition, is
+/// not trusted.
+fn is_groovy_call(source: &str, node: Node<'_>) -> bool {
+    !is_recovered_literal_word(source, node)
+        && (node.kind() != GROOVY_COMMAND_CALL
+            || node
+                .child_by_field_name("function")
+                .is_some_and(|target| target.kind() == "dotted_identifier"))
+}
+
+/// Whether `node` is a word that error recovery lifted out of a literal: a
+/// parse error ends earlier on its line and the line's text before it is
+/// inside a literal or comment. Nodes in error-free surroundings are trusted
+/// as the grammar parsed them, so Groovy slashy, dollar-slashy, triple-quoted
+/// and multi-line literals the line re-lex does not model are never consulted.
+fn is_recovered_literal_word(source: &str, node: Node<'_>) -> bool {
+    follows_parse_error_on_line(node) && starts_inside_line_literal(source, node.start_byte())
+}
+
+/// Whether a parse error (an `ERROR` or missing node) ends on the row where
+/// `node` starts, before it. Only ancestors starting on that row and parents
+/// whose subtree holds an error are searched, so error-free trees cost one
+/// `has_error` check per ancestor on the row.
+fn follows_parse_error_on_line(node: Node<'_>) -> bool {
+    let start = node.start_position();
+    let line_start = node.start_byte().saturating_sub(start.column);
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        if parent.has_error() && error_precedes_on_line(parent, current, line_start, start.row) {
+            return true;
+        }
+        if parent.start_position().row != start.row {
+            return false;
+        }
+        current = parent;
+    }
+    false
+}
+
+/// Whether a child of `parent` before `current` holds a parse error and ends
+/// on `row`, at or after `line_start`.
+fn error_precedes_on_line(
+    parent: Node<'_>,
+    current: Node<'_>,
+    line_start: usize,
+    row: usize,
+) -> bool {
+    let mut cursor = parent.walk();
+    if cursor.goto_first_child_for_byte(line_start).is_none() {
+        return false;
+    }
+    loop {
+        let child = cursor.node();
+        if child.start_byte() >= current.start_byte() || same_node(child, current) {
+            return false;
+        }
+        if child.has_error() && child.end_position().row == row {
+            return true;
+        }
+        if !cursor.goto_next_sibling() {
+            return false;
+        }
+    }
+}
+
+/// Whether `offset` lies inside a literal or comment opened earlier on its line
+/// (Groovy `GString` `${...}` interpolations are code). When the line starts beyond the
+/// scan bound the position is unknown and the caller abstains, as for a literal.
+fn starts_inside_line_literal(source: &str, offset: usize) -> bool {
+    let window_start = offset.saturating_sub(MAX_LINE_PREFIX_SCAN_BYTES);
+    let Some(window) = source.as_bytes().get(window_start..offset) else {
+        return true;
+    };
+    let line = match window.iter().rposition(|byte| *byte == b'\n') {
+        Some(newline) => &window[newline + 1..],
+        None if window_start == 0 => window,
+        None => return true,
+    };
+    let mut scan = CodeScan::new(line).with_interpolation();
+    scan.by_ref().for_each(drop);
+    scan.in_literal()
 }
 
 fn is_groovy_construction_target(node: Node<'_>) -> bool {

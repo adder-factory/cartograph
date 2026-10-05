@@ -16,6 +16,8 @@ const SECRET_SENTINEL: &str = "sk_live_borrowed_family_secret";
 const MIN_WALK_POLLS: usize = 16;
 /// Cancellation points sampled across one extraction.
 const CANCELLATION_SAMPLES: usize = 48;
+/// Qualified-type segments in `new A0.A1...()`, nesting past the walk's bound.
+const DEEP_QUALIFIED_SEGMENTS: usize = 40;
 
 const CLOJURE_SOURCE: &str = r#"
 (ns demo.core
@@ -1387,6 +1389,129 @@ fn solidity_named_return_parameters_shadow_contract_members() {
         "a named return shadows the member"
     );
     assert_eq!(resolution("direct"), Some(Some("Vault::helper")));
+}
+
+#[test]
+fn solidity_new_expressions_instantiate_their_contract_type() {
+    // v1 tree-sitter.ts routes every `new_expression` to an `instantiates`
+    // reference named by its type; the `new` keyword is never a callee.
+    let source = r"contract Vault {
+  function spawn() external returns (address) {
+    Token fresh = new Token();
+    Box boxed = new Box{value: 1}(2);
+    lib.Pool pool = new lib.Pool();
+    uint[] memory sizes = new uint[](3);
+    return address(fresh);
+  }
+}
+";
+    let extracted = extract("contracts/Vault.sol", source);
+    let spawn = symbol(&extracted, SymbolKind::Method, "spawn");
+    for name in ["Token", "Box", "lib.Pool"] {
+        assert!(
+            has_reference(
+                &extracted,
+                Expected::new(ReferenceKind::Instantiates, name, Some(spawn))
+            ),
+            "missing instantiation of {name}: {:?}",
+            extracted.references
+        );
+    }
+    assert_eq!(
+        references_of(&extracted, ReferenceKind::Instantiates).len(),
+        3,
+        "a primitive array allocation instantiates no contract type"
+    );
+    assert_eq!(call_count(&extracted, "new"), 0, "`new` is not a callee");
+
+    let split = extract(
+        "contracts/Split.sol",
+        "contract F {\n  function make() external {\n    Token t = new\n      Token();\n  }\n}\n",
+    );
+    let token = split
+        .references
+        .iter()
+        .find(|reference| reference.kind == ReferenceKind::Instantiates)
+        .unwrap_or_else(|| panic!("missing instantiation: {:?}", split.references));
+    assert_eq!(
+        token.span.start_line(),
+        3,
+        "an instantiation sits on its `new` line"
+    );
+
+    let path = (0..DEEP_QUALIFIED_SEGMENTS)
+        .map(|index| format!("A{index}"))
+        .collect::<Vec<_>>()
+        .join(".");
+    let deep = extract(
+        "contracts/Deep.sol",
+        &format!("contract D {{\n  function make() external {{\n    new {path}();\n  }}\n}}\n"),
+    );
+    assert!(
+        deep.references
+            .iter()
+            .all(|reference| reference.kind != ReferenceKind::Instantiates
+                && reference.name != "new"),
+        "a construction past the depth bound abstains: {:?}",
+        deep.references
+    );
+}
+
+#[test]
+fn solidity_calls_chained_on_a_construction_name_their_member() {
+    // A call chained on a fresh construction calls the member it names; its
+    // receiver has no name, and the `new` keyword is still no callee.
+    let chained = extract(
+        "contracts/Chain.sol",
+        "contract C {\n  function run() external {\n    new Token(1).mint();\n    (new Token()).owner();\n    new Box{value: 1}().fill();\n    new lib.Pool().drain();\n  }\n}\n",
+    );
+    let run = symbol(&chained, SymbolKind::Method, "run");
+    for (method, line) in [("mint", 3), ("owner", 4), ("fill", 5), ("drain", 6)] {
+        let call = chained
+            .references
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Calls && reference.name == method)
+            .unwrap_or_else(|| panic!("missing call of {method}: {:?}", chained.references));
+        assert_eq!(
+            call.owner.as_ref(),
+            Some(&run.id),
+            "{method} is called by run"
+        );
+        assert_eq!(
+            call.span.start_line(),
+            line,
+            "{method} sits on its own line"
+        );
+    }
+    assert_eq!(
+        references_of(&chained, ReferenceKind::Calls).len(),
+        4,
+        "a construction chained into a call adds no other callee: {:?}",
+        chained.references
+    );
+    for name in ["Token", "Box", "lib.Pool"] {
+        assert!(
+            has_any_reference(&chained, ReferenceKind::Instantiates, name),
+            "a chained construction still instantiates {name}: {:?}",
+            chained.references
+        );
+    }
+
+    // The construction walk is bounded, but a long member chain that never
+    // constructs anything keeps its call.
+    let receiver = (0..DEEP_QUALIFIED_SEGMENTS)
+        .map(|index| format!("a{index}"))
+        .collect::<Vec<_>>()
+        .join(".");
+    let long = extract(
+        "contracts/Long.sol",
+        &format!("contract L {{\n  function run() external {{\n    {receiver}.go();\n  }}\n}}\n"),
+    );
+    assert_eq!(
+        references_of(&long, ReferenceKind::Calls),
+        vec![format!("{receiver}.go").as_str()],
+        "a deep non-construction member call keeps its callee"
+    );
 }
 
 #[test]

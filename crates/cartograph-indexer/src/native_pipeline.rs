@@ -38,12 +38,13 @@ use cartograph_extract::{
     CloneTokenCount, CloneTokenProfile, Containment, DEFAULT_MAXIMUM_AST_DEPTH,
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
     EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
-    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, MAXIMUM_AST_DEPTH,
-    MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
-    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
-    SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
-    TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
-    native_extractor_contract_digest, native_read_reservation, substitute_module_alias,
+    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, LEXICAL_SCOPE_RESOLUTION_PREFIX,
+    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
+    RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
+    SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
+    SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
+    native_extraction_reservation, native_extractor_contract_digest, native_read_reservation,
+    substitute_module_alias,
 };
 use cartograph_scip::{
     ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
@@ -10827,6 +10828,7 @@ struct ReferenceLookup<'reference> {
     rust_self_receiver_name: Option<&'reference str>,
     rust_macro_name: Option<&'reference str>,
     type_query_value_name: Option<&'reference str>,
+    lexical_scope_name: Option<&'reference str>,
     embedded_sql: Option<EmbeddedSqlLookup<'reference>>,
     php_exact: Option<php_resolution::PhpExactLookup<'reference>>,
     lookup_name: &'reference str,
@@ -10843,6 +10845,8 @@ impl<'reference> ReferenceLookup<'reference> {
             resolution_name.and_then(|name| name.strip_prefix(RUST_MACRO_RESOLUTION_PREFIX));
         let type_query_value_name =
             resolution_name.and_then(|name| name.strip_prefix(TYPE_QUERY_VALUE_RESOLUTION_PREFIX));
+        let lexical_scope_name =
+            resolution_name.and_then(|name| name.strip_prefix(LEXICAL_SCOPE_RESOLUTION_PREFIX));
         let embedded_sql = embedded_sql_lookup(resolution_name);
         let php_exact = resolution_name
             .and_then(|name| name.strip_prefix(PHP_EXACT_RESOLUTION_PREFIX))
@@ -10851,6 +10855,7 @@ impl<'reference> ReferenceLookup<'reference> {
             .or(dynamic_dispatch_name)
             .or(rust_macro_name)
             .or(type_query_value_name)
+            .or(lexical_scope_name)
             .or_else(|| embedded_sql.as_ref().map(|lookup| lookup.table))
             .or_else(|| php_exact.map(php_resolution::PhpExactLookup::key))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
@@ -10859,6 +10864,7 @@ impl<'reference> ReferenceLookup<'reference> {
             rust_self_receiver_name,
             rust_macro_name,
             type_query_value_name,
+            lexical_scope_name,
             embedded_sql,
             php_exact,
             lookup_name,
@@ -11056,6 +11062,7 @@ impl ResolutionOutput<'_> {
             rust_self_receiver_name,
             rust_macro_name,
             type_query_value_name,
+            lexical_scope_name,
             embedded_sql,
             php_exact,
             lookup_name,
@@ -11064,6 +11071,8 @@ impl ResolutionOutput<'_> {
             ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
         } else if let Some(lookup) = embedded_sql {
             resolve_embedded_sql(self.index, lookup, cancelled)?
+        } else if let Some(name) = lexical_scope_name {
+            resolve_lexical_scope_reference(self.index, context, &reference, name, cancelled)?
         } else if let Some(lookup) = php_exact {
             php_resolution::resolve_exact(
                 self.index,
@@ -12809,6 +12818,54 @@ where
     if pascal_resolution::exact_scope_only(request.language, request.dispatch) {
         return Ok(None);
     }
+    resolve_lexical_scope(index, request, candidates, cancelled)
+}
+
+/// Resolve a JavaScript-family read the extractor marked as bound by a nested
+/// lexical declaration whose qualified name a namesake shares: only the scope
+/// walk from the read's owner binds it, never the exact same-file
+/// qualified-name pass, an import, or a project name.
+fn resolve_lexical_scope_reference<Cancel>(
+    index: &ResolutionIndex,
+    context: &FileResolutionContext<'_>,
+    reference: &ExtractedReference,
+    name: &str,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let request = ResolutionRequest {
+        file_id: &context.identity.file_id,
+        file_path: &context.identity.path,
+        language: &context.identity.language,
+        import_bindings: ImportBindingSelection::empty(),
+        owner: reference.owner.as_ref(),
+        name,
+        dispatch: ReferenceDispatch::Static,
+        kind: reference.kind,
+        span: reference.span,
+    };
+    let candidates = resolution_candidates_for_file(index, name, request.file_id);
+    Ok(
+        match resolve_lexical_scope(index, &request, candidates, cancelled)? {
+            Some(target) => ReferenceResolution::resolved(target),
+            None => ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
+        },
+    )
+}
+
+/// Walk the reference owner's enclosing scopes outward to the file's top
+/// level and bind the first scope's declaration of the name.
+fn resolve_lexical_scope<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidates: &[ResolutionCandidate],
+    cancelled: &mut Cancel,
+) -> Result<Option<ResolvedTarget>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     let mut scope = request.owner;
     // There can be one more lexical scope than parent-map entries: an
     // uncontained owner must still advance once to the file's top-level scope.
@@ -16526,16 +16583,26 @@ mod tests {
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
     // Pascal now has a dedicated family: fixture.pas extracts its full structure
     // (2 -> 9 symbols, the projection's +7) and its runtime calls (`SetLength`,
-    // `Length`, `High`) stay unresolved as external references.
+    // `Length`, `High`) stay unresolved as external references. The SQL
+    // function body's `INSERT INTO box` now references and resolves to table
+    // `box`, as v1 recorded (the projection's +1 reference and +1 edge).
+    // ABAP declares classes and methods at their IMPLEMENTATION blocks, so
+    // fixture.abap's class and method move there (same counts, new spans,
+    // and the method now owns its body).
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "684133dd6a9325d5911eea61312c79ad3c757d6d4a7d7040a7fdf7a9cdff9c92";
+        "dcf6c35b9fe207f27698718b7a439e411fd86aa4cb21662f631dbcb74731eaa6";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 259, 281, 134, 259);
+        (28, 259, 282, 135, 259);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
+    // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
+    // spans from its `IF` line and is named by its head line, and an LSX
+    // resource starts at its `<node>` tag (same projection, new identities).
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "f163e4b694db4069c989cb4828889562976005480f3e9dd3e28cf7b42d6e5557";
+        "00b7a35cdac9999435d22ff1eeda8a05be25b5279c01dfd1d92a77cb86ac0697";
+    // A Liquid `{% render %}` partner is a Component as well as an Import
+    // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (13, 49, 44, 32, 49);
+        (13, 50, 45, 32, 50);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [
         (
             "force-app/main/default/aura/OrderPanel/OrderPanel.cmp",

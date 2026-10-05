@@ -3,8 +3,10 @@
 //! An exported-shaped (`PascalCase`) identifier read by an owner references
 //! the package-level binding it names (`return MaxN`, `sort.Slice(s, Less)`).
 //! Not reads: callees (already calls), declared names, written left-hand
-//! sides, struct-literal field keys, package qualifiers, and names bound as a
-//! parameter, result, receiver, or type parameter of an enclosing function. A
+//! sides, struct-literal field keys (a literal of a written named type records
+//! them as field accesses; the keys of a literal of a map, slice, or array type
+//! the file declares are reads), package qualifiers, and names bound as a parameter, result,
+//! receiver, or type parameter of an enclosing function. A
 //! function-local variable spelled like a package binding is not modeled and
 //! is the known false-positive shape (idiomatic Go locals are lower-case).
 
@@ -13,6 +15,7 @@ use tree_sitter::Node;
 
 use super::{
     go_members::imports_package,
+    go_named_types,
     parameter_bindings::{ScopeNameSet, ScopeQuery, node_text, scope_binds},
 };
 use crate::{
@@ -72,7 +75,7 @@ pub(super) fn capture_constant_read(
     let snapshot = builder.context.snapshot;
     let name = node_text(snapshot.source(), node);
     if !exported_shaped(name)
-        || !is_read_position(node)
+        || !(is_read_position(node) || is_container_literal_key(builder, node)?)
         || imports_package(builder, name)?
         || bound_by_enclosing_function(builder, node, name)?
     {
@@ -130,12 +133,35 @@ fn is_field_key(element: Node<'_>) -> bool {
     else {
         return false;
     };
-    !keyed
+    !keyed_literal_type(keyed)
+        .is_some_and(|literal_type| EXPRESSION_KEYED_TYPES.contains(&literal_type.kind()))
+}
+
+/// The type a keyed element's literal builds, through an elided `&T{..}`.
+fn keyed_literal_type(keyed: Node<'_>) -> Option<Node<'_>> {
+    keyed
         .parent()
         .filter(|value| value.kind() == "literal_value")
         .and_then(|value| literal_value_type(value, 0))
         .and_then(pointee)
-        .is_some_and(|literal_type| EXPRESSION_KEYED_TYPES.contains(&literal_type.kind()))
+}
+
+/// Whether an identifier the syntax leaves as a possible field key is the key
+/// of a literal whose named type the file declares as a map, slice, or array
+/// type (`M{Key: 1}` after `type M map[string]int`), and so an expression read.
+fn is_container_literal_key(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let Some(literal_type) = node
+        .parent()
+        .filter(|element| element.kind() == "literal_element" && is_field_key(*element))
+        .and_then(|element| element.parent())
+        .and_then(keyed_literal_type)
+    else {
+        return Ok(false);
+    };
+    go_named_types::names_container_type(builder, literal_type)
 }
 
 /// The type an elided `&T{..}` literal builds: `T` for a pointer type.

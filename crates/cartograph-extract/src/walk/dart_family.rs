@@ -30,6 +30,8 @@ const MAXIMUM_MODIFIER_STEPS: usize = 8;
 /// Consecutive comments skipped between a signature and its body, or between
 /// a callee and its arguments, before the two are treated as unrelated.
 const MAXIMUM_COMMENT_RUN: usize = 64;
+/// A `factory` constructor's signature, wrapped in a `method_signature`.
+const FACTORY_CONSTRUCTOR_SIGNATURE: &str = "factory_constructor_signature";
 /// Binding name standing for every name a library exposes.
 const WILDCARD: &str = "*";
 /// Owners whose callables are methods and whose variables are fields.
@@ -389,17 +391,25 @@ fn push_type_references<'tree>(
 }
 
 /// The named signature inside a `method_signature`, or the signature itself.
+/// A factory constructor (`factory User.fromJson(..)`) is named, as in v1, by
+/// its first identifier: the class it constructs.
 fn named_signature(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
     let inner = if node.kind() == "method_signature" {
         named_children(node).find(|child| {
             matches!(
                 child.kind(),
-                "function_signature" | "getter_signature" | "setter_signature"
+                "function_signature"
+                    | "getter_signature"
+                    | "setter_signature"
+                    | FACTORY_CONSTRUCTOR_SIGNATURE
             )
         })?
     } else {
         node
     };
+    if inner.kind() == FACTORY_CONSTRUCTOR_SIGNATURE {
+        return named_child_of_kind(inner, "identifier").map(|class| (inner, class));
+    }
     inner.child_by_field_name("name").map(|name| (inner, name))
 }
 
@@ -428,8 +438,9 @@ fn paired_signature(body: Node<'_>) -> Option<Node<'_>> {
 }
 
 /// Whether visiting `signature` emits a callable that consumes its sibling
-/// body. Constructors, operators, and members of an anonymous extension emit
-/// no symbol, so their bodies stay with the enclosing scope.
+/// body. Generative and redirecting constructors, operators, and members of an
+/// anonymous extension emit no symbol, so their bodies stay with the enclosing
+/// scope; a factory constructor is a method like any other `method_signature`.
 fn signature_owns_body(signature: Node<'_>) -> bool {
     matches!(signature.kind(), "function_signature" | "method_signature")
         && signature_is_standalone(signature)

@@ -14,7 +14,9 @@ use super::{
     },
 };
 
-const MAX_DURABLE_REFERENCE_NAME_BYTES: usize = 4_096;
+/// Longest callee text kept as a durable reference name; a wider Go callee is
+/// named by its member alone.
+pub(super) const MAX_DURABLE_REFERENCE_NAME_BYTES: usize = 4_096;
 /// Deepest static member chain (`a.b.c`) followed.
 const MAX_STATIC_CHAIN_DEPTH: usize = 64;
 

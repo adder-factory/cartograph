@@ -36,6 +36,16 @@ const CONTRACT_KINDS: &[&str] = &[
 const CONTRACT_MEMBER_SCOPE_PREFIX: &str = "solidity-member:";
 /// Scope-map key prefix for the parameters and locals each callable binds.
 const LOCAL_SCOPE_PREFIX: &str = "solidity-local:";
+/// `new T` construction; its call wrapper only passes constructor arguments.
+const NEW_EXPRESSION: &str = "new_expression";
+/// Grammar wrapper around every expression.
+const EXPRESSION: &str = "expression";
+/// Member access; `new lib.Pool()` parses as `(new lib).Pool`.
+const MEMBER_EXPRESSION: &str = "member_expression";
+/// Wrapper nodes, qualifier segments and chained calls followed between a
+/// `new T` and the call or member access around it; real code nests only a
+/// handful.
+const MAX_CONSTRUCTION_DEPTH: usize = 64;
 
 /// Dispatch one Solidity node, delegating unhandled shapes to the generic walker.
 pub(super) fn visit_declaration(
@@ -72,11 +82,20 @@ pub(super) fn visit_declaration(
 
 /// Capture calls; a bare call to a callable of the enclosing contract resolves
 /// to that contract's member, since contract members are in scope in its body.
-/// A modifier invocation in a function header calls that modifier.
+/// A modifier invocation in a function header calls that modifier. `new T`
+/// instantiates `T`; a call chained on it calls the member it names.
 pub(super) fn capture_usage(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    if node.kind() == NEW_EXPRESSION {
+        return capture_instantiation(builder, node);
+    }
+    if node.kind() == "call_expression"
+        && let Some(method) = constructed_receiver_method(node)
+    {
+        return capture_member_call(builder, method);
+    }
     let callee = match node.kind() {
         "call_expression" => bare_callee(node),
         "modifier_invocation" if invokes_modifier(node) => named_children(node)
@@ -85,11 +104,11 @@ pub(super) fn capture_usage(
         _ => None,
     };
     let Some(callee) = callee else {
-        return generic_family::capture_usage(builder, node);
+        return capture_generic_usage(builder, node);
     };
     let member = enclosing_contract_member(builder, callee)?;
     if member.is_none() && node.kind() == "call_expression" {
-        return generic_family::capture_usage(builder, node);
+        return capture_generic_usage(builder, node);
     }
     let name = builder.context.copy_text(callee_text(builder, callee))?;
     builder.emit_reference(ExtractedReference {
@@ -99,6 +118,160 @@ pub(super) fn capture_usage(
         kind: ReferenceKind::Calls,
         span: span_for(callee)?,
     })
+}
+
+/// Delegate to the generic capture, except for a call whose callee text
+/// starts with the `new` keyword: a construction (`new T(..)`, `new
+/// T{value: v}(..)`, `new lib.Pool()`), or a chain on one that is too deep or
+/// too unusual to name its member. The `new T` inside records the
+/// construction, and the keyword is never a callee.
+fn capture_generic_usage(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    if node.kind() == "call_expression" {
+        let callee = node
+            .child_by_field_name("function")
+            .map(|function| callee_text(builder, function))
+            .and_then(generic_family::normalize_reference_name);
+        if callee.as_deref() == Some("new") {
+            return Ok(());
+        }
+    }
+    generic_family::capture_usage(builder, node)
+}
+
+/// The member a call invokes on a freshly constructed receiver: `mint` in
+/// `new Token(1).mint()`, `(new Token()).owner()`, or `new lib.Pool().drain()`.
+/// The receiver must reach its `new T` through a call or parentheses, since
+/// the grammar parses the qualified type of `new lib.Pool()` itself as the
+/// member access `(new lib).Pool`. `None` for any other callee, or for a
+/// receiver nested past the depth bound.
+fn constructed_receiver_method(call: Node<'_>) -> Option<Node<'_>> {
+    let member = unwrap_expression(call.child_by_field_name("function")?)?;
+    if member.kind() != MEMBER_EXPRESSION {
+        return None;
+    }
+    let method = member
+        .child_by_field_name("property")
+        .filter(|property| property.kind() == "identifier")?;
+    let mut current = member.child_by_field_name("object");
+    let mut completed_construction = false;
+    for _ in 0..MAX_CONSTRUCTION_DEPTH {
+        let node = current?;
+        current = match node.kind() {
+            NEW_EXPRESSION => return completed_construction.then_some(method),
+            EXPRESSION => named_children(node).next(),
+            "struct_expression" => node.child_by_field_name("type"),
+            MEMBER_EXPRESSION => node.child_by_field_name("object"),
+            "call_expression" => {
+                completed_construction = true;
+                node.child_by_field_name("function")
+            }
+            "parenthesized_expression" => {
+                completed_construction = true;
+                named_children(node).next()
+            }
+            _ => return None,
+        };
+    }
+    None
+}
+
+/// The node an `expression` wrapper holds.
+fn unwrap_expression(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == EXPRESSION {
+        named_children(node).next()
+    } else {
+        Some(node)
+    }
+}
+
+/// A call of `method` on a receiver that has no name of its own.
+fn capture_member_call(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    method: Node<'_>,
+) -> Result<(), ExtractError> {
+    let Some(name) = bounded_name(callee_text(builder, method)) else {
+        return Ok(());
+    };
+    builder.emit_reference(ExtractedReference {
+        owner: builder.owners.last().cloned(),
+        name: builder.context.copy_text(name)?,
+        resolution_name: None,
+        kind: ReferenceKind::Calls,
+        span: span_for(method)?,
+    })
+}
+
+/// `new T` instantiates the contract type `T` (`Token`, `lib.Pool`); a
+/// primitive or array allocation (`new uint[](n)`) constructs no named type.
+fn capture_instantiation(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    construction: Node<'_>,
+) -> Result<(), ExtractError> {
+    let Some(user_type) = construction
+        .child_by_field_name("name")
+        .and_then(|type_name| named_children(type_name).next())
+        .filter(|shape| shape.kind() == "user_defined_type")
+    else {
+        return Ok(());
+    };
+    let source = builder.context.snapshot.source();
+    let mut segments = Vec::new();
+    for part in named_children(user_type) {
+        let segment = (part.kind() == "identifier")
+            .then(|| bounded_name(source_text(source, part)))
+            .flatten();
+        let Some(segment) = segment else {
+            return Ok(());
+        };
+        segments.push(segment);
+    }
+    let Some(outermost) = qualify_construction(construction, source, &mut segments) else {
+        return Ok(());
+    };
+    let joined = segments.join(".");
+    let Some(name) = bounded_name(&joined) else {
+        return Ok(());
+    };
+    builder.emit_reference(ExtractedReference {
+        owner: builder.owners.last().cloned(),
+        name: builder.context.copy_text(name)?,
+        resolution_name: None,
+        kind: ReferenceKind::Instantiates,
+        // Like v1, the instantiation sits where its `new` is written.
+        span: span_for(outermost)?,
+    })
+}
+
+/// Append the member segments the grammar parses outside `new T`: `new
+/// lib.Pool()` is `(new lib).Pool`. Returns the outermost member access that
+/// completes the type path (`construction` itself when there is none), or
+/// `None` when a segment cannot be named or the path exceeds the depth bound.
+fn qualify_construction<'tree, 'source>(
+    construction: Node<'tree>,
+    source: &'source str,
+    segments: &mut Vec<&'source str>,
+) -> Option<Node<'tree>> {
+    let mut current = construction;
+    let mut last = construction;
+    for _ in 0..MAX_CONSTRUCTION_DEPTH {
+        let Some(parent) = current.parent() else {
+            return Some(last);
+        };
+        match parent.kind() {
+            EXPRESSION => {}
+            MEMBER_EXPRESSION if parent.child_by_field_name("object") == Some(current) => {
+                let property = parent.child_by_field_name("property")?;
+                segments.push(bounded_name(source_text(source, property))?);
+                last = parent;
+            }
+            _ => return Some(last),
+        }
+        current = parent;
+    }
+    None
 }
 
 /// A function or modifier header invokes modifiers; a constructor header's

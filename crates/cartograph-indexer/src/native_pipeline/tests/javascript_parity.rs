@@ -6,7 +6,7 @@
 use super::{
     CanonicalGenerationFacts, CapabilityReferenceQuery, EXACT_LEXICAL_PROVENANCE, EdgeKind,
     IMPORT_BINDING_PROVENANCE, ReferenceKind, SymbolInput, build_capability_generation,
-    capability_symbol,
+    capability_symbol, capability_symbol_by,
 };
 
 fn generation(fixtures: &[(&str, &str)]) -> CanonicalGenerationFacts {
@@ -328,6 +328,124 @@ fn class_field_method_inline_import_types_resolve() {
     let reference = CapabilityReferenceQuery::new(&facts, run).named("Foo", ReferenceKind::TypeOf);
     assert_eq!(reference.target_symbol_id.as_ref(), Some(&foo.symbol_id));
     assert!(has_edge(&facts, (run, foo), EdgeKind::TypeOf));
+}
+
+#[test]
+fn nested_function_value_reads_resolve_to_the_reading_scopes_function() {
+    // `toggle` is bound only in nested scopes: a local arrow function in
+    // `useToggle` and a destructured local in `Button`. The value read in
+    // `useToggle`'s returned array binds its own local function, never the
+    // other scope's namesake.
+    let facts = generation(&[(
+        "src/toggle.tsx",
+        "export function useToggle(initial: boolean) {\n  const toggle = () => initial;\n  return [initial, toggle];\n}\nexport function Button() {\n  const [open, toggle] = useToggle(false);\n  return consume(open, toggle);\n}\n",
+    )]);
+    let use_toggle = capability_symbol(&facts, "src/toggle.tsx", "useToggle");
+    let local = capability_symbol(&facts, "src/toggle.tsx", "useToggle::toggle");
+    let read = CapabilityReferenceQuery::new(&facts, use_toggle)
+        .named("toggle", ReferenceKind::References);
+    assert_eq!(read.target_symbol_id.as_ref(), Some(&local.symbol_id));
+}
+
+#[test]
+fn nested_value_reads_in_component_scripts_never_bind_the_file_component() {
+    // Each file declares a component named after it. A value read of a
+    // nested function sharing that name (bound in several scopes in
+    // `handler.vue`, once in `solo.svelte`) binds the nested function, not
+    // the same-named component the resolver's exact-name lookup would
+    // otherwise find first.
+    let facts = generation(&[
+        (
+            "src/handler.vue",
+            "<script>\nfunction outer() { function handler() {} return [handler]; }\nfunction other() { const handler = 0; return [handler]; }\n</script>\n",
+        ),
+        (
+            "src/solo.svelte",
+            "<script>\nfunction outer() { function solo() {} return [solo]; }\n</script>\n",
+        ),
+    ]);
+    for (path, name) in [("src/handler.vue", "handler"), ("src/solo.svelte", "solo")] {
+        let outer = capability_symbol(&facts, path, "outer");
+        let nested = capability_symbol(&facts, path, &format!("outer::{name}"));
+        let read =
+            CapabilityReferenceQuery::new(&facts, outer).named(name, ReferenceKind::References);
+        assert_eq!(
+            read.target_symbol_id.as_ref(),
+            Some(&nested.symbol_id),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn nested_value_reads_keep_the_scope_walk_when_a_namesake_shares_the_qualified_name() {
+    // The object method `outer` declares a local overload signature
+    // `handler`, and the class `outer` a method of the same qualified name
+    // `outer::handler`. The read names the local declaration, which only the
+    // resolver's scope walk from the read's owner tells apart from the
+    // namesake implementation an exact qualified-name lookup would prefer.
+    let path = "src/overload.ts";
+    let facts = generation(&[(
+        path,
+        "register({ outer() {\n  function handler(): void;\n  return [handler];\n} });\nclass outer { handler() {} }\n",
+    )]);
+    let file_id = &facts
+        .files()
+        .iter()
+        .find(|file| file.normalized_path == path)
+        .unwrap_or_else(|| panic!("missing {path}"))
+        .file_id;
+    let symbol = |kind: &str, qualified_name: &str| {
+        capability_symbol_by(&facts, file_id, |symbol| {
+            symbol.symbol_kind == kind && symbol.qualified_name == qualified_name
+        })
+    };
+    let owner = symbol("method", "outer");
+    let local = symbol("function", "outer::handler");
+    let read =
+        CapabilityReferenceQuery::new(&facts, owner).named("handler", ReferenceKind::References);
+    assert_eq!(read.target_symbol_id.as_ref(), Some(&local.symbol_id));
+}
+
+#[test]
+fn nested_value_reads_bind_the_local_past_a_file_component_and_a_qualified_namesake() {
+    // In `handler.vue` the file component `handler`, the class method
+    // `outer::handler`, and the object method `outer`'s local function
+    // `outer::handler` all answer the read of `handler` in the object method
+    // by an exact name: the component by its bare name, the class method by
+    // the local's qualified name. Only the scope walk from the read's owner
+    // binds the local function, with or without another scope's namesake
+    // local (which makes the name bound in several nested scopes).
+    let class_and_local = "<script>\nregister({\n  outer() {\n    function handler() {}\n    return [handler];\n  }\n});\nclass outer {\n  handler() {}\n}\n";
+    for elsewhere in ["", "function elsewhere() {\n  const handler = 0;\n}\n"] {
+        let path = "src/handler.vue";
+        let source = format!("{class_and_local}{elsewhere}</script>\n");
+        let facts = generation(&[(path, source.as_str())]);
+        let file_id = &facts
+            .files()
+            .iter()
+            .find(|file| file.normalized_path == path)
+            .unwrap_or_else(|| panic!("missing {path}"))
+            .file_id;
+        let symbol = |kind: &str, qualified_name: &str| {
+            capability_symbol_by(&facts, file_id, |symbol| {
+                symbol.symbol_kind == kind && symbol.qualified_name == qualified_name
+            })
+        };
+        let owner = symbol("method", "outer");
+        let local = symbol("function", "outer::handler");
+        let read = CapabilityReferenceQuery::new(&facts, owner)
+            .named("handler", ReferenceKind::References);
+        assert_eq!(
+            read.target_symbol_id.as_ref(),
+            Some(&local.symbol_id),
+            "elsewhere: {elsewhere:?}"
+        );
+        assert_eq!(
+            read.resolution_provenance, EXACT_LEXICAL_PROVENANCE,
+            "elsewhere: {elsewhere:?}"
+        );
+    }
 }
 
 #[test]

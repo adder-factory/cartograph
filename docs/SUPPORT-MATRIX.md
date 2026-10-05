@@ -209,7 +209,9 @@ scope, collision policy, exclusions, and primary-source trail are in
   extensions are otherwise generic text/XML or Lua-derived DSL files. These
   path rules match case-insensitively.
 - abapGit-style `*.clas.abap` / `*.intf.abap` paths are covered through the
-  `.abap` extension; implementation blocks provide ABAP method containment.
+  `.abap` extension. ABAP classes and methods are declared at their
+  `IMPLEMENTATION` blocks; a class `DEFINITION` is declared only when the file
+  has no implementation for it.
 - Salesforce DX source roots such as `force-app/main/default` are recognized.
   Apex `.cls` / `.trigger` files use a tree-sitter grammar, while Aura and
   Visualforce markup use custom extractors for controller refs, component refs,
@@ -239,8 +241,8 @@ scope, collision policy, exclusions, and primary-source trail are in
   struct and methods live in different files, so implementation and owner edges
   are available. That ownership is computed during project-wide resolution,
   before publication.
-- PHP `include` and `require` expressions emit file import edges when they use
-  string-literal paths. `include_once` and `require_once` are not matched.
+- PHP `include`, `include_once`, `require`, and `require_once` expressions
+  emit file import edges when they use string-literal paths.
 - Python `from pkg import module` calls can resolve through the imported module
   to top-level members in `pkg/module.py`.
 - SAP HANA XSJS `.xsjs` / `.xsjslib` files use the JavaScript extractor and
@@ -255,7 +257,7 @@ scope, collision policy, exclusions, and primary-source trail are in
 |---|---|
 | JavaScript / TypeScript | Angular routes, Express routes, Hono routes and mounted sub-routers, Fastify object-form routes, Bun.serve routes, NestJS HTTP/GraphQL/message/WebSocket handlers, React components, Vue/Nuxt aliases/routes, Next.js `pages/` and `app/` file routes, Nuxt `server/api` routes and `middleware/` functions, SvelteKit routes, Commander/Yargs/CAC CLI commands |
 | Python | Django, Flask, FastAPI route/controller patterns, and NeuG graph resource landmarks |
-| PHP | Laravel `Route::` facade routes, Drupal routes/services/hooks/plugins/service tags, Symfony YAML routes with controller references (attribute routes are not extracted), and CodeIgniter 3 routes/controller/model/library conventions |
+| PHP | Laravel `Route::` facade routes, Drupal routes/services/hooks/plugins/service tags, Symfony YAML routes with controller references, Symfony `#[Route]` attribute routes (class-level prefixes composed as Symfony does), and CodeIgniter 3 routes/controller/model/library conventions |
 | Ruby | Rails routes and controller conventions |
 | JVM | Spring route mappings and `${…}` placeholder config references (for example in `@Value`), Play routes, MyBatis mapper-interface ↔ XML statement bindings, Kotlin/Scala source extraction |
 | Go | Gin, Echo, Chi, net/http, Cobra commands, interface implementation edges |

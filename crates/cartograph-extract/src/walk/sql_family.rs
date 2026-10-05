@@ -16,6 +16,11 @@ use crate::{
 
 const MAX_SCAN_DEPTH: usize = 128;
 const MAX_RELATIONS_PER_DECLARATION: usize = 4_096;
+/// Statements whose bare `object_reference` child is the table a query writes
+/// or deletes from (`INSERT INTO t`, `DELETE FROM t`). `SELECT` and `UPDATE`
+/// wrap their tables in `relation` instead, and an invoked function's name is
+/// an `object_reference` under `invocation`, which is not a table.
+const TABLE_TARGET_PARENTS: [&str; 2] = ["insert", "from"];
 
 #[derive(Default)]
 struct ScanBudget {
@@ -320,8 +325,7 @@ fn scan_query_relations(
         seen,
     } = input;
     budget.visits.observe(builder, depth)?;
-    if node.kind() == "relation"
-        && let Some(reference) = direct_child(node, "object_reference")
+    if let Some(reference) = query_table_reference(node)
         && let Some(name) = qualified_name(builder, reference)?
     {
         let identity = name.to_ascii_lowercase();
@@ -354,6 +358,22 @@ fn scan_query_relations(
         )?;
     }
     Ok(())
+}
+
+/// The table a query node names: the reference inside a `relation`, or a
+/// write or delete target under one of [`TABLE_TARGET_PARENTS`].
+fn query_table_reference(node: Node<'_>) -> Option<Node<'_>> {
+    match node.kind() {
+        "relation" => direct_child(node, "object_reference"),
+        "object_reference"
+            if node
+                .parent()
+                .is_some_and(|parent| TABLE_TARGET_PARENTS.contains(&parent.kind())) =>
+        {
+            Some(node)
+        }
+        _ => None,
+    }
 }
 
 fn emit_function(

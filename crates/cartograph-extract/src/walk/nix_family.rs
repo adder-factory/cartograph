@@ -31,6 +31,8 @@ const NAMED_TARGETS: [&str; 3] = [
     "select_expression",
     "apply_expression",
 ];
+/// Attribute-path segment computed at evaluation time (`${system}`).
+const INTERPOLATION: &str = "interpolation";
 /// Path syntax accepted as a literal `import` target.
 const PATH_EXPRESSIONS: [&str; 3] = ["path_expression", "hpath_expression", "spath_expression"];
 
@@ -358,7 +360,9 @@ fn names_a_value(node: Node<'_>) -> bool {
 /// Whether quoted (`"name"`) attribute segments may contribute to a name.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum QuotedSegments {
-    /// Declared attribute names keep v1's quoted keys (`"foo-bar" = 1`).
+    /// Declared attribute names keep v1's quoted keys (`"foo-bar" = 1`) and,
+    /// like v1, leave interpolated segments out (`packages.${system}.default`
+    /// declares `packages.default`).
     Accepted,
     /// Reference names are built from identifiers only.
     Rejected,
@@ -371,8 +375,9 @@ struct AttrPath<'tree> {
     quoted: QuotedSegments,
 }
 
-/// Attribute path segments joined with `.`, or `None` when any segment is
-/// dynamic (or quoted, when quoted segments are rejected).
+/// Attribute path segments joined with `.`, or `None` when the path names
+/// nothing. A declared path skips its interpolated segments; any other dynamic
+/// segment (and, in a reference, any quoted one) leaves the path unnamed.
 fn attrpath_name(
     builder: &ExtractionBuilder<'_, '_>,
     path: AttrPath<'_>,
@@ -384,6 +389,9 @@ fn attrpath_name(
         .collect::<Vec<_>>();
     let mut name = String::new();
     for attribute in attributes {
+        if path.quoted == QuotedSegments::Accepted && attribute.kind() == INTERPOLATION {
+            continue;
+        }
         if path.quoted == QuotedSegments::Rejected && attribute.kind() != "identifier" {
             return Ok(None);
         }

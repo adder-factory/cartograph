@@ -88,6 +88,148 @@ fn zsh_extracts_functions_constants_imports_and_owned_calls_safely() {
 }
 
 #[test]
+fn command_substitutions_in_assignments_call_their_commands_without_declaring_locals() {
+    for (path, language) in [
+        ("plugins/sync.plugin.zsh", SourceLanguage::Zsh),
+        ("scripts/sync.sh", SourceLanguage::Bash),
+    ] {
+        let extracted = extract(
+            path,
+            r#"current_branch() {
+  git rev-parse --abbrev-ref HEAD
+}
+
+sync() {
+  local branch=$(current_branch)
+  remote="$(default_remote)"
+  export SYNC_TARGET=$(resolve_target "$branch")
+}
+
+STARTED=$(start_clock)
+"#,
+        );
+        assert_eq!(extracted.language, language);
+        assert_clean(&extracted);
+        assert_reference(
+            &extracted,
+            Some("sync"),
+            "current_branch",
+            ReferenceKind::Calls,
+        );
+        assert_reference(
+            &extracted,
+            Some("sync"),
+            "default_remote",
+            ReferenceKind::Calls,
+        );
+        assert_reference(
+            &extracted,
+            Some("sync"),
+            "resolve_target",
+            ReferenceKind::Calls,
+        );
+        assert_reference(&extracted, None, "start_clock", ReferenceKind::Calls);
+        let call_line = extracted
+            .references
+            .iter()
+            .find(|reference| reference.name == "current_branch")
+            .map(|reference| reference.span.start_line());
+        assert_eq!(
+            call_line,
+            Some(6),
+            "{language:?} call is anchored on its line"
+        );
+        assert!(
+            extracted
+                .symbols
+                .iter()
+                .all(|symbol| symbol.name != "branch"),
+            "{language:?} declared a function-local variable: {:?}",
+            extracted.symbols
+        );
+        assert_symbol(&extracted, SymbolKind::Variable, "remote", "sync::remote");
+    }
+}
+
+#[test]
+fn dynamic_command_names_abstain_without_leaking_argument_literals() {
+    for (path, language) in [
+        ("plugins/pick.plugin.zsh", SourceLanguage::Zsh),
+        ("scripts/pick.sh", SourceLanguage::Bash),
+    ] {
+        let extracted = extract(
+            path,
+            r#"pick() {
+  local tool=$($(choose --token "sk_live_literal_probe"))
+  "$(locate_runner 'ghp_quoted_probe')" --fast
+  $RUNNER build
+}
+"#,
+        );
+        assert_eq!(extracted.language, language);
+        assert_reference(&extracted, Some("pick"), "choose", ReferenceKind::Calls);
+        assert_reference(
+            &extracted,
+            Some("pick"),
+            "locate_runner",
+            ReferenceKind::Calls,
+        );
+        assert_reference(&extracted, Some("pick"), "$RUNNER", ReferenceKind::Calls);
+        let debug = format!("{extracted:?}");
+        for literal in ["sk_live_literal_probe", "ghp_quoted_probe"] {
+            assert!(
+                !debug.contains(literal),
+                "{language:?} leaked {literal}: {:?}",
+                canonical_facts(&extracted)
+            );
+        }
+        assert!(
+            extracted
+                .references
+                .iter()
+                .all(|reference| !reference.name.contains('(') && !reference.name.contains('"')),
+            "{language:?} named a call by a dynamic expression: {:?}",
+            canonical_facts(&extracted)
+        );
+    }
+}
+
+#[test]
+fn fish_variable_commands_are_calls_but_dynamic_names_abstain_without_leaking() {
+    let extracted = extract(
+        "plugins/pick.fish",
+        r#"function pick
+    $RUNNER build
+    $TOOLS[1] --check
+    (choose --token "sk_live_fish_probe") --fast
+    "$(locate_runner 'ghp_fish_probe')" --slow
+end
+"#,
+    );
+    assert_eq!(extracted.language, SourceLanguage::Fish);
+    assert_reference(&extracted, Some("pick"), "RUNNER", ReferenceKind::Calls);
+    assert_reference(&extracted, Some("pick"), "TOOLS", ReferenceKind::Calls);
+    assert_reference(&extracted, Some("pick"), "choose", ReferenceKind::Calls);
+    let debug = format!("{extracted:?}");
+    for literal in ["sk_live_fish_probe", "ghp_fish_probe"] {
+        assert!(
+            !debug.contains(literal),
+            "Fish leaked {literal}: {:?}",
+            canonical_facts(&extracted)
+        );
+    }
+    assert!(
+        extracted.references.iter().all(|reference| {
+            !reference.name.contains('(')
+                && !reference.name.contains('"')
+                && !reference.name.contains('[')
+        }),
+        "Fish named a call by a dynamic expression: {:?}",
+        canonical_facts(&extracted)
+    );
+}
+
+#[test]
 fn fish_extracts_functions_variables_imports_and_owned_calls_safely() {
     let extracted = extract_fixture(SourceLanguage::Fish);
 

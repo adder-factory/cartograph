@@ -13,7 +13,10 @@
 //!   written type. An embedded field, or an embedded interface, extends its
 //!   type instead.
 //! - `T{..}`, `&pkg.T{..}`, and `T[A]{..}` instantiate `T`; slice, map, array,
-//!   and channel literals construct no declared type.
+//!   and channel literals construct no declared type. Each field key of such a
+//!   literal (`Bio` in `Profile{Bio: b}`) is a `FieldAccess` by the enclosing
+//!   owner, since the literal initialises that field, unless the file declares
+//!   the type as a map, slice, or array type, whose keys are expressions.
 //! - In a file that imports `"C"`, `C.name(..)` calls the C function `name`.
 //!   The `C.name` path stays the lookup identity, so no Go declaration that
 //!   merely shares the name is chosen.
@@ -22,7 +25,7 @@ use cartograph_domain::{ReferenceKind, SymbolId, SymbolKind, symbol_signature_is
 use tree_sitter::{Node, TreeCursor};
 
 use super::{
-    OwnedBody, go_exported,
+    OwnedBody, go_exported, go_named_types,
     import_index::{CGO_PACKAGE, local_imports},
     type_targets::{
         NamedTarget, capture_declared_types, capture_shared_declared_types, emit_leaf_reference,
@@ -32,8 +35,8 @@ use super::{
 use crate::{
     ExtractError, SymbolExportFlags,
     walk::{
-        ExtractionBuilder, JoinedSignature, MAX_SAFE_SIGNATURE_BYTES, PendingSymbol,
-        joined_signature, safe_assignment_signature,
+        ExtractionBuilder, JoinedSignature, MAX_SAFE_SIGNATURE_BYTES, PendingReference,
+        PendingSymbol, joined_signature, references, safe_assignment_signature,
         syntax::{descendants_including_root, named_children},
     },
 };
@@ -173,7 +176,46 @@ pub(super) fn capture_composite_literal(
         builder,
         builder.owners.last().cloned(),
         target.reference(ReferenceKind::Instantiates),
-    )
+    )?;
+    if go_named_types::names_container_type(builder, literal_type)? {
+        return Ok(());
+    }
+    capture_literal_field_keys(builder, literal)
+}
+
+/// Record each field key of a named-type literal (`Bio` in `Profile{Bio: b}`)
+/// as a `FieldAccess` by the enclosing owner: the literal initialises that
+/// field, as `p.Bio = b` would assign it. Positional elements and keys that
+/// are not plain names (`{f(): v}`) name no field, and a literal of a map,
+/// slice, or array type the file declares has expression keys instead.
+fn capture_literal_field_keys(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    literal: Node<'_>,
+) -> Result<(), ExtractError> {
+    let Some(body) = literal.child_by_field_name("body") else {
+        return Ok(());
+    };
+    for element in named_children(body).filter(|element| element.kind() == "keyed_element") {
+        builder.context.ensure_active()?;
+        let Some(key) = element
+            .child_by_field_name("key")
+            .and_then(|key| named_children(key).find(|name| !name.is_extra()))
+            .filter(|name| name.kind() == "identifier")
+        else {
+            continue;
+        };
+        let name = builder.context.owned_text(key)?;
+        references::push_reference(
+            builder,
+            PendingReference {
+                owner: builder.owners.last().cloned(),
+                name,
+                kind: ReferenceKind::FieldAccess,
+                node: key,
+            },
+        )?;
+    }
+    Ok(())
 }
 
 /// Whether the file has the cgo `import "C"`, binding `C` to the cgo

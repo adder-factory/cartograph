@@ -37,6 +37,16 @@ pub const RUST_SELF_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.rust-self::";
 #[doc(hidden)]
 pub const TYPE_QUERY_VALUE_RESOLUTION_PREFIX: &str = "cartograph.type-query-value::";
 
+/// Internal lookup marker for a JavaScript-family bare value read the extractor bound to a
+/// nested lexical declaration whose qualified name another symbol of the file shares.
+///
+/// The suffix is the source-visible name. The indexer resolves it only by walking the
+/// reference owner's enclosing scopes outward, never by exact same-file qualified name (which
+/// could bind the namesake, or an embedded component script's same-named file component) and
+/// never through imports or project names.
+#[doc(hidden)]
+pub const LEXICAL_SCOPE_RESOLUTION_PREFIX: &str = "cartograph.lexical-scope::";
+
 /// Internal lookup marker for a static SQL-literal table reference.
 ///
 /// The suffix is `<operation>::<qualified-table>`. The persisted reference keeps only the

@@ -8,7 +8,8 @@
 //! names, assignment targets, labels and lifetimes, path segments (the whole
 //! path is already a reference), macro and attribute tokens (the macro scanner
 //! owns those), and names bound as a parameter or const generic parameter of
-//! an enclosing function, closure, or item. A constant-shaped name in a
+//! an enclosing function, closure, or item visible at the read (a nested item
+//! sees no outer function's names). A constant-shaped name in a
 //! refutable `match`/`if let` pattern is a constant pattern and so is a read.
 //! Whenever a bound is exhausted (a deeper pattern, a larger parameter list)
 //! the identifier is treated as bound, never as a read.
@@ -92,6 +93,26 @@ const PARAMETER_SCOPES: [&str; 6] = [
     "struct_item",
 ];
 
+/// Items whose body cannot see the parameters or generics of an enclosing
+/// function or item: the scope walk stops at the first one, after its own
+/// names and, for an associated item, those of its `impl` or `trait`.
+const ITEM_BOUNDARIES: [&str; 12] = [
+    "function_item",
+    "function_signature_item",
+    "impl_item",
+    "trait_item",
+    "struct_item",
+    "enum_item",
+    "union_item",
+    "mod_item",
+    "const_item",
+    "static_item",
+    "type_item",
+    "foreign_mod_item",
+];
+/// Items whose generics an associated item in their `declaration_list` sees.
+const ASSOCIATED_ITEM_OWNERS: [&str; 2] = ["impl_item", "trait_item"];
+
 /// Record a constant-shaped identifier read as a reference to the constant.
 pub(super) fn capture_constant_read(
     builder: &mut ExtractionBuilder<'_, '_>,
@@ -171,8 +192,14 @@ fn in_binding_pattern(node: Node<'_>) -> bool {
 }
 
 /// Whether `name` is a parameter or const generic parameter of a scope
-/// enclosing `node`. Each scope's names are collected once per file.
-fn bound_by_enclosing_scope(
+/// enclosing `node` that is visible there: closures see their enclosing
+/// function's names, but a nested item (`fn`, `mod`, `const`, ...) sees none
+/// of the scopes outside it beyond its own `impl` or `trait` generics, so the
+/// walk stops at the first item boundary. Each scope's names are collected
+/// once per file. The macro scanner asks the same question for a
+/// constant-shaped token in a macro's expression arguments, so such a token
+/// is read exactly when direct code would read it.
+pub(in crate::walk) fn bound_by_enclosing_scope(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
     name: &str,
@@ -182,21 +209,45 @@ fn bound_by_enclosing_scope(
         let Some(current) = ancestor else {
             return Ok(false);
         };
-        if PARAMETER_SCOPES.contains(&current.kind())
-            && scope_binds(
-                builder,
-                ScopeQuery {
-                    scope: current,
-                    name,
-                    collect: collect_scope_names,
-                },
-            )?
-        {
+        if scope_binds_name(builder, current, name)? {
             return Ok(true);
+        }
+        if ITEM_BOUNDARIES.contains(&current.kind()) {
+            return match associated_item_owner(current) {
+                Some(owner) => scope_binds_name(builder, owner, name),
+                None => Ok(false),
+            };
         }
         ancestor = current.parent();
     }
     Ok(true)
+}
+
+/// Whether `scope` is a parameter scope that binds `name`.
+fn scope_binds_name(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    scope: Node<'_>,
+    name: &str,
+) -> Result<bool, ExtractError> {
+    if !PARAMETER_SCOPES.contains(&scope.kind()) {
+        return Ok(false);
+    }
+    scope_binds(
+        builder,
+        ScopeQuery {
+            scope,
+            name,
+            collect: collect_scope_names,
+        },
+    )
+}
+
+/// The `impl` or `trait` whose body directly holds `item`, if any.
+fn associated_item_owner(item: Node<'_>) -> Option<Node<'_>> {
+    item.parent()
+        .filter(|body| body.kind() == "declaration_list")
+        .and_then(|body| body.parent())
+        .filter(|owner| ASSOCIATED_ITEM_OWNERS.contains(&owner.kind()))
 }
 
 /// Collect the constant-shaped names a scope's parameter patterns and const

@@ -279,6 +279,7 @@ fn liquid_partners_accept_quoted_names_with_spaces() {
     assert_eq!(
         symbols(&file),
         [
+            (SymbolKind::Component, "hero card"),
             (SymbolKind::Import, "hero card"),
             (SymbolKind::Component, "site header"),
             (SymbolKind::Import, "site header")
@@ -366,6 +367,70 @@ fn liquid_schema_json_is_not_scanned_for_output_references() {
         .collect::<Vec<_>>();
     assert!(referenced.contains(&"section") && referenced.contains(&"shop"));
     assert!(!referenced.contains(&"product"), "{referenced:?}");
+}
+
+/// v1.1.33 declared every rendered partner as a component next to its import
+/// node, so `{% render %}` and `{% include %}` sites are found by component
+/// searches exactly like `{% section %}` sites, Jekyll includes included.
+#[test]
+fn liquid_render_and_include_partners_are_components_like_sections() {
+    let theme = extract(
+        "layout/theme.liquid",
+        "{% section 'header' %}\n{%- render 'drawer-menu' -%}\n{% include 'icon-cart' %}\n",
+    );
+    let declared = theme
+        .symbols
+        .iter()
+        .map(|symbol| {
+            (
+                symbol.kind,
+                symbol.qualified_name.as_str(),
+                symbol.span.start_line(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        declared,
+        [
+            (
+                SymbolKind::Component,
+                "layout/theme.liquid::section:header",
+                1
+            ),
+            (SymbolKind::Import, "layout/theme.liquid::section:header", 1),
+            (
+                SymbolKind::Component,
+                "layout/theme.liquid::render:drawer-menu",
+                2
+            ),
+            (
+                SymbolKind::Import,
+                "layout/theme.liquid::render:drawer-menu",
+                2
+            ),
+            (
+                SymbolKind::Component,
+                "layout/theme.liquid::include:icon-cart",
+                3
+            ),
+            (
+                SymbolKind::Import,
+                "layout/theme.liquid::include:icon-cart",
+                3
+            ),
+        ]
+    );
+    let jekyll = extract(
+        "blog/_layouts/default.html",
+        "---\nlayout: none\n---\n{% include 'footer.html' %}\n",
+    );
+    assert_eq!(
+        symbols(&jekyll),
+        [
+            (SymbolKind::Component, "footer.html"),
+            (SymbolKind::Import, "footer.html")
+        ]
+    );
 }
 
 #[test]
@@ -618,6 +683,7 @@ fn liquid_rejects_dynamic_partners_root_arrays_and_unterminated_schemas() {
         symbols(&file),
         [
             (SymbolKind::Constant, "schema"),
+            (SymbolKind::Component, "footer"),
             (SymbolKind::Import, "footer")
         ]
     );

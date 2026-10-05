@@ -885,13 +885,10 @@ fn extract_liquid_tag(
             };
             let module = format!("{folder}/{partner}.liquid");
             let qualified = format!("{}::{command}:{partner}", builder.path());
-            let kind = if command == "section" {
-                SymbolKind::Component
-            } else {
-                SymbolKind::Import
-            };
+            // Every partner tag is both a rendered component and an import
+            // site, as in v1.1.33; the component owns the import reference.
             let id = builder.add_symbol(
-                CustomSymbolInput::new(kind, partner, qualified)
+                CustomSymbolInput::new(SymbolKind::Component, partner, qualified.clone())
                     .at(start, end)
                     .with_options(SymbolOptions {
                         body_search_text: format!("{command} {partner}"),
@@ -903,21 +900,14 @@ fn extract_liquid_tag(
                     .binding(partner, partner)
                     .at(start, end),
             )?;
-            if command == "section" {
-                // Sections are both a rendered component and an import site.
-                builder.add_symbol(
-                    CustomSymbolInput::new(
-                        SymbolKind::Import,
-                        partner,
-                        format!("{}::{command}:{partner}", builder.path()),
-                    )
+            builder.add_symbol(
+                CustomSymbolInput::new(SymbolKind::Import, partner, qualified)
                     .at(start, end)
                     .with_options(SymbolOptions {
                         body_search_text: format!("{command} {partner}"),
                         ..SymbolOptions::default()
                     }),
-                )?;
-            }
+            )?;
         }
         "assign" | "capture" => {
             let Some((_, name)) = first_identifier(remainder) else {
@@ -1617,8 +1607,8 @@ fn initialize_vb6_container(
     builder: &mut CustomBuilder<'_, '_>,
     source: &str,
 ) -> Result<VbScanState, ExtractError> {
-    let (container_name, container_offset) =
-        vb6_container_name(source).unwrap_or_else(|| (basename_stem(builder.path()).to_owned(), 0));
+    let container_name =
+        vb6_container_name(source).unwrap_or_else(|| basename_stem(builder.path()).to_owned());
     let extension = builder.path().rsplit('.').next().unwrap_or_default();
     let container_kind = if matches!(extension, "frm" | "ctl" | "dob" | "dsr" | "pag") {
         SymbolKind::Component
@@ -1627,12 +1617,11 @@ fn initialize_vb6_container(
     } else {
         SymbolKind::Module
     };
-    let container_end = (container_offset + container_name.len())
-        .min(source.len())
-        .max(1);
+    // The module, class or form is the whole file: its span covers the designer
+    // header and every member declared after it.
     let container = builder.add_symbol(
         CustomSymbolInput::new(container_kind, &container_name, container_name.clone())
-            .at(container_offset.min(container_end - 1), container_end)
+            .at(0, source.len())
             .with_options(SymbolOptions {
                 body_search_text: format!("{} {container_name}", container_kind.as_str()),
                 export: SymbolExportFlags::named(true),
@@ -1788,23 +1777,24 @@ fn extract_vb6_project(builder: &mut CustomBuilder<'_, '_>) -> Result<(), Extrac
     Ok(())
 }
 
-fn vb6_container_name(source: &str) -> Option<(String, usize)> {
-    for (line_start, line) in physical_lines(source) {
+/// The module/class/form name declared by `Attribute VB_Name` or by the form's
+/// `Begin VB.<Type> <Name>` designer block, whichever comes first.
+fn vb6_container_name(source: &str) -> Option<String> {
+    for (_, line) in physical_lines(source) {
         let trimmed = line.trim();
         if trimmed
             .to_ascii_lowercase()
             .starts_with("attribute vb_name")
         {
             let (_, name) = quoted_values(trimmed).into_iter().next()?;
-            return Some((name.to_owned(), line_start + line.find(name)?));
+            return Some(name.to_owned());
         }
         let words = identifiers(trimmed);
         if words.len() >= 3
             && words[0].1.eq_ignore_ascii_case("begin")
             && words[1].1.eq_ignore_ascii_case("vb")
         {
-            let name = words.last()?.1;
-            return Some((name.to_owned(), line_start + line.find(name)?));
+            return Some(words.last()?.1.to_owned());
         }
     }
     None
@@ -1908,7 +1898,7 @@ fn vb6_keyword_declaration<'source>(
             } else {
                 SymbolKind::Field
             },
-            name: context.tokens.get(context.index + 1)?.1,
+            name: vb6_variable_name(context.tokens, context.index + 1)?,
             block: None,
             visibility: context.visibility,
             static_member: context.static_member,
@@ -1919,7 +1909,7 @@ fn vb6_keyword_declaration<'source>(
             } else {
                 SymbolKind::Field
             },
-            name: context.tokens.get(context.index)?.1,
+            name: vb6_variable_name(context.tokens, context.index)?,
             block: None,
             visibility: context.visibility,
             static_member: context.static_member,
@@ -1939,6 +1929,24 @@ fn vb6_keyword_declaration<'source>(
             static_member: false,
         }),
         _ => None,
+    }
+}
+
+/// VB6 modifier that subscribes an object variable to its events
+/// (`Private WithEvents mCustomer As Customer`); it is not the variable name.
+const VB6_WITH_EVENTS: &str = "withevents";
+
+/// The variable declared by the token at `index`, past a `WithEvents`
+/// modifier (v1 `parseVariable`).
+fn vb6_variable_name<'source>(
+    tokens: &[(usize, &'source str)],
+    index: usize,
+) -> Option<&'source str> {
+    let (_, token) = tokens.get(index)?;
+    if token.eq_ignore_ascii_case(VB6_WITH_EVENTS) {
+        tokens.get(index + 1).map(|(_, name)| *name)
+    } else {
+        Some(token)
     }
 }
 
@@ -2481,7 +2489,7 @@ fn extract_anubis(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractErro
         root: None,
         behavior: None,
     };
-    for (line_start, raw_line) in physical_lines(source) {
+    for (index, (line_start, raw_line)) in physical_lines(source).enumerate() {
         builder.check_cancelled()?;
         let line = strip_line_comment(raw_line, "--").trim();
         if line.is_empty() {
@@ -2489,6 +2497,7 @@ fn extract_anubis(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractErro
         }
         let line = AnubisLine {
             start: line_start,
+            number: index.saturating_add(1),
             raw: raw_line,
             text: line,
         };
@@ -2506,6 +2515,8 @@ struct AnubisScanState {
 #[derive(Clone, Copy)]
 struct AnubisLine<'source> {
     start: usize,
+    /// One-based physical line number, the disambiguator of handler names.
+    number: usize,
     raw: &'source str,
     text: &'source str,
 }
@@ -2573,8 +2584,11 @@ fn scan_anubis_declaration(
             .as_ref()
             .map_or_else(|| builder.path().to_owned(), |(_, name)| name.clone());
         let display = format!("{label}:{name}");
+        // Handlers are qualified by the root alone, so v1's line suffix keeps
+        // same-named callbacks of different behavior nodes distinct.
+        let qualified = format!("{prefix}::{display}:{}", line.number);
         builder.add_symbol(
-            CustomSymbolInput::new(SymbolKind::Method, &display, format!("{prefix}::{display}"))
+            CustomSymbolInput::new(SymbolKind::Method, &display, qualified)
                 .at(
                     line.start + raw_offset,
                     line.start + raw_offset + name.len(),
@@ -3004,7 +3018,7 @@ fn extract_osiris(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractErro
         pending_rule: None,
         db_nodes: BTreeMap::new(),
     };
-    for (line_start, raw_line) in physical_lines(source) {
+    for (index, (line_start, raw_line)) in physical_lines(source).enumerate() {
         builder.check_cancelled()?;
         let line = strip_line_comment(raw_line, "//").trim();
         if line.is_empty() {
@@ -3015,6 +3029,7 @@ fn extract_osiris(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractErro
             &mut state,
             OsirisLine {
                 start: line_start,
+                number: index.saturating_add(1),
                 raw: raw_line,
                 text: line,
             },
@@ -3028,6 +3043,7 @@ struct OsirisScanState {
     goal_name: String,
     section: Option<SymbolId>,
     current_rule: Option<SymbolId>,
+    /// The open block's control keyword and the byte offset it starts at.
     pending_rule: Option<(&'static str, usize)>,
     db_nodes: BTreeMap<String, SymbolId>,
 }
@@ -3035,6 +3051,8 @@ struct OsirisScanState {
 #[derive(Clone, Copy)]
 struct OsirisLine<'source> {
     start: usize,
+    /// One-based physical line number.
+    number: usize,
     raw: &'source str,
     text: &'source str,
 }
@@ -3044,6 +3062,8 @@ struct OsirisPredicate<'source> {
     name: &'source str,
     raw_offset: usize,
     line_start: usize,
+    /// One-based line the predicate is written on.
+    line_number: usize,
 }
 
 fn scan_osiris_line(
@@ -3098,7 +3118,8 @@ fn scan_osiris_header(
     if let Some(control) = ["IF", "PROC", "QRY"].into_iter().find(|control| {
         word_after(line.text, control).is_some() || line.text.eq_ignore_ascii_case(control)
     }) {
-        state.pending_rule = Some((control, line.start));
+        let control_start = line.start + line.raw.find(line.text).unwrap_or(0);
+        state.pending_rule = Some((control, control_start));
         state.current_rule = None;
         return Ok(true);
     }
@@ -3118,6 +3139,7 @@ fn scan_osiris_predicates(
             name: predicate,
             raw_offset: line.raw.find(line.text).unwrap_or(0) + relative,
             line_start: line.start,
+            line_number: line.number,
         };
         if begin_pending_osiris_rule(builder, state, predicate)? {
             continue;
@@ -3144,15 +3166,18 @@ fn begin_pending_osiris_rule(
         _ => "rule",
     };
     let owner = state.section.clone().unwrap_or_else(|| state.goal.clone());
+    // As in v1, the block starts at its control keyword and is disambiguated
+    // by the head predicate's line. v1 recorded no end (it defaulted to the
+    // start line); the span here runs through the head predicate's name.
     state.current_rule = Some(
         builder.add_symbol(
             CustomSymbolInput::new(
                 SymbolKind::Method,
                 &format!("{label}:{}", predicate.name),
-                format!("{}::{label}:{declaration_start}", state.goal_name),
+                format!("{}::{label}:{}", state.goal_name, predicate.line_number),
             )
             .at(
-                predicate.line_start + predicate.raw_offset,
+                declaration_start,
                 predicate.line_start + predicate.raw_offset + predicate.name.len(),
             )
             .with_options(SymbolOptions {
@@ -3228,8 +3253,20 @@ fn scan_osiris_string_references(
         .clone()
         .unwrap_or_else(|| state.goal.clone());
     for (offset, value) in quoted_values(line.text) {
+        // As in v1, a string that is one identifier names it whole
+        // (`SysCompleteGoal("Init")`); qualified tokens inside longer
+        // strings are references too.
+        let mut tokens = bg3_tokens::script_string_references(value);
+        let mut known = tokens
+            .iter()
+            .map(|(_, token)| *token)
+            .collect::<BTreeSet<_>>();
         for token in bg3_reference_tokens(value) {
-            let relative = value.find(token).unwrap_or(0);
+            if known.insert(token) {
+                tokens.push((value.find(token).unwrap_or(0), token));
+            }
+        }
+        for (relative, token) in tokens {
             let raw_offset = line.raw.find(line.text).unwrap_or(0) + offset + relative;
             builder.add_reference(
                 CustomReferenceInput::new(Some(owner.clone()), token, ReferenceKind::References)

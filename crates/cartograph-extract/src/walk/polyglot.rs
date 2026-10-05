@@ -12,13 +12,17 @@ use super::{
 };
 
 mod go_members;
+mod go_named_types;
 mod go_reads;
 mod import_index;
 mod parameter_bindings;
 mod python_members;
 mod qualified_path;
+mod rust_attributes;
 mod rust_members;
 mod rust_reads;
+
+pub(super) use rust_reads::bound_by_enclosing_scope as rust_constant_bound_by_enclosing_scope;
 mod type_targets;
 
 /// Per-file lookup state of the polyglot walk, so that per-occurrence
@@ -29,6 +33,8 @@ pub(super) struct PolyglotIndex {
     parameter_bindings: parameter_bindings::ParameterBindings,
     /// How the file's imports bind each local name.
     imports: import_index::ImportIndex,
+    /// The file's package-level Go map, slice, and array type names.
+    go_container_types: go_named_types::GoContainerTypes,
 }
 
 const RUST_PARAMETER_UNWRAP: SingleChildUnwrap = SingleChildUnwrap::new(
@@ -143,6 +149,10 @@ struct RustNamespaceBinding<'tree> {
     re_export: bool,
 }
 
+/// Bytes that can only enter a Go or Python dotted callee through a comment
+/// (`/*..*/` or `//` in Go, `#` in Python), which its lookup name drops.
+const LAYOUT_COMMENT_BYTES: [u8; 2] = *b"/#";
+
 const MAX_RUST_USE_DEPTH: usize = 64;
 const RUST_PATH_SEPARATOR: &str = "::";
 
@@ -193,6 +203,7 @@ fn capture_rust_usage(
         "field_expression" => references::capture_member_field(builder, node, "field"),
         "scoped_identifier" => capture_rust_value_path(builder, node),
         "macro_invocation" => rust_macro::capture_invocation(builder, node),
+        "macro_definition" => rust_macro::record_definition(builder, node),
         "struct_expression" => rust_members::capture_struct_expression(builder, node),
         "identifier" => rust_reads::capture_constant_read(builder, node),
         _ => Ok(()),
@@ -205,7 +216,9 @@ fn capture_go_usage(
 ) -> Result<(), ExtractError> {
     match node.kind() {
         "call_expression" => {
-            if go_members::capture_cgo_call(builder, node)? {
+            if go_members::capture_cgo_call(builder, node)?
+                || capture_layout_path_call(builder, node)?
+            {
                 return Ok(());
             }
             references::capture_invocation(builder, node, references::InvocationKind::Call)
@@ -222,10 +235,56 @@ fn capture_python_usage(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     match node.kind() {
-        "call" => references::capture_invocation(builder, node, references::InvocationKind::Call),
+        "call" => {
+            if capture_layout_path_call(builder, node)? {
+                return Ok(());
+            }
+            references::capture_invocation(builder, node, references::InvocationKind::Call)
+        }
         "attribute" => references::capture_member_field(builder, node, "attribute"),
         _ => Ok(()),
     }
+}
+
+/// Record a call whose callee is a plain dotted path written with layout or a
+/// comment inside it (`r. POST(..)`, `obj .method(..)`) under its lookup name
+/// (`r.POST`), the name the same call written without layout carries, so a
+/// member name never keeps the whitespace before it. Returns whether the call
+/// was recorded; any other callee, including one too wide for a durable name,
+/// is left to the general invocation capture.
+fn capture_layout_path_call(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    call: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let Some(callee) = call.child_by_field_name("function").filter(|callee| {
+        matches!(callee.kind(), "selector_expression" | "attribute")
+            && callee.end_byte().saturating_sub(callee.start_byte())
+                <= references::MAX_DURABLE_REFERENCE_NAME_BYTES
+    }) else {
+        return Ok(false);
+    };
+    let has_layout = builder
+        .context
+        .text(callee)
+        .trim()
+        .bytes()
+        .any(|byte| byte.is_ascii_whitespace() || LAYOUT_COMMENT_BYTES.contains(&byte));
+    if !has_layout {
+        return Ok(false);
+    }
+    let Some(name) = qualified_path::lookup_name(builder, callee)? else {
+        return Ok(false);
+    };
+    references::push_reference(
+        builder,
+        PendingReference {
+            owner: builder.owners.last().cloned(),
+            name,
+            kind: ReferenceKind::Calls,
+            node: callee,
+        },
+    )?;
+    Ok(true)
 }
 
 fn visit_rust_declaration(
@@ -233,11 +292,42 @@ fn visit_rust_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
-    if visit_rust_standard_declaration(builder, node, depth)? {
-        return Ok(true);
+    let emitted_before = builder.facts.symbols.len();
+    let visited = if visit_rust_standard_declaration(builder, node, depth)? {
+        true
+    } else {
+        rust_members::capture_field_types(builder, node)?;
+        visit_rust_special_declaration(builder, node, depth)?
+    };
+    if visited {
+        capture_rust_item_attributes(builder, node, emitted_before)?;
     }
-    rust_members::capture_field_types(builder, node)?;
-    visit_rust_special_declaration(builder, node, depth)
+    Ok(visited)
+}
+
+/// Record the outer attributes of an item as decorating the symbol its visit
+/// emitted first; an item that declared no symbol, or only an import (an
+/// out-of-line `mod name;`), has nothing for them to decorate.
+fn capture_rust_item_attributes(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    emitted_before: usize,
+) -> Result<(), ExtractError> {
+    if !rust_attributes::decorates_item(node.kind()) {
+        return Ok(());
+    }
+    let Some(owner) = symbol_emitted_since(builder, emitted_before, node) else {
+        return Ok(());
+    };
+    let declares_import = builder
+        .facts
+        .symbols
+        .get(emitted_before)
+        .is_some_and(|symbol| symbol.kind == SymbolKind::Import);
+    if declares_import {
+        return Ok(());
+    }
+    rust_attributes::capture_item_attributes(builder, node, &owner)
 }
 
 #[derive(Clone, Copy)]

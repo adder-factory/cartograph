@@ -765,6 +765,7 @@ fn scan_framework_signals(
     scan_codeigniter_routes(builder, source)?;
     scan_neug_resources(builder, source)?;
     scan_swiftui_components(builder, source)?;
+    scan_swiftui_app_entries(builder, source)?;
     scan_flutter_material_routes(builder, source)?;
     for (statement_start, statement) in StatementRanges::new(source) {
         builder.check_cancelled()?;
@@ -866,6 +867,159 @@ fn scan_swiftui_components(
         })?;
     }
     Ok(())
+}
+
+/// The attribute marking a Swift program's entry type.
+const SWIFT_MAIN_ATTRIBUTE: &str = "@main";
+/// The `SwiftUI` protocol an app entry conforms to.
+const SWIFTUI_APP_PROTOCOL: &str = "App";
+/// The keyword that introduces a struct declaration.
+const SWIFT_STRUCT_KEYWORD: &str = "struct";
+/// The keyword that starts a generic constraint clause after the base list.
+const SWIFT_WHERE_KEYWORD: &str = "where";
+
+/// The `SwiftUI` app entry (`@main struct ShopApp: App`) is a class landmark
+/// over its struct, as in v1's `SwiftUI` resolver.
+fn scan_swiftui_app_entries(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    source: &str,
+) -> Result<(), ExtractError> {
+    if builder.language() != SourceLanguage::Swift || !source.contains(SWIFT_MAIN_ATTRIBUTE) {
+        return Ok(());
+    }
+    let entries = builder.file.symbols[..builder.original_symbols]
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Struct)
+        .filter_map(|symbol| {
+            let start = usize::try_from(symbol.span.start_byte()).ok()?;
+            let end = usize::try_from(symbol.span.end_byte()).ok()?;
+            is_swiftui_app_entry(source.get(start..end)?).then(|| (symbol.name.clone(), start, end))
+        })
+        .collect::<Vec<_>>();
+    for (name, start, end) in entries {
+        let landmark = builder.add_landmark_with_id(LandmarkInput {
+            kind: SymbolKind::Class,
+            identity: format!("swiftui-app::{name}"),
+            body_search_text: format!("swiftui app entry {name}"),
+            name,
+            start,
+            end,
+            target: None,
+        })?;
+        // The struct itself defines the type; the landmark only marks it as
+        // the app entry, so it never competes with the struct in resolution.
+        if let Some(id) = landmark {
+            builder.mark_landmark_declaration_only(&id);
+        }
+    }
+    Ok(())
+}
+
+/// Whether a struct declaration is attributed `@main` and lists `App` among
+/// its base types, judged on its comment- and literal-free header. Only bases
+/// outside angle brackets count: `Gen<T: App>` bounds a parameter and
+/// `Entry<App>` passes an argument, and neither conforms to `App`.
+fn is_swiftui_app_entry(declaration: &str) -> bool {
+    let header = swift_header_code(declaration);
+    let Some(keyword) = find_word(&header, SWIFT_STRUCT_KEYWORD) else {
+        return false;
+    };
+    let main = header[..keyword]
+        .split_whitespace()
+        .any(|token| token == SWIFT_MAIN_ATTRIBUTE);
+    let mut depth = 0_usize;
+    let top_level: String = header[keyword..]
+        .chars()
+        .map(|character| {
+            let outside = depth == 0;
+            match character {
+                '<' => depth = depth.saturating_add(1),
+                '>' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            if outside && character != '<' {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    let Some((_, inheritance)) = top_level.split_once(':') else {
+        return false;
+    };
+    main && inheritance
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .take_while(|word| *word != SWIFT_WHERE_KEYWORD)
+        .any(|base| base == SWIFTUI_APP_PROTOCOL)
+}
+
+/// Byte offset of the first standalone occurrence of `word` in `text`.
+fn find_word(text: &str, word: &str) -> Option<usize> {
+    let is_identifier = |character: char| character.is_alphanumeric() || character == '_';
+    text.match_indices(word)
+        .map(|(index, _)| index)
+        .find(|&index| {
+            let before = text[..index].chars().next_back();
+            let after = text[index + word.len()..].chars().next();
+            !before.is_some_and(is_identifier) && !after.is_some_and(is_identifier)
+        })
+}
+
+/// A Swift declaration's code before its body's `{`, with line and (nested)
+/// block comments removed and string literals emptied.
+fn swift_header_code(declaration: &str) -> String {
+    let mut code = String::with_capacity(declaration.len());
+    let mut characters = declaration.chars().peekable();
+    let mut block_depth = 0_usize;
+    while let Some(character) = characters.next() {
+        let next = characters.peek().copied();
+        if block_depth > 0 {
+            match (character, next) {
+                ('*', Some('/')) => {
+                    characters.next();
+                    block_depth -= 1;
+                    code.push(' ');
+                }
+                ('/', Some('*')) => {
+                    characters.next();
+                    block_depth = block_depth.saturating_add(1);
+                }
+                _ => {}
+            }
+            continue;
+        }
+        match (character, next) {
+            ('/', Some('*')) => {
+                characters.next();
+                block_depth = 1;
+            }
+            ('/', Some('/')) => {
+                characters.by_ref().find(|skipped| *skipped == '\n');
+                code.push('\n');
+            }
+            ('"', _) => {
+                skip_string_literal(&mut characters);
+                code.push_str("\"\"");
+            }
+            ('{', _) => break,
+            _ => code.push(character),
+        }
+    }
+    code
+}
+
+/// Consume a string literal's contents through its closing quote, honoring
+/// backslash escapes.
+fn skip_string_literal(characters: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => {
+                characters.next();
+            }
+            '"' => return,
+            _ => {}
+        }
+    }
 }
 
 fn scan_flutter_material_routes(
@@ -2189,7 +2343,16 @@ fn play_route(line: &str) -> Option<RouteMatch<'_>> {
         return None;
     }
     let path = parts.next()?;
-    let handler = parts.next();
+    // A handler may declare its parameters (`Users.show(id: Long)`) or an empty
+    // list (`Users.create()`); the action is the text before the list.
+    let handler = parts
+        .next()
+        .map(|handler| {
+            handler
+                .split_once('(')
+                .map_or(handler, |(action, _)| action)
+        })
+        .filter(|action| !action.is_empty());
     let path_start = indent + trimmed.find(path)?;
     Some(RouteMatch {
         method,

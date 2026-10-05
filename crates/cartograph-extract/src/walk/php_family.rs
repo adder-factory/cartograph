@@ -192,7 +192,7 @@ fn with_declaration_qualifiers<Output>(
     let nested = builder.native_owner_kinds.iter().any(|kind| {
         matches!(
             kind,
-            SymbolKind::Function | SymbolKind::Method | SymbolKind::Property
+            SymbolKind::Function | SymbolKind::Method | SymbolKind::Field
         )
     });
     if !nested {
@@ -1020,8 +1020,8 @@ struct PropertyDeclaration<'tree> {
     type_node: Option<Node<'tree>>,
 }
 
-/// Emit one property; returns its scope so property hooks can own their
-/// calls.
+/// Emit one property as a field, the kind v1.1.33 gave PHP properties;
+/// returns its scope so property hooks can own their calls.
 fn emit_property(
     builder: &mut ExtractionBuilder<'_, '_>,
     declaration: &PropertyDeclaration<'_>,
@@ -1042,7 +1042,7 @@ fn emit_property(
         .unwrap_or(Visibility::Public);
     let signature = property_signature(builder, declaration.type_node, &name)?;
     let id = builder.emit_symbol(PendingSymbol {
-        kind: SymbolKind::Property,
+        kind: SymbolKind::Field,
         name: name.clone(),
         span_node: element,
         structural_node: element,
@@ -1063,7 +1063,7 @@ fn emit_property(
     }
     Ok(Some(OwnerScope {
         id,
-        kind: SymbolKind::Property,
+        kind: SymbolKind::Field,
         name,
     }))
 }

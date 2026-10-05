@@ -385,14 +385,16 @@ fn traits_enum_cases_and_constants_keep_php_declaration_kinds() {
     }
 }
 
+/// v1.1.33 declared PHP `property_declaration` members as `field` nodes, and
+/// v2 keeps that kind (hooked properties included).
 #[test]
 fn properties_and_methods_keep_names_signatures_and_visibility() {
     let file = extract("src/Deck.php", DECK_SOURCE);
     assert_eq!(
-        names_of(&file, SymbolKind::Property),
+        names_of(&file, SymbolKind::Field),
         ["count", "legacy", "repo", "untyped"]
     );
-    let repo = symbol(&file, SymbolKind::Property, "repo");
+    let repo = symbol(&file, SymbolKind::Field, "repo");
     assert_eq!(repo.qualified_name, r"App\Cards::Deck::repo");
     assert_eq!(repo.signature.as_deref(), Some("Repo $repo"));
     assert_eq!(repo.visibility, Some(Visibility::Private));
@@ -401,16 +403,16 @@ fn properties_and_methods_keep_names_signatures_and_visibility() {
         owned_reference_names(&file, repo, ReferenceKind::TypeOf),
         ["Repo"]
     );
-    let count = symbol(&file, SymbolKind::Property, "count");
+    let count = symbol(&file, SymbolKind::Field, "count");
     assert_eq!(count.signature.as_deref(), Some("?int $count"));
     assert!(count.execution.static_member);
     assert_eq!(count.visibility, Some(Visibility::Public));
     assert_eq!(
-        symbol(&file, SymbolKind::Property, "untyped").visibility,
+        symbol(&file, SymbolKind::Field, "untyped").visibility,
         Some(Visibility::Protected)
     );
     assert_eq!(
-        symbol(&file, SymbolKind::Property, "legacy").visibility,
+        symbol(&file, SymbolKind::Field, "legacy").visibility,
         Some(Visibility::Public)
     );
 
@@ -1008,7 +1010,7 @@ function outer(): void
 }
 ",
     );
-    let label = symbol(&file, SymbolKind::Property, "label");
+    let label = symbol(&file, SymbolKind::Field, "label");
     assert_eq!(
         owned_reference_names(&file, label, ReferenceKind::Calls),
         ["format_label"],

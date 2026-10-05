@@ -434,6 +434,60 @@ class Point {
 }
 
 #[test]
+fn dart_factory_constructors_are_methods_named_by_their_class_like_v1() {
+    // v1 languages/dart.ts extracted every `method_signature`, which wraps a
+    // factory constructor, naming it by its first identifier: the class.
+    // Generative and redirecting constructors were never symbols.
+    let extracted = extract(
+        "lib/user.dart",
+        r"
+class User {
+  User(this.name);
+  factory User.fromJson(Map<String, dynamic> json) {
+    return User(json);
+  }
+  factory User.empty() => build();
+  const factory User.redirect(int a) = User;
+}
+",
+    );
+    let user = symbol(&extracted, SymbolKind::Class, "User");
+    let factories = extracted
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Method && symbol.name == "User")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        factories
+            .iter()
+            .map(|factory| (factory.qualified_name.as_str(), factory.span.start_line()))
+            .collect::<Vec<_>>(),
+        [("User::User", 4), ("User::User", 7)],
+        "{:?}",
+        extracted.symbols
+    );
+    let from_json = factories[0];
+    assert!(contains(&extracted, &user.id, &from_json.id));
+    assert_eq!(
+        from_json.signature.as_deref(),
+        Some("(Map<String, dynamic> json)")
+    );
+    assert!(
+        extracted.references.iter().any(|reference| {
+            reference.name == "User" && reference.owner.as_ref() == Some(&from_json.id)
+        }),
+        "a factory owns its body's calls: {:?}",
+        extracted.references
+    );
+    assert!(
+        extracted.references.iter().any(|reference| {
+            reference.name == "build" && reference.owner.as_ref() == Some(&factories[1].id)
+        }),
+        "an expression-bodied factory owns its body too"
+    );
+}
+
+#[test]
 fn dart_callable_digests_follow_the_body_not_only_the_signature() {
     let first = extract("lib/a.dart", "void run() { alpha(); }\n");
     let second = extract("lib/a.dart", "void run() { if (ready) { beta(); } }\n");

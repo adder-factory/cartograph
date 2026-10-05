@@ -111,6 +111,32 @@ fn nix_attrpaths_functions_inherit_and_relative_imports_keep_full_names() {
 }
 
 #[test]
+fn nix_declared_attrpaths_skip_interpolated_segments_like_v1() {
+    // v1 languages/nix.ts names a binding by its identifier and string
+    // segments only, so `packages.${system}.default` declares
+    // `packages.default` and owns what its value declares.
+    let extracted = extract(
+        "flake.nix",
+        "{\n  outputs = { self }: {\n    packages.${system}.default = import ./default.nix { inherit pkgs; };\n    ${only} = 1;\n  };\n}\n",
+    );
+    let package = symbol(&extracted, SymbolKind::Constant, "packages.default");
+    assert_eq!(package.qualified_name, "outputs::packages.default");
+    assert_eq!(package.span.start_line(), 3);
+    assert_eq!(
+        symbol(&extracted, SymbolKind::Constant, "pkgs").qualified_name,
+        "outputs::packages.default::pkgs"
+    );
+    assert!(
+        !extracted
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name.contains("only") || symbol.name.contains("system")),
+        "interpolated segments never enter a name: {:?}",
+        extracted.symbols
+    );
+}
+
+#[test]
 fn nix_parenthesized_applications_and_bare_relative_paths_are_exact() {
     let extracted = extract(
         "nix/b.nix",

@@ -1,4 +1,4 @@
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
+use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind, Visibility};
 use tree_sitter::Node;
 
 use crate::{
@@ -9,6 +9,8 @@ use crate::{
     },
 };
 
+mod abap;
+
 const NAME_SEARCH_DEPTH: usize = 6;
 const PREFIX_SCAN_BYTES: usize = 512;
 
@@ -17,17 +19,27 @@ pub(super) fn visit_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
+    let abap = builder.context.snapshot.language() == SourceLanguage::Abap;
     // A parentless `program` node is the grammar's compilation unit (ABAP,
     // PHP, R, Ruby), never a declaration that owns the rest of the file.
     if node.parent().is_none() && node.kind() == "program" {
-        builder.visit_named_children(node, depth)?;
+        if abap {
+            abap::visit_program(builder, node, depth)?;
+        } else {
+            builder.visit_named_children(node, depth)?;
+        }
         return Ok(true);
     }
     if is_import_node(node.kind()) {
         capture_import(builder, node)?;
         return Ok(true);
     }
-    let Some((kind, name)) = declaration(builder, node)? else {
+    let declared = if abap {
+        abap::declaration(builder, node)?
+    } else {
+        declaration(builder, node)?
+    };
+    let Some((kind, name)) = declared else {
         return Ok(false);
     };
     if should_skip_markup_symbol(builder.context.snapshot.language(), kind, &name) {
@@ -42,60 +54,115 @@ pub(super) fn visit_declaration(
         return Ok(true);
     }
     let qualified_name = builder.qualified_name(&name)?;
-    if let Some(existing) = builder
-        .facts
-        .symbols
-        .iter()
-        .find(|symbol| symbol.kind == kind && symbol.qualified_name == qualified_name)
-        .map(|symbol| symbol.id.clone())
+    // A same-named declaration merges into the first one (a separate
+    // declaration and definition), except in ABAP, whose implemented
+    // definitions are merged by the ABAP walk itself and whose same-named
+    // methods are distinct misparsed interface implementations.
+    if !abap
+        && let Some(existing) = builder
+            .facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == kind && symbol.qualified_name == qualified_name)
+            .map(|symbol| symbol.id.clone())
     {
-        builder.owners.push(existing);
-        builder.native_owner_kinds.push(kind);
-        builder.native_visibilities.push(None);
-        builder.qualifiers.push(name);
+        push_scope(builder, (existing, kind, None, name));
         builder.visit_named_children(node, depth)?;
-        builder.qualifiers.pop();
-        builder.native_visibilities.pop();
-        builder.native_owner_kinds.pop();
-        builder.owners.pop();
+        pop_scope(builder);
         return Ok(true);
     }
-    let body = node.child_by_field_name("body");
+    let scope = emit_declaration(
+        builder,
+        GenericDeclaration {
+            kind,
+            name,
+            node,
+            modifier_node: node,
+        },
+    )?;
+    push_scope(builder, scope);
+    builder.visit_named_children(node, depth)?;
+    pop_scope(builder);
+    Ok(true)
+}
+
+/// One declaration the generic walker emits.
+struct GenericDeclaration<'tree> {
+    /// Declared symbol kind.
+    kind: SymbolKind,
+    /// Declared local name.
+    name: String,
+    /// Node whose span, structure and body the symbol covers.
+    node: Node<'tree>,
+    /// Node whose leading tokens and doc comment carry the declaration's
+    /// modifiers; an ABAP class implementation takes them from its definition.
+    modifier_node: Node<'tree>,
+}
+
+/// An emitted declaration's owner scope: id, kind, visibility and name.
+type GenericScope = (SymbolId, SymbolKind, Option<Visibility>, String);
+
+/// Emit one generic declaration and return the scope its children nest in.
+fn emit_declaration(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    declaration: GenericDeclaration<'_>,
+) -> Result<GenericScope, ExtractError> {
+    let GenericDeclaration {
+        kind,
+        name,
+        node,
+        modifier_node,
+    } = declaration;
+    let language = builder.context.snapshot.language();
+    let body = if language == SourceLanguage::Abap {
+        abap::body(node)
+    } else {
+        node.child_by_field_name("body")
+    };
     let definition = is_definition_node(node.kind());
-    let visibility = generic_visibility(node, builder.context.source());
+    let source = builder.context.source();
+    let visibility = generic_visibility(modifier_node, source);
     let exported = generic_exported(GenericExportInput {
-        language: builder.context.snapshot.language(),
+        language,
         top_level: builder.owners.is_empty(),
         visibility,
         name: &name,
-        node,
-        source: builder.context.source(),
+        node: modifier_node,
+        source,
     });
     let pending = PendingSymbol {
         kind,
         name: name.clone(),
         span_node: node,
         structural_node: node,
-        doc_anchor: node,
+        doc_anchor: modifier_node,
         body_node: body.or(definition.then_some(node)),
         declaration_only: is_callable(kind) && body.is_none() && !definition,
         signature: None,
         export: crate::SymbolExportFlags::named(exported),
-        async_symbol: source_prefix_contains(node, builder.context.source(), "async"),
-        static_member: source_prefix_contains(node, builder.context.source(), "static"),
+        async_symbol: source_prefix_contains(modifier_node, source, "async"),
+        static_member: source_prefix_contains(modifier_node, source, "static"),
         visibility,
     };
     let id = builder.emit_symbol(pending)?;
+    Ok((id, kind, visibility, name))
+}
+
+/// Make `scope` the innermost owner of the declarations visited next.
+fn push_scope(builder: &mut ExtractionBuilder<'_, '_>, scope: GenericScope) {
+    let (id, kind, visibility, name) = scope;
     builder.owners.push(id);
     builder.native_owner_kinds.push(kind);
     builder.native_visibilities.push(visibility);
     builder.qualifiers.push(name);
-    builder.visit_named_children(node, depth)?;
+}
+
+/// Undo the most recent [`push_scope`].
+fn pop_scope(builder: &mut ExtractionBuilder<'_, '_>) {
     builder.qualifiers.pop();
     builder.native_visibilities.pop();
     builder.native_owner_kinds.pop();
     builder.owners.pop();
-    Ok(true)
 }
 
 pub(super) fn capture_usage(
@@ -807,6 +874,7 @@ fn is_definition_node(kind: &str) -> bool {
                 | "class"
                 | "module"
                 | "class_implementation"
+                | "method_implementation"
                 | "function_item"
         )
 }

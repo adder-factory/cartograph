@@ -316,6 +316,71 @@ fn abap_classes_and_interfaces_are_top_level_not_swallowed_by_the_program_root()
     }
 }
 
+/// v1.1.33 declared an ABAP class and its methods at the `IMPLEMENTATION`
+/// block. A definition-side declaration first would anchor the symbol on a
+/// one-line signature, merge the method body into it, and name the
+/// `METHODS constructor IMPORTING iv_prefix` declaration after its parameter.
+/// The implementation-anchored class still carries the definition's
+/// modifiers and attributes, its implemented methods own their bodies, and
+/// a method the implementation does not implement stays a body-less method.
+#[test]
+fn abap_classes_and_methods_are_declared_at_their_implementation() {
+    let source = "CLASS zcl_greeter DEFINITION PUBLIC.\n  PUBLIC SECTION.\n    METHODS constructor IMPORTING iv_prefix TYPE string.\n    \"! Greets the caller.\n    METHODS greet IMPORTING iv_name TYPE string.\n    METHODS later.\n  PRIVATE SECTION.\n    DATA mv_prefix TYPE string.\nENDCLASS.\n\nCLASS ZCL_GREETER IMPLEMENTATION.\n  METHOD constructor.\n    mv_prefix = iv_prefix.\n  ENDMETHOD.\n  METHOD greet.\n    DATA lv_text TYPE string.\n    lv_text = iv_name.\n  ENDMETHOD.\n  METHOD zif_greeter~greet.\n    rv_text = iv_name.\n  ENDMETHOD.\n  METHOD zif_greeter~farewell.\n    WRITE 'Bye'.\n  ENDMETHOD.\nENDCLASS.\n\nCLASS lcl_deferred DEFINITION.\n  PUBLIC SECTION.\n    METHODS run.\nENDCLASS.\n";
+    let extracted = extract_generic("src/zcl_greeter.clas.abap", source);
+    let declared = extracted
+        .symbols
+        .iter()
+        .map(|symbol| {
+            (
+                symbol.kind,
+                symbol.qualified_name.as_str(),
+                symbol.span.start_line(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        declared,
+        [
+            (SymbolKind::Class, "ZCL_GREETER", 11),
+            (SymbolKind::Method, "ZCL_GREETER::later", 6),
+            (SymbolKind::Variable, "ZCL_GREETER::mv_prefix", 8),
+            (SymbolKind::Method, "ZCL_GREETER::constructor", 12),
+            (SymbolKind::Method, "ZCL_GREETER::greet", 15),
+            (SymbolKind::Variable, "ZCL_GREETER::greet::lv_text", 16),
+            (SymbolKind::Method, "ZCL_GREETER::zif_greeter", 19),
+            (SymbolKind::Method, "ZCL_GREETER::zif_greeter", 22),
+            (SymbolKind::Class, "lcl_deferred", 27),
+            (SymbolKind::Method, "lcl_deferred::run", 29),
+        ]
+    );
+    let class = generic_symbol(&extracted, SymbolKind::Class, "ZCL_GREETER");
+    assert!(
+        class.export.exported,
+        "the definition's PUBLIC makes the implementation-anchored class exported"
+    );
+    let greet = generic_symbol(&extracted, SymbolKind::Method, "greet");
+    assert!(
+        !greet.implementation.declaration_only,
+        "an implemented method has its method_body"
+    );
+    assert!(
+        greet
+            .docstring
+            .as_deref()
+            .is_some_and(|doc| doc.contains("Greets the caller")),
+        "the implementation keeps its declaration's doc comment: {:?}",
+        greet.docstring
+    );
+    for body_less in ["later", "run"] {
+        assert!(
+            generic_symbol(&extracted, SymbolKind::Method, body_less)
+                .implementation
+                .declaration_only,
+            "{body_less} has no implementation in the file"
+        );
+    }
+}
+
 fn extract_generic(path: &str, source: &str) -> cartograph_extract::ExtractedFile {
     let snapshot = SourceSnapshot::from_bytes(path, source.as_bytes(), limits())
         .unwrap_or_else(|error| panic!("{path} snapshot failed: {error}"));

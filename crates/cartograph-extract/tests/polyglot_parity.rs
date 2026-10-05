@@ -1390,6 +1390,364 @@ fn deep_declared_types_and_interface_constraints_keep_existing_facts() {
     assert_eq!(owned_names(&go, "Sized", ReferenceKind::Calls), ["len"]);
 }
 
+#[test]
+fn rust_outer_attributes_decorate_only_the_item_they_precede() {
+    let file = extract(
+        "src/main.rs",
+        r#"#![allow(unused)]
+#[derive(Debug, Clone)]
+pub struct Order;
+
+#[get("/a")]
+#[post("/b")]
+async fn multi() {}
+
+#[tauri::command]
+// a comment between the attribute and its item
+fn bridge() {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn works() {}
+}
+
+#[allow(dead_code)]
+const LIMIT: u32 = 1;
+
+#[cfg(feature = "x")]
+mod external;
+
+fn plain() {}
+"#,
+    );
+
+    assert_eq!(decorators_of(&file, "Order"), ["derive"]);
+    assert_eq!(decorators_of(&file, "multi"), ["get", "post"]);
+    let command = reference(&file, "bridge", "command", ReferenceKind::Decorates);
+    assert_eq!(command.resolution_name.as_deref(), Some("tauri::command"));
+    assert_eq!(decorators_of(&file, "tests"), ["cfg"]);
+    assert_eq!(decorators_of(&file, "tests::works"), ["test"]);
+    assert_eq!(decorators_of(&file, "LIMIT"), ["allow"]);
+    assert_eq!(decorators_of(&file, "plain"), NONE);
+    assert_eq!(
+        file.references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::Decorates)
+            .count(),
+        7,
+        "the inner attribute and the out-of-line module's attribute decorate nothing"
+    );
+}
+
+#[test]
+fn rust_same_file_expression_macros_read_constants_in_their_arguments() {
+    let file = extract(
+        "src/lib.rs",
+        r"
+const MAX_ITEMS: usize = 64;
+
+fn before(n: usize) -> bool {
+    ensure!(n < MAX_ITEMS)
+}
+
+macro_rules! ensure {
+    ($cond:expr) => { $cond };
+    ($cond:expr, $($rest:expr),+) => { $cond };
+}
+
+macro_rules! keyed {
+    (key = $value:expr) => { $value };
+}
+
+macro_rules! named {
+    ($name:ident) => { 0 };
+}
+
+macro_rules! vals {
+    ($($v:literal) MAX_ITEMS *) => { 0 };
+}
+
+macro_rules! sum {
+    ($($v:expr);+) => { 0 };
+}
+
+fn after(n: usize) -> bool {
+    ensure!(n < MAX_ITEMS, MAX_ITEMS > 1)
+}
+
+fn dsl() -> usize {
+    keyed!(key = MAX_ITEMS) + named!(MAX_ITEMS) + vals!(1 MAX_ITEMS 2)
+}
+
+fn separated() -> usize {
+    sum!(MAX_ITEMS; 2)
+}
+
+macro_rules! ensure {
+    ($name:ident) => { true };
+}
+
+fn shadowed() -> bool {
+    ensure!(MAX_ITEMS)
+}
+",
+    );
+
+    assert_eq!(
+        owned_names(&file, "before", ReferenceKind::References),
+        NONE,
+        "a macro_rules! defined later is not in scope"
+    );
+    assert_eq!(
+        owned_names(&file, "after", ReferenceKind::References),
+        ["MAX_ITEMS", "MAX_ITEMS"]
+    );
+    assert_eq!(
+        owned_names(&file, "dsl", ReferenceKind::References),
+        NONE,
+        "a key, an ident fragment, or a word separator is not an expression"
+    );
+    assert_eq!(
+        owned_names(&file, "separated", ReferenceKind::References),
+        ["MAX_ITEMS"],
+        "a punctuation separator keeps the expression reading"
+    );
+    assert_eq!(
+        owned_names(&file, "shadowed", ReferenceKind::References),
+        NONE,
+        "a later definition that binds names shadows the expression macro"
+    );
+}
+
+#[test]
+fn rust_expression_macro_scope_ends_with_its_block_and_skips_bound_names() {
+    let file = extract(
+        "src/scoped.rs",
+        r#"
+const MAX_ITEMS: usize = 64;
+
+macro_rules! check {
+    ($e:expr) => { $e };
+}
+
+fn inner() -> bool {
+    macro_rules! check {
+        ($name:ident) => { true };
+    }
+    check!(MAX_ITEMS)
+}
+
+fn after() -> bool {
+    check!(MAX_ITEMS > 1)
+}
+
+fn generic<const WIDTH: usize>(LIMIT: usize) -> bool {
+    assert!(WIDTH > 0, "{WIDTH} {LIMIT}");
+    check!(WIDTH > LIMIT)
+}
+
+#[macro_use]
+mod exported {
+    macro_rules! check {
+        ($name:ident) => { true };
+    }
+}
+
+mod private {
+    macro_rules! probe {
+        ($name:ident) => { true };
+    }
+}
+
+macro_rules! probe {
+    ($e:expr) => { $e };
+}
+
+fn after_modules() -> bool {
+    check!(MAX_ITEMS) && probe!(MAX_ITEMS > 2)
+}
+"#,
+    );
+
+    assert_eq!(
+        owned_names(&file, "inner", ReferenceKind::References),
+        NONE,
+        "the block-scoped definition binds names"
+    );
+    assert_eq!(
+        owned_names(&file, "after", ReferenceKind::References),
+        ["MAX_ITEMS"],
+        "the outer expression macro is back in scope after the block"
+    );
+    assert_eq!(
+        owned_names(&file, "generic", ReferenceKind::References),
+        NONE,
+        "parameters and const generics are not constant reads inside macros"
+    );
+    assert_eq!(
+        owned_names(&file, "after_modules", ReferenceKind::References),
+        ["MAX_ITEMS"],
+        "a #[macro_use] module's definition shadows past the module; a plain module's does not"
+    );
+}
+
+#[test]
+fn rust_outer_parameters_do_not_hide_constant_reads_in_nested_items() {
+    let file = extract(
+        "src/nested.rs",
+        r#"
+const WIDTH: usize = 8;
+
+fn outer(WIDTH: usize) {
+    mod m {
+        fn inner() {
+            assert!(WIDTH > 0, "{WIDTH}");
+            let _x = WIDTH;
+        }
+    }
+    fn nested() -> usize {
+        assert_eq!(WIDTH, 8);
+        WIDTH
+    }
+    let close = || {
+        assert!(WIDTH > 1);
+        WIDTH
+    };
+}
+
+struct Grid<const WIDTH: usize>;
+
+impl<const WIDTH: usize> Grid<WIDTH> {
+    fn cells(&self) -> usize {
+        assert!(WIDTH > 0);
+        WIDTH
+    }
+}
+"#,
+    );
+
+    assert_eq!(
+        owned_names(&file, "outer::m::inner", ReferenceKind::References),
+        ["WIDTH", "WIDTH", "WIDTH"],
+        "an item inside a function body cannot see the function's parameters"
+    );
+    assert_eq!(
+        owned_names(&file, "outer::nested", ReferenceKind::References),
+        ["WIDTH", "WIDTH"],
+        "a nested function cannot see the enclosing function's parameters"
+    );
+    assert_eq!(
+        owned_names(&file, "outer", ReferenceKind::References),
+        NONE,
+        "a closure sees its enclosing function's parameters"
+    );
+    assert_eq!(
+        owned_names(&file, "Grid::cells", ReferenceKind::References),
+        NONE,
+        "a method sees its impl's const generics"
+    );
+}
+
+#[test]
+fn go_literals_of_file_declared_container_types_keep_expression_keys() {
+    let file = extract(
+        "api/tables.go",
+        r#"
+package api
+
+const Key = "k"
+const Pos = 1
+
+type M map[string]int
+type N M
+type A = [4]int
+type P (map[string]int)
+type G[K comparable, V any] map[K]V
+type I G[string, int]
+type S struct{ Key string }
+type T map[string]int
+
+func build() {
+    m := M{Key: 1}
+    n := N{Key: 2}
+    a := A{Pos: 3}
+    p := P{Key: 4}
+    i := I{Key: 5}
+    s := S{Key: "v"}
+    r := pkg.Remote{Key: "w"}
+    _, _, _, _, _, _, _ = m, n, a, p, i, s, r
+}
+
+func shadow() {
+    type T struct{ Key int }
+    _ = T{Key: 1}
+}
+"#,
+    );
+
+    assert_eq!(
+        owned_names(&file, "build", ReferenceKind::FieldAccess),
+        ["Key", "Key"],
+        "only the struct and the unknown remote type have field keys"
+    );
+    assert_eq!(
+        owned_names(&file, "build", ReferenceKind::References),
+        ["Key", "Key", "Pos", "Key", "Key"]
+    );
+    assert_eq!(
+        owned_names(&file, "shadow", ReferenceKind::FieldAccess),
+        ["Key"],
+        "a function-local struct may shadow the package-level map type"
+    );
+}
+
+#[test]
+fn go_named_literal_field_keys_are_field_accesses() {
+    let file = extract(
+        "api/user.go",
+        r#"
+package api
+
+func build(email string, k int) {
+    p := &Profile{Bio: "new"}
+    u := &User{Email: email, Profile: p}
+    q := pkg.Remote{Name: email}
+    m := map[int]string{k: "v"}
+    s := Pair{1, 2}
+    _, _, _, _, _ = p, u, q, m, s
+}
+"#,
+    );
+
+    assert_eq!(
+        owned_names(&file, "build", ReferenceKind::FieldAccess),
+        ["Bio", "Email", "Profile", "Name"]
+    );
+    assert_eq!(owned_names(&file, "build", ReferenceKind::References), NONE);
+}
+
+#[test]
+fn go_and_python_member_calls_written_with_layout_use_their_lookup_name() {
+    let go = extract(
+        "api/routes.go",
+        "package api\n\nfunc register(r Router) {\n    r. POST(\"/users\", h)\n    r./* why */GET(\"/x\", h)\n    r.Delete(\"/y\", h)\n}\n",
+    );
+    let python = extract(
+        "app/jobs.py",
+        "def run(queue):\n    queue . push(1)\n    queue.pop()\n",
+    );
+
+    assert_eq!(
+        owned_names(&go, "register", ReferenceKind::Calls),
+        ["r.POST", "r.GET", "r.Delete"]
+    );
+    assert_eq!(
+        owned_names(&python, "run", ReferenceKind::Calls),
+        ["queue.push", "queue.pop"]
+    );
+}
+
 fn extract(path: &str, source: &str) -> ExtractedFile {
     let limits = match SourceLimits::new(SOURCE_LIMIT_BYTES) {
         Ok(limits) => limits,

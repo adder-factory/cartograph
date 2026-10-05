@@ -1137,9 +1137,9 @@ fn value_reads_of_module_bindings_survive_other_scopes_namesakes() {
     // A parameter or local of another scope (here the new class-field method
     // parameter) never hides the module binding a read names. A read that a
     // nearer scope rebinds is not the module binding's, and the resolver
-    // would bind it to the module namesake, so it stays unrecorded; a name
-    // bound only in several nested scopes stays unrecorded as before, while
-    // a name bound once in the file still names that binding.
+    // would bind it to the module namesake, so it stays unrecorded; a
+    // parameter bound only in several nested scopes stays unrecorded as
+    // before, while a name bound once in the file still names that binding.
     let source = r"
 const config = {};
 class C {

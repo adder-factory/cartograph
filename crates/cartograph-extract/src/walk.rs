@@ -447,6 +447,8 @@ struct ExtractionBuilder<'source, 'cancel> {
     optional_facts: OptionalFactGate,
     /// Per-file lookup state of the polyglot walk.
     polyglot: polyglot::PolyglotIndex,
+    /// Rust `macro_rules!` definitions seen so far and whether they take expressions.
+    rust_macros: rust_macro::LocalExpressionMacros,
     /// PHP compile-time name-resolution state (namespace, `use` aliases, class context).
     php: php_family::PhpScope,
     /// Embedded-region state; empty for a standalone file.
@@ -1419,6 +1421,7 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             shortened_canonical_names: false,
             optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),
             polyglot: polyglot::PolyglotIndex::default(),
+            rust_macros: rust_macro::LocalExpressionMacros::default(),
             php: php_family::PhpScope::default(),
             embedded: embedded_script::EmbeddedScope::default(),
         })

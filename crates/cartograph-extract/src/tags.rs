@@ -457,7 +457,7 @@ fn emit_tag_definitions(
         source,
         definitions,
         parent_indices,
-        mut structural_digests,
+        structural_digests,
     } = input;
     let mut budget = ExtractionBudget::new(snapshot)?;
     let mut identities = SymbolIdentity::new(snapshot.path());
@@ -475,8 +475,12 @@ fn emit_tag_definitions(
             return Err(ExtractError::Cancelled);
         }
         let parent = parent_indices[index].and_then(|parent| emitted.get(parent));
+        // Several definitions may share one role node, such as each dotted
+        // segment of a Haskell module header or an Elixir module and the struct
+        // it defines, so the digest is read rather than consumed.
         let structural_digest = structural_digests
-            .remove(&definition.node.id())
+            .get(&definition.node.id())
+            .cloned()
             .flatten()
             .ok_or(ExtractError::GrammarUnavailable)?;
         let built = build_tag_definition(

@@ -4,7 +4,7 @@ mod dependency_ownership;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
+use cartograph_domain::{FileParseStatus, ReferenceKind, SourceLanguage, SymbolKind, Visibility};
 use cartograph_extract::{
     ExtractError, ExtractedFile, ExtractedSymbol, ImportBindingKind, NativeExtractor, SourceLimits,
     SourceSnapshot,
@@ -706,6 +706,130 @@ fn kotlin_extension_functions_are_receiver_qualified_functions() {
             .all(|symbol| symbol.qualified_name != "com.demo::shout"),
         "extension function kept its unqualified function identity"
     );
+}
+
+#[test]
+fn groovy_recovered_enums_keep_their_methods() {
+    // The Groovy grammar has no `enum` rule, so `enum Tone { ... }` parses as
+    // a call whose closure holds the constants in an ERROR node; the methods
+    // after the constants must still be extracted as enum members.
+    let extracted = extract(
+        "src/demo/Tone.groovy",
+        "package demo\n\nenum Tone {\n    FORMAL, CASUAL\n\n    String prefix() {\n        return this == FORMAL ? 'Dear' : 'Hey'\n    }\n}\n",
+    );
+    let tone = symbol(&extracted, SymbolKind::Enum, "Tone", "demo::Tone");
+    let formal = symbol(
+        &extracted,
+        SymbolKind::EnumMember,
+        "FORMAL",
+        "demo::Tone::FORMAL",
+    );
+    assert_containment(&extracted, tone, formal);
+    let prefix = symbol(
+        &extracted,
+        SymbolKind::Method,
+        "prefix",
+        "demo::Tone::prefix",
+    );
+    assert_eq!(prefix.span.start_line(), 6);
+    assert_containment(&extracted, tone, prefix);
+    assert_reference_owned_by(&extracted, prefix, "String", ReferenceKind::Returns);
+    assert_unique_ids(&extracted);
+
+    // A constant-specific body is not a declaration of the enum itself.
+    let bodies = extract(
+        "src/demo/Mode.groovy",
+        "package demo\n\nenum Mode {\n    FAST { String speed() { 'fast' } }, SLOW\n\n    String label() { name() }\n}\n",
+    );
+    symbol(&bodies, SymbolKind::Method, "label", "demo::Mode::label");
+    assert!(
+        bodies
+            .symbols
+            .iter()
+            .all(|symbol| symbol.qualified_name != "demo::Mode::speed"),
+        "a constant-specific method was owned by the enum: {:?}",
+        symbol_facts(&bodies)
+    );
+}
+
+#[test]
+fn groovy_member_command_calls_are_calls() {
+    // `greeter.greet('x').endsWith('x')` parses as a juxtaposed (command) call
+    // whose function is `greeter.greet`; a Spock feature named by a string is
+    // split by error recovery into calls (`with a`, `tone "..."`, `a.b c`,
+    // `q.r()`) that start inside the title literal and are not calls.
+    let extracted = extract(
+        "src/test/demo/GreeterSpec.groovy",
+        "package demo\n\nclass GreeterSpec extends Specification {\n    def plain() {\n        /* don't */ log.warn 'w'\n        def text = \"Hi ${name.trim()}\"\n    }\n    def \"greets with a tone\"() {\n        expect:\n        greeter.greet('x').endsWith('x')\n        log.info 'done'\n    }\n    def \"uses a.b c\"() {\n        expect:\n        greeter.greet 'y'\n    }\n    def \"uses q.r() s\"() {\n    }\n}\n",
+    );
+    let calls = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .map(|reference| (reference.name.as_str(), reference.span.start_line()))
+        .collect::<Vec<_>>();
+    // A comment before a command call and a GString interpolation are code.
+    assert!(calls.contains(&("log.warn", 5)), "{calls:?}");
+    assert!(calls.contains(&("name.trim", 6)), "{calls:?}");
+    assert!(calls.contains(&("greeter.greet", 10)), "{calls:?}");
+    assert!(calls.contains(&("log.info", 11)), "{calls:?}");
+    assert!(calls.contains(&("greeter.greet", 15)), "{calls:?}");
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| matches!(reference.span.start_line(), 8 | 13 | 17)),
+        "a string-named feature title produced references: {:?}",
+        reference_facts(&extracted)
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|(name, _)| matches!(*name, "with" | "tone" | "a.b" | "uses" | "q.r")),
+        "string-named feature words became calls: {calls:?}"
+    );
+    assert!(
+        !extracted.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::FieldAccess && reference.name == "greet"
+        }),
+        "the called member is also a field access: {:?}",
+        reference_facts(&extracted)
+    );
+}
+
+#[test]
+fn groovy_calls_after_literals_in_parsed_code_are_kept() {
+    // Only error recovery turns literal words into calls; in cleanly parsed
+    // code every call is kept, even after literal forms a line re-lex cannot
+    // read (a block comment opened on an earlier line, slashy and
+    // dollar-slashy strings holding quotes) and after a very long line prefix.
+    let padding = "x".repeat(5_000);
+    let source = format!(
+        "class H {{\n    def run() {{\n        /* comment\n        it's finished */ log.warn(\"w\")\n        def p = $/don't/$; svc.dollar()\n        def u = /a\"b/; svc.slashy(); u.size\n        def text = '{padding}'; svc.far(); text.size\n    }}\n}}\n"
+    );
+    let extracted = extract("src/demo/H.groovy", &source);
+    assert_eq!(extracted.parse_status, FileParseStatus::Parsed);
+    let facts = extracted
+        .references
+        .iter()
+        .map(|reference| {
+            (
+                reference.kind,
+                reference.name.as_str(),
+                reference.span.start_line(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        (ReferenceKind::Calls, "log.warn", 4),
+        (ReferenceKind::Calls, "svc.dollar", 5),
+        (ReferenceKind::Calls, "svc.slashy", 6),
+        (ReferenceKind::FieldAccess, "size", 6),
+        (ReferenceKind::Calls, "svc.far", 7),
+        (ReferenceKind::FieldAccess, "size", 7),
+    ] {
+        assert!(facts.contains(&expected), "missing {expected:?}: {facts:?}");
+    }
 }
 
 fn decorations<'file>(extracted: &'file ExtractedFile, owner: &ExtractedSymbol) -> Vec<&'file str> {

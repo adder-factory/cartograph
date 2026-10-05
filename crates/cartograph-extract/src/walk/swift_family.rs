@@ -34,6 +34,8 @@ const TYPE_OWNER_KINDS: [SymbolKind; 4] = [
 const EXTENSION_KEYWORD: &str = "extension";
 /// A call; its first named child is the callee.
 const CALL_EXPRESSION: &str = "call_expression";
+/// Optional-chaining and force-unwrap markers (`a?.b()`, `a!.b()`).
+const UNWRAP_MARKERS: [char; 2] = ['?', '!'];
 
 /// Where a declaration sits relative to its nearest owner.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -110,17 +112,18 @@ pub(super) fn capture_usage(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
-    if node.kind() == CALL_EXPRESSION && capture_escaped_call(builder, node)? {
+    if node.kind() == CALL_EXPRESSION && capture_spelled_call(builder, node)? {
         return Ok(());
     }
     generic_family::capture_usage(builder, node)
 }
 
 /// A call whose callee spells an escaped identifier (`` value.`repeat`() ``)
-/// is named without the backticks, as its declaration is; the shared capture
-/// rejects an inner backtick and would drop the call. Returns whether the
-/// callee was escaped and so handled here.
-fn capture_escaped_call(
+/// or unwraps an optional on the way (`delegate?.update()`, `cache!.flush()`)
+/// is named by its plain member path, as its declaration is; the shared
+/// capture rejects backticks and unwrap markers and would drop the call.
+/// Returns whether the callee needed this and so was handled here.
+fn capture_spelled_call(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<bool, ExtractError> {
@@ -128,16 +131,29 @@ fn capture_escaped_call(
         return Ok(false);
     };
     let text = builder.context.text(callee);
-    if !text.contains('`') {
+    // A quoted callee is a string literal, whose content must never become
+    // a name (the shared capture would strip the quotes and keep it), so it
+    // names no call.
+    if text.contains('"') {
+        return Ok(true);
+    }
+    if !text.contains('`') && !text.contains(UNWRAP_MARKERS) {
         return Ok(false);
     }
     builder.context.budget.ensure_string_length(text.len())?;
-    let mut unescaped = String::new();
-    unescaped
+    let mut plain = String::new();
+    plain
         .try_reserve(text.len())
         .map_err(|_| ExtractError::OutputLimit)?;
-    unescaped.extend(text.chars().filter(|character| *character != '`'));
-    let Some(name) = generic_family::normalize_reference_name(&unescaped) else {
+    let mut characters = text.chars().peekable();
+    while let Some(character) = characters.next() {
+        let unwraps = UNWRAP_MARKERS.contains(&character)
+            && characters.peek().is_none_or(|next| *next == '.');
+        if character != '`' && !unwraps {
+            plain.push(character);
+        }
+    }
+    let Some(name) = generic_family::normalize_reference_name(&plain) else {
         return Ok(true);
     };
     builder.emit_reference(ExtractedReference {

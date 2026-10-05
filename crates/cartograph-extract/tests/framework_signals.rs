@@ -925,6 +925,125 @@ public class OrdersController {
 }
 
 #[test]
+fn class_level_mappings_never_become_constructor_routes() {
+    // A Kotlin primary constructor sits between the class annotations and the
+    // class body, so the class-level `@RequestMapping` used to be read as the
+    // constructor's own mapping and published as `ANY /users/users`.
+    let kotlin = extract(
+        "src/UserController.kt",
+        r#"
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.RequestMapping
+
+@RestController
+@RequestMapping("/users")
+class UserController(private val userService: UserService) {
+    @GetMapping("/{id}")
+    fun show(id: String): String = id
+}
+"#,
+        SourceLanguage::Kotlin,
+    );
+    let kotlin_routes = route_names(&kotlin);
+    assert_eq!(kotlin_routes, ["GET /users/{id}"], "{kotlin_routes:?}");
+
+    let aspnet = extract(
+        "Controllers/OrdersController.cs",
+        r#"
+[Route("api/[controller]")]
+public class OrdersController(IOrderService orders) : ControllerBase {
+  [HttpGet("{id}")]
+  public void GetOne() {}
+}
+"#,
+        SourceLanguage::CSharp,
+    );
+    let aspnet_routes = route_names(&aspnet);
+    assert_eq!(aspnet_routes, ["GET /api/Orders/{id}"], "{aspnet_routes:?}");
+
+    // A body method that happens to share the class name is still a handler.
+    let java = extract(
+        "src/Orders.java",
+        "@RequestMapping(value = {\"/x\"})\nclass Orders {\n  @GetMapping(\"/same\")\n  public String Orders() { return \"\"; }\n}\n",
+        SourceLanguage::Java,
+    );
+    assert_eq!(route_names(&java), ["GET /same"]);
+    let kotlin_body = extract(
+        "src/Orders.kt",
+        "@RequestMapping(\"/o\")\nclass Orders /* don't { */ {\n    @GetMapping(\"/same\")\n    fun Orders(): String = \"\"\n}\n",
+        SourceLanguage::Kotlin,
+    );
+    assert_eq!(route_names(&kotlin_body), ["GET /o/same"]);
+}
+
+#[test]
+fn pathless_method_mappings_are_located_at_their_own_annotation() {
+    // `[HttpPost]` / `@GetMapping` without a path inherit the class path, but
+    // the route is declared by the method's annotation, not the class's.
+    let aspnet = extract(
+        "Controllers/OrdersController.cs",
+        "[Route(\"api/[controller]\")]\npublic class OrdersController : ControllerBase {\n  [HttpGet(\"{id}\")]\n  public void GetOne() {}\n\n  [HttpPost]\n  public void Create() {}\n}\n",
+        SourceLanguage::CSharp,
+    );
+    assert_eq!(
+        route_lines(&aspnet),
+        [("GET /api/Orders/{id}", 3), ("POST /api/Orders", 6)]
+    );
+    let spring = extract(
+        "src/OrdersController.java",
+        "@RequestMapping(\"/api\")\npublic class OrdersController {\n  @GetMapping\n  public void list() {}\n\n  @PostMapping()\n  public void create() {}\n}\n",
+        SourceLanguage::Java,
+    );
+    assert_eq!(route_lines(&spring), [("GET /api", 3), ("POST /api", 6)]);
+}
+
+#[test]
+fn play_route_handlers_keep_their_controller_action_with_arguments() {
+    // Play handlers may declare their parameters (`show(id: Long)`, which also
+    // splits on the space) or an empty list (`create()`); the action is the
+    // same per-file handler reference either way.
+    let extracted = extract(
+        "conf/routes",
+        "GET     /                       controllers.HomeController.index\nGET     /users/:id              controllers.Users.show(id: Long)\nPOST    /users                  controllers.Users.create()\n",
+        SourceLanguage::Yaml,
+    );
+    let handlers = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .map(|reference| (reference.name.as_str(), reference.span.start_line()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        handlers,
+        [
+            ("controllers.HomeController.index", 1),
+            ("controllers.Users.show", 2),
+            ("controllers.Users.create", 3),
+        ]
+    );
+}
+
+/// Route symbol names and start lines of one extraction, in source order.
+fn route_lines(extracted: &cartograph_extract::ExtractedFile) -> Vec<(&str, u32)> {
+    extracted
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Route)
+        .map(|symbol| (symbol.name.as_str(), symbol.span.start_line()))
+        .collect()
+}
+
+/// Route symbol names of one extraction, in source order.
+fn route_names(extracted: &cartograph_extract::ExtractedFile) -> Vec<&str> {
+    extracted
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Route)
+        .map(|symbol| symbol.name.as_str())
+        .collect()
+}
+
+#[test]
 fn rails_routes_expand_resources_compose_namespaces_and_keep_handler_identity() {
     let extracted = extract(
         "config/routes.rb",
@@ -1078,6 +1197,99 @@ class ModernBlock {}
             "missing Drupal plugin {plugin}: {plugins:?}"
         );
     }
+}
+
+/// A flow-mapping tag (`{ name: x, priority: 10 }`) ends its `name` at the
+/// next comma, and a scalar `'@service:method'` factory names the service
+/// once: the suffix after `:` is the factory method. In a `[@service, method]`
+/// sequence the colon belongs to the service id, quoted scalars are decoded,
+/// and a quote escape never truncates a value into a different name. A
+/// non-ASCII service id is never cut to an ASCII prefix, and a rejected `factory` scalar names
+/// nothing.
+#[test]
+fn drupal_service_flow_tags_and_scalar_factories_name_only_their_target() {
+    let services = extract(
+        "modules/custom/demo/demo.services.yml",
+        r#"
+services:
+  demo.listener:
+    class: Drupal\demo\Listener
+    tags:
+      - { name: event_subscriber, priority: 10 }
+      - { name: 'cache.bin', default_backend: cache.backend.memory }
+  demo.made:
+    factory: '@demo.factory:create'
+  demo.static:
+    factory: 'Drupal\demo\Factory::create'
+  demo.tenant:
+    factory: ['@tenant:cache', 'create']
+    arguments:
+      - { factory: '@tenant:cache' }
+  demo.escaped_factory:
+    factory: "Drupal\\demo\\Escaped::create"
+  demo.escaped:
+    class: "Drupal\\demo\\Escaped"
+    tags:
+      - { name: 'kernel''listener' }
+      - { name: "bad\tescape" }
+  demo.unicode:
+    factory: '@café:create'
+    arguments: ['@café', '@plain', '@caf€']
+  demo.unterminated:
+    factory: '@svc:create
+  demo.bad_escape:
+    configurator: "@svc\x:configure"
+"#,
+        SourceLanguage::Yaml,
+    );
+    let tags = services
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.qualified_name.contains("::drupal-tag-provider::"))
+        .map(|symbol| symbol.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tags,
+        [
+            "drupal-tag:kernel'listener",
+            "drupal-tag:cache.bin",
+            "drupal-tag:event_subscriber"
+        ],
+        "provider tags are ordered by service id"
+    );
+    let names_on = |line: u32| {
+        services
+            .references
+            .iter()
+            .filter(|reference| reference.span.start_line() == line)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names_on(9), ["demo.factory"]);
+    assert_eq!(names_on(11), ["Drupal\\demo\\Factory"]);
+    assert_eq!(names_on(13), ["tenant:cache"]);
+    assert_eq!(names_on(15), ["tenant:cache"]);
+    let escaped_factory = services
+        .references
+        .iter()
+        .find(|reference| reference.span.start_line() == 17)
+        .unwrap_or_else(|| panic!("missing escaped factory: {:?}", services.references));
+    assert_eq!(escaped_factory.name, "Drupal\\demo\\Escaped");
+    let raw_class = r"Drupal\\demo\\Escaped";
+    assert_eq!(
+        escaped_factory.span.end_byte() - escaped_factory.span.start_byte(),
+        u64::try_from(raw_class.len()).unwrap_or(u64::MAX),
+        "the span covers the raw escaped class text"
+    );
+    assert_eq!(names_on(19), ["Drupal\\demo\\Escaped"]);
+    // A non-ASCII service id is never named as a shorter ASCII prefix
+    // (`caf`) that would bind a different service; framework signals are
+    // ASCII-only, so it abstains.
+    assert_eq!(names_on(24), Vec::<&str>::new());
+    assert_eq!(names_on(25), ["plain"]);
+    // A rejected `factory`/`configurator` scalar names nothing.
+    assert_eq!(names_on(27), Vec::<&str>::new());
+    assert_eq!(names_on(29), Vec::<&str>::new());
 }
 
 #[test]
