@@ -41,6 +41,18 @@ struct IntegerSetting<T> {
     maximum: T,
 }
 
+impl<T> IntegerSetting<T> {
+    /// Read one optional bounded integer override from the process environment.
+    fn from_env(key: &'static str, default: T, maximum: T) -> Result<Self, EmbeddingError> {
+        Ok(Self {
+            key,
+            raw: optional_env(key)?,
+            default,
+            maximum,
+        })
+    }
+}
+
 /// Validated HTTP/model/secret and resource policy for one embedding client.
 #[derive(Clone)]
 pub struct EmbeddingSettings {
@@ -83,34 +95,37 @@ impl EmbeddingSettings {
             (Some(endpoint), Some(model)) => {
                 let api_key = optional_env(EMBEDDING_API_KEY_ENV)?;
                 let mut settings = Self::new(&endpoint, model, api_key)?;
-                settings.request_timeout = Duration::from_millis(parse_u64(IntegerSetting {
-                    key: EMBEDDING_TIMEOUT_MS_ENV,
-                    raw: optional_env(EMBEDDING_TIMEOUT_MS_ENV)?,
-                    default: DEFAULT_TIMEOUT_MS,
-                    maximum: MAXIMUM_TIMEOUT_MS,
-                })?);
-                settings.maximum_batch = parse_usize(IntegerSetting {
-                    key: EMBEDDING_MAX_BATCH_ENV,
-                    raw: optional_env(EMBEDDING_MAX_BATCH_ENV)?,
-                    default: DEFAULT_MAXIMUM_BATCH,
-                    maximum: MAXIMUM_BATCH,
-                })?;
-                settings.maximum_input_bytes = parse_usize(IntegerSetting {
-                    key: EMBEDDING_MAX_INPUT_BYTES_ENV,
-                    raw: optional_env(EMBEDDING_MAX_INPUT_BYTES_ENV)?,
-                    default: DEFAULT_MAXIMUM_INPUT_BYTES,
-                    maximum: MAXIMUM_INPUT_BYTES,
-                })?;
-                settings.maximum_response_bytes = parse_usize(IntegerSetting {
-                    key: EMBEDDING_MAX_RESPONSE_BYTES_ENV,
-                    raw: optional_env(EMBEDDING_MAX_RESPONSE_BYTES_ENV)?,
-                    default: DEFAULT_MAXIMUM_RESPONSE_BYTES,
-                    maximum: MAXIMUM_RESPONSE_BYTES,
-                })?;
+                settings.apply_env_limits()?;
                 Ok(Some(settings))
             }
             _ => Err(EmbeddingError::IncompleteConfiguration),
         }
+    }
+
+    /// Apply the optional numeric environment overrides in a fixed order, so
+    /// the first malformed or out-of-range key is the one reported.
+    fn apply_env_limits(&mut self) -> Result<(), EmbeddingError> {
+        self.request_timeout = Duration::from_millis(parse_u64(IntegerSetting::from_env(
+            EMBEDDING_TIMEOUT_MS_ENV,
+            DEFAULT_TIMEOUT_MS,
+            MAXIMUM_TIMEOUT_MS,
+        )?)?);
+        self.maximum_batch = parse_usize(IntegerSetting::from_env(
+            EMBEDDING_MAX_BATCH_ENV,
+            DEFAULT_MAXIMUM_BATCH,
+            MAXIMUM_BATCH,
+        )?)?;
+        self.maximum_input_bytes = parse_usize(IntegerSetting::from_env(
+            EMBEDDING_MAX_INPUT_BYTES_ENV,
+            DEFAULT_MAXIMUM_INPUT_BYTES,
+            MAXIMUM_INPUT_BYTES,
+        )?)?;
+        self.maximum_response_bytes = parse_usize(IntegerSetting::from_env(
+            EMBEDDING_MAX_RESPONSE_BYTES_ENV,
+            DEFAULT_MAXIMUM_RESPONSE_BYTES,
+            MAXIMUM_RESPONSE_BYTES,
+        )?)?;
+        Ok(())
     }
 
     /// Prefer the explicit process environment, then load project embedding config.

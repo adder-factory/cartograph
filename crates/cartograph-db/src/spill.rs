@@ -986,13 +986,7 @@ impl NativeGenerationSpill {
     /// existing run, or the bounded transaction cannot commit.
     pub async fn initialize(&self) -> Result<NativeGenerationSpillReport, StorageError> {
         let schema = crate::database::quoted_schema(&self.database.schema);
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-initialize-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-initialize-begin").await?;
         let insert = format!(
             r#"INSERT INTO {schema}."native_generation_spills" (
                     project_id, generation_id, generation_sequence,
@@ -1024,13 +1018,7 @@ impl NativeGenerationSpill {
     ///
     /// Returns an error when the generation fence is no longer live or the run is absent.
     pub async fn report(&self) -> Result<NativeGenerationSpillReport, StorageError> {
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-report-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-report-begin").await?;
         let (_, report) = load_run_for_update(self, &mut transaction).await?;
         commit_transaction(self, transaction, "spill-report-commit").await?;
         Ok(report)
@@ -1060,13 +1048,7 @@ impl NativeGenerationSpill {
                 field: "spill_cache_project_id",
             });
         }
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-append-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-append-begin").await?;
         let (phase, report) = load_run_for_update(self, &mut transaction).await?;
         let sequence = as_i64(batch.sequence, "spill_batch_sequence")?;
         if opaque_batch_exists(
@@ -1093,45 +1075,15 @@ impl NativeGenerationSpill {
                 requested: NativeGenerationSpillPhase::Parsing.as_str(),
             });
         }
-        ensure_opaque_batch_range_available(
+        write_new_extracted_batch(
             &mut SpillWrite {
                 spill: self,
                 transaction: &mut transaction,
             },
-            sequence,
-            batch.rows.len(),
-        )
-        .await?;
-        let batch_rows = usize_to_u64(batch.rows.len());
-        admit_spill_quota(report, batch.logical_bytes, batch_rows)?;
-        insert_batch_ledger(
-            self,
-            &mut transaction,
-            SpillBatchLedgerInput {
-                relation: NativeGenerationSpillRelation::ExtractedFiles,
+            NewExtractedBatch {
+                report,
                 sequence,
-                rows: batch.rows.len(),
-                logical_bytes: batch.logical_bytes,
-                digest: &batch.digest,
-            },
-        )
-        .await?;
-        insert_extracted_rows(
-            &mut SpillWrite {
-                spill: self,
-                transaction: &mut transaction,
-            },
-            sequence,
-            &batch,
-        )
-        .await?;
-        increment_spill_totals(
-            self,
-            &mut transaction,
-            SpillTotalsDelta {
-                logical_bytes: batch.logical_bytes,
-                rows: batch_rows,
-                extracted_files: batch_rows,
+                batch: &batch,
             },
         )
         .await?;
@@ -1172,86 +1124,32 @@ impl NativeGenerationSpill {
         batches: Vec<NativeGenerationSpillFactBatch>,
     ) -> Result<Vec<NativeGenerationSpillWrite>, StorageError> {
         validate_fact_append_group(&batches)?;
-        let schema = crate::database::quoted_schema(&self.database.schema);
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-append-facts-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-append-facts-begin").await?;
         let (phase, report) = load_run_for_update(self, &mut transaction).await?;
         let sequences = batches
             .iter()
             .map(|batch| as_i64(batch.sequence, "spill_batch_sequence"))
             .collect::<Result<Vec<_>, _>>()?;
         let existing = existing_fact_batches(self, &mut transaction, &sequences).await?;
-        let mut writes = Vec::new();
-        let mut admitted = Vec::new();
-        writes
-            .try_reserve_exact(batches.len())
-            .map_err(|_| database_error("spill-fact-write-reserve"))?;
-        admitted
-            .try_reserve_exact(batches.len())
-            .map_err(|_| database_error("spill-fact-write-reserve"))?;
-        let mut admitted_bytes = 0_u64;
-        let mut admitted_rows = 0_u64;
-        for (sequence, batch) in sequences.into_iter().zip(&batches) {
-            if stored_fact_batch_is_exact(existing.get(&sequence), batch)? {
-                writes.push(NativeGenerationSpillWrite::AlreadyPresent);
-                continue;
-            }
-            if phase != NativeGenerationSpillPhase::Resolving {
-                return Err(StorageError::InvalidGenerationTransition {
-                    actual: phase.as_str().to_owned(),
-                    requested: NativeGenerationSpillPhase::Resolving.as_str(),
-                });
-            }
-            admitted_bytes = admitted_bytes.checked_add(batch.logical_bytes).ok_or(
-                StorageError::InvalidInput {
-                    field: "spill_fact_batch_bytes",
-                },
-            )?;
-            admitted_rows =
-                admitted_rows
-                    .checked_add(batch.row_count)
-                    .ok_or(StorageError::InvalidInput {
-                        field: "spill_fact_batch_rows",
-                    })?;
-            admit_spill_quota(report, admitted_bytes, admitted_rows)?;
-            admitted.push((sequence, batch));
-            writes.push(NativeGenerationSpillWrite::Inserted);
-        }
-        if !admitted.is_empty() {
-            insert_fact_batch_ledgers(self, &mut transaction, &admitted).await?;
-            for relation in NativeGenerationSpillRelation::FACTS {
-                insert_typed_fact_payloads(
-                    &mut transaction,
-                    SpillScope {
-                        schema: &schema,
-                        project_id: &self.project_id,
-                        generation_id: &self.generation_id,
-                    },
-                    TypedFactPayloads {
-                        relation,
-                        batches: &admitted,
-                    },
-                )
-                .await?;
-            }
-            increment_spill_totals(
-                self,
-                &mut transaction,
-                SpillTotalsDelta {
-                    logical_bytes: admitted_bytes,
-                    rows: admitted_rows,
-                    extracted_files: 0,
-                },
-            )
-            .await?;
-        }
+        let admission = admit_fact_batches(
+            FactAdmissionInput {
+                phase,
+                report,
+                existing: &existing,
+            },
+            sequences,
+            &batches,
+        )?;
+        insert_admitted_fact_batches(
+            &mut SpillWrite {
+                spill: self,
+                transaction: &mut transaction,
+            },
+            &admission,
+        )
+        .await?;
         commit_transaction(self, transaction, "spill-append-facts-commit").await?;
-        Ok(writes)
+        Ok(admission.writes)
     }
 
     /// Apply one bounded, identity-ordered centrality patch before resolution is sealed.
@@ -1279,13 +1177,7 @@ impl NativeGenerationSpill {
             });
         }
         let schema = crate::database::quoted_schema(&self.database.schema);
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-centrality-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-centrality-begin").await?;
         let (phase, _) = load_run_for_update(self, &mut transaction).await?;
         if phase != NativeGenerationSpillPhase::Resolving {
             return Err(StorageError::InvalidGenerationTransition {
@@ -1352,13 +1244,7 @@ impl NativeGenerationSpill {
     ) -> Result<(), StorageError> {
         let _ = expected.total()?;
         let schema = crate::database::quoted_schema(&self.database.schema);
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-seal-resolution-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-seal-resolution-begin").await?;
         let (phase, _) = load_run_for_update(self, &mut transaction).await?;
         if matches!(
             phase,
@@ -1425,13 +1311,7 @@ impl NativeGenerationSpill {
     pub async fn canonicalize_next(
         &self,
     ) -> Result<NativeGenerationSpillCanonicalProgress, StorageError> {
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-canonicalize-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-canonicalize-begin").await?;
         let (phase, _) = load_run_for_update(self, &mut transaction).await?;
         if phase == NativeGenerationSpillPhase::Canonicalized {
             commit_transaction(self, transaction, "spill-canonicalize-complete-commit").await?;
@@ -1485,13 +1365,7 @@ impl NativeGenerationSpill {
         ProgressFuture: Future<Output = bool>,
     {
         let schema = crate::database::quoted_schema(&self.database.schema);
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-digest-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-digest-begin").await?;
         let (phase, _) = load_run_for_update(self, &mut transaction).await?;
         if phase != NativeGenerationSpillPhase::Canonicalized {
             return Err(StorageError::InvalidGenerationTransition {
@@ -1531,13 +1405,7 @@ impl NativeGenerationSpill {
     /// changed, the fence was lost, or the bounded transition cannot commit.
     pub async fn finish_parsing(&self, expected_files: u64) -> Result<(), StorageError> {
         let schema = crate::database::quoted_schema(&self.database.schema);
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-finish-parsing-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-finish-parsing-begin").await?;
         let (phase, report) = load_run_for_update(self, &mut transaction).await?;
         if matches!(
             phase,
@@ -1591,13 +1459,7 @@ impl NativeGenerationSpill {
                 field: "spill_page_bytes",
             });
         }
-        let mut transaction = self
-            .database
-            .pool
-            .begin()
-            .await
-            .map_err(|_| database_error("spill-read-page-begin"))?;
-        prepare_transaction(self, &mut transaction).await?;
+        let mut transaction = begin_spill_transaction(self, "spill-read-page-begin").await?;
         let (phase, _) = load_run_for_update(self, &mut transaction).await?;
         if !matches!(
             phase,
@@ -2186,6 +2048,178 @@ async fn load_extracted_page_payloads(
         decoded.push((sequence, spill_row));
     }
     Ok(decoded)
+}
+
+/// One new extracted-file batch and the accounting that must admit it.
+struct NewExtractedBatch<'batch> {
+    report: NativeGenerationSpillReport,
+    sequence: i64,
+    batch: &'batch NativeGenerationSpillExtractedBatch,
+}
+
+/// Store one extracted-file batch that has no exact retry ledger yet: prove its
+/// sequence window is free and its quota fits, then write the ledger, its rows
+/// and the running totals inside the caller's fenced transaction.
+async fn write_new_extracted_batch(
+    write: &mut SpillWrite<'_, '_>,
+    input: NewExtractedBatch<'_>,
+) -> Result<(), StorageError> {
+    let NewExtractedBatch {
+        report,
+        sequence,
+        batch,
+    } = input;
+    ensure_opaque_batch_range_available(write, sequence, batch.rows.len()).await?;
+    let batch_rows = usize_to_u64(batch.rows.len());
+    admit_spill_quota(report, batch.logical_bytes, batch_rows)?;
+    insert_batch_ledger(
+        write.spill,
+        write.transaction,
+        SpillBatchLedgerInput {
+            relation: NativeGenerationSpillRelation::ExtractedFiles,
+            sequence,
+            rows: batch.rows.len(),
+            logical_bytes: batch.logical_bytes,
+            digest: &batch.digest,
+        },
+    )
+    .await?;
+    insert_extracted_rows(write, sequence, batch).await?;
+    increment_spill_totals(
+        write.spill,
+        write.transaction,
+        SpillTotalsDelta {
+            logical_bytes: batch.logical_bytes,
+            rows: batch_rows,
+            extracted_files: batch_rows,
+        },
+    )
+    .await
+}
+
+/// Run phase, quota report and stored retry ledgers that decide which fact
+/// batches of one group are exact no-ops and which must be inserted.
+#[derive(Clone, Copy)]
+struct FactAdmissionInput<'input> {
+    phase: NativeGenerationSpillPhase,
+    report: NativeGenerationSpillReport,
+    existing: &'input StoredFactBatches,
+}
+
+/// Per-batch write outcomes plus the new batches and the totals they add.
+struct FactAdmission<'batches> {
+    writes: Vec<NativeGenerationSpillWrite>,
+    admitted: Vec<(i64, &'batches NativeGenerationSpillFactBatch)>,
+    logical_bytes: u64,
+    rows: u64,
+}
+
+/// Classify every batch of one group in order: exact retries stay no-ops, while
+/// new batches require the resolving phase and must fit the cumulative quota.
+fn admit_fact_batches<'batches>(
+    input: FactAdmissionInput<'_>,
+    sequences: Vec<i64>,
+    batches: &'batches [NativeGenerationSpillFactBatch],
+) -> Result<FactAdmission<'batches>, StorageError> {
+    let mut admission = FactAdmission {
+        writes: Vec::new(),
+        admitted: Vec::new(),
+        logical_bytes: 0,
+        rows: 0,
+    };
+    admission
+        .writes
+        .try_reserve_exact(batches.len())
+        .map_err(|_| database_error("spill-fact-write-reserve"))?;
+    admission
+        .admitted
+        .try_reserve_exact(batches.len())
+        .map_err(|_| database_error("spill-fact-write-reserve"))?;
+    for (sequence, batch) in sequences.into_iter().zip(batches) {
+        if stored_fact_batch_is_exact(input.existing.get(&sequence), batch)? {
+            admission
+                .writes
+                .push(NativeGenerationSpillWrite::AlreadyPresent);
+            continue;
+        }
+        if input.phase != NativeGenerationSpillPhase::Resolving {
+            return Err(StorageError::InvalidGenerationTransition {
+                actual: input.phase.as_str().to_owned(),
+                requested: NativeGenerationSpillPhase::Resolving.as_str(),
+            });
+        }
+        admission.logical_bytes = admission
+            .logical_bytes
+            .checked_add(batch.logical_bytes)
+            .ok_or(StorageError::InvalidInput {
+                field: "spill_fact_batch_bytes",
+            })?;
+        admission.rows =
+            admission
+                .rows
+                .checked_add(batch.row_count)
+                .ok_or(StorageError::InvalidInput {
+                    field: "spill_fact_batch_rows",
+                })?;
+        admit_spill_quota(input.report, admission.logical_bytes, admission.rows)?;
+        admission.admitted.push((sequence, batch));
+        admission.writes.push(NativeGenerationSpillWrite::Inserted);
+    }
+    Ok(admission)
+}
+
+/// Write the retry ledgers, every typed fact relation and the running totals
+/// for the admitted batches of one group; a group with nothing new writes nothing.
+async fn insert_admitted_fact_batches(
+    write: &mut SpillWrite<'_, '_>,
+    admission: &FactAdmission<'_>,
+) -> Result<(), StorageError> {
+    if admission.admitted.is_empty() {
+        return Ok(());
+    }
+    let schema = crate::database::quoted_schema(&write.spill.database.schema);
+    insert_fact_batch_ledgers(write.spill, write.transaction, &admission.admitted).await?;
+    for relation in NativeGenerationSpillRelation::FACTS {
+        insert_typed_fact_payloads(
+            write.transaction,
+            SpillScope {
+                schema: &schema,
+                project_id: &write.spill.project_id,
+                generation_id: &write.spill.generation_id,
+            },
+            TypedFactPayloads {
+                relation,
+                batches: &admission.admitted,
+            },
+        )
+        .await?;
+    }
+    increment_spill_totals(
+        write.spill,
+        write.transaction,
+        SpillTotalsDelta {
+            logical_bytes: admission.logical_bytes,
+            rows: admission.rows,
+            extracted_files: 0,
+        },
+    )
+    .await
+}
+
+/// Open one pooled transaction already bounded by the spill deadline and
+/// locked to its exact staging-generation fence.
+async fn begin_spill_transaction(
+    spill: &NativeGenerationSpill,
+    operation: &'static str,
+) -> Result<sqlx_postgres::PgTransaction<'static>, StorageError> {
+    let mut transaction = spill
+        .database
+        .pool
+        .begin()
+        .await
+        .map_err(|_| database_error(operation))?;
+    prepare_transaction(spill, &mut transaction).await?;
+    Ok(transaction)
 }
 
 async fn prepare_transaction(
