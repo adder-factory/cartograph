@@ -1,3 +1,4 @@
+mod pascal_resolution;
 mod scip_spill;
 mod script_modules;
 
@@ -11475,13 +11476,7 @@ fn index_compilation_unit(
     input: CompilationUnitIndexInput<'_>,
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
-    if !input.top_level
-        || !matches!(input.language, "ada" | "vhdl")
-        || !matches!(
-            input.symbol.kind,
-            SymbolKind::Module | SymbolKind::Interface
-        )
-    {
+    if !input.top_level || !compilation_unit_symbol(input.language, input.symbol) {
         return Ok(());
     }
     let paths = if input.symbol.implementation.declaration_only
@@ -11499,6 +11494,22 @@ fn index_compilation_unit(
         },
         budget,
     )
+}
+
+/// Languages whose imports name a declared compilation unit, not a path.
+fn compilation_unit_language(language: &str) -> bool {
+    matches!(language, "ada" | "vhdl" | "pascal")
+}
+
+/// A top-level declaration that other files import by its declared name:
+/// Ada/VHDL packages and entities, and Pascal units (a Pascal program or
+/// library is never named by `uses` and is extracted unexported).
+fn compilation_unit_symbol(language: &str, symbol: &NativeSymbolFacts) -> bool {
+    match language {
+        "ada" | "vhdl" => matches!(symbol.kind, SymbolKind::Module | SymbolKind::Interface),
+        "pascal" => symbol.kind == SymbolKind::Module && symbol.export.exported,
+        _ => false,
+    }
 }
 
 fn push_candidate(
@@ -12260,6 +12271,8 @@ fn fixed_unresolved_provenance(request: &ResolutionRequest<'_>) -> Option<&'stat
     } else if request.language == SourceLanguage::Rust.as_str() && rust_intrinsic_reference(request)
     {
         Some(RUST_INTRINSIC_UNRESOLVED_PROVENANCE)
+    } else if pascal_resolution::runtime_reference(request.language, request.name) {
+        Some(EXTERNAL_REFERENCE_UNRESOLVED_PROVENANCE)
     } else {
         None
     }
@@ -12637,7 +12650,9 @@ fn import_reference_resolution(resolution: ImportResolution) -> Option<Reference
 }
 
 fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
-    if request.dispatch == ReferenceDispatch::RustSelf {
+    if request.dispatch == ReferenceDispatch::RustSelf
+        || pascal_resolution::runtime_reference(request.language, request.name)
+    {
         return false;
     }
     let runtime_require = javascript_family_name(request.language)
@@ -12681,6 +12696,9 @@ where
             confidence: EXACT_SAME_FILE_CONFIDENCE,
             provenance: EXACT_SAME_FILE_PROVENANCE,
         }));
+    }
+    if pascal_resolution::exact_scope_only(request.language, request.dispatch) {
+        return Ok(None);
     }
     let mut scope = request.owner;
     // There can be one more lexical scope than parent-map entries: an
@@ -13734,7 +13752,7 @@ fn language_import_is_project_local(
         specifier,
         importing_language: reference.language,
     };
-    if matches!(reference.language, "ada" | "vhdl")
+    if compilation_unit_language(reference.language)
         && resolve_module_file(&index.modules, module_request).is_some()
     {
         return true;
@@ -13964,7 +13982,7 @@ fn resolve_compilation_unit_module<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> ModuleResolutionAttempt<'a> {
-    if !matches!(request.importing_language, "ada" | "vhdl") {
+    if !compilation_unit_language(request.importing_language) {
         return ModuleResolutionAttempt::NotMatched;
     }
     match compilation_unit_file(modules, request.specifier, request.importing_language) {
@@ -16039,6 +16057,7 @@ fn usize_to_u64(value: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     mod polyglot_parity;
+    mod pascal_units;
     mod rust_receivers;
     mod script_modules;
 
@@ -16124,6 +16143,9 @@ mod tests {
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
+    // Pascal now has a dedicated family: fixture.pas extracts its full structure
+    // (2 -> 9 symbols, the projection's +7) and its runtime calls (`SetLength`,
+    // `Length`, `High`) stay unresolved as external references.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
         "ee3f5cc023d1c121cbbec7e3d6074d0721e97d0a0cf524faf52d0c5e693501d6";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =

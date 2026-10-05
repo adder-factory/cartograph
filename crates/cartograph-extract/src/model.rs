@@ -24,6 +24,9 @@ pub const RUST_MACRO_RESOLUTION_PREFIX: &str = "cartograph.rust-macro::";
 ///
 /// The suffix is an enclosing nominal implementation type and member, or only the member
 /// when the syntax cannot prove a nominal type. Neither form permits global name guessing.
+/// Pascal reuses the same contract for implicit-`Self`, nested-routine, unit-routine, and
+/// in-file type-qualified calls: `Type::Member` (or `self::Routine` for a top-level routine)
+/// resolves only by exact same-file qualified name.
 #[doc(hidden)]
 pub const RUST_SELF_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.rust-self::";
 

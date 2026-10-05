@@ -128,8 +128,9 @@ impl NativeExtractor {
         if cancelled() {
             return Err(ExtractError::Cancelled);
         }
-        if self.strategy == ExtractionStrategy::CustomStructural {
-            let extracted = custom::extract(snapshot, cancelled)?;
+        if self.strategy == ExtractionStrategy::CustomStructural || custom::scans_snapshot(snapshot)
+        {
+            let extracted = custom::extract(snapshot, self.maximum_ast_depth, cancelled)?;
             let extracted = framework::enrich(snapshot, extracted, cancelled)?;
             return test_names::enrich(snapshot, extracted);
         }

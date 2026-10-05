@@ -7,12 +7,13 @@ use cartograph_domain::{
 use serde_json::Value;
 
 use crate::{
-    Containment, ExtractError, ExtractedFile, ExtractedImportBinding, ExtractedReference,
-    ExtractedSymbol, ImportBindingKind, SourceSnapshot, SymbolExecutionFlags, SymbolExportFlags,
-    SymbolImplementationFlags,
+    Containment, DiagnosticCode, ExtractError, ExtractedFile, ExtractedImportBinding,
+    ExtractedReference, ExtractedSymbol, ExtractionDiagnostic, ImportBindingKind, SourceSnapshot,
+    SymbolExecutionFlags, SymbolExportFlags, SymbolImplementationFlags,
+    bounded_name::{MAX_CANONICAL_QUALIFIED_NAME_BYTES, shortened_canonical_name},
     budget::{
-        ExtractionBudget, containment_budget_bytes, import_binding_budget_bytes,
-        reference_budget_bytes, symbol_budget_bytes,
+        ExtractionBudget, containment_budget_bytes, diagnostic_budget_bytes,
+        import_binding_budget_bytes, reference_budget_bytes, symbol_budget_bytes,
     },
     identity::SymbolIdentity,
     source_lines::{LineMap, SourceByteRange, physical_lines},
@@ -26,7 +27,14 @@ mod bg3;
 mod bg3_tokens;
 mod game_scripting;
 mod liquid;
+mod pascal_form;
 mod rhai;
+
+/// Whether a grammar-backed language's snapshot is scanned here instead,
+/// such as a Delphi form file in the Pascal language mode.
+pub(crate) fn scans_snapshot(snapshot: &SourceSnapshot) -> bool {
+    pascal_form::supports(snapshot)
+}
 
 fn poll_cancellation(
     cancelled: &mut dyn FnMut() -> bool,
@@ -43,11 +51,18 @@ fn poll_cancellation(
     Ok(())
 }
 
+/// Scan one snapshot. `maximum_nesting` is the configured structural nesting
+/// ceiling for scanners that track nesting (Delphi form components).
 pub(crate) fn extract(
     snapshot: &SourceSnapshot,
+    maximum_nesting: usize,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<ExtractedFile, ExtractError> {
     let mut builder = CustomBuilder::new(snapshot, cancelled)?;
+    if pascal_form::supports(snapshot) {
+        let parse_status = pascal_form::extract(&mut builder, maximum_nesting)?;
+        return builder.finish(parse_status);
+    }
     if snapshot.language() == SourceLanguage::Rhai {
         let parse_status = rhai::extract(&mut builder)?;
         return builder.finish(parse_status);
@@ -258,6 +273,8 @@ struct CustomBuilder<'source, 'cancel> {
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
     import_bindings: Vec<ExtractedImportBinding>,
+    /// Whether a synthesized qualified name was shortened to its canonical bound.
+    shortened_canonical_names: bool,
 }
 
 impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
@@ -275,6 +292,7 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             containments: Vec::new(),
             references: Vec::new(),
             import_bindings: Vec::new(),
+            shortened_canonical_names: false,
         })
     }
 
@@ -319,6 +337,7 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             return Err(ExtractError::InvalidSpan);
         }
         self.check_cancelled()?;
+        let qualified_name = self.bound_qualified_name(qualified_name);
         let span = self.span(start, end)?;
         let id = self.identities.next(kind, &qualified_name)?;
         let structural_digest = custom_digest(kind, &qualified_name, &options.body_search_text);
@@ -368,6 +387,18 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
         }
         self.symbols.push(symbol);
         Ok(id)
+    }
+
+    /// Shorten a synthesized qualified name past its canonical storage bound
+    /// (a deeply nested component path), recording that the file carries one.
+    fn bound_qualified_name(&mut self, name: String) -> String {
+        match shortened_canonical_name(&name, MAX_CANONICAL_QUALIFIED_NAME_BYTES) {
+            Some(shortened) => {
+                self.shortened_canonical_names = true;
+                shortened
+            }
+            None => name,
+        }
     }
 
     fn add_reference(&mut self, input: CustomReferenceInput<'_>) -> Result<(), ExtractError> {
@@ -459,7 +490,19 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
         Ok(())
     }
 
-    fn finish(self, parse_status: FileParseStatus) -> Result<ExtractedFile, ExtractError> {
+    fn finish(mut self, parse_status: FileParseStatus) -> Result<ExtractedFile, ExtractError> {
+        // A shortened name keeps the generation publishable, but the file no
+        // longer carries the exact synthesized identity and must say so.
+        let diagnostics = if self.shortened_canonical_names {
+            self.budget
+                .reserve_fact(diagnostic_budget_bytes(), std::iter::empty())?;
+            vec![ExtractionDiagnostic {
+                code: DiagnosticCode::CanonicalNameTruncated,
+                span: None,
+            }]
+        } else {
+            Vec::new()
+        };
         let output_limit = self.budget.output_limit();
         let file = ExtractedFile {
             file_id: self.snapshot.file_id().clone(),
@@ -477,7 +520,7 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             has_inline_tests: false,
             test_search_text: String::new(),
             test_search_truncated: false,
-            diagnostics: Vec::new(),
+            diagnostics,
         };
         if file.modeled_retained_bytes() > output_limit {
             return Err(ExtractError::OutputLimit);

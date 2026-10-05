@@ -39,6 +39,7 @@ mod module_system;
 mod nix_family;
 mod numerical;
 mod optional_facts;
+mod pascal_family;
 mod polyglot;
 mod prisma_family;
 mod r_family;
@@ -854,6 +855,7 @@ enum ExtractionFamily {
     Nix,
     Apex,
     VbNet,
+    Pascal,
     Shader,
     Shell,
     C,
@@ -901,7 +903,6 @@ const GENERIC_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Astro,
     SourceLanguage::Html,
     SourceLanguage::ObjectiveC,
-    SourceLanguage::Pascal,
     SourceLanguage::Php,
     SourceLanguage::Swift,
     SourceLanguage::Yaml,
@@ -993,6 +994,10 @@ const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice
                 vbnet_family::capture_usage(builder, node)?;
                 builder.visit_named_children(node, depth)
             },
+        },
+        ExtractionFamily::Pascal => FamilySlice {
+            visit_declaration: pascal_family::visit_declaration,
+            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
         },
         ExtractionFamily::Shader => FamilySlice {
             visit_declaration: shader_family::visit_declaration,
@@ -1163,6 +1168,7 @@ fn extraction_family(language: SourceLanguage) -> ExtractionFamily {
             SourceLanguage::Sql => ExtractionFamily::Sql,
             SourceLanguage::VbNet => ExtractionFamily::VbNet,
             SourceLanguage::Apex => ExtractionFamily::Apex,
+            SourceLanguage::Pascal => ExtractionFamily::Pascal,
             _ => ExtractionFamily::Unsupported,
         }
     }

@@ -54,6 +54,8 @@ pub enum ExtractionStrategy {
     VbNetFamily,
     /// Salesforce Apex: the Java-shaped managed family plus triggers and SOQL/SOSL objects.
     ApexFamily,
+    /// Pascal and Delphi units, types, members, implementation bodies, and `uses` imports.
+    PascalFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -90,6 +92,7 @@ impl ExtractionStrategy {
                 | Self::HclFamily
                 | Self::VbNetFamily
                 | Self::ApexFamily
+                | Self::PascalFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -193,6 +196,7 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         SourceLanguage::Hcl => Some(ExtractionStrategy::HclFamily),
         SourceLanguage::VbNet => Some(ExtractionStrategy::VbNetFamily),
         SourceLanguage::Apex => Some(ExtractionStrategy::ApexFamily),
+        SourceLanguage::Pascal => Some(ExtractionStrategy::PascalFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -212,7 +216,6 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
         | SourceLanguage::GraphQl
         | SourceLanguage::Html
         | SourceLanguage::ObjectiveC
-        | SourceLanguage::Pascal
         | SourceLanguage::Php
         | SourceLanguage::Prisma
         | SourceLanguage::Sql

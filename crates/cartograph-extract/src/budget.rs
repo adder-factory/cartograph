@@ -120,6 +120,16 @@ impl ExtractionBudget {
         }
     }
 
+    /// Charge working memory a walker retains beyond the emitted facts.
+    pub(crate) fn reserve_working_bytes(&mut self, bytes: u64) -> Result<(), ExtractError> {
+        self.retained_bytes = self
+            .retained_bytes
+            .checked_add(bytes)
+            .filter(|next| *next <= self.working_limit)
+            .ok_or(ExtractError::OutputLimit)?;
+        Ok(())
+    }
+
     pub(crate) fn reserve_additional_string(&mut self, value: &str) -> Result<(), ExtractError> {
         self.ensure_string_length(value.len())?;
         self.retained_bytes = self
