@@ -6,7 +6,7 @@ use tree_sitter::{ParseOptions, Parser, Point, Query};
 
 use crate::{
     DiagnosticCode, ExtractedFile, ExtractionDiagnostic, ExtractionStrategy, LanguageSpec,
-    SourceSnapshot, custom, framework, tags, test_names, walk,
+    SourceSnapshot, custom, framework, objc_macro_rewrite, tags, test_names, walk,
 };
 
 /// Default defensive AST depth used when a project does not override it.
@@ -135,7 +135,11 @@ impl NativeExtractor {
             return test_names::enrich(snapshot, extracted);
         }
 
-        let source = snapshot.source().as_bytes();
+        let rewritten = pre_parse_rewrite(snapshot, cancelled)?;
+        let source = rewritten
+            .as_deref()
+            .unwrap_or_else(|| snapshot.source())
+            .as_bytes();
         let mut interrupted = false;
         let tree = {
             let mut input = |offset: usize, _position: Point| match source.get(offset..) {
@@ -190,7 +194,10 @@ impl NativeExtractor {
             let extracted = framework::enrich(snapshot, extracted, cancelled)?;
             return test_names::enrich(snapshot, extracted);
         }
-        let input = walk::WalkInput::new(root, parse_status, self.maximum_ast_depth);
+        let mut input = walk::WalkInput::new(root, parse_status, self.maximum_ast_depth);
+        if let Some(syntax_source) = rewritten.as_deref() {
+            input = input.with_syntax_source(syntax_source);
+        }
         walk::extract_with_optional_fact_fallback(snapshot, |optional_facts| {
             walk::extract(
                 snapshot,
@@ -203,6 +210,19 @@ impl NativeExtractor {
             })
         })
     }
+}
+
+/// Span-preserving text the parser and walker read in place of the snapshot
+/// when the language needs a pre-parse rewrite; framework enrichment and test
+/// naming keep reading the original snapshot at the same offsets.
+fn pre_parse_rewrite(
+    snapshot: &SourceSnapshot,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<String>, ExtractError> {
+    if snapshot.language() != SourceLanguage::ObjectiveC {
+        return Ok(None);
+    }
+    objc_macro_rewrite::rewrite_react_native_macros(snapshot.source(), cancelled)
 }
 
 fn recover_file_local_failure(

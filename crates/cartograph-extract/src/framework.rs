@@ -180,16 +180,6 @@ impl<'source> DelimiterInput<'source> {
         }
     }
 
-    pub(crate) const fn square_brackets(value: &'source str, open: usize) -> Self {
-        Self {
-            value,
-            open,
-            opening: b'[',
-            closing: b']',
-            limit: value.len(),
-        }
-    }
-
     pub(crate) fn bounded_parentheses(
         value: &'source str,
         open: usize,
@@ -530,6 +520,17 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     pub(crate) fn add_landmark(&mut self, input: LandmarkInput<'_>) -> Result<(), ExtractError> {
         self.add_landmark_with_id(input).map(|_| ())
+    }
+
+    /// Mark a landmark added by this pass as declaring, not defining, its target.
+    pub(crate) fn mark_landmark_declaration_only(&mut self, id: &SymbolId) {
+        if let Some(symbol) = self.file.symbols[self.original_symbols..]
+            .iter_mut()
+            .rev()
+            .find(|symbol| &symbol.id == id)
+        {
+            symbol.implementation.declaration_only = true;
+        }
     }
 
     pub(crate) fn add_landmark_with_id(

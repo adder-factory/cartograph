@@ -23,6 +23,7 @@ mod language;
 mod model;
 mod module_alias;
 mod native;
+mod objc_macro_rewrite;
 mod reader;
 mod snapshot;
 mod source_lines;

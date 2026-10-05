@@ -705,7 +705,7 @@ fn find_import_target(node: Node<'_>, depth: usize) -> Option<Node<'_>> {
         .find_map(|child| find_import_target(child, depth.saturating_add(1)))
 }
 
-fn normalize_reference_name(value: &str) -> Option<String> {
+pub(super) fn normalize_reference_name(value: &str) -> Option<String> {
     let value = value.trim();
     let head = value
         .split(['(', '[', '{', ' ', '\t', '\n'])

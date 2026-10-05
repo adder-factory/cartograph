@@ -56,6 +56,10 @@ pub enum ExtractionStrategy {
     ApexFamily,
     /// Pascal and Delphi units, types, members, implementation bodies, and `uses` imports.
     PascalFamily,
+    /// Objective-C classes, protocols, full-selector methods, message sends, and the C subset.
+    ObjcFamily,
+    /// Swift type kinds, members, visibility, and parameter/return type references.
+    SwiftFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -93,6 +97,8 @@ impl ExtractionStrategy {
                 | Self::VbNetFamily
                 | Self::ApexFamily
                 | Self::PascalFamily
+                | Self::ObjcFamily
+                | Self::SwiftFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -197,6 +203,8 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         SourceLanguage::VbNet => Some(ExtractionStrategy::VbNetFamily),
         SourceLanguage::Apex => Some(ExtractionStrategy::ApexFamily),
         SourceLanguage::Pascal => Some(ExtractionStrategy::PascalFamily),
+        SourceLanguage::ObjectiveC => Some(ExtractionStrategy::ObjcFamily),
+        SourceLanguage::Swift => Some(ExtractionStrategy::SwiftFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -215,11 +223,9 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
         | SourceLanguage::Astro
         | SourceLanguage::GraphQl
         | SourceLanguage::Html
-        | SourceLanguage::ObjectiveC
         | SourceLanguage::Php
         | SourceLanguage::Prisma
         | SourceLanguage::Sql
-        | SourceLanguage::Swift
         | SourceLanguage::Yaml => ExtractionStrategy::GenericStructural,
         SourceLanguage::Aura
         | SourceLanguage::Bg3Anubis

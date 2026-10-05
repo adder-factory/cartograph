@@ -9245,6 +9245,7 @@ where
             module,
             cancelled,
         })? {
+            let target = objc_alias_method(index, target).unwrap_or(target);
             append_framework_edge(
                 facts,
                 budget,
@@ -9334,7 +9335,9 @@ where
             let matches = candidate.kind == SymbolKind::Method
                 && languages.contains(&file.language.as_str())
                 && is_tagged == tagged
-                && (tagged || !framework_synthetic_candidate(candidate))
+                && (tagged
+                    || !framework_synthetic_candidate(candidate)
+                    || objc_keyword_selector_alias(candidate).is_some())
                 && turbo_module_matches(module, file, candidate);
             if matches {
                 eligible = eligible.saturating_add(1);
@@ -9348,6 +9351,42 @@ where
         (None, 0) => CandidateTier::Missing,
         (None, _) => CandidateTier::Ambiguous,
     })
+}
+
+/// The keyword selector (`setValue:forKey:`) of an Objective-C method's literal
+/// Swift alias (`setValue`), the name a `TurboModule` spec method shares with its
+/// native implementation. Unary selectors and preposition-reduced aliases are
+/// not literal aliases: a unary method already shares its own name.
+fn objc_keyword_selector_alias(candidate: &ResolutionCandidate) -> Option<&str> {
+    let (_, tail) = candidate
+        .qualified_name
+        .split_once("::objc-swift-method::")?;
+    let (selector, alias) = tail.rsplit_once("::")?;
+    let alias = alias.split_once('#').map_or(alias, |(alias, _)| alias);
+    let (head, _) = selector.split_once(':')?;
+    (head == alias).then_some(selector)
+}
+
+/// The native method a literal selector alias stands for.
+fn objc_alias_method<'index>(
+    index: &'index ResolutionIndex,
+    alias: &ResolutionCandidate,
+) -> Option<&'index ResolutionCandidate> {
+    let selector = objc_keyword_selector_alias(alias)?;
+    let method = index.parents.get(&alias.symbol_id)?;
+    index
+        .candidates
+        .get(selector)?
+        .as_slice()
+        .iter()
+        .find(|candidate| &candidate.symbol_id == method)
+}
+
+/// Synthetic framework or bridge landmarks, including JS-visible React Native
+/// methods, which are never a source declaration's own member.
+fn framework_landmark_candidate(candidate: &ResolutionCandidate) -> bool {
+    framework_synthetic_candidate(candidate)
+        || candidate.qualified_name.contains("::react-native-method::")
 }
 
 fn framework_synthetic_candidate(candidate: &ResolutionCandidate) -> bool {
@@ -12661,8 +12700,20 @@ fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest
     let external_binding = request.import_bindings.iter().any(|binding| {
         binding_matches_reference_name(binding, request.name)
             && !import_binding_is_project_local(index, binding, request)
+            && !wildcard_import_yields_to_project(request.language, binding)
     });
     !runtime_require && !external_binding
+}
+
+/// Swift looks a name up in the importing module before any imported module,
+/// and Objective-C classes and selectors share one global runtime namespace, so
+/// in both a wildcard import of an external module (`import Foundation`,
+/// `#import <UIKit/UIKit.h>`, written in nearly every file) cannot hide the
+/// project's own declaration of a name and never vetoes project resolution.
+fn wildcard_import_yields_to_project(language: &str, binding: &ExtractedImportBinding) -> bool {
+    binding.local_name == "*"
+        && (language == SourceLanguage::Swift.as_str()
+            || language == SourceLanguage::ObjectiveC.as_str())
 }
 
 fn resolve_lexical<Cancel>(
@@ -12710,7 +12761,8 @@ where
         if let Some(candidate) = select_candidate(
             candidates,
             |candidate| {
-                is_lexical_candidate(request.kind, request.name, candidate)
+                (is_lexical_candidate(request.kind, request.name, candidate)
+                    || swift_implicit_member_call(request, candidate))
                     && &candidate.file_id == request.file_id
                     && request.owner != Some(&candidate.symbol_id)
                     && candidate.parent_symbol_id.as_ref() == scope
@@ -12960,6 +13012,20 @@ fn is_lexical_candidate(
                     | SymbolKind::Field
                     | SymbolKind::EnumMember
             ))
+}
+
+/// Swift looks an unqualified call up among the enclosing type's methods
+/// (implicit `self`) before outer scopes, so the lexical scope walk may stop at
+/// a sibling method of the caller's own type.
+fn swift_implicit_member_call(
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    request.language == SourceLanguage::Swift.as_str()
+        && request.kind == ReferenceKind::Calls
+        && candidate.kind == SymbolKind::Method
+        && !request.name.contains('.')
+        && !framework_landmark_candidate(candidate)
 }
 
 fn reference_kind_candidate(
@@ -14698,7 +14764,22 @@ where
         &[] as &[ResolutionCandidate],
         ResolutionCandidateBucket::as_slice,
     );
-    if direct.iter().any(|candidate| {
+    if source.language == "objc" && direct_name.contains(':') {
+        // Objective-C methods are named by their full selector, so a keyword
+        // send names its native implementation exactly.
+        match select_objc_selector_method(ObjcSelectorQuery {
+            index,
+            request,
+            candidates: direct,
+            cancelled: &mut *cancelled,
+        })? {
+            ObjcSelectorMatch::Unique(candidate) => {
+                return Ok(Some(project_resolved_target(candidate)));
+            }
+            ObjcSelectorMatch::Ambiguous => return Ok(None),
+            ObjcSelectorMatch::Absent => {}
+        }
+    } else if direct.iter().any(|candidate| {
         index
             .modules
             .files
@@ -14722,40 +14803,7 @@ where
         })
         .map(|candidate| candidate.map(apple_bridge_target));
     }
-    let selector_candidates = swift_base_names_for_objc_selector(request.name);
-    if let Some(literal) = selector_candidates[0].as_deref() {
-        let candidates = index.candidates.get(literal).map_or(
-            &[] as &[ResolutionCandidate],
-            ResolutionCandidateBucket::as_slice,
-        );
-        let mut has_objc_declaration = false;
-        let exact = select_candidate(
-            candidates,
-            |candidate| {
-                let eligible = index
-                    .modules
-                    .files
-                    .get(&candidate.file_id)
-                    .is_some_and(|target| {
-                        target.language == "objc"
-                            && candidate.kind == SymbolKind::Method
-                            && candidate.visibility != Some(Visibility::Private)
-                            && !candidate.qualified_name.contains("::objc-swift-method::")
-                            && reference_kind_candidate(request.kind, candidate)
-                    });
-                has_objc_declaration |= eligible;
-                eligible
-            },
-            cancelled,
-        )?;
-        if let Some(candidate) = exact {
-            return Ok(Some(project_resolved_target(candidate)));
-        }
-        if has_objc_declaration {
-            return Ok(None);
-        }
-    }
-    for candidate_name in selector_candidates {
+    for candidate_name in swift_base_names_for_objc_selector(request.name) {
         let Some(candidate_name) = candidate_name else {
             continue;
         };
@@ -14775,6 +14823,156 @@ where
         }
     }
     Ok(None)
+}
+
+/// How an Objective-C keyword selector matched native method declarations.
+enum ObjcSelectorMatch<'candidate> {
+    Absent,
+    Ambiguous,
+    Unique(&'candidate ResolutionCandidate),
+}
+
+struct ObjcSelectorQuery<'context, 'request, 'candidate, Cancel> {
+    index: &'context ResolutionIndex,
+    request: &'context ResolutionRequest<'request>,
+    candidates: &'candidate [ResolutionCandidate],
+    cancelled: &'context mut Cancel,
+}
+
+/// Which Objective-C method declarations one selector lookup pass considers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ObjcMethodRole {
+    /// Methods a class (or its categories) declares or implements.
+    ClassMember,
+    /// Requirements a protocol declares for its conforming classes.
+    ProtocolRequirement,
+}
+
+/// The one non-private Objective-C method (never a bridge alias) declaring the
+/// sent selector. Class members are considered first: a definition wins over
+/// header declarations of the same class's method, and declarations of the
+/// selector in two classes abstain because the receiver's class is unknown. A
+/// protocol requirement never competes with them, since conforming classes
+/// implement it; it is the target only when no class declares the selector and
+/// exactly one protocol requires it.
+fn select_objc_selector_method<'candidate, Cancel>(
+    query: ObjcSelectorQuery<'_, '_, 'candidate, Cancel>,
+) -> Result<ObjcSelectorMatch<'candidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ObjcSelectorQuery {
+        index,
+        request,
+        candidates,
+        cancelled,
+    } = query;
+    for role in [
+        ObjcMethodRole::ClassMember,
+        ObjcMethodRole::ProtocolRequirement,
+    ] {
+        let selected = select_objc_selector_role(
+            ObjcSelectorQuery {
+                index,
+                request,
+                candidates,
+                cancelled: &mut *cancelled,
+            },
+            role,
+        )?;
+        if !matches!(selected, ObjcSelectorMatch::Absent) {
+            return Ok(selected);
+        }
+    }
+    Ok(ObjcSelectorMatch::Absent)
+}
+
+/// One [`select_objc_selector_method`] pass over the methods playing `role`:
+/// absent when none declares the selector, ambiguous when two containers do.
+fn select_objc_selector_role<'candidate, Cancel>(
+    query: ObjcSelectorQuery<'_, '_, 'candidate, Cancel>,
+    role: ObjcMethodRole,
+) -> Result<ObjcSelectorMatch<'candidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ObjcSelectorQuery {
+        index,
+        request,
+        candidates,
+        cancelled,
+    } = query;
+    let mut eligible = |candidate: &ResolutionCandidate| {
+        objc_native_method(index, request, candidate) == Some(role)
+    };
+    let mut declaring_method: Option<&str> = None;
+    for candidate in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if !eligible(candidate) {
+            continue;
+        }
+        match declaring_method {
+            None => declaring_method = Some(&candidate.qualified_name),
+            Some(method) if method != candidate.qualified_name => {
+                return Ok(ObjcSelectorMatch::Ambiguous);
+            }
+            Some(_) => {}
+        }
+    }
+    if declaring_method.is_none() {
+        return Ok(ObjcSelectorMatch::Absent);
+    }
+    let exact = select_candidate(candidates, &mut eligible, cancelled)?;
+    Ok(exact.map_or(ObjcSelectorMatch::Ambiguous, ObjcSelectorMatch::Unique))
+}
+
+/// The role of a non-private, non-landmark Objective-C method candidate the
+/// reference may target, or `None` for any other candidate.
+fn objc_native_method(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> Option<ObjcMethodRole> {
+    let method = index
+        .modules
+        .files
+        .get(&candidate.file_id)
+        .is_some_and(|target| {
+            target.language == SourceLanguage::ObjectiveC.as_str()
+                && candidate.kind == SymbolKind::Method
+                && candidate.visibility != Some(Visibility::Private)
+                && !framework_landmark_candidate(candidate)
+                && reference_kind_candidate(request.kind, candidate)
+        });
+    if !method {
+        return None;
+    }
+    Some(if objc_protocol_member(index, candidate) {
+        ObjcMethodRole::ProtocolRequirement
+    } else {
+        ObjcMethodRole::ClassMember
+    })
+}
+
+/// Whether an Objective-C method's container is a protocol. Classes and
+/// protocols are always top-level, so the container's qualified name is the
+/// method's first qualified-name segment (a selector may itself contain `::`).
+fn objc_protocol_member(index: &ResolutionIndex, candidate: &ResolutionCandidate) -> bool {
+    let (Some(parent_id), Some((container, _)), Some(file_ordinal)) = (
+        candidate.parent_symbol_id.as_ref(),
+        candidate.qualified_name.split_once("::"),
+        index.file_ordinals.get(&candidate.file_id),
+    ) else {
+        return false;
+    };
+    index.candidates.get(container).is_some_and(|containers| {
+        containers
+            .for_file(*file_ordinal)
+            .iter()
+            .any(|parent| &parent.symbol_id == parent_id && parent.kind == SymbolKind::Protocol)
+    })
 }
 
 fn select_apple_bridge_candidate<'candidate, Cancel>(
@@ -15019,6 +15217,8 @@ const FRAMEWORK_SCORE_CONVENTIONAL_COMPONENT: u8 = 105;
 const FRAMEWORK_SCORE_STRONG: u8 = 100;
 const FRAMEWORK_SCORE_NAMED_CONVENTION: u8 = 95;
 const FRAMEWORK_SCORE_EXACT_DIRECTORY: u8 = 90;
+/// A name and declaration-kind convention with no directory evidence.
+const FRAMEWORK_SCORE_KIND_CONVENTION: u8 = 85;
 const FRAMEWORK_SCORE_COMPONENT_FALLBACK: u8 = 80;
 const FRAMEWORK_SCORE_PHP_MODEL: u8 = 75;
 const FRAMEWORK_SCORE_MODEL: u8 = 70;
@@ -15096,7 +15296,19 @@ enum FrameworkCandidatePattern {
     TopLevelType,
     ClassOrInterface,
     Kinds(&'static [SymbolKind]),
+    /// One of the kinds, declared at file scope: a nested type is unreachable
+    /// by its bare name from another file. Component landmarks qualify.
+    TopLevelKinds(&'static [SymbolKind]),
 }
+
+/// The kinds [`FrameworkCandidatePattern::TopLevelType`] admits.
+const FRAMEWORK_TYPE_KINDS: &[SymbolKind] = &[
+    SymbolKind::Class,
+    SymbolKind::Struct,
+    SymbolKind::Interface,
+    SymbolKind::Component,
+    SymbolKind::Module,
+];
 
 impl FrameworkCandidatePattern {
     fn matches(&self, candidate: &ResolutionCandidate) -> bool {
@@ -15108,6 +15320,10 @@ impl FrameworkCandidatePattern {
                 matches!(candidate.kind, SymbolKind::Class | SymbolKind::Interface)
             }
             Self::Kinds(kinds) => kinds.contains(&candidate.kind),
+            Self::TopLevelKinds(kinds) => {
+                kinds.contains(&candidate.kind)
+                    && (candidate.top_level || candidate.kind == SymbolKind::Component)
+            }
         }
     }
 }
@@ -15115,15 +15331,20 @@ impl FrameworkCandidatePattern {
 struct FrameworkRule {
     name: FrameworkNamePattern,
     candidate: FrameworkCandidatePattern,
+    /// Conventional directories; [`ANY_DIRECTORY`] makes the rule kind-only.
     directories: &'static [&'static str],
     score: u8,
 }
+
+/// A rule whose name and candidate kind are evidence enough in any directory.
+const ANY_DIRECTORY: &[&str] = &[];
 
 impl FrameworkRule {
     fn matches(&self, input: &FrameworkConventionInput<'_>) -> bool {
         self.name.matches(input.reference_name)
             && self.candidate.matches(input.candidate)
-            && directory_has_any(&input.target.path, self.directories)
+            && (self.directories.is_empty()
+                || directory_has_any(&input.target.path, self.directories))
     }
 }
 
@@ -15279,33 +15500,79 @@ const PYTHON_FRAMEWORK_RULES: &[FrameworkRule] = &[
     },
 ];
 
+/// `SwiftUI`, `UIKit`, and Vapor naming conventions. A `ViewController` rule must
+/// precede the Vapor `Controller` rule that its suffix also matches.
 const SWIFT_FRAMEWORK_RULES: &[FrameworkRule] = &[
     FrameworkRule {
         name: FrameworkNamePattern::Suffixes(&["ViewController"]),
-        candidate: FrameworkCandidatePattern::TopLevelType,
-        directories: &["viewcontrollers", "controllers"],
+        candidate: FrameworkCandidatePattern::TopLevelKinds(FRAMEWORK_TYPE_KINDS),
+        directories: &[
+            "viewcontrollers",
+            "viewcontroller",
+            "controllers",
+            "screens",
+        ],
         score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
     },
     FrameworkRule {
         name: FrameworkNamePattern::Suffixes(&["View"]),
-        candidate: FrameworkCandidatePattern::Kinds(&[
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
             SymbolKind::Component,
             SymbolKind::Class,
             SymbolKind::Struct,
         ]),
-        directories: &["views", "screens"],
+        directories: &["views", "view", "screens", "components", "ui"],
         score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
     },
     FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Cell"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[SymbolKind::Class]),
+        directories: &[
+            "cells",
+            "cell",
+            "views",
+            "tableviewcells",
+            "collectionviewcells",
+        ],
+        score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
+    },
+    FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Delegate", "DataSource"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
+            SymbolKind::Interface,
+            SymbolKind::Protocol,
+        ]),
+        directories: ANY_DIRECTORY,
+        score: FRAMEWORK_SCORE_KIND_CONVENTION,
+    },
+    FrameworkRule {
         name: FrameworkNamePattern::Suffixes(&["ViewModel", "Store", "Manager"]),
-        candidate: FrameworkCandidatePattern::TopLevelType,
-        directories: &["viewmodels", "stores", "managers"],
+        candidate: FrameworkCandidatePattern::TopLevelKinds(FRAMEWORK_TYPE_KINDS),
+        directories: &["viewmodels", "viewmodel", "stores", "managers", "services"],
+        score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
+    },
+    FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Controller"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
+            SymbolKind::Class,
+            SymbolKind::Struct,
+        ]),
+        directories: &["controllers", "controller", "routes"],
+        score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
+    },
+    FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Middleware"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
+            SymbolKind::Class,
+            SymbolKind::Struct,
+        ]),
+        directories: &["middleware", "middlewares"],
         score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
     },
     FrameworkRule {
         name: FrameworkNamePattern::PascalCase,
-        candidate: FrameworkCandidatePattern::TopLevelType,
-        directories: &["models", "model"],
+        candidate: FrameworkCandidatePattern::TopLevelKinds(FRAMEWORK_TYPE_KINDS),
+        directories: &["models", "model", "entities", "domain", "database"],
         score: FRAMEWORK_SCORE_MODEL,
     },
 ];
@@ -15469,14 +15736,7 @@ fn framework_rule_score(input: &FrameworkConventionInput<'_>, rules: &[Framework
 }
 
 fn framework_top_level_type(candidate: &ResolutionCandidate) -> bool {
-    matches!(
-        candidate.kind,
-        SymbolKind::Class
-            | SymbolKind::Struct
-            | SymbolKind::Interface
-            | SymbolKind::Component
-            | SymbolKind::Module
-    )
+    FRAMEWORK_TYPE_KINDS.contains(&candidate.kind)
 }
 
 fn framework_callable(candidate: &ResolutionCandidate) -> bool {
@@ -18526,19 +18786,19 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let fixtures = [
             (
                 "ios/NativeDownloader.m",
-                "@implementation NativeDownloader\n- (void)downloadWithURL:(NSString *)url {}\n@end\n",
+                "#import <Foundation/Foundation.h>\n@implementation NativeDownloader\n- (void)downloadWithURL:(NSString *)url {}\n@end\n",
             ),
             (
                 "ios/SwiftCaller.swift",
-                "func invoke(_ downloader: NativeDownloader) { downloader.download(url: \"safe\") }\n",
+                "import Foundation\nfunc invoke(_ downloader: NativeDownloader) { downloader.download(url: \"safe\") }\n",
             ),
             (
                 "ios/SwiftPlayer.swift",
-                "class SwiftPlayer {\n  @objc func play(song: String) {}\n  @nonobjc func internalOnly() {}\n}\n",
+                "import Foundation\nclass SwiftPlayer {\n  @objc func play(song: String) {}\n  @nonobjc func internalOnly() {}\n}\n",
             ),
             (
                 "ios/ObjcCaller.m",
-                "@implementation ObjcCaller\n- (void)invoke:(SwiftPlayer *)player {\n  [player playWithSong:@\"safe\"];\n  [player internalOnly];\n}\n@end\n",
+                "#import <Foundation/Foundation.h>\n@implementation ObjcCaller\n- (void)invoke:(SwiftPlayer *)player {\n  [player playWithSong:@\"safe\"];\n  [player internalOnly];\n}\n@end\n",
             ),
         ];
         let forward = build_capability_generation(&fixtures, false);
@@ -18583,7 +18843,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
                 ),
                 (
                     "ios/Caller.m",
-                    "@implementation Caller\n- (void)run:(id)player { [player playWithSong:@\"safe\"]; }\n@end\n",
+                    "#import <Foundation/Foundation.h>\n@implementation Caller\n- (void)run:(id)player { [player playWithSong:@\"safe\"]; }\n@end\n",
                 ),
             ],
             false,
@@ -18606,6 +18866,498 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             .unwrap_or_else(|| panic!("missing exact ObjC target file"));
         assert_eq!(exact_target_file.normalized_path, "ios/NativePlayer.m");
         assert_ne!(exact_call.resolution_provenance, APPLE_BRIDGE_PROVENANCE);
+    }
+
+    #[test]
+    fn objc_keyword_selectors_imports_and_heritage_resolve_to_native_declarations() {
+        let fixtures = [
+            (
+                "ios/Player.h",
+                "#import <Foundation/Foundation.h>\n@interface Player : Base\n- (void)playWithSong:(NSString *)song volume:(int)volume;\n@end\n",
+            ),
+            (
+                "ios/Player.m",
+                "#import <Foundation/Foundation.h>\n#import \"Player.h\"\n@implementation Player\n- (void)playWithSong:(NSString *)song volume:(int)volume {}\n@end\n",
+            ),
+            (
+                "ios/Base.h",
+                "#import <Foundation/Foundation.h>\n@interface Base : NSObject\n@end\n",
+            ),
+            ("ios/Base.m", "@implementation Base\n@end\n"),
+            (
+                "ios/Caller.m",
+                "#import <UIKit/UIKit.h>\n#import \"Player.h\"\n@implementation Caller\n- (void)run:(Player *)player {\n  [player playWithSong:@\"safe\" volume:1];\n  [player playWithSong:@\"safe\"];\n}\n@end\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let definition = CapabilitySymbolQuery::new(&forward, "ios/Player.m")
+            .of_kind("Player::playWithSong:volume:", SymbolKind::Method);
+        let keyword_send =
+            capability_reference_in_file(&forward, "ios/Caller.m", "player.playWithSong:volume:");
+        assert_eq!(
+            keyword_send.target_symbol_id.as_ref(),
+            Some(&definition.symbol_id),
+            "a full-selector send resolves to the implementation, not the header"
+        );
+        assert_eq!(keyword_send.resolution_provenance, EXACT_PROJECT_PROVENANCE);
+        let partial_send = forward
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == "player.playWithSong:")
+            .unwrap_or_else(|| panic!("missing partial send: {:?}", forward.references()));
+        assert!(
+            partial_send.target_symbol_id.is_none(),
+            "a different selector must not resolve by its first keyword"
+        );
+
+        let base_definition =
+            CapabilitySymbolQuery::new(&forward, "ios/Base.m").of_kind("Base", SymbolKind::Class);
+        let header_player = CapabilitySymbolQuery::new(&forward, "ios/Player.h")
+            .of_kind("Player", SymbolKind::Class);
+        let extends = CapabilityReferenceQuery::new(&forward, header_player)
+            .named("Base", ReferenceKind::Extends);
+        assert_eq!(
+            extends.target_symbol_id.as_ref(),
+            Some(&base_definition.symbol_id)
+        );
+        assert!(forward.edges().iter().any(|edge| {
+            edge.source_symbol_id == header_player.symbol_id
+                && edge.target_symbol_id == base_definition.symbol_id
+                && edge.kind == EdgeKind::Extends
+        }));
+
+        let import = capability_reference_in_file(&forward, "ios/Player.m", "Player.h");
+        assert_eq!(import.resolution_provenance, QUOTED_INCLUDE_PROVENANCE);
+        assert!(import.target_symbol_id.is_some());
+    }
+
+    #[test]
+    fn swift_objc_bridge_prefers_the_implementation_alias_over_its_interface_declaration() {
+        let fixtures = [
+            (
+                "ios/Downloader.m",
+                "#import <Foundation/Foundation.h>\n@interface Downloader : NSObject\n- (void)downloadWithURL:(NSString *)url;\n@end\n@implementation Downloader\n- (void)downloadWithURL:(NSString *)url {}\n@end\n",
+            ),
+            (
+                "ios/Caller.swift",
+                "import Foundation\nfunc fetch(_ downloader: Downloader) { downloader.download(url: \"safe\") }\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        let aliases = forward
+            .symbols()
+            .iter()
+            .filter(|symbol| {
+                symbol
+                    .qualified_name
+                    .ends_with("::objc-swift-method::downloadWithURL:::download")
+                    || symbol
+                        .qualified_name
+                        .contains("::objc-swift-method::downloadWithURL:::download#")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(aliases.len(), 2, "one alias per declaration and definition");
+        let call = capability_reference_in_file(&forward, "ios/Caller.swift", "download");
+        let target = call
+            .target_symbol_id
+            .as_ref()
+            .and_then(|target| aliases.iter().find(|alias| &alias.symbol_id == target))
+            .unwrap_or_else(|| panic!("bridge abstained: {call:?}"));
+        assert!(!target.declaration_only);
+        assert_eq!(call.resolution_provenance, APPLE_BRIDGE_PROVENANCE);
+    }
+
+    /// Competing Swift declarations per name: one in its conventional directory.
+    const SWIFT_CONVENTION_FIXTURES: [(&str, &str); 15] = [
+        (
+            "Sources/TableViewCells/UserCell.swift",
+            "class UserCell {}\n",
+        ),
+        ("Sources/Generated/UserCell.swift", "class UserCell {}\n"),
+        (
+            "Sources/Protocols/ProfileDelegate.swift",
+            "protocol ProfileDelegate: AnyObject {}\n",
+        ),
+        (
+            "Sources/Legacy/ProfileDelegate.swift",
+            "class ProfileDelegate {}\n",
+        ),
+        ("Sources/UI/AvatarView.swift", "class AvatarView {}\n"),
+        (
+            "Sources/Generated/AvatarView.swift",
+            "class AvatarView {}\n",
+        ),
+        (
+            "Sources/App/Controllers/UserController.swift",
+            "struct UserController {}\n",
+        ),
+        (
+            "Sources/App/Other/UserController.swift",
+            "struct UserController {}\n",
+        ),
+        (
+            "Sources/App/Middleware/AuthMiddleware.swift",
+            "struct AuthMiddleware {}\n",
+        ),
+        (
+            "Sources/App/Other/AuthMiddleware.swift",
+            "struct AuthMiddleware {}\n",
+        ),
+        (
+            "Sources/App/Database/Account.swift",
+            "final class Account {}\n",
+        ),
+        (
+            "Sources/App/Other/Account.swift",
+            "final class Account {}\n",
+        ),
+        ("Sources/Cells/LeftCell.swift", "class LeftCell {}\n"),
+        ("Sources/Views/LeftCell.swift", "class LeftCell {}\n"),
+        (
+            "Sources/App/Screen.swift",
+            "class Screen: ProfileDelegate {\n  let cell: UserCell\n  let left: LeftCell\n  let avatar: AvatarView\n  func boot() { UserController(); AuthMiddleware(); Account() }\n}\n",
+        ),
+    ];
+
+    #[test]
+    fn swift_uikit_and_vapor_conventions_prefer_conventional_directories_and_kinds() {
+        let fixtures = SWIFT_CONVENTION_FIXTURES;
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        for (name, path, qualified_name) in [
+            (
+                "UserCell",
+                "Sources/TableViewCells/UserCell.swift",
+                "UserCell",
+            ),
+            (
+                "ProfileDelegate",
+                "Sources/Protocols/ProfileDelegate.swift",
+                "ProfileDelegate",
+            ),
+            ("AvatarView", "Sources/UI/AvatarView.swift", "AvatarView"),
+            (
+                "UserController",
+                "Sources/App/Controllers/UserController.swift",
+                "UserController",
+            ),
+            (
+                "AuthMiddleware",
+                "Sources/App/Middleware/AuthMiddleware.swift",
+                "AuthMiddleware",
+            ),
+            ("Account", "Sources/App/Database/Account.swift", "Account"),
+        ] {
+            let target = capability_symbol(&forward, path, qualified_name);
+            let reference = forward
+                .references()
+                .iter()
+                .find(|reference| reference.reference_name == name)
+                .unwrap_or_else(|| panic!("missing {name}: {:?}", forward.references()));
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name} did not prefer {path}"
+            );
+            assert_eq!(
+                reference.resolution_provenance,
+                FRAMEWORK_CONVENTION_PROVENANCE
+            );
+        }
+        let tied = forward
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == "LeftCell")
+            .unwrap_or_else(|| panic!("missing LeftCell: {:?}", forward.references()));
+        assert!(
+            tied.target_symbol_id.is_none(),
+            "two conventional cell directories must abstain"
+        );
+    }
+
+    #[test]
+    fn objc_selector_resolution_abstains_on_unary_and_shared_selectors_and_categories_do_not_define()
+     {
+        let fixtures = [
+            (
+                "ios/Left.m",
+                "@implementation Left\n- (void)play:(int)speed {}\n- (void)stop {}\n@end\n",
+            ),
+            (
+                "ios/Right.m",
+                "@implementation Right\n- (void)play:(int)speed {}\n@end\n",
+            ),
+            ("ios/Shape.m", "@implementation Shape\n@end\n"),
+            (
+                "ios/Shape+Extras.m",
+                "@implementation Shape (Extras)\n- (void)extra {}\n@end\n",
+            ),
+            (
+                "ios/Square.m",
+                "#import <Foundation/Foundation.h>\n@interface Square : Shape\n@end\n@implementation Square\n- (void)run:(Left *)left {\n  [left play:1];\n  [left stop];\n  [left act:2];\n}\n- (void)notify:(id)delegate {\n  [delegate feedDidFinish:1];\n  [delegate feedDidFail:2];\n}\n@end\n",
+            ),
+            (
+                "ios/Worker.m",
+                "#import <Foundation/Foundation.h>\n@protocol Loading\n- (void)load:(int)value;\n@end\n@implementation Worker\n- (void)load:(int)value {}\n- (void)run {\n  [self load:1];\n}\n@end\n",
+            ),
+            (
+                "ios/FeedDelegate.h",
+                "@protocol FeedDelegate\n- (void)feedDidFinish:(int)count;\n- (void)feedDidFail:(int)count;\n@end\n@protocol RetryDelegate\n- (void)feedDidFail:(int)count;\n@end\n",
+            ),
+            (
+                "ios/Declared.h",
+                "@interface Declared : NSObject\n- (void)act:(int)value;\n@end\n",
+            ),
+            (
+                "ios/Unrelated.m",
+                "@implementation Unrelated\n- (void)act:(int)value {}\n@end\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        for name in [
+            "left.play:",
+            "left.stop",
+            "left.act:",
+            "delegate.feedDidFail:",
+        ] {
+            let reference = capability_reference_in_file(&forward, "ios/Square.m", name);
+            assert!(
+                reference.target_symbol_id.is_none(),
+                "{name} must abstain: {reference:?}"
+            );
+        }
+        // A protocol requirement never competes with the one class that
+        // implements the selector, and is itself the target only when no
+        // class declares the selector and one protocol alone requires it.
+        for (path, name, target) in [
+            ("ios/Worker.m", "load:", "Worker::load:"),
+            (
+                "ios/Square.m",
+                "delegate.feedDidFinish:",
+                "FeedDelegate::feedDidFinish:",
+            ),
+        ] {
+            let reference = capability_reference_in_file(&forward, path, name);
+            let target = forward
+                .symbols()
+                .iter()
+                .find(|symbol| {
+                    symbol.qualified_name == target
+                        && symbol.symbol_kind == SymbolKind::Method.as_str()
+                })
+                .unwrap_or_else(|| panic!("missing {target}: {:?}", forward.symbols()));
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name}: {reference:?}"
+            );
+        }
+        let shape =
+            CapabilitySymbolQuery::new(&forward, "ios/Shape.m").of_kind("Shape", SymbolKind::Class);
+        let category = CapabilitySymbolQuery::new(&forward, "ios/Shape+Extras.m")
+            .of_kind("Shape", SymbolKind::Class);
+        assert!(category.declaration_only, "a category augments its class");
+        let square = CapabilitySymbolQuery::new(&forward, "ios/Square.m")
+            .of_kind("Square", SymbolKind::Class);
+        let extends =
+            CapabilityReferenceQuery::new(&forward, square).named("Shape", ReferenceKind::Extends);
+        assert_eq!(extends.target_symbol_id.as_ref(), Some(&shape.symbol_id));
+    }
+
+    #[test]
+    fn swift_unqualified_calls_resolve_to_the_enclosing_types_methods_only() {
+        let fixtures = [
+            (
+                "Sources/Feed.swift",
+                "struct Feed {\n  func helper() {}\n  func run() {\n    helper()\n    run()\n  }\n}\nstruct Other {\n  func helper() {}\n  func go() { helper() }\n}\nextension Feed {\n  func later() { helper() }\n}\nfunc outer() {\n  func inner() {}\n  inner()\n}\n",
+            ),
+            (
+                "Sources/Elsewhere.swift",
+                "struct Elsewhere {\n  func helper() {}\n}\n",
+            ),
+            (
+                "Sources/Bridged.swift",
+                "@objcMembers\nclass Bridged: NSObject {\n  func recur() { recur() }\n}\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        for (caller, callee, target) in [
+            ("Feed::run", "helper", "Feed::helper"),
+            ("Other::go", "helper", "Other::helper"),
+            ("Feed::later", "helper", "Feed::helper"),
+            ("outer", "inner", "outer::inner"),
+        ] {
+            let caller = capability_symbol(&forward, "Sources/Feed.swift", caller);
+            let target = capability_symbol(&forward, "Sources/Feed.swift", target);
+            let reference =
+                CapabilityReferenceQuery::new(&forward, caller).named(callee, ReferenceKind::Calls);
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{} -> {callee}",
+                caller.qualified_name
+            );
+        }
+        let run = capability_symbol(&forward, "Sources/Feed.swift", "Feed::run");
+        let recursion =
+            CapabilityReferenceQuery::new(&forward, run).named("run", ReferenceKind::Calls);
+        assert!(recursion.target_symbol_id.is_none());
+        let bridged = capability_symbol(&forward, "Sources/Bridged.swift", "Bridged::recur");
+        let bridged_recursion =
+            CapabilityReferenceQuery::new(&forward, bridged).named("recur", ReferenceKind::Calls);
+        assert!(
+            bridged_recursion.target_symbol_id.is_none(),
+            "implicit self never selects a synthetic bridge alias: {bridged_recursion:?}"
+        );
+    }
+
+    #[test]
+    fn turbo_module_specs_bridge_to_keyword_selector_implementations() {
+        let fixtures = [
+            (
+                "src/NativeCalculator.ts",
+                "interface Spec extends TurboModule {\n  multiply(a: number, b: number): number;\n}\nexport default TurboModuleRegistry.getEnforcing<Spec>('Calculator');\n",
+            ),
+            (
+                "ios/RCTCalculator.m",
+                "#import <React/RCTBridgeModule.h>\n@interface RCTCalculator : NSObject\n- (NSNumber *)multiply:(double)a b:(double)b;\n@end\n@implementation RCTCalculator\n- (NSNumber *)multiply:(double)a b:(double)b { return nil; }\n@end\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        let spec = capability_symbol(
+            &forward,
+            "src/NativeCalculator.ts",
+            "src/NativeCalculator.ts::turbo-module-spec-method::Calculator::multiply",
+        );
+        let implementation = forward
+            .symbols()
+            .iter()
+            .find(|symbol| {
+                symbol.qualified_name == "RCTCalculator::multiply:b:" && !symbol.declaration_only
+            })
+            .unwrap_or_else(|| panic!("missing native implementation: {:?}", forward.symbols()));
+        let bridges = forward
+            .edges()
+            .iter()
+            .filter(|edge| {
+                edge.source_symbol_id == spec.symbol_id
+                    && edge.provenance == TURBO_NATIVE_BRIDGE_PROVENANCE
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bridges.len(), 1, "{bridges:?}");
+        assert_eq!(bridges[0].target_symbol_id, implementation.symbol_id);
+    }
+
+    #[test]
+    fn swift_and_objc_framework_imports_never_hide_project_declarations() {
+        let fixtures = [
+            ("Sources/Api.swift", "public func fetchAll() {}\n"),
+            (
+                "Sources/Screen.swift",
+                "import Foundation\nimport UIKit\nfunc load() { fetchAll() }\n",
+            ),
+            ("ios/Util.m", "void LogEvent(int code) {}\n"),
+            (
+                "ios/Screen.m",
+                "#import <UIKit/UIKit.h>\n@implementation Screen\n- (void)show { LogEvent(1); }\n@end\n",
+            ),
+            ("src/util.c", "void log_event(int code) {}\n"),
+            (
+                "src/main.c",
+                "#include <stdio.h>\nint main(void) { log_event(1); return 0; }\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        for (caller_path, name, target_path) in [
+            ("Sources/Screen.swift", "fetchAll", "Sources/Api.swift"),
+            ("ios/Screen.m", "LogEvent", "ios/Util.m"),
+        ] {
+            let target = capability_symbol(&forward, target_path, name);
+            let reference = capability_reference_in_file(&forward, caller_path, name);
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name}: {reference:?}"
+            );
+            assert_eq!(reference.resolution_provenance, EXACT_PROJECT_PROVENANCE);
+        }
+        let c_call = capability_reference_in_file(&forward, "src/main.c", "log_event");
+        assert!(
+            c_call.target_symbol_id.is_none(),
+            "a C system include keeps vetoing project guesses: {c_call:?}"
+        );
+    }
+
+    #[test]
+    fn half_typed_objc_and_swift_declarations_never_fail_the_generation() {
+        let fixtures = [
+            ("ios/Empty.m", "@implementation\n@end\n"),
+            ("ios/Interface.m", "@interface\n@end\n@protocol\n@end\n"),
+            (
+                "ios/Half.m",
+                "@implementation Half\n- (void) {}\n- (void)kept {}\n@end\n",
+            ),
+            (
+                "Sources/Broken.swift",
+                "func () {}\nstruct S {\n  var : Int\n  func kept() {}\n}\nenum E {\n  case\n}\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        capability_symbol(&forward, "ios/Half.m", "Half::kept");
+        capability_symbol(&forward, "Sources/Broken.swift", "S::kept");
+        assert!(
+            forward
+                .symbols()
+                .iter()
+                .all(|symbol| !symbol.qualified_name.ends_with("::")),
+            "{:?}",
+            forward.symbols()
+        );
+    }
+
+    #[test]
+    fn swift_backtick_escaped_declarations_resolve_from_their_uses() {
+        let fixtures = [(
+            "Sources/Keywords.swift",
+            "struct `Type` {\n  func `default`() {}\n  func run() { `default`() }\n}\nfunc `repeat`() {}\nfunc use(_ value: `Type`) {\n  `repeat`()\n}\n",
+        )];
+        let forward = build_capability_generation(&fixtures, false);
+        for (caller, name, kind, target) in [
+            ("use", "repeat", ReferenceKind::Calls, "repeat"),
+            ("use", "Type", ReferenceKind::TypeOf, "Type"),
+            (
+                "Type::run",
+                "default",
+                ReferenceKind::Calls,
+                "Type::default",
+            ),
+        ] {
+            let caller = capability_symbol(&forward, "Sources/Keywords.swift", caller);
+            let target = capability_symbol(&forward, "Sources/Keywords.swift", target);
+            let reference = CapabilityReferenceQuery::new(&forward, caller).named(name, kind);
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name}: {reference:?}"
+            );
+        }
     }
 
     #[test]

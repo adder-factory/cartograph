@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
+use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind};
 
 use crate::{
     ExtractError,
@@ -13,6 +13,8 @@ use crate::{
 
 const MAX_BRIDGE_SCAN_BYTES: usize = 4_096;
 const MAX_NATIVE_ALIASES: usize = 256;
+/// Every React Native method-export macro name starts with this prefix.
+const REACT_NATIVE_MACRO_PREFIX: &str = "RCT_";
 
 #[derive(Clone, Copy)]
 struct BridgeLandmarkInput<'name> {
@@ -697,7 +699,11 @@ fn scan_objc(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(),
                 },
             )?;
         }
-        for marker in ["RCT_REMAP_METHOD(", "RCT_EXTERN_REMAP_METHOD("] {
+        for marker in [
+            "RCT_REMAP_METHOD(",
+            "RCT_EXTERN_REMAP_METHOD(",
+            "RCT_REMAP_BLOCKING_SYNCHRONOUS_METHOD(",
+        ] {
             scan_objc_method_macro(
                 builder,
                 ObjcMethodMacroInput {
@@ -715,84 +721,7 @@ fn scan_objc(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(),
         source,
         &["sendEventWithName:", "sendEventWithName("],
     )?;
-    scan_objc_message_sends(builder, source)?;
     scan_objc_swift_aliases(builder, source)
-}
-
-fn scan_objc_message_sends(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-) -> Result<(), ExtractError> {
-    let mut cursor = 0_usize;
-    while let Some(relative) = source[cursor..].find('[') {
-        builder.check_cancelled()?;
-        let open = cursor + relative;
-        let Some(close) = matching_delimiter(DelimiterInput::square_brackets(source, open)) else {
-            cursor = open + 1;
-            continue;
-        };
-        if close.saturating_sub(open) <= MAX_BRIDGE_SCAN_BYTES
-            && let Some(reference) = parse_objc_message(&source[open + 1..close])
-        {
-            builder.add_reference_near(FrameworkNearReferenceInput {
-                name: &reference,
-                resolution_name: None,
-                kind: ReferenceKind::Calls,
-                start: open + 1,
-                end: close,
-            })?;
-        }
-        cursor = close + 1;
-    }
-    Ok(())
-}
-
-fn parse_objc_message(body: &str) -> Option<String> {
-    let receiver_start = skip_ascii_whitespace(body, 0);
-    let (receiver_end, receiver) = identifier_at(body, receiver_start)?;
-    let selector_start = skip_ascii_whitespace(body, receiver_end);
-    if selector_start == receiver_end {
-        return None;
-    }
-    let (selector_end, first_keyword) = identifier_at(body, selector_start)?;
-    let cursor = skip_ascii_whitespace(body, selector_end);
-    let mut selector = first_keyword.to_owned();
-    if body.as_bytes().get(cursor) != Some(&b':') {
-        return Some(format!("{receiver}.{selector}"));
-    }
-    selector.push(':');
-    append_objc_selector_tail(body, cursor.saturating_add(1), &mut selector)?;
-    Some(format!("{receiver}.{selector}"))
-}
-
-fn append_objc_selector_tail(body: &str, mut cursor: usize, selector: &mut String) -> Option<()> {
-    let bytes = body.as_bytes();
-    let mut state = BridgeDelimiterState::default();
-    while cursor < bytes.len() {
-        let byte = bytes[cursor];
-        if state.consume_quote(byte, false) {
-            cursor += 1;
-            continue;
-        }
-        if state.update_depth(byte, false) {
-            cursor += 1;
-            continue;
-        }
-        if state.top_level() && (byte == b'_' || byte.is_ascii_alphabetic()) {
-            let (end, keyword) = identifier_at(body, cursor)?;
-            let after = skip_ascii_whitespace(body, end);
-            if bytes.get(after) == Some(&b':') {
-                selector.push_str(keyword);
-                selector.push(':');
-                cursor = after + 1;
-            } else {
-                cursor = end;
-            }
-        } else {
-            cursor += 1;
-        }
-    }
-    Some(())
 }
 
 fn scan_objc_method_macro(
@@ -1020,90 +949,67 @@ fn scan_swift(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<()
     scan_native_event_producers(builder, source, &["sendEvent(withName:", "sendEvent("])
 }
 
+/// One Objective-C method the Swift-name aliases are derived from.
+struct ObjcAliasSource {
+    selector: String,
+    start: usize,
+    end: usize,
+    declaration_only: bool,
+}
+
+/// Swift-visible base names for every Objective-C method. Methods are named by
+/// their full selector; an alias of a header declaration stays declaration-only
+/// so a same-selector implementation is the unique bridge target, and React
+/// Native export-macro methods keep only their JS bridge landmark.
 fn scan_objc_swift_aliases(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
 ) -> Result<(), ExtractError> {
     for index in 0..builder.original_symbol_count() {
         builder.check_cancelled()?;
-        let Some((fallback_name, start, end)) = builder.original_symbol(index).and_then(|symbol| {
-            (symbol.kind == SymbolKind::Method)
-                .then(|| {
-                    Some((
-                        symbol.name.clone(),
-                        usize::try_from(symbol.span.start_byte()).ok()?,
-                        usize::try_from(symbol.span.end_byte()).ok()?,
-                    ))
-                })
-                .flatten()
-        }) else {
+        let Some(method) = objc_alias_source(builder, index) else {
             continue;
         };
-        let selector = objc_selector_from_declaration(source, start, end).unwrap_or(fallback_name);
-        for alias in swift_base_names_for_objc_selector(&selector) {
+        if source
+            .get(method.start..)
+            .is_some_and(|declaration| declaration.starts_with(REACT_NATIVE_MACRO_PREFIX))
+        {
+            continue;
+        }
+        for alias in swift_base_names_for_objc_selector(&method.selector) {
             if apple_bridge_generic_name(&alias) {
                 continue;
             }
-            add_landmark(
+            let landmark = add_landmark_with_id(
                 builder,
                 BridgeLandmarkInput {
                     kind: SymbolKind::Method,
                     name: &alias,
-                    category: &format!("objc-swift-method::{selector}"),
-                    start,
-                    end,
+                    category: &format!("objc-swift-method::{}", method.selector),
+                    start: method.start,
+                    end: method.end,
                 },
             )?;
+            if method.declaration_only
+                && let Some(landmark) = landmark
+            {
+                builder.mark_landmark_declaration_only(&landmark);
+            }
         }
     }
     Ok(())
 }
 
-fn objc_selector_from_declaration(source: &str, start: usize, end: usize) -> Option<String> {
-    let declaration = source.get(start..end)?;
-    let header_end = declaration.find(['{', ';']).unwrap_or(declaration.len());
-    let header = &declaration[..header_end];
-    let return_open = header.find('(')?;
-    let return_close = matching_delimiter(DelimiterInput::parentheses(header, return_open))?;
-    let bytes = header.as_bytes();
-    let mut cursor = return_close + 1;
-    let mut selector = String::new();
-    let mut first_identifier = None;
-    while cursor < bytes.len() {
-        while cursor < bytes.len()
-            && !(bytes[cursor] == b'_' || bytes[cursor].is_ascii_alphabetic())
-        {
-            cursor += 1;
-        }
-        let Some((end, identifier)) = identifier_at(header, cursor) else {
-            break;
-        };
-        first_identifier.get_or_insert(identifier);
-        cursor = skip_ascii_whitespace(header, end);
-        if bytes.get(cursor) != Some(&b':') {
-            if selector.is_empty() {
-                return Some(identifier.to_owned());
-            }
-            cursor = end;
-            continue;
-        }
-        selector.push_str(identifier);
-        selector.push(':');
-        cursor += 1;
-        cursor = skip_ascii_whitespace(header, cursor);
-        if bytes.get(cursor) == Some(&b'(')
-            && let Some(close) = matching_delimiter(DelimiterInput::parentheses(header, cursor))
-        {
-            cursor = close + 1;
-        }
-        cursor = skip_ascii_whitespace(header, cursor);
-        if let Some((parameter_end, _)) = identifier_at(header, cursor) {
-            cursor = parameter_end;
-        }
-    }
-    (!selector.is_empty())
-        .then_some(selector)
-        .or_else(|| first_identifier.map(str::to_owned))
+fn objc_alias_source(builder: &FrameworkBuilder<'_, '_>, index: usize) -> Option<ObjcAliasSource> {
+    let symbol = builder
+        .original_symbol(index)
+        .filter(|symbol| symbol.kind == SymbolKind::Method)?;
+    Some(ObjcAliasSource {
+        selector: symbol.name.clone(),
+        start: usize::try_from(symbol.span.start_byte()).ok()?,
+        end: usize::try_from(symbol.span.end_byte()).ok()?,
+        declaration_only: symbol.implementation.declaration_only,
+    })
 }
 
 fn scan_swift_objc_exports(
@@ -1422,10 +1328,17 @@ fn add_landmark(
     builder: &mut FrameworkBuilder<'_, '_>,
     input: BridgeLandmarkInput<'_>,
 ) -> Result<(), ExtractError> {
+    add_landmark_with_id(builder, input).map(|_| ())
+}
+
+fn add_landmark_with_id(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    input: BridgeLandmarkInput<'_>,
+) -> Result<Option<SymbolId>, ExtractError> {
     if input.name.is_empty() || input.start >= input.end || input.end > builder.source().len() {
-        return Ok(());
+        return Ok(None);
     }
-    builder.add_landmark(LandmarkInput {
+    builder.add_landmark_with_id(LandmarkInput {
         kind: input.kind,
         name: input.name.to_owned(),
         identity: format!("{}::{}", input.category, input.name),
