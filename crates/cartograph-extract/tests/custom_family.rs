@@ -195,6 +195,108 @@ fn custom_modes_poll_cancellation_before_retaining_facts() {
     }
 }
 
+#[test]
+fn vb6_declare_routines_are_imports_and_bare_statements_are_calls() {
+    // v1 languages/vb6.ts: `Declare` -> import node; inside routines a statement
+    // line calls its first identifier unless it is a VB keyword.
+    let source = "VERSION 5.00\nBegin VB.Form frmMain\nEnd\nAttribute VB_Name = \"frmMain\"\nPrivate Declare PtrSafe Function GetTickCount Lib \"kernel32\" () As Long\nDeclare Sub Sleep Lib \"kernel32\" (ByVal ms As Long)\nPrivate customerName As String\n\nPublic Sub Load()\n    Dim i As Integer\n    Helper i\n    MsgBox \"cartograph_literal_secret_sentinel_7c1f\"\n    Call DoWork(1)\n    FormatName customerName\n    customerName = \"x\"\n    total = Compute(2)\n    Me.Caption = \"y\"\n    If i > 0 Then\n    End If\n    Exit Sub\n    Set obj = Nothing\nEnd Sub\n\nPublic Function FormatName(ByVal value As String) As String\n    FormatName = value\nEnd Function\n";
+    let snapshot = SourceSnapshot::from_bytes("legacy/Main.frm", source.as_bytes(), limits())
+        .unwrap_or_else(|error| panic!("VB6 snapshot failed: {error}"));
+    assert_eq!(snapshot.language(), SourceLanguage::Vb6);
+    let extracted = NativeExtractor::new(SourceLanguage::Vb6)
+        .unwrap_or_else(|error| panic!("VB6 extractor failed: {error}"))
+        .extract(&snapshot)
+        .unwrap_or_else(|error| panic!("VB6 extraction failed: {error}"));
+    let symbols = extracted
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.kind, symbol.qualified_name.as_str()))
+        .collect::<Vec<_>>();
+    for name in ["frmMain::GetTickCount", "frmMain::Sleep"] {
+        assert!(
+            symbols.contains(&(SymbolKind::Import, name)),
+            "missing Declare import {name}: {symbols:?}"
+        );
+    }
+    assert!(
+        symbols.iter().all(|(_, name)| !name.ends_with("::Declare")),
+        "Declare keyword became a symbol: {symbols:?}"
+    );
+    assert!(symbols.contains(&(SymbolKind::Field, "frmMain::customerName")));
+    let load = extracted
+        .symbols
+        .iter()
+        .find(|symbol| symbol.qualified_name == "frmMain::Load")
+        .unwrap_or_else(|| panic!("missing Load: {symbols:?}"));
+    let calls = extracted
+        .references
+        .iter()
+        .filter(|reference| {
+            reference.kind == ReferenceKind::Calls && reference.owner.as_ref() == Some(&load.id)
+        })
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    for expected in ["Helper", "MsgBox", "DoWork", "FormatName", "Compute"] {
+        assert!(
+            calls.contains(&expected),
+            "missing call {expected}: {calls:?}"
+        );
+    }
+    for keyword_or_assignment in [
+        "customerName",
+        "total",
+        "Me",
+        "Caption",
+        "If",
+        "End",
+        "Exit",
+        "Set",
+        "obj",
+        "Dim",
+    ] {
+        assert!(
+            !calls.contains(&keyword_or_assignment),
+            "{keyword_or_assignment} is not a call: {calls:?}"
+        );
+    }
+    assert!(!format!("{extracted:?}").contains(SECRET_SENTINEL));
+    assert!(!format!("{extracted:?}").contains("kernel32"));
+}
+
+#[test]
+fn vb6_calls_ignore_string_contents_and_keep_member_and_rhs_calls() {
+    let source = "Attribute VB_Name = \"Module1\"\nPublic Sub Run()\n    MsgBox \"Use (Fake) it's quoted\"\n    obj.Save arg\n    total = Other(i)\n    Me.Caption = \"y\"\n    Retry:\n    Notify \"x\" ' Trailing(comment)\n    Rem Remark(ignored) entirely\n    Primary Nested(i)\n    Call form.Submit(1)\nEnd Sub\n";
+    let snapshot = SourceSnapshot::from_bytes("legacy/Module1.bas", source.as_bytes(), limits())
+        .unwrap_or_else(|error| panic!("VB6 snapshot failed: {error}"));
+    let extracted = NativeExtractor::new(SourceLanguage::Vb6)
+        .unwrap_or_else(|error| panic!("VB6 extractor failed: {error}"))
+        .extract(&snapshot)
+        .unwrap_or_else(|error| panic!("VB6 extraction failed: {error}"));
+    let calls = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "MsgBox", "Save", "Other", "Notify", "Primary", "Nested", "Submit",
+    ] {
+        assert!(
+            calls.contains(&expected),
+            "missing call {expected}: {calls:?}"
+        );
+    }
+    for absent in [
+        "Use", "Fake", "obj", "total", "Me", "Caption", "Retry", "Trailing", "Rem", "Remark",
+        "form",
+    ] {
+        assert!(
+            !calls.contains(&absent),
+            "{absent} is not a call: {calls:?}"
+        );
+    }
+}
+
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("custom-family source limit failed: {error}"))

@@ -64,8 +64,10 @@ pub(crate) fn enrich(
     crate::framework_hono::scan(&mut builder, &masked_source)?;
     crate::framework_managed_routes::scan(&mut builder, &masked_source)?;
     crate::framework_manifest::scan(&mut builder, &masked_source)?;
+    crate::framework_mybatis::scan(&mut builder, &masked_source)?;
     crate::framework_nest::scan(&mut builder, &masked_source)?;
     crate::framework_rails::scan(&mut builder, &masked_source)?;
+    crate::framework_spring::scan(&mut builder, &masked_source)?;
     scan_framework_signals(&mut builder, &masked_source)?;
     crate::framework_bridge::scan(&mut builder, &masked_source)?;
     builder.finish()
@@ -81,6 +83,16 @@ pub(crate) struct FrameworkBuilder<'source, 'cancel> {
     symbol_keys: BTreeSet<(SymbolKind, String)>,
     reference_keys: BTreeSet<(Option<SymbolId>, ReferenceKind, String, u64, u64)>,
     ordinals: BTreeMap<(SymbolKind, String), u64>,
+    /// `@Value(...)` argument ranges and the declarations they decorate,
+    /// sorted by start; recorded by the Spring scanner before config scanning.
+    value_annotations: Vec<AnnotationInterval>,
+}
+
+/// The argument range of one annotation and the declaration it decorates.
+pub(crate) struct AnnotationInterval {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) owner: SymbolId,
 }
 
 pub(crate) struct LandmarkInput<'target> {
@@ -419,6 +431,7 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             symbol_keys,
             reference_keys,
             ordinals: BTreeMap::new(),
+            value_annotations: Vec::new(),
         })
     }
 
@@ -450,6 +463,22 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     pub(crate) const fn original_symbol_count(&self) -> usize {
         self.original_symbols
+    }
+
+    /// References recorded so far (walker facts first, then framework facts).
+    pub(crate) fn references(&self) -> &[ExtractedReference] {
+        &self.file.references
+    }
+
+    /// Record the `@Value` annotation ranges of this file.
+    pub(crate) fn set_value_annotations(&mut self, mut intervals: Vec<AnnotationInterval>) {
+        intervals.sort_by_key(|interval| (interval.start, interval.end));
+        self.value_annotations = intervals;
+    }
+
+    /// `@Value` annotation ranges, sorted by start.
+    pub(crate) fn value_annotations(&self) -> &[AnnotationInterval] {
+        &self.value_annotations
     }
 
     pub(crate) fn add_route(&mut self, input: FrameworkRouteInput<'_>) -> Result<(), ExtractError> {
@@ -2362,11 +2391,26 @@ fn scan_managed_config_placeholders(
                 .unwrap_or_default()
                 .trim();
             let leading = input.text[start..close].find(raw).unwrap_or(0);
-            builder.add_signal_reference(FrameworkSignalReferenceInput {
-                name: raw,
-                start: input.start + start + leading,
-                end: input.start + start + leading + raw.len(),
-            })?;
+            let key_start = input.start + start + leading;
+            // `@Value("${key}") private int ttl;` belongs to `ttl`, whose span
+            // does not cover its annotations.
+            let mut owners = crate::framework_spring::value_annotation_owners(builder, key_start)
+                .into_iter()
+                .map(Some)
+                .collect::<Vec<_>>();
+            if owners.is_empty() {
+                owners.push(builder.owner_near(key_start));
+            }
+            for owner in owners {
+                builder.add_reference(FrameworkReferenceInput {
+                    owner,
+                    name: raw,
+                    resolution_name: None,
+                    kind: ReferenceKind::References,
+                    start: key_start,
+                    end: key_start + raw.len(),
+                })?;
+            }
             cursor = close + 1;
         }
     }

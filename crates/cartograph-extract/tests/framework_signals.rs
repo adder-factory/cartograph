@@ -1366,6 +1366,268 @@ const rune = $state(0);
     );
 }
 
+#[test]
+fn spring_conditional_on_property_keys_are_owned_by_the_annotated_declaration() {
+    let java = extract(
+        "src/PaymentsAutoConfig.java",
+        "import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;\n\n@ConditionalOnProperty(prefix = \"feature.payments.\", name = \"enabled\", havingValue = \"cartograph_literal_secret_sentinel_7c1f\")\npublic class PaymentsAutoConfig {\n  @Bean\n  @ConditionalOnProperty(\"feature.audit\")\n  public Audit audit() { return null; }\n  @ConditionalOnProperty(value = \".feature.legacy\", matchIfMissing = true)\n  public Legacy legacy() { return null; }\n  @ConditionalOnProperty(name = {\"feature.array\"})\n  public Arrayed arrayed() { return null; }\n  @Value(\"${app.cache.ttl}\")\n  private int cacheTtl;\n  @Value(\"${app.pair:1}\") String left, right;\n  @Value /* documented */ (\"${app.noted}\") private String noted;\n  @ConditionalOnProperty(prefix = PREFIX, name = \"hidden\")\n  public Hidden hidden() { return null; }\n}\n",
+        SourceLanguage::Java,
+    );
+    let owner_of = |name: &str| {
+        java.references
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::References && reference.name == name
+            })
+            .map(|reference| {
+                reference.owner.as_ref().and_then(|owner| {
+                    java.symbols
+                        .iter()
+                        .find(|symbol| &symbol.id == owner)
+                        .map(|symbol| symbol.qualified_name.as_str())
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        owner_of("feature.payments.enabled"),
+        vec![Some("PaymentsAutoConfig")]
+    );
+    assert_eq!(
+        owner_of("feature.audit"),
+        vec![Some("PaymentsAutoConfig::audit")]
+    );
+    assert_eq!(
+        owner_of("feature.legacy"),
+        vec![Some("PaymentsAutoConfig::legacy")]
+    );
+    assert_eq!(
+        owner_of("app.cache.ttl"),
+        vec![Some("PaymentsAutoConfig::cacheTtl")],
+        "@Value keys belong to the annotated field"
+    );
+    assert_eq!(
+        owner_of("app.pair"),
+        vec![
+            Some("PaymentsAutoConfig::left"),
+            Some("PaymentsAutoConfig::right")
+        ],
+        "every declarator of a multi-declarator @Value field depends on the key"
+    );
+    assert_eq!(
+        owner_of("app.noted"),
+        vec![Some("PaymentsAutoConfig::noted")],
+        "a comment between @Value and its arguments keeps the field owner"
+    );
+    assert!(
+        owner_of("hidden").is_empty(),
+        "a non-literal prefix makes the key unknown"
+    );
+    for absent in ["feature.array", "true", "enabled", "feature.payments."] {
+        assert!(
+            owner_of(absent).is_empty(),
+            "unexpected configuration key {absent}: {:?}",
+            java.references
+        );
+    }
+    assert!(!format!("{java:?}").contains(SECRET));
+
+    let kotlin = extract(
+        "src/Payments.kt",
+        "@ConditionalOnProperty(prefix = \"feature.payments\", name = \"enabled\")\nclass PaymentsAutoConfig\n@ConditionalOnProperty(prefix = \"$ROOT.flags\", name = \"templated\")\nclass Templated\n",
+        SourceLanguage::Kotlin,
+    );
+    assert!(kotlin.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::References && reference.name == "feature.payments.enabled"
+    }));
+    assert!(
+        kotlin
+            .references
+            .iter()
+            .all(|reference| !reference.name.contains("templated")),
+        "a Kotlin string template is not a literal prefix: {:?}",
+        kotlin.references
+    );
+
+    let unrelated = extract(
+        "src/Other.java",
+        "@ConditionalOnBean(name = \"feature.payments\")\nclass Other {}\n",
+        SourceLanguage::Java,
+    );
+    assert!(
+        unrelated
+            .references
+            .iter()
+            .all(|reference| reference.kind != ReferenceKind::References),
+        "only ConditionalOnProperty names configuration keys: {:?}",
+        unrelated.references
+    );
+}
+
+#[test]
+fn mybatis_template_statement_ids_reference_mapper_statements_from_the_calling_method() {
+    let extracted = extract(
+        "src/main/java/com/example/order/dao/impl/OrderAttributeDaoImpl.java",
+        "package com.example.order.dao.impl;\n\nimport com.example.order.dao.OrderAttributeDao;\n\npublic class OrderAttributeDaoImpl {\n  private static final String SQL_NS = OrderAttributeDao.class.getName() + \"Mapper\";\n  private static final String ORDER_NS = \"com.example.OrderMapper\";\n\n  public void deleteByOrderId(String orderId) {\n    getSqlSessionTemplate().delete(SQL_NS + \".deleteByOrderId\", orderId);\n  }\n\n  public Object find(String id) {\n    Object row = sqlSessionTemplate.selectOne(ORDER_NS + \".findOrder\", id);\n    this.sqlSessionTemplate.selectList(\"ns.Literal.findAll\");\n    sqlSessionTemplate.update(dynamicNamespace() + \".skip\", id);\n    sqlSessionTemplate.insert(unknown + \".skip\", id);\n    // sqlSessionTemplate.delete(\"Commented.out\");\n    return row;\n  }\n}\n",
+        SourceLanguage::Java,
+    );
+    let owned = |owner: &str| {
+        let owner = extracted
+            .symbols
+            .iter()
+            .find(|symbol| symbol.qualified_name == owner)
+            .unwrap_or_else(|| panic!("missing {owner}: {:?}", extracted.symbols));
+        extracted
+            .references
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::References
+                    && reference.owner.as_ref() == Some(&owner.id)
+            })
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        owned("com.example.order.dao.impl::OrderAttributeDaoImpl::deleteByOrderId"),
+        vec!["OrderAttributeDaoMapper::deleteByOrderId"]
+    );
+    assert_eq!(
+        owned("com.example.order.dao.impl::OrderAttributeDaoImpl::find"),
+        vec!["OrderMapper::findOrder", "Literal::findAll"]
+    );
+    assert!(
+        extracted
+            .references
+            .iter()
+            .all(|reference| !reference.name.ends_with("::skip")
+                && reference.name != "Commented::out"),
+        "unevaluable or commented statement ids must not be guessed: {:?}",
+        extracted.references
+    );
+
+    let ambiguous = extract(
+        "src/main/java/com/example/AmbiguousDao.java",
+        "package com.example;\npublic class AmbiguousDao {\n  private String reassigned = \"first.Mapper\";\n  private static final String SHADOWED = \"a.Mapper\";\n  private static final String KNOWN = \"ok.Mapper\";\n  void reset() { reassigned = \"second.Mapper\"; }\n  void load() {\n    sqlSessionTemplate.selectOne(reassigned + \".find\");\n    sqlSessionTemplate.selectOne(SHADOWED + \".find\");\n    String doc = \"sqlSessionTemplate.selectOne(KNOWN + \\\".fake\\\")\";\n    sqlSessionTemplate.selectOne(KNOWN + \".real\");\n  }\n  class Inner { private static final String SHADOWED = \"b.Mapper\"; }\n}\n",
+        SourceLanguage::Java,
+    );
+    let statements = ambiguous
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statements,
+        vec!["Mapper::real"],
+        "reassigned or shadowed constants and calls inside string literals abstain"
+    );
+
+    let scoped = extract(
+        "src/main/java/com/example/ScopedDao.java",
+        "package com.example;\npublic class ScopedDao {\n  private static final String NS = \"field.Mapper\";\n  void initialize() {\n    final String LOCAL = \"LocalMapper\";\n  }\n  Object load(String NS) {\n    return sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n  Object local() {\n    return sqlSessionTemplate.selectOne(LOCAL + \".find\");\n  }\n  Object quoted() {\n    String block = \"\"\"\n      sqlSessionTemplate.selectOne(\"Block.fake\");\n      \"\"\";\n    char quote = '\"'; return sqlSessionTemplate.selectOne(\"Quoted.real\");\n  }\n  Object annotated(@Param(\"ns\") String NS) {\n    return sqlSessionTemplate.selectOne((NS) + \".find\");\n  }\n  void loop(java.util.List<String> names) {\n    for (String NS : names) sqlSessionTemplate.selectOne(NS + \".find\");\n    names.forEach(NS -> sqlSessionTemplate.selectOne(NS + \".find\"));\n  }\n  Object fieldUse() {\n    return sqlSessionTemplate.selectOne(NS + \".ok\");\n  }\n}\n",
+        SourceLanguage::Java,
+    );
+    let statements = scoped
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statements,
+        vec!["Quoted::real", "Mapper::ok"],
+        "parameters shadow fields, locals never answer for other methods, text blocks are literals, and a char literal quote does not hide a real call"
+    );
+}
+
+#[test]
+fn mybatis_template_scanning_is_literal_and_unicode_safe() {
+    let statements = |path: &str, source: &str| {
+        extract(path, source, SourceLanguage::Java)
+            .references
+            .into_iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name)
+            .collect::<Vec<_>>()
+    };
+    // A multibyte identifier ending in a constant's name neither panics nor
+    // shadows it; a non-ASCII type before the name is a shadowing local.
+    assert_eq!(
+        statements(
+            "src/main/java/UnicodeDao.java",
+            "class UnicodeDao {\n  static final String NS = \"a.Mapper\";\n  void f() { String caféNS; sqlSessionTemplate.selectOne(NS + \".find\"); }\n  void g() { Façade NS; sqlSessionTemplate.selectOne(NS + \".shadowed\"); }\n  void h() { sqlSessionTemplate.selectOne(\"é.Ünicode\" + \".x\"); }\n}\n",
+        ),
+        vec!["Mapper::find"],
+    );
+    // Declarations and bindings spelled inside literals are not code: a
+    // text-block line never defines a constant, and a string mentioning
+    // `String KNOWN` does not shadow the field.
+    let leaked = statements(
+        "src/main/java/BlockDao.java",
+        "class BlockDao extends BaseDao {\n  static final String DOC = \"\"\"\n    final String NS = \"literal_secret_sentinel\";\n    \"\"\";\n  static final String KNOWN = \"known.KnownMapper\";\n  void load() {\n    sqlSessionTemplate.selectOne(NS + \".find\");\n    String doc = \"String KNOWN\";\n    sqlSessionTemplate.selectOne(KNOWN + \".real\");\n  }\n}\n",
+    );
+    assert_eq!(leaked, vec!["KnownMapper::real"]);
+    assert!(leaked.iter().all(|name| !name.contains("sentinel")));
+    // v1 accepts non-final fields assigned exactly once; a local declared in
+    // a one-line method body is still not a class-level constant.
+    assert_eq!(
+        statements(
+            "src/main/java/LegacyDao.java",
+            "class LegacyDao {\n  private static String LEGACY = \"legacy.LegacyMapper\";\n  void init() { String LOCAL = \"LocalMapper\"; }\n  void load() {\n    sqlSessionTemplate.selectOne(LEGACY + \".find\");\n    sqlSessionTemplate.selectOne(LOCAL + \".skip\");\n  }\n}\n",
+        ),
+        vec!["LegacyMapper::find"],
+    );
+    // A local of a static or instance initializer block lies outside every
+    // method but is not a field: it never answers for the field it shadows.
+    for (path, block) in [
+        ("src/main/java/StaticInit.java", "static"),
+        ("src/main/java/InstanceInit.java", ""),
+    ] {
+        let source = format!(
+            "class Init {{\n  static String NS;\n  {block} {{\n    String NS = \"fake.FakeMapper\";\n  }}\n  void f() {{\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }}\n}}\n"
+        );
+        assert!(statements(path, &source).is_empty(), "{path}");
+    }
+    // Java translates `\uXXXX` before it finds comments, literals, or
+    // identifiers, so an escape can open a text block, end a comment, or
+    // respell an identifier (even with an ignorable non-ASCII character):
+    // any file containing one abstains, and nothing it spells is stored. A
+    // literal ignorable character in code respells identifiers the same way.
+    for (path, source) in [
+        (
+            "src/main/java/EscapedBlock.java",
+            "class C {\n  static String NS;\n  static final String DOC = \\u0022\\u0022\\u0022\n    final String NS = \"literal_secret_sentinel\";\n    \\u0022\\u0022\\u0022;\n  void f() {\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/EscapedAssignment.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    N\\u0053 = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/EscapedComment.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    //\\u000a NS = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/EscapedIgnorable.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    N\\u200bS = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/LiteralIgnorable.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    N\u{200b}S = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+    ] {
+        assert!(statements(path, source).is_empty(), "{path}");
+    }
+    // A field's initializer can contain an anonymous class whose initializer
+    // block declares a same-named local; that local is not the field.
+    assert_eq!(
+        statements(
+            "src/main/java/AnonymousInit.java",
+            "class C {\n  String NS[] = { new Object() {\n    {\n      String NS = \"fake.FakeMapper\";\n    }\n  }.toString() };\n  void f() { sqlSessionTemplate.selectOne(NS + \".find\"); }\n}\n",
+        ),
+        Vec::<String>::new()
+    );
+}
+
 fn extract(
     path: &str,
     source: &str,

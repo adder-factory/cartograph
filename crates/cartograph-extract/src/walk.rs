@@ -19,6 +19,7 @@ use crate::{
 
 mod ada_family;
 mod arkts_family;
+mod apex_family;
 mod c_family;
 mod dart_family;
 mod declarations;
@@ -54,6 +55,7 @@ mod specifier_safety;
 mod sql_family;
 pub(crate) mod syntax;
 mod value_references;
+mod vbnet_family;
 
 pub(crate) use optional_facts::extract_with_optional_fact_fallback;
 use optional_facts::{OptionalFactGate, OptionalFacts, PassFailure, WalkedFile};
@@ -850,6 +852,8 @@ enum ExtractionFamily {
     Lua,
     R,
     Nix,
+    Apex,
+    VbNet,
     Shader,
     Shell,
     C,
@@ -894,14 +898,12 @@ const JVM_DYNAMIC_LANGUAGES: &[SourceLanguage] = &[
 ];
 const GENERIC_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Abap,
-    SourceLanguage::Apex,
     SourceLanguage::Astro,
     SourceLanguage::Html,
     SourceLanguage::ObjectiveC,
     SourceLanguage::Pascal,
     SourceLanguage::Php,
     SourceLanguage::Swift,
-    SourceLanguage::VbNet,
     SourceLanguage::Yaml,
 ];
 const POLYGLOT_LANGUAGES: &[SourceLanguage] = &[
@@ -975,6 +977,20 @@ const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice
             visit_declaration: nix_family::visit_declaration,
             visit_usage: |builder, node, depth| {
                 nix_family::capture_usage(builder, node)?;
+                builder.visit_named_children(node, depth)
+            },
+        },
+        ExtractionFamily::Apex => FamilySlice {
+            visit_declaration: apex_family::visit_declaration,
+            visit_usage: |builder, node, depth| {
+                apex_family::capture_usage(builder, node)?;
+                builder.visit_named_children(node, depth)
+            },
+        },
+        ExtractionFamily::VbNet => FamilySlice {
+            visit_declaration: vbnet_family::visit_declaration,
+            visit_usage: |builder, node, depth| {
+                vbnet_family::capture_usage(builder, node)?;
                 builder.visit_named_children(node, depth)
             },
         },
@@ -1145,6 +1161,8 @@ fn extraction_family(language: SourceLanguage) -> ExtractionFamily {
             SourceLanguage::R => ExtractionFamily::R,
             SourceLanguage::Nix => ExtractionFamily::Nix,
             SourceLanguage::Sql => ExtractionFamily::Sql,
+            SourceLanguage::VbNet => ExtractionFamily::VbNet,
+            SourceLanguage::Apex => ExtractionFamily::Apex,
             _ => ExtractionFamily::Unsupported,
         }
     }

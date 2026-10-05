@@ -12,6 +12,9 @@ use super::{
     with_root_scope,
 };
 
+mod annotations;
+mod kotlin_callables;
+
 const MAX_SIGNATURE_BYTES: usize = 512;
 const MAX_REFERENCE_TARGET_BYTES: usize = 512;
 const MAX_TYPE_DEPTH: usize = 64;
@@ -547,8 +550,10 @@ fn emit_jvm_symbol(
     pending: PendingSymbol<'_>,
 ) -> Result<SymbolId, ExtractError> {
     let doc_anchor = pending.doc_anchor;
+    let structural_node = pending.structural_node;
     let custom_doc = preceding_jvm_doc(builder, doc_anchor)?;
     let id = builder.emit_symbol(pending)?;
+    annotations::capture_annotations(builder, structural_node, &id)?;
     let needs_override = builder
         .facts
         .symbols
@@ -1071,12 +1076,52 @@ fn visit_kotlin_callable(
     else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    // A top-level extension function keeps the `Function` kind (Kotlin compiles
+    // it to a static function, and v2 member resolution would otherwise stop
+    // binding its bare `shout()` calls); its receiver qualifies its identity.
+    let receiver = kotlin_callables::extension_receiver(builder, node)?;
     let kind = if current_owner_kind_in(builder, JVM_TYPE_OWNER_KINDS) {
         SymbolKind::Method
     } else {
         SymbolKind::Function
     };
+    let qualifier_depth = builder.qualifiers.len();
+    builder.qualifiers.extend(receiver);
+    let result = emit_kotlin_callable(
+        builder,
+        KotlinCallable {
+            node,
+            name_node,
+            parameters,
+            kind,
+            depth,
+        },
+    );
+    builder.qualifiers.truncate(qualifier_depth);
+    result
+}
+
+#[derive(Clone, Copy)]
+struct KotlinCallable<'tree> {
+    node: Node<'tree>,
+    name_node: Node<'tree>,
+    parameters: Node<'tree>,
+    kind: SymbolKind,
+    depth: usize,
+}
+
+fn emit_kotlin_callable(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: KotlinCallable<'_>,
+) -> Result<(), ExtractError> {
+    let KotlinCallable {
+        node,
+        name_node,
+        parameters,
+        kind,
+        depth,
+    } = input;
+    let name = builder.context.owned_text(name_node)?;
     let return_type = kotlin_return_type(node, parameters);
     let body = named_children(node).find(|child| child.kind() == "function_body");
     let visibility = jvm_visibility(builder, node)?;
@@ -1112,26 +1157,17 @@ fn visit_kotlin_callable(
         )?;
     }
     if let Some(receiver) = node.child_by_field_name("receiver") {
-        capture_type_references(
-            builder,
-            TypeReferenceCapture {
-                node: receiver,
-                owner: &id,
-                kind: ReferenceKind::TypeOf,
-                depth: 0,
-            },
-        )?;
+        kotlin_callables::capture_receiver_types(builder, receiver, &id)?;
     }
-    visit_owned_body(
-        builder,
-        OwnedBody {
-            id,
-            kind,
-            name,
-            body,
-            depth,
-        },
-    )
+    builder.owners.push(id);
+    builder.native_owner_kinds.push(kind);
+    builder.qualifiers.push(name);
+    let result = kotlin_callables::emit_annotated_parameters(builder, parameters)
+        .and_then(|()| body.map_or(Ok(()), |body| builder.visit(body, depth.saturating_add(1))));
+    builder.qualifiers.pop();
+    builder.native_owner_kinds.pop();
+    builder.owners.pop();
+    result
 }
 
 fn visit_scala_callable(

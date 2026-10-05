@@ -16,6 +16,8 @@ use super::{
 const MAX_SIGNATURE_BYTES: usize = 512;
 const MAX_REFERENCE_TARGET_BYTES: usize = 512;
 const MAX_TYPE_DEPTH: usize = 64;
+/// Longest type text whose nested generic arguments are stripped in place.
+const MAX_NESTED_GENERIC_BYTES: usize = 4_096;
 
 struct ImportEmission<'tree, 'text> {
     node: Node<'tree>,
@@ -507,7 +509,7 @@ fn capture_inheritance(
     input: InheritanceCapture<'_, '_>,
 ) -> Result<(), ExtractError> {
     match builder.context.snapshot.language() {
-        SourceLanguage::Java => capture_java_inheritance(builder, input)?,
+        SourceLanguage::Java | SourceLanguage::Apex => capture_java_inheritance(builder, input)?,
         SourceLanguage::CSharp => capture_csharp_inheritance(builder, input)?,
         _ => {}
     }
@@ -1108,21 +1110,31 @@ fn capture_modifier(
     Ok(())
 }
 
+/// Modifier keywords, matched case-insensitively because Apex keywords are
+/// case-insensitive (`PUBLIC static`). Apex `global` widens `public` beyond the
+/// namespace and is modelled as public.
+const MODIFIER_KEYWORDS: &[(&str, ManagedModifier)] = &[
+    ("public", ManagedModifier::Public),
+    ("global", ManagedModifier::Public),
+    ("private", ManagedModifier::Private),
+    ("protected", ManagedModifier::Protected),
+    ("internal", ManagedModifier::Internal),
+    ("static", ManagedModifier::Static),
+    ("async", ManagedModifier::Async),
+    ("const", ManagedModifier::Const),
+];
+
 fn update_modifier(kind: &str, text: &str, modifiers: &mut ManagedModifiers) {
     let token = if matches!(kind, "modifier" | "modifiers") {
         text
     } else {
         kind
     };
-    match token {
-        "public" => modifiers.insert(ManagedModifier::Public),
-        "private" => modifiers.insert(ManagedModifier::Private),
-        "protected" => modifiers.insert(ManagedModifier::Protected),
-        "internal" => modifiers.insert(ManagedModifier::Internal),
-        "static" => modifiers.insert(ManagedModifier::Static),
-        "async" => modifiers.insert(ManagedModifier::Async),
-        "const" => modifiers.insert(ManagedModifier::Const),
-        _ => {}
+    if let Some((_, modifier)) = MODIFIER_KEYWORDS
+        .iter()
+        .find(|(keyword, _)| token.eq_ignore_ascii_case(keyword))
+    {
+        modifiers.insert(*modifier);
     }
     if is_decorator(kind) {
         modifiers.insert(ManagedModifier::Decorated);
@@ -1182,7 +1194,7 @@ fn capture_type_references(
     input: TypeReferenceCapture<'_, '_>,
 ) -> Result<(), ExtractError> {
     match builder.context.snapshot.language() {
-        SourceLanguage::Java => capture_java_type(builder, input),
+        SourceLanguage::Java | SourceLanguage::Apex => capture_java_type(builder, input),
         SourceLanguage::CSharp => capture_csharp_type(builder, input),
         _ => Ok(()),
     }
@@ -1209,8 +1221,9 @@ fn capture_java_type(
                     },
                 )?;
             }
-            for child in named_children(input.node).filter(|child| child.kind() == "type_arguments")
-            {
+            for child in named_children(input.node).filter(|child| {
+                child.kind() == "type_arguments" && names_type_arguments(input.kind)
+            }) {
                 capture_java_type(
                     builder,
                     TypeReferenceCapture {
@@ -1224,10 +1237,10 @@ fn capture_java_type(
         }
         "generic_type" => {
             for child in named_children(input.node) {
-                if matches!(
-                    child.kind(),
-                    "type_identifier" | "scoped_type_identifier" | "type_arguments"
-                ) {
+                let head = matches!(child.kind(), "type_identifier" | "scoped_type_identifier");
+                let arguments =
+                    child.kind() == "type_arguments" && names_type_arguments(input.kind);
+                if head || arguments {
                     capture_java_type(
                         builder,
                         TypeReferenceCapture {
@@ -1270,6 +1283,18 @@ fn capture_java_type(
     Ok(())
 }
 
+/// Whether a type reference of this kind also names its generic arguments.
+///
+/// `class Foo extends Bar<Baz>` inherits from `Bar` only; `Baz` is a type
+/// argument, not a supertype. Usage kinds (`TypeOf`, `Returns`) keep naming the
+/// arguments because `List<Account>` does depend on `Account`.
+const fn names_type_arguments(kind: ReferenceKind) -> bool {
+    !matches!(
+        kind,
+        ReferenceKind::Extends | ReferenceKind::Implements | ReferenceKind::Inherits
+    )
+}
+
 fn capture_csharp_type(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: TypeReferenceCapture<'_, '_>,
@@ -1283,9 +1308,29 @@ fn capture_csharp_type(
         "generic_name" => capture_csharp_generic(builder, input)?,
         "identifier" => push_csharp_type_name(builder, input)?,
         "predefined_type" | "implicit_type" => {}
+        "tuple_element" => capture_csharp_tuple_element(builder, input)?,
         _ => capture_csharp_children(builder, input)?,
     }
     Ok(())
+}
+
+/// A tuple element contributes only its type; `(Item first, int count)`
+/// names `Item`, never the element names `first`/`count`.
+fn capture_csharp_tuple_element(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: TypeReferenceCapture<'_, '_>,
+) -> Result<(), ExtractError> {
+    let Some(element_type) = input.node.child_by_field_name("type") else {
+        return Ok(());
+    };
+    capture_csharp_type(
+        builder,
+        TypeReferenceCapture {
+            node: element_type,
+            depth: input.depth.saturating_add(1),
+            ..input
+        },
+    )
 }
 
 fn capture_csharp_qualified(
@@ -1380,12 +1425,26 @@ pub(super) fn managed_outer_type_name(
 ) -> Result<Option<String>, ExtractError> {
     let raw = builder.context.text(node).trim();
     let without_global = raw.strip_prefix("global::").unwrap_or(raw);
-    let outer = without_global
+    // `Outer<A>.Inner<B>` names `Outer.Inner`: generic argument ranges are
+    // removed rather than truncating the qualified chain at the first `<`.
+    let nested = without_global
         .find('<')
-        .and_then(|index| without_global.get(..index))
-        .unwrap_or(without_global)
-        .trim()
-        .trim_end_matches(['?', '*', '&']);
+        .is_some_and(|index| without_global[index..].contains('.'));
+    if nested && without_global.len() > MAX_NESTED_GENERIC_BYTES {
+        // Truncating would name a different (outer) type; abstain instead.
+        return Ok(None);
+    }
+    let stripped;
+    let head = if nested {
+        stripped = strip_generic_arguments(without_global)?;
+        stripped.as_str()
+    } else {
+        without_global
+            .find('<')
+            .and_then(|index| without_global.get(..index))
+            .unwrap_or(without_global)
+    };
+    let outer = head.trim().trim_end_matches(['?', '*', '&']);
     if outer.is_empty()
         || outer.len() > MAX_REFERENCE_TARGET_BYTES
         || is_managed_builtin(outer)

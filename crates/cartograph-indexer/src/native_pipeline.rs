@@ -8568,8 +8568,106 @@ where
             qualified_name,
             candidates,
         )?;
+        append_mybatis_packaged_edges(
+            ResolutionMutation {
+                index,
+                facts: &mut *facts,
+                budget: &mut *budget,
+                cancelled: &mut *cancelled,
+            },
+            qualified_name,
+            candidates,
+        )?;
     }
     Ok(())
+}
+
+/// Bind a packaged JVM mapper method (`com.example::OrderMapper::findOrder`) to
+/// the XML statement of the mapper whose namespace is exactly
+/// `com.example.OrderMapper`. The XML statement keeps the simple
+/// `OrderMapper::findOrder` name, so its exact JVM name is derived from the
+/// mapper namespace symbol that contains it; nothing is matched by suffix.
+fn append_mybatis_packaged_edges<Cancel>(
+    input: ResolutionMutation<'_, Cancel>,
+    qualified_name: &str,
+    candidates: &[ResolutionCandidate],
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ResolutionMutation {
+        index,
+        facts,
+        budget,
+        cancelled: _,
+    } = input;
+    for target in candidates
+        .iter()
+        .filter(|candidate| candidate.qualified_name == qualified_name)
+    {
+        let Some(jvm_name) = mybatis_jvm_statement_name(index, target)? else {
+            continue;
+        };
+        let Some(sources) = index.candidates.get(&jvm_name) else {
+            continue;
+        };
+        for source in sources.as_slice() {
+            let Some(source_file) = index.modules.files.get(&source.file_id) else {
+                return Err(StageItemFailure);
+            };
+            if source.qualified_name != jvm_name
+                || source.kind != SymbolKind::Method
+                || !matches!(source_file.language.as_str(), "java" | "kotlin" | "scala")
+            {
+                continue;
+            }
+            append_framework_edge(
+                facts,
+                budget,
+                FrameworkEdgeInput {
+                    source,
+                    target,
+                    confidence: EXACT_PROJECT_CONFIDENCE,
+                    provenance: MYBATIS_BRIDGE_PROVENANCE,
+                },
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// The exact JVM qualified name of a `MyBatis` XML statement whose mapper
+/// namespace is package-qualified, or `None` for any other candidate.
+fn mybatis_jvm_statement_name(
+    index: &ResolutionIndex,
+    statement: &ResolutionCandidate,
+) -> Result<Option<String>, StageItemFailure> {
+    let Some(file) = index.modules.files.get(&statement.file_id) else {
+        return Err(StageItemFailure);
+    };
+    if file.language != SourceLanguage::Xml.as_str() || statement.kind != SymbolKind::Method {
+        return Ok(None);
+    }
+    let (Some(parent), Some((mapper, _))) = (
+        statement.parent_symbol_id.as_ref(),
+        statement.qualified_name.split_once("::"),
+    ) else {
+        return Ok(None);
+    };
+    let namespace = index.candidates.get(mapper).and_then(|bucket| {
+        bucket.as_slice().iter().find(|candidate| {
+            &candidate.symbol_id == parent && candidate.kind == SymbolKind::Namespace
+        })
+    });
+    let Some((package, simple)) =
+        namespace.and_then(|namespace| namespace.qualified_name.rsplit_once('.'))
+    else {
+        return Ok(None);
+    };
+    if package.is_empty() || simple != mapper {
+        return Ok(None);
+    }
+    Ok(Some(format!("{package}::{}", statement.qualified_name)))
 }
 
 fn append_mybatis_qualified_edges<Cancel>(
@@ -8609,13 +8707,20 @@ where
             {
                 continue;
             }
+            // An unpackaged JVM mapper bound to a package-qualified namespace
+            // matches only by the simple-namespace convention, not exactly.
+            let confidence = if mybatis_jvm_statement_name(index, target)?.is_some() {
+                FRAMEWORK_CONVENTION_CONFIDENCE
+            } else {
+                EXACT_PROJECT_CONFIDENCE
+            };
             append_framework_edge(
                 facts,
                 budget,
                 FrameworkEdgeInput {
                     source,
                     target,
-                    confidence: EXACT_PROJECT_CONFIDENCE,
+                    confidence,
                     provenance: MYBATIS_BRIDGE_PROVENANCE,
                 },
             )?;
@@ -10904,28 +11009,31 @@ impl ResolutionOutput<'_> {
         } else if let Some(lookup) = embedded_sql {
             resolve_embedded_sql(self.index, lookup, cancelled)?
         } else {
-            resolve_reference(
+            resolve_reference_or_source_name(
                 self.index,
-                &ResolutionRequest {
-                    file_id: &context.identity.file_id,
-                    file_path: &context.identity.path,
-                    language: &context.identity.language,
-                    import_bindings,
-                    owner: reference.owner.as_ref(),
-                    name: lookup_name,
-                    dispatch: if rust_self_receiver_name.is_some() {
-                        ReferenceDispatch::RustSelf
-                    } else if dynamic_dispatch_name.is_some() {
-                        ReferenceDispatch::Dynamic
-                    } else {
-                        ReferenceDispatch::Static
+                SourceNameFallbackQuery {
+                    request: &ResolutionRequest {
+                        file_id: &context.identity.file_id,
+                        file_path: &context.identity.path,
+                        language: &context.identity.language,
+                        import_bindings,
+                        owner: reference.owner.as_ref(),
+                        name: lookup_name,
+                        dispatch: if rust_self_receiver_name.is_some() {
+                            ReferenceDispatch::RustSelf
+                        } else if dynamic_dispatch_name.is_some() {
+                            ReferenceDispatch::Dynamic
+                        } else {
+                            ReferenceDispatch::Static
+                        },
+                        kind: if type_query_value_name.is_some() {
+                            ReferenceKind::References
+                        } else {
+                            reference.kind
+                        },
+                        span: reference.span,
                     },
-                    kind: if type_query_value_name.is_some() {
-                        ReferenceKind::References
-                    } else {
-                        reference.kind
-                    },
-                    span: reference.span,
+                    source_name: &reference.name,
                 },
                 cancelled,
             )?
@@ -11999,6 +12107,65 @@ where
             })
         },
     )))
+}
+
+/// A resolution request plus the reference's source-visible name.
+#[derive(Clone, Copy)]
+struct SourceNameFallbackQuery<'request, 'name> {
+    request: &'request ResolutionRequest<'name>,
+    source_name: &'name str,
+}
+
+/// Resolve by the reference's exact lookup name and, only for `MyBatis` XML
+/// references that carry a package-qualified lookup name
+/// (`com.example::OrderMapper::findOrder::orderId`), retry once with the exact
+/// source-visible name (`OrderMapper::findOrder::orderId`). The retry can only
+/// match an unpackaged JVM declaration (a packaged one never has that exact
+/// name), keeps the pre-existing simple-namespace binding, and is recorded with
+/// framework-convention confidence and provenance rather than as exact.
+fn resolve_reference_or_source_name<Cancel>(
+    index: &ResolutionIndex,
+    query: SourceNameFallbackQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let SourceNameFallbackQuery {
+        request,
+        source_name,
+    } = query;
+    let resolution = resolve_reference(index, request, cancelled)?;
+    let package_qualified = request
+        .name
+        .strip_suffix(source_name)
+        .is_some_and(|package| package.len() > "::".len() && package.ends_with("::"));
+    // Any declaration carrying the exact package-qualified name (even an
+    // ambiguous set) is authoritative; the compatibility lookup only runs when
+    // no packaged declaration exists at all.
+    if resolution.target.is_some()
+        || request.language != SourceLanguage::Xml.as_str()
+        || !package_qualified
+        || index.candidates.contains_key(request.name)
+    {
+        return Ok(resolution);
+    }
+    let mut fallback = resolve_reference(
+        index,
+        &ResolutionRequest {
+            name: source_name,
+            ..*request
+        },
+        cancelled,
+    )?;
+    let Some(target) = fallback.target.as_mut() else {
+        return Ok(resolution);
+    };
+    // The package named by the mapper namespace is absent from the target, so
+    // this binding is the legacy simple-namespace convention, not exact identity.
+    target.confidence = FRAMEWORK_CONVENTION_CONFIDENCE;
+    target.provenance = FRAMEWORK_CONVENTION_PROVENANCE;
+    Ok(fallback)
 }
 
 fn resolve_reference<Cancel>(
@@ -17761,6 +17928,363 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
         NamedReferenceAssertion::new(&forward, "OrderCard")
             .targets("src/OrderCard.tsx", "OrderCard");
+    }
+
+    const JVM_FRAMEWORK_BINDING_FIXTURES: [(&str, &str); 18] = [
+        (
+            "src/main/java/com/audit/AuditMapper.java",
+            "package com.audit;\npublic interface AuditMapper { void record(@Param(\"entry\") String entry); }\n",
+        ),
+        (
+            "generated/com/audit/AuditMapper.java",
+            "package com.audit;\npublic interface AuditMapper { void record(@Param(\"entry\") String entry); }\n",
+        ),
+        (
+            "src/main/java/AuditMapper.java",
+            "public interface AuditMapper { void record(@Param(\"entry\") String entry); }\n",
+        ),
+        (
+            "src/main/resources/mapper/AuditMapper.xml",
+            "<mapper namespace=\"com.audit.AuditMapper\"><insert id=\"record\">INSERT INTO audit VALUES (#{entry})</insert></mapper>\n",
+        ),
+        (
+            "src/main/java/OrderMapper.java",
+            "public interface OrderMapper { Order findOrder(String orderId); }\n",
+        ),
+        (
+            "force-app/main/default/triggers/AccountTrigger.trigger",
+            "trigger AccountTrigger on Account (before insert) {\n    for (Contact c : [SELECT Id FROM Contact]) { AccountService.load(); }\n}\n",
+        ),
+        (
+            "src/Person.vb",
+            "Public Class Person\n  Inherits BasePerson\n  Implements IGreeter, IDisposable\n  Public Sub Run()\n    Helper()\n  End Sub\nEnd Class\n",
+        ),
+        (
+            "src/main/java/com/example/OrderMapper.java",
+            "package com.example;\npublic interface OrderMapper { Order findOrder(@Param(\"orderId\") String orderId); }\n",
+        ),
+        (
+            "src/main/java/com/other/OrderMapper.java",
+            "package com.other;\npublic interface OrderMapper { Order findOrder(@Param(\"orderId\") String orderId); }\n",
+        ),
+        (
+            "src/main/resources/mapper/OrderMapper.xml",
+            "<mapper namespace=\"com.example.OrderMapper\"><select id=\"findOrder\">SELECT 1 WHERE id = #{orderId}</select></mapper>\n",
+        ),
+        (
+            "src/main/kotlin/UserMapper.kt",
+            "interface UserMapper {\n  fun findById(@Param(\"userId\") userId: Long): User\n}\n",
+        ),
+        (
+            "src/main/resources/mapper/UserMapper.xml",
+            "<mapper namespace=\"com.example.UserMapper\"><select id=\"findById\">SELECT 1 WHERE id = #{userId}</select></mapper>\n",
+        ),
+        (
+            "src/main/java/com/example/order/dao/impl/OrderAttributeDaoImpl.java",
+            "package com.example.order.dao.impl;\nimport com.example.order.dao.OrderAttributeDao;\npublic class OrderAttributeDaoImpl {\n  private static final String SQL_NS = OrderAttributeDao.class.getName() + \"Mapper\";\n  public void deleteByOrderId(String orderId) {\n    getSqlSessionTemplate().delete(SQL_NS + \".deleteByOrderId\", orderId);\n  }\n}\n",
+        ),
+        (
+            "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+            "<mapper namespace=\"com.example.order.dao.OrderAttributeDaoMapper\">\n  <delete id=\"deleteByOrderId\">DELETE FROM order_attribute WHERE order_id = #{orderId}</delete>\n</mapper>\n",
+        ),
+        (
+            "config/application.properties",
+            "feature.payments.enabled=true\napp.cache.ttl=60\n",
+        ),
+        (
+            "src/main/java/com/example/PaymentsAutoConfig.java",
+            "package com.example;\n@ConditionalOnProperty(prefix = \"feature.payments\", name = \"enabled\", havingValue = \"true\")\npublic class PaymentsAutoConfig {\n  @Value(\"${app.cache.ttl}\")\n  private int cacheTtl;\n}\n",
+        ),
+        (
+            "src/main/kotlin/Ext.kt",
+            "package com.demo\nclass Box\nfun Box.open(): Box = this\nfun String.shout(): String = this\nfun String.echo(): String = shout()\n",
+        ),
+        (
+            "src/main/kotlin/Other.kt",
+            "package com.demo\nfun String.loud(): String = shout()\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn jvm_framework_bindings_are_worker_count_invariant() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create JVM binding fixture: {error}"));
+        for (path, source) in JVM_FRAMEWORK_BINDING_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("JVM binding fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        for workers in [2, PARALLEL_WORKERS, 8, 16] {
+            let parallel = build(directory.path(), workers).await;
+            assert_eq!(
+                serial.facts().digest(),
+                parallel.facts().digest(),
+                "{workers} workers changed the JVM framework bindings"
+            );
+        }
+    }
+
+    fn jvm_binding_generation() -> CanonicalGenerationFacts {
+        let forward = build_capability_generation(&JVM_FRAMEWORK_BINDING_FIXTURES, false);
+        let reversed = build_capability_generation(&JVM_FRAMEWORK_BINDING_FIXTURES, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        forward
+    }
+
+    fn jvm_binding_edge(
+        facts: &CanonicalGenerationFacts,
+        (source, target): (&SymbolInput, &SymbolInput),
+        kind: EdgeKind,
+    ) -> bool {
+        facts.edges().iter().any(|edge| {
+            edge.source_symbol_id == source.symbol_id
+                && edge.target_symbol_id == target.symbol_id
+                && edge.kind == kind
+        })
+    }
+
+    fn jvm_binding_provenance<'facts>(
+        facts: &'facts CanonicalGenerationFacts,
+        reference_name: &str,
+    ) -> &'facts str {
+        facts
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == reference_name)
+            .map_or_else(
+                || panic!("missing reference {reference_name}"),
+                |reference| reference.resolution_provenance.as_str(),
+            )
+    }
+
+    #[test]
+    fn mybatis_bindings_link_packaged_mappers_parameters_and_template_ids() {
+        let forward = jvm_binding_generation();
+        let has_edge = |source: &SymbolInput, target: &SymbolInput, kind: EdgeKind| {
+            jvm_binding_edge(&forward, (source, target), kind)
+        };
+
+        // Packaged mapper interface <-> XML namespace with the same package.
+        let mapper = capability_symbol(
+            &forward,
+            "src/main/java/com/example/OrderMapper.java",
+            "com.example::OrderMapper::findOrder",
+        );
+        let other_mapper = capability_symbol(
+            &forward,
+            "src/main/java/com/other/OrderMapper.java",
+            "com.other::OrderMapper::findOrder",
+        );
+        let statement = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/OrderMapper.xml",
+            "OrderMapper::findOrder",
+        );
+        assert!(forward.edges().iter().any(|edge| {
+            edge.source_symbol_id == mapper.symbol_id
+                && edge.target_symbol_id == statement.symbol_id
+                && edge.kind == EdgeKind::References
+                && edge.provenance == MYBATIS_BRIDGE_PROVENANCE
+        }));
+        assert!(
+            !has_edge(other_mapper, statement, EdgeKind::References),
+            "a mapper in another package must not bind to com.example.OrderMapper"
+        );
+        let unpackaged = capability_symbol(
+            &forward,
+            "src/main/java/OrderMapper.java",
+            "OrderMapper::findOrder",
+        );
+        let confidence = |source: &SymbolInput| {
+            forward
+                .edges()
+                .iter()
+                .find(|edge| {
+                    edge.source_symbol_id == source.symbol_id
+                        && edge.target_symbol_id == statement.symbol_id
+                })
+                .map(|edge| edge.confidence)
+        };
+        assert_eq!(confidence(mapper), Some(EXACT_PROJECT_CONFIDENCE));
+        assert_eq!(
+            confidence(unpackaged),
+            Some(FRAMEWORK_CONVENTION_CONFIDENCE),
+            "package-erasing compatibility bindings are not exact"
+        );
+        // SqlSessionTemplate statement ids.
+        let dao = capability_symbol(
+            &forward,
+            "src/main/java/com/example/order/dao/impl/OrderAttributeDaoImpl.java",
+            "com.example.order.dao.impl::OrderAttributeDaoImpl::deleteByOrderId",
+        );
+        let delete = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+            "OrderAttributeDaoMapper::deleteByOrderId",
+        );
+        assert!(has_edge(dao, delete, EdgeKind::References));
+    }
+
+    #[test]
+    fn mybatis_parameters_prefer_exact_packages_and_keep_ambiguity() {
+        let forward = jvm_binding_generation();
+        let has_edge = |source: &SymbolInput, target: &SymbolInput, kind: EdgeKind| {
+            jvm_binding_edge(&forward, (source, target), kind)
+        };
+        let statement = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/OrderMapper.xml",
+            "OrderMapper::findOrder",
+        );
+        let parameter = capability_symbol(
+            &forward,
+            "src/main/java/com/example/OrderMapper.java",
+            "com.example::OrderMapper::findOrder::orderId",
+        );
+        assert!(has_edge(statement, parameter, EdgeKind::References));
+        let other_parameter = capability_symbol(
+            &forward,
+            "src/main/java/com/other/OrderMapper.java",
+            "com.other::OrderMapper::findOrder::orderId",
+        );
+        assert!(!has_edge(statement, other_parameter, EdgeKind::References));
+
+        // An unpackaged Kotlin mapper keeps binding through the source-visible name.
+        let kotlin_parameter = capability_symbol(
+            &forward,
+            "src/main/kotlin/UserMapper.kt",
+            "UserMapper::findById::userId",
+        );
+        let user_statement = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/UserMapper.xml",
+            "UserMapper::findById",
+        );
+        assert!(has_edge(
+            user_statement,
+            kotlin_parameter,
+            EdgeKind::References
+        ));
+
+        assert_eq!(
+            jvm_binding_provenance(&forward, "OrderMapper::findOrder::orderId"),
+            EXACT_PROJECT_PROVENANCE,
+            "packaged mapper parameters bind by exact package-qualified identity"
+        );
+        assert_eq!(
+            jvm_binding_provenance(&forward, "UserMapper::findById::userId"),
+            FRAMEWORK_CONVENTION_PROVENANCE,
+            "the unpackaged-mapper compatibility binding is not recorded as exact"
+        );
+        // Two packaged declarations are ambiguous; that ambiguity is kept
+        // rather than falling back to the unpackaged compatibility match.
+        let audit = forward
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == "AuditMapper::record::entry")
+            .unwrap_or_else(|| panic!("missing AuditMapper parameter reference"));
+        assert!(
+            audit.target_symbol_id.is_none(),
+            "ambiguous packaged parameters must not resolve: {audit:?}"
+        );
+    }
+
+    #[test]
+    fn spring_and_kotlin_bindings_link_configuration_keys_and_receivers() {
+        let forward = jvm_binding_generation();
+        let has_edge = |source: &SymbolInput, target: &SymbolInput, kind: EdgeKind| {
+            jvm_binding_edge(&forward, (source, target), kind)
+        };
+
+        // Spring configuration keys.
+        let config = capability_symbol(
+            &forward,
+            "src/main/java/com/example/PaymentsAutoConfig.java",
+            "com.example::PaymentsAutoConfig",
+        );
+        let enabled = capability_symbol(
+            &forward,
+            "config/application.properties",
+            "feature.payments.enabled",
+        );
+        assert!(has_edge(config, enabled, EdgeKind::References));
+        let field = capability_symbol(
+            &forward,
+            "src/main/java/com/example/PaymentsAutoConfig.java",
+            "com.example::PaymentsAutoConfig::cacheTtl",
+        );
+        let ttl = capability_symbol(&forward, "config/application.properties", "app.cache.ttl");
+        assert!(has_edge(field, ttl, EdgeKind::References));
+        assert!(!has_edge(config, ttl, EdgeKind::References));
+
+        // Kotlin extension functions are receiver-qualified and their bare
+        // implicit-receiver calls keep resolving in the same and other files.
+        let extension =
+            capability_symbol(&forward, "src/main/kotlin/Ext.kt", "com.demo::Box::open");
+        assert_eq!(extension.symbol_kind, SymbolKind::Function.as_str());
+        let shout = capability_symbol(
+            &forward,
+            "src/main/kotlin/Ext.kt",
+            "com.demo::String::shout",
+        );
+        let echo = capability_symbol(&forward, "src/main/kotlin/Ext.kt", "com.demo::String::echo");
+        let loud = capability_symbol(
+            &forward,
+            "src/main/kotlin/Other.kt",
+            "com.demo::String::loud",
+        );
+        assert!(has_edge(echo, shout, EdgeKind::Calls), "same-file call");
+        assert!(has_edge(loud, shout, EdgeKind::Calls), "cross-file call");
+    }
+
+    #[test]
+    fn kotlin_qualified_type_uses_and_extension_receivers_resolve() {
+        fn source_path(qualified_name: &str) -> &'static str {
+            if qualified_name.starts_with("r::") {
+                "src/main/kotlin/r/Result.kt"
+            } else {
+                "src/main/kotlin/q/Take.kt"
+            }
+        }
+        let forward = build_capability_generation(
+            &[
+                (
+                    "src/main/kotlin/r/Result.kt",
+                    "package r\nsealed class Result { class Success : Result() }\nfun handle(x: Result.Success) {}\n",
+                ),
+                (
+                    "src/main/kotlin/q/Take.kt",
+                    "package q\nimport r.Result\nclass Outer { class Nest }\nclass Box\nfun take(x: Result.Success) {}\nfun same(w: Outer.Nest, v: q.Outer) {}\nfun q.Box.peek() {}\n",
+                ),
+            ],
+            false,
+        );
+        let has_type_of = |source: &str, target: &str| {
+            let source = capability_symbol(&forward, source_path(source), source);
+            let target = capability_symbol(&forward, source_path(target), target);
+            jvm_binding_edge(&forward, (source, target), EdgeKind::TypeOf)
+        };
+        // Nested and sealed-subtype uses keep naming each written segment.
+        assert!(has_type_of("r::handle", "r::Result"));
+        assert!(has_type_of("q::take", "r::Result::Success"));
+        assert!(has_type_of("q::same", "q::Outer"));
+        // A written receiver path references its terminal type only.
+        assert!(has_type_of("q::q.Box::peek", "q::Box"));
+        assert!(
+            forward
+                .references()
+                .iter()
+                .all(|reference| reference.reference_name != "q.Box"),
+            "receiver path stored as one unresolvable dotted type: {:?}",
+            forward.references()
+        );
     }
 
     #[test]

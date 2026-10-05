@@ -202,6 +202,9 @@ struct MybatisMapperInput<'source> {
 struct MybatisBodyInput<'owner, 'source> {
     owner: &'owner SymbolId,
     namespace: &'source str,
+    /// Java package of the mapper namespace (`com.example` for
+    /// `com.example.OrderMapper`), when the namespace is package-qualified.
+    package: Option<&'source str>,
     statement: &'source str,
     start: usize,
     end: usize,
@@ -2233,8 +2236,9 @@ fn scan_vb6_line(
     else {
         return Ok(());
     };
-    if let Some((offset, name)) = vb6_call(line.text) {
-        let raw_offset = line.raw.find(line.text).unwrap_or(0) + offset;
+    let indent = line.raw.find(line.text).unwrap_or(0);
+    for (offset, name) in vb6_calls(line.text) {
+        let raw_offset = indent + offset;
         builder.add_reference(
             CustomReferenceInput::new(Some(routine.id.clone()), name, ReferenceKind::Calls).at(
                 line.start + raw_offset,
@@ -2415,6 +2419,7 @@ fn vb6_keyword_declaration<'source>(
 ) -> Option<VbDeclaration<'source>> {
     let lower = context.tokens.get(context.index)?.1.to_ascii_lowercase();
     match lower.as_str() {
+        "declare" => vb6_declare(context),
         "sub" | "function" => Some(VbDeclaration {
             kind: if context.container_kind == SymbolKind::Module {
                 SymbolKind::Function
@@ -2494,6 +2499,29 @@ fn vb6_keyword_declaration<'source>(
     }
 }
 
+/// `[Private] Declare [PtrSafe] Sub|Function Name Lib "dll" ...` binds an
+/// external routine: an import named `Name` (v1 `parseDeclare`). It opens no
+/// scope, and the library literal is never retained.
+fn vb6_declare<'source>(
+    context: VbDeclarationContext<'_, 'source>,
+) -> Option<VbDeclaration<'source>> {
+    let mut index = context.index + 1;
+    if context.tokens.get(index)?.1.eq_ignore_ascii_case("ptrsafe") {
+        index += 1;
+    }
+    let routine = context.tokens.get(index)?.1;
+    if !routine.eq_ignore_ascii_case("sub") && !routine.eq_ignore_ascii_case("function") {
+        return None;
+    }
+    Some(VbDeclaration {
+        kind: SymbolKind::Import,
+        name: context.tokens.get(index + 1)?.1,
+        block: None,
+        visibility: context.visibility,
+        static_member: false,
+    })
+}
+
 fn vb6_visibility(value: &str) -> Option<Visibility> {
     if value.eq_ignore_ascii_case("private") {
         Some(Visibility::Private)
@@ -2527,22 +2555,140 @@ fn vb6_end_block(line: &str) -> Option<VbBlock> {
     }
 }
 
-fn vb6_call(line: &str) -> Option<(usize, &str)> {
+/// Calls on one routine statement line: the statement's own callee
+/// (`Call X`, or the paren-less `Helper i`) and its first parenthesized call
+/// (`x = Other(i)`, `Helper Other(i)`), in source order and deduplicated.
+fn vb6_calls(line: &str) -> Vec<(usize, &str)> {
     let line = line.trim_start();
-    let (offset, name) = if let Some(call) = word_after(line, "Call") {
-        call
+    if word_is(line, "Rem") {
+        return Vec::new();
+    }
+    // Detection runs on a copy whose string contents are blanked, so
+    // `MsgBox "Use (x)"` never reads `Use(` from inside the literal; offsets
+    // are unchanged and names are sliced from the original line.
+    let masked = vb6_mask_strings(line);
+    let statement = if word_is(&masked, "Call") {
+        let start = skip_vb6_blanks(&masked, "Call".len());
+        vb6_member_chain(&masked, start).map(|(callee, _)| callee)
     } else {
-        function_like_names(line).into_iter().next()?
+        vb6_bare_call(&masked)
     };
-    (!matches!(
-        name.to_ascii_lowercase().as_str(),
-        "if" | "for" | "while" | "debug" | "print" | "open" | "close" | "redim"
-    ))
+    let nested = function_like_names(&masked)
+        .into_iter()
+        .next()
+        .and_then(vb6_callable_name);
+    let mut calls = Vec::new();
+    for (offset, name) in [statement, nested].into_iter().flatten() {
+        if calls.iter().any(|(existing, _)| *existing == offset) {
+            continue;
+        }
+        if let Some(name) = line.get(offset..offset + name.len()) {
+            calls.push((offset, name));
+        }
+    }
+    calls.sort_by_key(|(offset, _)| *offset);
+    calls
+}
+
+/// Whether `line` starts with the keyword `word` as a whole word.
+fn word_is(line: &str, word: &str) -> bool {
+    line.get(..word.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(word))
+        && line
+            .as_bytes()
+            .get(word.len())
+            .is_none_or(|byte| !is_identifier_body(*byte))
+}
+
+/// VB statement keywords that start a line without calling anything (v1
+/// `VB6_SKIP_CALLS` plus the remaining control-flow and I/O statements).
+const VB6_STATEMENT_KEYWORDS: &[&str] = &[
+    "call", "case", "close", "debug", "dim", "do", "else", "elseif", "end", "erase", "exit", "for",
+    "get", "gosub", "goto", "if", "input", "let", "loop", "next", "on", "open", "option", "print",
+    "private", "public", "put", "redim", "resume", "return", "select", "set", "static", "stop",
+    "wend", "while", "with", "write",
+];
+
+fn vb6_callable_name((offset, name): (usize, &str)) -> Option<(usize, &str)> {
+    (!VB6_STATEMENT_KEYWORDS
+        .iter()
+        .any(|keyword| name.eq_ignore_ascii_case(keyword)))
     .then_some((offset, name))
 }
 
+/// A paren-less statement call such as `Helper i`, `MsgBox "hi"`, or
+/// `obj.Save arg` (the callee is the last member, as in the parenthesized
+/// form). v1 called the line's first identifier; assignments (`x = 1`,
+/// `Me.Caption = ...`) and labels (`Retry:`) are not calls.
+fn vb6_bare_call(line: &str) -> Option<(usize, &str)> {
+    let (callee, end) = vb6_member_chain(line, 0)?;
+    let next = line[end..]
+        .bytes()
+        .find(|byte| !matches!(byte, b' ' | b'\t'));
+    (!matches!(next, Some(b'=' | b':' | b'!' | b'(' | b'.'))).then_some(callee)
+}
+
+/// The terminal member of the dotted chain starting exactly at `start`
+/// (`obj.Save` names `Save`) and the chain's end, unless its head is a VB
+/// statement keyword.
+fn vb6_member_chain(line: &str, start: usize) -> Option<((usize, &str), usize)> {
+    let rest = line.get(start..)?;
+    let (offset, first) = first_identifier(rest)?;
+    if offset != 0 {
+        return None;
+    }
+    vb6_callable_name((start, first))?;
+    let mut callee = (start, first);
+    let mut cursor = start + first.len();
+    while line.as_bytes().get(cursor) == Some(&b'.') {
+        let (member_offset, member) = first_identifier(&line[cursor + 1..])?;
+        if member_offset != 0 {
+            return None;
+        }
+        callee = (cursor + 1, member);
+        cursor = cursor + 1 + member.len();
+    }
+    Some((callee, cursor))
+}
+
+fn skip_vb6_blanks(line: &str, start: usize) -> usize {
+    start
+        + line.get(start..).map_or(0, |rest| {
+            rest.len() - rest.trim_start_matches([' ', '\t']).len()
+        })
+}
+
+/// `line` with the contents of every `"..."` literal replaced by one space per
+/// byte, so byte offsets are preserved (VB escapes a quote by doubling it,
+/// which this toggling handles naturally).
+fn vb6_mask_strings(line: &str) -> String {
+    let mut masked = String::with_capacity(line.len());
+    let mut inside = false;
+    for character in line.chars() {
+        if character == '"' {
+            inside = !inside;
+            masked.push(character);
+        } else if inside {
+            masked.extend(std::iter::repeat_n(' ', character.len_utf8()));
+        } else {
+            masked.push(character);
+        }
+    }
+    masked
+}
+
+/// The line before its `'` comment; an apostrophe inside a string literal does
+/// not start a comment.
 fn vb6_strip_comment(line: &str) -> &str {
-    line.find('\'').map_or(line, |comment| &line[..comment])
+    let mut inside = false;
+    for (index, byte) in line.bytes().enumerate() {
+        match byte {
+            b'"' => inside = !inside,
+            b'\'' if !inside => return &line[..index],
+            _ => {}
+        }
+    }
+    line
 }
 
 fn extract_xml(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {
@@ -2605,6 +2751,11 @@ fn extract_mybatis_mapper(
     let state = MybatisMapperState {
         tags: input.tags,
         namespace: simple_namespace,
+        package: input
+            .namespace
+            .rsplit_once('.')
+            .map(|(package, _)| package)
+            .filter(|package| !package.is_empty()),
         module,
     };
     for (index, tag) in input.tags.iter().copied().enumerate() {
@@ -2617,6 +2768,7 @@ fn extract_mybatis_mapper(
 struct MybatisMapperState<'source> {
     tags: &'source [MarkupTag<'source>],
     namespace: &'source str,
+    package: Option<&'source str>,
     module: SymbolId,
 }
 
@@ -2748,6 +2900,7 @@ fn add_mybatis_body_reference(
             MybatisBodyInput {
                 owner: input.owner,
                 namespace: input.state.namespace,
+                package: input.state.package,
                 statement: input.statement,
                 start: body_start,
                 end: body_end,
@@ -2795,14 +2948,19 @@ fn extract_mybatis_body_refs(
         if is_qualified_name(parameter) && seen.insert(parameter.to_owned()) {
             let leading = raw.len() - raw.trim_start().len();
             let parameter_start = input.start + content_start + leading;
-            builder.add_reference(
-                CustomReferenceInput::new(
-                    Some(input.owner.clone()),
-                    &format!("{}::{}::{parameter}", input.namespace, input.statement),
-                    ReferenceKind::References,
-                )
-                .at(parameter_start, parameter_start + parameter.len()),
-            )?;
+            let name = format!("{}::{}::{parameter}", input.namespace, input.statement);
+            // A packaged JVM mapper parameter is `com.example::OrderMapper::find::id`.
+            let jvm_name = input.package.map(|package| format!("{package}::{name}"));
+            let reference = CustomReferenceInput::new(
+                Some(input.owner.clone()),
+                &name,
+                ReferenceKind::References,
+            )
+            .at(parameter_start, parameter_start + parameter.len());
+            builder.add_reference(match jvm_name.as_deref() {
+                Some(jvm_name) => reference.with_resolution(jvm_name),
+                None => reference,
+            })?;
         }
         cursor = close + 1;
     }
