@@ -29,6 +29,9 @@ mod game_scripting;
 mod liquid;
 mod pascal_form;
 mod rhai;
+mod web_component;
+
+pub(crate) use web_component::file_component_symbol;
 
 /// Whether a grammar-backed language's snapshot is scanned here instead,
 /// such as a Delphi form file in the Pascal language mode.
@@ -51,16 +54,16 @@ fn poll_cancellation(
     Ok(())
 }
 
-/// Scan one snapshot. `maximum_nesting` is the configured structural nesting
+/// Scan one snapshot. `maximum_ast_depth` is the configured structural nesting
 /// ceiling for scanners that track nesting (Delphi form components).
 pub(crate) fn extract(
     snapshot: &SourceSnapshot,
-    maximum_nesting: usize,
+    maximum_ast_depth: usize,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<ExtractedFile, ExtractError> {
-    let mut builder = CustomBuilder::new(snapshot, cancelled)?;
+    let mut builder = CustomBuilder::new(snapshot, maximum_ast_depth, cancelled)?;
     if pascal_form::supports(snapshot) {
-        let parse_status = pascal_form::extract(&mut builder, maximum_nesting)?;
+        let parse_status = pascal_form::extract(&mut builder, maximum_ast_depth)?;
         return builder.finish(parse_status);
     }
     if snapshot.language() == SourceLanguage::Rhai {
@@ -82,7 +85,9 @@ fn extract_existing_custom(
         SourceLanguage::Properties => extract_properties(builder)?,
         SourceLanguage::Toml => {}
         SourceLanguage::Liquid => extract_liquid(builder)?,
-        SourceLanguage::Svelte | SourceLanguage::Vue => extract_component_file(builder)?,
+        SourceLanguage::Svelte | SourceLanguage::Vue => {
+            return web_component::extract_component_file(builder);
+        }
         SourceLanguage::Aura | SourceLanguage::Visualforce => {
             extract_salesforce_markup(builder)?;
         }
@@ -193,13 +198,6 @@ struct SourceSliceInput<'source> {
 }
 
 #[derive(Clone, Copy)]
-struct OwnedRangeInput<'owner> {
-    owner: &'owner SymbolId,
-    start: usize,
-    end: usize,
-}
-
-#[derive(Clone, Copy)]
 struct OwnedSourceInput<'owner, 'source> {
     owner: &'owner SymbolId,
     source: &'source str,
@@ -275,11 +273,18 @@ struct CustomBuilder<'source, 'cancel> {
     import_bindings: Vec<ExtractedImportBinding>,
     /// Whether a synthesized qualified name was shortened to its canonical bound.
     shortened_canonical_names: bool,
+    /// Diagnostics of embedded component regions that lost facts (script
+    /// syntax errors, template expressions too deep to walk, a template scan
+    /// budget used up by unterminated structure).
+    diagnostics: Vec<ExtractionDiagnostic>,
+    /// Project AST-depth ceiling for embedded component scripts.
+    maximum_ast_depth: usize,
 }
 
 impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
     fn new(
         snapshot: &'source SourceSnapshot,
+        maximum_ast_depth: usize,
         cancelled: &'cancel mut dyn FnMut() -> bool,
     ) -> Result<Self, ExtractError> {
         Ok(Self {
@@ -293,6 +298,8 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             references: Vec::new(),
             import_bindings: Vec::new(),
             shortened_canonical_names: false,
+            diagnostics: Vec::new(),
+            maximum_ast_depth,
         })
     }
 
@@ -340,33 +347,15 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
         let qualified_name = self.bound_qualified_name(qualified_name);
         let span = self.span(start, end)?;
         let id = self.identities.next(kind, &qualified_name)?;
-        let structural_digest = custom_digest(kind, &qualified_name, &options.body_search_text);
-        let clone_shape_digest = structural_digest.clone();
-        let symbol = ExtractedSymbol {
+        let parent = options.parent.clone();
+        let symbol = custom_symbol(CustomSymbolParts {
             id: id.clone(),
             kind,
-            name: bounded_string(name)?,
+            name,
             qualified_name,
             span,
-            signature: options.signature,
-            docstring: None,
-            body_search_text: options.body_search_text,
-            body_search_truncated: false,
-            health: crate::SymbolHealthMetrics::default(),
-            implementation: SymbolImplementationFlags {
-                declaration_only: options.declaration_only,
-                test_symbol: false,
-            },
-            export: options.export,
-            execution: SymbolExecutionFlags {
-                async_symbol: options.async_symbol,
-                static_member: options.static_member,
-            },
-            visibility: options.visibility,
-            structural_digest,
-            clone_shape_digest,
-            clone_token_profile: None,
-        };
+            options,
+        })?;
         self.budget.reserve_fact(
             symbol_budget_bytes(&symbol),
             [
@@ -376,7 +365,7 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
                 symbol.body_search_text.as_str(),
             ],
         )?;
-        if let Some(parent) = options.parent {
+        if let Some(parent) = parent {
             let containment = Containment {
                 parent,
                 child: id.clone(),
@@ -493,16 +482,15 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
     fn finish(mut self, parse_status: FileParseStatus) -> Result<ExtractedFile, ExtractError> {
         // A shortened name keeps the generation publishable, but the file no
         // longer carries the exact synthesized identity and must say so.
-        let diagnostics = if self.shortened_canonical_names {
+        let mut diagnostics = self.diagnostics;
+        if self.shortened_canonical_names {
             self.budget
                 .reserve_fact(diagnostic_budget_bytes(), std::iter::empty())?;
-            vec![ExtractionDiagnostic {
+            diagnostics.push(ExtractionDiagnostic {
                 code: DiagnosticCode::CanonicalNameTruncated,
                 span: None,
-            }]
-        } else {
-            Vec::new()
-        };
+            });
+        }
         let output_limit = self.budget.output_limit();
         let file = ExtractedFile {
             file_id: self.snapshot.file_id().clone(),
@@ -527,6 +515,54 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
         }
         Ok(file)
     }
+}
+
+/// One custom-structural symbol before budget accounting and containment.
+struct CustomSymbolParts<'name> {
+    id: SymbolId,
+    kind: SymbolKind,
+    name: &'name str,
+    qualified_name: String,
+    span: SourceSpan,
+    options: SymbolOptions,
+}
+
+fn custom_symbol(parts: CustomSymbolParts<'_>) -> Result<ExtractedSymbol, ExtractError> {
+    let CustomSymbolParts {
+        id,
+        kind,
+        name,
+        qualified_name,
+        span,
+        options,
+    } = parts;
+    let structural_digest = custom_digest(kind, &qualified_name, &options.body_search_text);
+    let clone_shape_digest = structural_digest.clone();
+    Ok(ExtractedSymbol {
+        id,
+        kind,
+        name: bounded_string(name)?,
+        qualified_name,
+        span,
+        signature: options.signature,
+        docstring: None,
+        body_search_text: options.body_search_text,
+        body_search_truncated: false,
+        health: crate::SymbolHealthMetrics::default(),
+        implementation: SymbolImplementationFlags {
+            declaration_only: options.declaration_only,
+            test_symbol: false,
+        },
+        export: options.export,
+        execution: SymbolExecutionFlags {
+            async_symbol: options.async_symbol,
+            static_member: options.static_member,
+        },
+        visibility: options.visibility,
+        structural_digest,
+        clone_shape_digest,
+        clone_token_profile: None,
+    })
 }
 
 fn custom_digest(kind: SymbolKind, qualified_name: &str, safe_structure: &str) -> ContentDigest {
@@ -602,7 +638,8 @@ fn looks_sensitive(value: &str) -> bool {
     sensitive_word || high_entropy
 }
 
-fn basename_stem(path: &str) -> &str {
+/// File name of `path` without its final extension.
+pub(crate) fn basename_stem(path: &str) -> &str {
     let filename = path.rsplit('/').next().unwrap_or(path);
     filename
         .rfind('.')
@@ -1157,450 +1194,6 @@ fn find_matching_close(tags: &[MarkupTag<'_>], opening_index: usize) -> Option<(
     None
 }
 
-fn extract_component_file(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {
-    if builder.source().is_empty() {
-        return Ok(());
-    }
-    let component_name = basename_stem(builder.path()).to_owned();
-    let component_span_end = builder
-        .source()
-        .find('\n')
-        .map_or(builder.source().len(), |index| index.saturating_add(1))
-        .max(1);
-    let component = builder.add_symbol(
-        CustomSymbolInput::new(
-            SymbolKind::Component,
-            &component_name,
-            component_name.clone(),
-        )
-        .at(0, component_span_end)
-        .with_options(SymbolOptions {
-            body_search_text: format!("component {component_name}"),
-            export: SymbolExportFlags::new(true, true),
-            visibility: Some(Visibility::Public),
-            ..SymbolOptions::default()
-        }),
-    )?;
-    let source = builder.source();
-    let tags = markup_tags(source);
-    for (index, tag) in tags.iter().copied().enumerate() {
-        builder.check_cancelled()?;
-        if !tag.closing && tag_name_eq(tag, "script") {
-            let script_start = tag.end;
-            let script_end = find_matching_close(&tags, index)
-                .map_or(source.len(), |(_, close_start)| close_start);
-            if script_start < script_end {
-                extract_embedded_script(
-                    builder,
-                    OwnedRangeInput {
-                        owner: &component,
-                        start: script_start,
-                        end: script_end,
-                    },
-                )?;
-            }
-        }
-        if !tag.closing && starts_uppercase_ascii(tag.name) {
-            builder.add_reference(
-                CustomReferenceInput::new(
-                    Some(component.clone()),
-                    tag.name,
-                    ReferenceKind::References,
-                )
-                .at(tag.start + 1, tag.start + 1 + tag.name.len()),
-            )?;
-        }
-        if !tag.closing {
-            extract_template_attribute_calls(builder, &component, tag)?;
-        }
-    }
-    let excluded = component_non_template_ranges(&tags);
-    extract_template_expression_calls(builder, &component, &excluded)
-}
-
-fn component_non_template_ranges(tags: &[MarkupTag<'_>]) -> Vec<std::ops::Range<usize>> {
-    tags.iter()
-        .copied()
-        .enumerate()
-        .filter(|(_, tag)| {
-            !tag.closing && (tag_name_eq(*tag, "script") || tag_name_eq(*tag, "style"))
-        })
-        .filter_map(|(index, tag)| {
-            find_matching_close(tags, index)
-                .map(|(close_index, _)| tag.start..tags[close_index].end)
-        })
-        .collect()
-}
-
-fn extract_embedded_script(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: OwnedRangeInput<'_>,
-) -> Result<(), ExtractError> {
-    let source = builder.source();
-    for (line_relative, line) in physical_lines(&source[input.start..input.end]) {
-        builder.check_cancelled()?;
-        scan_embedded_script_line(
-            builder,
-            EmbeddedScriptLine {
-                owner: input.owner,
-                absolute: input.start + line_relative,
-                source: line,
-            },
-        )?;
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-struct EmbeddedScriptLine<'source> {
-    owner: &'source SymbolId,
-    absolute: usize,
-    source: &'source str,
-}
-
-fn scan_embedded_script_line(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: EmbeddedScriptLine<'_>,
-) -> Result<(), ExtractError> {
-    let clean = mask_literals_and_comments(input.source);
-    let trimmed = clean.trim_start();
-    let indent = clean.len().saturating_sub(trimmed.len());
-    if let Some(import) = parse_script_import(input.source.trim_start()) {
-        add_embedded_script_import(
-            builder,
-            EmbeddedScriptImport {
-                line: input,
-                import,
-                indent,
-            },
-        )?;
-        return Ok(());
-    }
-    if let Some(declaration) = parse_script_declaration(trimmed) {
-        add_embedded_script_declaration(
-            builder,
-            EmbeddedScriptDeclaration {
-                line: input,
-                declaration,
-                indent,
-            },
-        )?;
-    }
-    add_embedded_script_calls(
-        builder,
-        EmbeddedScriptCallScan {
-            line: input,
-            clean: &clean,
-            trimmed,
-        },
-    )?;
-    if builder.snapshot.language() == SourceLanguage::Svelte {
-        extract_svelte_store_references(
-            builder,
-            OwnedSourceInput {
-                owner: input.owner,
-                source: &clean,
-                offset: input.absolute,
-            },
-        )?;
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-struct EmbeddedScriptImport<'source> {
-    line: EmbeddedScriptLine<'source>,
-    import: ScriptImport<'source>,
-    indent: usize,
-}
-
-fn add_embedded_script_import(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: EmbeddedScriptImport<'_>,
-) -> Result<(), ExtractError> {
-    let name_start = input.line.absolute + input.indent + input.import.local_offset;
-    if framework_virtual_module(builder.snapshot.language(), input.import.module) {
-        let module_start = input.line.absolute + input.import.module_offset;
-        builder.add_symbol(
-            CustomSymbolInput::new(
-                SymbolKind::Resource,
-                input.import.module,
-                format!(
-                    "{}::framework-module::{}",
-                    basename_stem(builder.path()),
-                    input.import.module
-                ),
-            )
-            .at(module_start, module_start + input.import.module.len())
-            .with_options(SymbolOptions {
-                body_search_text: format!("framework virtual module {}", input.import.module),
-                parent: Some(input.line.owner.clone()),
-                ..SymbolOptions::default()
-            }),
-        )?;
-    }
-    let symbol = builder.add_symbol(
-        CustomSymbolInput::new(
-            SymbolKind::Import,
-            input.import.local,
-            format!("{}::{}", basename_stem(builder.path()), input.import.local),
-        )
-        .at(name_start, name_start + input.import.local.len())
-        .with_options(SymbolOptions {
-            body_search_text: format!("import {}", input.import.local),
-            parent: Some(input.line.owner.clone()),
-            ..SymbolOptions::default()
-        }),
-    )?;
-    builder.add_import(
-        &CustomImportInput::new(Some(symbol), input.import.module)
-            .binding(input.import.imported, input.import.local)
-            .at(
-                input.line.absolute + input.import.module_offset,
-                input.line.absolute + input.import.module_offset + input.import.module.len(),
-            ),
-    )
-}
-
-#[derive(Clone, Copy)]
-struct EmbeddedScriptDeclaration<'source> {
-    line: EmbeddedScriptLine<'source>,
-    declaration: ScriptDeclaration<'source>,
-    indent: usize,
-}
-
-fn add_embedded_script_declaration(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: EmbeddedScriptDeclaration<'_>,
-) -> Result<(), ExtractError> {
-    let name_start = input.line.absolute + input.indent + input.declaration.name_offset;
-    let kind = input.declaration.kind;
-    builder.add_symbol(
-        CustomSymbolInput::new(
-            kind,
-            input.declaration.name,
-            format!(
-                "{}::{}",
-                basename_stem(builder.path()),
-                input.declaration.name
-            ),
-        )
-        .at(name_start, name_start + input.declaration.name.len())
-        .with_options(SymbolOptions {
-            body_search_text: format!("{} {}", kind.as_str(), input.declaration.name),
-            export: SymbolExportFlags::new(
-                input.declaration.exported,
-                input.declaration.default_export,
-            ),
-            async_symbol: input.declaration.async_symbol,
-            visibility: input.declaration.exported.then_some(Visibility::Public),
-            parent: Some(input.line.owner.clone()),
-            ..SymbolOptions::default()
-        }),
-    )?;
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-struct EmbeddedScriptCallScan<'line, 'clean> {
-    line: EmbeddedScriptLine<'line>,
-    clean: &'clean str,
-    trimmed: &'clean str,
-}
-
-fn add_embedded_script_calls(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: EmbeddedScriptCallScan<'_, '_>,
-) -> Result<(), ExtractError> {
-    for (relative, call) in function_like_names(input.clean) {
-        if script_call_skip(call) || declaration_name_on_line(input.trimmed, call) {
-            continue;
-        }
-        let call_start = input.line.absolute + relative;
-        builder.add_reference(
-            CustomReferenceInput::new(Some(input.line.owner.clone()), call, ReferenceKind::Calls)
-                .at(call_start, call_start + call.len()),
-        )?;
-    }
-    Ok(())
-}
-
-fn framework_virtual_module(language: SourceLanguage, module: &str) -> bool {
-    let prefixes: &[&str] = match language {
-        SourceLanguage::Svelte => &[
-            "$app/navigation",
-            "$app/stores",
-            "$app/environment",
-            "$app/forms",
-            "$app/paths",
-            "$env/static/private",
-            "$env/static/public",
-            "$env/dynamic/private",
-            "$env/dynamic/public",
-        ],
-        SourceLanguage::Vue => &["#imports", "#components", "#app", "#build", "#head"],
-        _ => return false,
-    };
-    prefixes.iter().any(|prefix| {
-        module == *prefix
-            || module
-                .strip_prefix(*prefix)
-                .is_some_and(|tail| tail.starts_with('/'))
-    })
-}
-
-#[derive(Clone, Copy)]
-struct ScriptImport<'source> {
-    local: &'source str,
-    imported: &'source str,
-    module: &'source str,
-    local_offset: usize,
-    module_offset: usize,
-}
-
-fn parse_script_import(line: &str) -> Option<ScriptImport<'_>> {
-    if !line.starts_with("import ") {
-        return None;
-    }
-    let module = quoted_values(line).into_iter().last()?;
-    let before_from = line["import ".len()..module.0.saturating_sub(1)].trim();
-    let (_, local) = first_identifier(before_from)?;
-    let imported = if before_from.starts_with('{') {
-        local
-    } else if before_from.starts_with('*') {
-        "*"
-    } else {
-        "default"
-    };
-    if module.1.is_empty()
-        || module.1.bytes().any(|byte| byte.is_ascii_whitespace())
-        || looks_sensitive(module.1)
-    {
-        return None;
-    }
-    Some(ScriptImport {
-        local,
-        imported,
-        module: module.1,
-        local_offset: "import ".len() + line["import ".len()..].find(local)?,
-        module_offset: module.0,
-    })
-}
-
-#[derive(Clone, Copy)]
-struct ScriptDeclaration<'source> {
-    kind: SymbolKind,
-    name: &'source str,
-    name_offset: usize,
-    exported: bool,
-    default_export: bool,
-    async_symbol: bool,
-}
-
-fn parse_script_declaration(line: &str) -> Option<ScriptDeclaration<'_>> {
-    let mut remainder = line;
-    let mut offset = 0;
-    let exported = remainder.starts_with("export ");
-    if exported {
-        remainder = &remainder["export ".len()..];
-        offset += "export ".len();
-    }
-    let default_export = remainder.starts_with("default ");
-    if default_export {
-        remainder = &remainder["default ".len()..];
-        offset += "default ".len();
-    }
-    let async_symbol = remainder.starts_with("async ");
-    if async_symbol {
-        remainder = &remainder["async ".len()..];
-        offset += "async ".len();
-    }
-    let (keyword, kind) = [
-        ("function", SymbolKind::Function),
-        ("class", SymbolKind::Class),
-        ("interface", SymbolKind::Interface),
-        ("type", SymbolKind::TypeAlias),
-        ("const", SymbolKind::Constant),
-        ("let", SymbolKind::Variable),
-        ("var", SymbolKind::Variable),
-    ]
-    .into_iter()
-    .find(|(keyword, _)| {
-        remainder.starts_with(keyword)
-            && remainder
-                .as_bytes()
-                .get(keyword.len())
-                .is_some_and(u8::is_ascii_whitespace)
-    })?;
-    let suffix = &remainder[keyword.len()..];
-    let (name_offset, name) = first_identifier(suffix)?;
-    Some(ScriptDeclaration {
-        kind,
-        name,
-        name_offset: offset + keyword.len() + name_offset,
-        exported,
-        default_export,
-        async_symbol,
-    })
-}
-
-fn mask_literals_and_comments(line: &str) -> String {
-    let bytes = line.as_bytes();
-    let mut output = String::with_capacity(line.len());
-    let mut cursor = 0;
-    let mut quote = None;
-    while cursor < bytes.len() {
-        let byte = bytes[cursor];
-        if let Some(active) = quote {
-            (cursor, quote) = QuotedMask {
-                bytes,
-                output: &mut output,
-            }
-            .mask(cursor, active);
-            continue;
-        }
-        if matches!(byte, b'\'' | b'"' | b'`') {
-            quote = Some(byte);
-            output.push(char::from(byte));
-            cursor += 1;
-            continue;
-        }
-        if byte == b'/' && bytes.get(cursor + 1) == Some(&b'/') {
-            output.extend(std::iter::repeat_n(' ', bytes.len() - cursor));
-            break;
-        }
-        output.push(char::from(byte));
-        cursor += 1;
-    }
-    output
-}
-
-struct QuotedMask<'a> {
-    bytes: &'a [u8],
-    output: &'a mut String,
-}
-
-impl QuotedMask<'_> {
-    fn mask(&mut self, cursor: usize, active: u8) -> (usize, Option<u8>) {
-        let byte = self.bytes[cursor];
-        if byte == b'\\' {
-            self.output.push(' ');
-            let next = cursor.saturating_add(1);
-            if next < self.bytes.len() {
-                self.output.push(' ');
-                return (next.saturating_add(1), Some(active));
-            }
-            return (next, Some(active));
-        }
-        self.output.push(if byte == active {
-            char::from(byte)
-        } else {
-            ' '
-        });
-        (cursor.saturating_add(1), (byte != active).then_some(active))
-    }
-}
-
 fn function_like_names(value: &str) -> Vec<(usize, &str)> {
     identifiers(value)
         .into_iter()
@@ -1613,199 +1206,6 @@ fn function_like_names(value: &str) -> Vec<(usize, &str)> {
                     == Some(b'(')
         })
         .collect()
-}
-
-const SCRIPT_CALL_SKIP_NAMES: &[&str] = &[
-    "if",
-    "for",
-    "while",
-    "switch",
-    "catch",
-    "function",
-    "defineProps",
-    "defineEmits",
-    "defineExpose",
-    "defineOptions",
-    "defineModel",
-    "defineSlots",
-    "withDefaults",
-    "$props",
-    "$state",
-    "$derived",
-    "$effect",
-    "$bindable",
-    "$inspect",
-    "$host",
-    "$snippet",
-];
-
-fn script_call_skip(name: &str) -> bool {
-    SCRIPT_CALL_SKIP_NAMES.contains(&name)
-}
-
-fn declaration_name_on_line(line: &str, name: &str) -> bool {
-    parse_script_declaration(line).is_some_and(|declaration| declaration.name == name)
-}
-
-fn starts_uppercase_ascii(value: &str) -> bool {
-    value.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
-}
-
-fn extract_template_attribute_calls(
-    builder: &mut CustomBuilder<'_, '_>,
-    owner: &SymbolId,
-    tag: MarkupTag<'_>,
-) -> Result<(), ExtractError> {
-    for key in ["@click", "v-on:click", "on:click", "onclick", "action"] {
-        let Some((offset, expression)) = tag_attribute(tag, key) else {
-            continue;
-        };
-        let calls = function_like_names(expression);
-        for (relative, name) in &calls {
-            if script_call_skip(name) {
-                continue;
-            }
-            let start = offset + relative;
-            builder.add_reference(
-                CustomReferenceInput::new(Some(owner.clone()), name, ReferenceKind::Calls)
-                    .at(start, start + name.len()),
-            )?;
-        }
-        if calls.is_empty()
-            && let Some((relative, name)) = first_identifier(expression)
-            && !script_call_skip(name)
-        {
-            let start = offset + relative;
-            builder.add_reference(
-                CustomReferenceInput::new(Some(owner.clone()), name, ReferenceKind::Calls)
-                    .at(start, start + name.len()),
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn extract_template_expression_calls(
-    builder: &mut CustomBuilder<'_, '_>,
-    owner: &SymbolId,
-    excluded: &[std::ops::Range<usize>],
-) -> Result<(), ExtractError> {
-    let source = builder.source();
-    let delimiters = if builder.snapshot.language() == SourceLanguage::Vue {
-        ("{{", "}}")
-    } else {
-        ("{", "}")
-    };
-    let mut cursor = 0;
-    while let Some(relative) = source[cursor..].find(delimiters.0) {
-        let open = cursor + relative;
-        if excluded
-            .iter()
-            .any(|range| range.start <= open && open < range.end)
-        {
-            cursor = open.saturating_add(delimiters.0.len());
-            continue;
-        }
-        let content_start = open + delimiters.0.len();
-        let Some(close_relative) = source[content_start..].find(delimiters.1) else {
-            break;
-        };
-        let close = content_start + close_relative;
-        let expression = &source[content_start..close];
-        extract_template_expression(
-            builder,
-            OwnedSourceInput {
-                owner,
-                source: expression,
-                offset: content_start,
-            },
-        )?;
-        cursor = close + delimiters.1.len();
-    }
-    Ok(())
-}
-
-fn extract_template_expression(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: OwnedSourceInput<'_, '_>,
-) -> Result<(), ExtractError> {
-    let OwnedSourceInput {
-        owner,
-        source: expression,
-        offset: content_start,
-    } = input;
-    if expression.trim_start().starts_with(['#', '/', ':', '@']) {
-        return Ok(());
-    }
-    if builder.snapshot.language() == SourceLanguage::Svelte {
-        extract_svelte_store_references(
-            builder,
-            OwnedSourceInput {
-                owner,
-                source: &mask_literals_and_comments(expression),
-                offset: content_start,
-            },
-        )?;
-    }
-    for (relative_offset, name) in function_like_names(expression) {
-        if script_call_skip(name) {
-            continue;
-        }
-        let start = content_start + relative_offset;
-        builder.add_reference(
-            CustomReferenceInput::new(Some(owner.clone()), name, ReferenceKind::Calls)
-                .at(start, start + name.len()),
-        )?;
-    }
-    Ok(())
-}
-
-fn extract_svelte_store_references(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: OwnedSourceInput<'_, '_>,
-) -> Result<(), ExtractError> {
-    let bytes = input.source.as_bytes();
-    let mut cursor = 0;
-    while cursor < bytes.len() {
-        if bytes[cursor] != b'$'
-            || bytes.get(cursor + 1) == Some(&b'$')
-            || !bytes
-                .get(cursor + 1)
-                .is_some_and(|byte| is_identifier_start(*byte))
-        {
-            cursor = cursor.saturating_add(1);
-            continue;
-        }
-        let start = cursor;
-        cursor = cursor.saturating_add(2);
-        while cursor < bytes.len() && is_identifier_body(bytes[cursor]) {
-            cursor = cursor.saturating_add(1);
-        }
-        let source_name = &input.source[start..cursor];
-        if matches!(
-            source_name,
-            "$state"
-                | "$derived"
-                | "$effect"
-                | "$props"
-                | "$bindable"
-                | "$inspect"
-                | "$host"
-                | "$snippet"
-        ) {
-            continue;
-        }
-        builder.add_reference_with_resolution(
-            CustomReferenceInput::new(
-                Some(input.owner.clone()),
-                source_name,
-                ReferenceKind::References,
-            )
-            .with_resolution(&source_name[1..])
-            .at(input.offset + start, input.offset + cursor),
-        )?;
-    }
-    Ok(())
 }
 
 fn extract_salesforce_markup(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {

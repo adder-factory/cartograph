@@ -233,6 +233,32 @@ impl SourceSnapshot {
     pub fn into_source(self) -> Box<str> {
         self.source
     }
+
+    /// Copy this snapshot as a view parsed under an embedded script dialect.
+    ///
+    /// Path, file identity, content digest, and bytes stay identical, so every
+    /// span and symbol identity extracted over the view is a fact of this file.
+    /// Only the language differs; the view lives for one extraction pass and is
+    /// never published.
+    pub(crate) fn dialect_view(
+        &self,
+        language: SourceLanguage,
+    ) -> Result<Self, crate::ExtractError> {
+        let mut source = String::new();
+        source
+            .try_reserve_exact(self.source.len())
+            .map_err(|_| crate::ExtractError::OutputLimit)?;
+        source.push_str(&self.source);
+        Ok(Self {
+            path: self.path.clone(),
+            language,
+            file_id: self.file_id.clone(),
+            content_hash: self.content_hash.clone(),
+            byte_size: self.byte_size,
+            line_count: self.line_count,
+            source: source.into_boxed_str(),
+        })
+    }
 }
 
 impl fmt::Debug for SourceSnapshot {

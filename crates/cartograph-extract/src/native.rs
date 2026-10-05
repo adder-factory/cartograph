@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use cartograph_domain::{FileParseStatus, SourceLanguage};
 use thiserror::Error;
-use tree_sitter::{ParseOptions, Parser, Point, Query};
+use tree_sitter::{ParseOptions, Parser, Point, Query, Tree};
 
 use crate::{
     DiagnosticCode, ExtractedFile, ExtractionDiagnostic, ExtractionStrategy, LanguageSpec,
@@ -140,37 +140,13 @@ impl NativeExtractor {
             .as_deref()
             .unwrap_or_else(|| snapshot.source())
             .as_bytes();
-        let mut interrupted = false;
-        let tree = {
-            let mut input = |offset: usize, _position: Point| match source.get(offset..) {
-                Some(remaining) => remaining,
-                None => &[],
-            };
-            let mut progress = |_state: &tree_sitter::ParseState| {
-                if cancelled() {
-                    interrupted = true;
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-            };
-            let options = ParseOptions::new().progress_callback(&mut progress);
+        let tree = parse_with_cancellation(
             self.parser
                 .as_mut()
-                .ok_or(ExtractError::GrammarUnavailable)?
-                .parse_with_options(&mut input, None, Some(options))
-        };
-        let Some(tree) = tree else {
-            self.parser
-                .as_mut()
-                .ok_or(ExtractError::GrammarUnavailable)?
-                .reset();
-            return if interrupted {
-                Err(ExtractError::Cancelled)
-            } else {
-                Err(ExtractError::ParserStopped)
-            };
-        };
+                .ok_or(ExtractError::GrammarUnavailable)?,
+            source,
+            cancelled,
+        )?;
         if cancelled() {
             return Err(ExtractError::Cancelled);
         }
@@ -223,6 +199,46 @@ fn pre_parse_rewrite(
         return Ok(None);
     }
     objc_macro_rewrite::rewrite_react_native_macros(snapshot.source(), cancelled)
+}
+
+/// Parse `source` with `parser` while polling the supervisor cancellation probe.
+///
+/// The parser keeps any included ranges its caller configured, so an embedded
+/// script region is parsed over the full host bytes with host positions.
+/// # Errors
+///
+/// Returns [`ExtractError::Cancelled`] when the probe stopped the parse, or
+/// [`ExtractError::ParserStopped`] when tree-sitter stopped without a tree.
+pub(crate) fn parse_with_cancellation(
+    parser: &mut Parser,
+    source: &[u8],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Tree, ExtractError> {
+    let mut interrupted = false;
+    let tree = {
+        let mut input = |offset: usize, _position: Point| match source.get(offset..) {
+            Some(remaining) => remaining,
+            None => &[],
+        };
+        let mut progress = |_state: &tree_sitter::ParseState| {
+            if cancelled() {
+                interrupted = true;
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let options = ParseOptions::new().progress_callback(&mut progress);
+        parser.parse_with_options(&mut input, None, Some(options))
+    };
+    tree.ok_or_else(|| {
+        parser.reset();
+        if interrupted {
+            ExtractError::Cancelled
+        } else {
+            ExtractError::ParserStopped
+        }
+    })
 }
 
 fn recover_file_local_failure(

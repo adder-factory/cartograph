@@ -63,6 +63,9 @@ pub enum ExtractionStrategy {
     /// PHP declarations, namespace `use` imports, literal includes, and
     /// compile-time-resolved class, member, and static call references.
     PhpFamily,
+    /// Astro components: a file-level component, frontmatter and template
+    /// expressions through the JavaScript-family walker, and component-use references.
+    AstroFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -103,6 +106,7 @@ impl ExtractionStrategy {
                 | Self::ObjcFamily
                 | Self::SwiftFamily
                 | Self::PhpFamily
+                | Self::AstroFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -210,6 +214,7 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         SourceLanguage::ObjectiveC => Some(ExtractionStrategy::ObjcFamily),
         SourceLanguage::Swift => Some(ExtractionStrategy::SwiftFamily),
         SourceLanguage::Php => Some(ExtractionStrategy::PhpFamily),
+        SourceLanguage::Astro => Some(ExtractionStrategy::AstroFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -225,7 +230,6 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
 const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
     match language {
         SourceLanguage::Abap
-        | SourceLanguage::Astro
         | SourceLanguage::GraphQl
         | SourceLanguage::Html
         | SourceLanguage::Prisma

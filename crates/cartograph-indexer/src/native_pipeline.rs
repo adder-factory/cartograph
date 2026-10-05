@@ -19616,6 +19616,194 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
     }
 
+    const COMPONENT_RESOLUTION_FIXTURES: [(&str, &str); 5] = [
+        (
+            "src/lib/format.ts",
+            "export function formatOrder() {}\nexport default function loadOrder() {}\n",
+        ),
+        (
+            "src/components/OrderPanel.vue",
+            "<script setup lang=\"ts\">\nimport loadOrder, { formatOrder } from '../lib/format';\nconst order = loadOrder();\n</script>\n<template><p>{{ formatOrder(order) }}</p><p>{{ missingHelper() }}</p></template>\n",
+        ),
+        (
+            "src/components/OrderBadge.svelte",
+            "<script lang=\"ts\">\nimport { formatOrder } from '../lib/format';\n</script>\n<span>{formatOrder()}</span>\n",
+        ),
+        ("src/layouts/Layout.astro", "<main><slot /></main>\n"),
+        (
+            "src/pages/orders.astro",
+            "---\nimport Layout from '../layouts/Layout.astro';\nimport { formatOrder } from '../lib/format';\n---\n<Layout><h1>{formatOrder()}</h1></Layout>\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn component_corpus_is_identical_for_every_worker_count() {
+        let directory =
+            tempdir().unwrap_or_else(|error| panic!("could not create component fixture: {error}"));
+        for (path, source) in COMPONENT_RESOLUTION_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("component fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        for workers in [2, 4, 8, 16] {
+            let parallel = build(directory.path(), workers).await;
+            assert_eq!(
+                serial.facts().digest(),
+                parallel.facts().digest(),
+                "{workers} workers"
+            );
+        }
+        let library = capability_file_symbol(serial.facts(), "src/lib/format.ts");
+        let module = capability_resolved_reference(
+            serial.facts(),
+            "src/pages/orders.astro",
+            ("../lib/format", ReferenceKind::Imports),
+        );
+        assert_eq!(module.target_symbol_id.as_ref(), Some(&library.symbol_id));
+    }
+
+    #[test]
+    fn component_scripts_and_template_expressions_resolve_through_their_imports() {
+        let forward = build_capability_generation(&COMPONENT_RESOLUTION_FIXTURES, false);
+        let reversed = build_capability_generation(&COMPONENT_RESOLUTION_FIXTURES, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let library = capability_file_symbol(&forward, "src/lib/format.ts");
+        let format_order = capability_symbol(&forward, "src/lib/format.ts", "formatOrder");
+        let load_order = capability_symbol(&forward, "src/lib/format.ts", "loadOrder");
+        let layout = capability_symbol(&forward, "src/layouts/Layout.astro", "Layout");
+        for path in [
+            "src/components/OrderPanel.vue",
+            "src/components/OrderBadge.svelte",
+            "src/pages/orders.astro",
+        ] {
+            let module = capability_resolved_reference(
+                &forward,
+                path,
+                ("../lib/format", ReferenceKind::Imports),
+            );
+            assert_eq!(
+                module.target_symbol_id.as_ref(),
+                Some(&library.symbol_id),
+                "{path}"
+            );
+            assert_eq!(
+                module.resolution_provenance, MODULE_IMPORT_PROVENANCE,
+                "{path}"
+            );
+            let call = capability_resolved_reference(
+                &forward,
+                path,
+                ("formatOrder", ReferenceKind::Calls),
+            );
+            assert_eq!(
+                call.target_symbol_id.as_ref(),
+                Some(&format_order.symbol_id),
+                "{path}"
+            );
+            assert_eq!(
+                call.resolution_provenance, IMPORT_BINDING_PROVENANCE,
+                "{path}"
+            );
+        }
+        let default_call = capability_resolved_reference(
+            &forward,
+            "src/components/OrderPanel.vue",
+            ("loadOrder", ReferenceKind::Calls),
+        );
+        assert_eq!(
+            default_call.target_symbol_id.as_ref(),
+            Some(&load_order.symbol_id)
+        );
+        let unimported = capability_resolved_reference(
+            &forward,
+            "src/components/OrderPanel.vue",
+            ("missingHelper", ReferenceKind::Calls),
+        );
+        assert_eq!(unimported.target_symbol_id, None);
+        let component_use = capability_resolved_reference(
+            &forward,
+            "src/pages/orders.astro",
+            ("Layout", ReferenceKind::References),
+        );
+        assert_eq!(
+            component_use.target_symbol_id.as_ref(),
+            Some(&layout.symbol_id)
+        );
+    }
+
+    #[test]
+    fn component_module_scope_exports_defaults_and_schemas_resolve() {
+        let fixtures = [
+            ("src/lib/helpers.ts", "export function assist() {}\n"),
+            (
+                "src/lib/Helpers.svelte",
+                "<script context=\"module\">\nexport * as helpers from './helpers';\nfunction tool() {}\nexport { tool };\n</script>\n",
+            ),
+            (
+                "src/components/Options.vue",
+                "<script>\nexport default {\n  name: 'Options',\n  methods: { save() {} },\n};\n</script>\n",
+            ),
+            (
+                "src/pages/use.vue",
+                "<script setup>\nimport Options from '../components/Options.vue';\n</script>\n<template><Options /></template>\n",
+            ),
+            (
+                "src/components/Form.svelte",
+                "<script lang=\"ts\">\nimport { z } from 'zod';\nconst UserSchema = z.object({ name: z.string() });\nfunction check() { return UserSchema.shape.name; }\n</script>\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let options = capability_symbol(&forward, "src/components/Options.vue", "Options");
+        let options_use = capability_resolved_reference(
+            &forward,
+            "src/pages/use.vue",
+            ("Options", ReferenceKind::References),
+        );
+        assert_eq!(
+            options_use.target_symbol_id.as_ref(),
+            Some(&options.symbol_id),
+            "the options-API default export must not compete with the component"
+        );
+        let field = capability_symbol(&forward, "src/components/Form.svelte", "UserSchema::name");
+        let consumer = capability_resolved_reference(
+            &forward,
+            "src/components/Form.svelte",
+            ("name", ReferenceKind::References),
+        );
+        assert_eq!(consumer.target_symbol_id.as_ref(), Some(&field.symbol_id));
+        let tool = capability_symbol(&forward, "src/lib/Helpers.svelte", "tool");
+        assert!(tool.export.exported);
+        capability_symbol(&forward, "src/lib/Helpers.svelte", "helpers");
+    }
+
+    fn capability_resolved_reference<'facts>(
+        facts: &'facts CanonicalGenerationFacts,
+        path: &str,
+        (name, kind): (&str, ReferenceKind),
+    ) -> &'facts ReferenceInput {
+        let file_id = &capability_file_symbol(facts, path).file_id;
+        facts
+            .references()
+            .iter()
+            .find(|reference| {
+                &reference.file_id == file_id
+                    && reference.reference_name == name
+                    && reference.reference_kind == kind.as_str()
+            })
+            .unwrap_or_else(|| panic!("missing {kind:?} {name} in {path}"))
+    }
+
     #[test]
     fn php_framework_routes_resolve_controller_methods_and_classes_without_losing_source_labels() {
         let fixtures = [

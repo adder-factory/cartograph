@@ -448,7 +448,7 @@ const NATIVE_GENERIC_FAMILY_FIXTURES: [(&str, &str, &str, &str); NATIVE_GENERIC_
         "generic/AstroBeacon.astro",
         "---\nconst AstroBeacon = 'safe';\n---\n<CustomBeacon />\n",
         "astro",
-        "CustomBeacon",
+        "AstroBeacon",
     ),
     (
         "generic/clojurebeacon.clj",

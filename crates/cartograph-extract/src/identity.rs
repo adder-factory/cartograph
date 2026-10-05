@@ -77,6 +77,13 @@ impl<'a> SymbolIdentity<'a> {
         *ordinal = ordinal.saturating_add(1);
         Ok(id)
     }
+
+    /// Exchange ordinal state with another identity over the same path, so an
+    /// embedded extraction pass continues this file's ordinal sequence.
+    pub(crate) fn exchange_ordinals(&mut self, other: &mut SymbolIdentity<'_>) {
+        debug_assert_eq!(self.path, other.path);
+        std::mem::swap(&mut self.ordinals, &mut other.ordinals);
+    }
 }
 
 fn stable_uuid_bytes(context: &str, fields: &[&[u8]]) -> [u8; UUID_BYTES] {
