@@ -10322,7 +10322,7 @@ where
             },
             budget,
         )?;
-        push_candidate(
+        push_symbol_candidates(
             &mut index.candidates,
             ResolutionCandidateInsertion {
                 key: &symbol.name,
@@ -10333,35 +10333,6 @@ where
             },
             budget,
         )?;
-        if symbol.input.qualified_name != symbol.name {
-            push_candidate(
-                &mut index.candidates,
-                ResolutionCandidateInsertion {
-                    key: &symbol.input.qualified_name,
-                    symbol,
-                    parent_symbol_id: parent_symbol_id.as_ref(),
-                    file_ordinal,
-                    language: &file.file.language,
-                },
-                budget,
-            )?;
-        }
-        if let Some(alias) = framework_resolution_alias(symbol, &file.file.language)
-            && alias != symbol.name
-            && alias != symbol.input.qualified_name
-        {
-            push_candidate(
-                &mut index.candidates,
-                ResolutionCandidateInsertion {
-                    key: alias,
-                    symbol,
-                    parent_symbol_id: parent_symbol_id.as_ref(),
-                    file_ordinal,
-                    language: &file.file.language,
-                },
-                budget,
-            )?;
-        }
         if symbol.export.default_export {
             push_default_export(
                 &mut index.default_exports,
@@ -10388,6 +10359,33 @@ where
         cancelled,
     )?;
     index_project_reexports(index, file, budget)
+}
+
+/// Index one symbol under each distinct name a reference can spell it by:
+/// its own name (`insertion.key`), then its qualified name and its framework
+/// alias when those differ from the names already indexed.
+fn push_symbol_candidates(
+    candidates: &mut CandidateMap,
+    insertion: ResolutionCandidateInsertion<'_>,
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    let name = insertion.key;
+    let qualified_name = insertion.symbol.input.qualified_name.as_str();
+    let alias = framework_resolution_alias(insertion.symbol, insertion.language)
+        .filter(|alias| *alias != name && *alias != qualified_name);
+    let keys = [
+        Some(name),
+        (qualified_name != name).then_some(qualified_name),
+        alias,
+    ];
+    for key in keys.into_iter().flatten() {
+        push_candidate(
+            candidates,
+            ResolutionCandidateInsertion { key, ..insertion },
+            budget,
+        )?;
+    }
+    Ok(())
 }
 
 fn index_project_export(
@@ -10870,11 +10868,108 @@ impl<'reference> ReferenceLookup<'reference> {
             lookup_name,
         }
     }
+
+    /// The receiver dispatch a name-based lookup resolves under.
+    const fn dispatch(&self) -> ReferenceDispatch {
+        if self.rust_self_receiver_name.is_some() {
+            ReferenceDispatch::RustSelf
+        } else if self.dynamic_dispatch_name.is_some() {
+            ReferenceDispatch::Dynamic
+        } else {
+            ReferenceDispatch::Static
+        }
+    }
+
+    /// A type-query value (`typeof value`) reads the value, so it resolves as
+    /// a plain reference whatever kind the extractor recorded.
+    const fn request_kind(&self, extracted: ReferenceKind) -> ReferenceKind {
+        if self.type_query_value_name.is_some() {
+            ReferenceKind::References
+        } else {
+            extracted
+        }
+    }
 }
 
 struct ReferenceAppendRequest<'a, 'b> {
     context: &'a FileResolutionContext<'b>,
     reference: ExtractedReference,
+}
+
+struct ExtractedReferenceQuery<'a, 'b> {
+    context: &'a FileResolutionContext<'b>,
+    reference: &'a ExtractedReference,
+    import_binding_scratch: &'a mut ImportBindingScratch,
+}
+
+/// Resolve one extracted reference through the lookup its resolver prefix
+/// selects, then give a target reached through dynamic dispatch the
+/// dynamic-dispatch confidence and provenance.
+fn resolve_extracted_reference<Cancel>(
+    index: &ResolutionIndex,
+    query: ExtractedReferenceQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ExtractedReferenceQuery {
+        context,
+        reference,
+        import_binding_scratch,
+    } = query;
+    let lookup = ReferenceLookup::classify(reference);
+    let mut resolution = if lookup.rust_macro_name.is_some() {
+        ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
+    } else if let Some(sql) = lookup.embedded_sql {
+        resolve_embedded_sql(index, sql, cancelled)?
+    } else if let Some(name) = lookup.lexical_scope_name {
+        resolve_lexical_scope_reference(
+            index,
+            LexicalScopeReference {
+                context,
+                reference,
+                name,
+            },
+            cancelled,
+        )?
+    } else if let Some(php_lookup) = lookup.php_exact {
+        php_resolution::resolve_exact(
+            index,
+            php_resolution::PhpExactRequest {
+                file_id: &context.identity.file_id,
+                lookup: php_lookup,
+            },
+            cancelled,
+        )?
+    } else {
+        resolve_reference_or_source_name(
+            index,
+            SourceNameFallbackQuery {
+                request: &ResolutionRequest {
+                    file_id: &context.identity.file_id,
+                    file_path: &context.identity.path,
+                    language: &context.identity.language,
+                    import_bindings: import_binding_scratch
+                        .select(context.import_bindings, lookup.lookup_name),
+                    owner: reference.owner.as_ref(),
+                    name: lookup.lookup_name,
+                    dispatch: lookup.dispatch(),
+                    kind: lookup.request_kind(reference.kind),
+                    span: reference.span,
+                },
+                source_name: &reference.name,
+            },
+            cancelled,
+        )?
+    };
+    if lookup.dynamic_dispatch_name.is_some()
+        && let Some(target) = resolution.target.as_mut()
+    {
+        target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
+        target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
+    }
+    Ok(resolution)
 }
 
 struct FileRecordInput<'file> {
@@ -11056,69 +11151,15 @@ impl ResolutionOutput<'_> {
         Cancel: FnMut() -> bool,
     {
         let ReferenceAppendRequest { context, reference } = request;
-        let lookup = ReferenceLookup::classify(&reference);
-        let ReferenceLookup {
-            dynamic_dispatch_name,
-            rust_self_receiver_name,
-            rust_macro_name,
-            type_query_value_name,
-            lexical_scope_name,
-            embedded_sql,
-            php_exact,
-            lookup_name,
-        } = lookup;
-        let mut resolution = if rust_macro_name.is_some() {
-            ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
-        } else if let Some(lookup) = embedded_sql {
-            resolve_embedded_sql(self.index, lookup, cancelled)?
-        } else if let Some(name) = lexical_scope_name {
-            resolve_lexical_scope_reference(self.index, context, &reference, name, cancelled)?
-        } else if let Some(lookup) = php_exact {
-            php_resolution::resolve_exact(
-                self.index,
-                php_resolution::PhpExactRequest {
-                    file_id: &context.identity.file_id,
-                    lookup,
-                },
-                cancelled,
-            )?
-        } else {
-            resolve_reference_or_source_name(
-                self.index,
-                SourceNameFallbackQuery {
-                    request: &ResolutionRequest {
-                        file_id: &context.identity.file_id,
-                        file_path: &context.identity.path,
-                        language: &context.identity.language,
-                        import_bindings: import_binding_scratch
-                            .select(context.import_bindings, lookup_name),
-                        owner: reference.owner.as_ref(),
-                        name: lookup_name,
-                        dispatch: if rust_self_receiver_name.is_some() {
-                            ReferenceDispatch::RustSelf
-                        } else if dynamic_dispatch_name.is_some() {
-                            ReferenceDispatch::Dynamic
-                        } else {
-                            ReferenceDispatch::Static
-                        },
-                        kind: if type_query_value_name.is_some() {
-                            ReferenceKind::References
-                        } else {
-                            reference.kind
-                        },
-                        span: reference.span,
-                    },
-                    source_name: &reference.name,
-                },
-                cancelled,
-            )?
-        };
-        if dynamic_dispatch_name.is_some()
-            && let Some(target) = resolution.target.as_mut()
-        {
-            target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
-            target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
-        }
+        let resolution = resolve_extracted_reference(
+            self.index,
+            ExtractedReferenceQuery {
+                context,
+                reference: &reference,
+                import_binding_scratch,
+            },
+            cancelled,
+        )?;
         self.count_resolution(resolution.target.is_some())?;
         let source_symbol_id = reference
             .owner
@@ -12818,7 +12859,14 @@ where
     if pascal_resolution::exact_scope_only(request.language, request.dispatch) {
         return Ok(None);
     }
-    resolve_lexical_scope(index, request, candidates, cancelled)
+    resolve_lexical_scope(
+        index,
+        LexicalScopeQuery {
+            request,
+            candidates,
+        },
+        cancelled,
+    )
 }
 
 /// Resolve a JavaScript-family read the extractor marked as bound by a nested
@@ -12827,14 +12875,17 @@ where
 /// qualified-name pass, an import, or a project name.
 fn resolve_lexical_scope_reference<Cancel>(
     index: &ResolutionIndex,
-    context: &FileResolutionContext<'_>,
-    reference: &ExtractedReference,
-    name: &str,
+    query: LexicalScopeReference<'_, '_>,
     cancelled: &mut Cancel,
 ) -> Result<ReferenceResolution, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    let LexicalScopeReference {
+        context,
+        reference,
+        name,
+    } = query;
     let request = ResolutionRequest {
         file_id: &context.identity.file_id,
         file_path: &context.identity.path,
@@ -12848,24 +12899,49 @@ where
     };
     let candidates = resolution_candidates_for_file(index, name, request.file_id);
     Ok(
-        match resolve_lexical_scope(index, &request, candidates, cancelled)? {
+        match resolve_lexical_scope(
+            index,
+            LexicalScopeQuery {
+                request: &request,
+                candidates,
+            },
+            cancelled,
+        )? {
             Some(target) => ReferenceResolution::resolved(target),
             None => ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
         },
     )
 }
 
+/// A lexical-scope-marked reference and the name its scope walk binds.
+#[derive(Clone, Copy)]
+struct LexicalScopeReference<'a, 'b> {
+    context: &'a FileResolutionContext<'b>,
+    reference: &'a ExtractedReference,
+    name: &'a str,
+}
+
+/// A lexical scope walk's request and the same-file candidates it binds from.
+#[derive(Clone, Copy)]
+struct LexicalScopeQuery<'request, 'a> {
+    request: &'request ResolutionRequest<'a>,
+    candidates: &'request [ResolutionCandidate],
+}
+
 /// Walk the reference owner's enclosing scopes outward to the file's top
 /// level and bind the first scope's declaration of the name.
 fn resolve_lexical_scope<Cancel>(
     index: &ResolutionIndex,
-    request: &ResolutionRequest<'_>,
-    candidates: &[ResolutionCandidate],
+    query: LexicalScopeQuery<'_, '_>,
     cancelled: &mut Cancel,
 ) -> Result<Option<ResolvedTarget>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    let LexicalScopeQuery {
+        request,
+        candidates,
+    } = query;
     let mut scope = request.owner;
     // There can be one more lexical scope than parent-map entries: an
     // uncontained owner must still advance once to the file's top-level scope.
@@ -13596,35 +13672,19 @@ where
             importing_language: reference.language,
         },
     );
-    if let Some(module_file_id) = module_file_id {
-        let candidates = import_resolution_candidates(ImportCandidatesQuery {
-            index,
-            binding,
-            imported_name,
-            module_file_id,
-        });
-        let javascript_value_usage = matches!(site, ImportReferenceSite::Usage)
-            && javascript_family_name(reference.language)
-            && !matches!(
-                reference.kind,
-                ReferenceKind::TypeOf
-                    | ReferenceKind::Returns
-                    | ReferenceKind::Inherits
-                    | ReferenceKind::Implements
-                    | ReferenceKind::Extends
-            );
-        let filter = ImportCandidateFilter {
-            index,
-            reference,
-            imported_name,
-            module_file_id,
-            javascript_value_usage,
-        };
-        if let Some(candidate) =
-            select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
-        {
-            return Ok(ImportResolution::Resolved(import_binding_target(candidate)));
-        }
+    if let Some(module_file_id) = module_file_id
+        && let Some(target) = resolve_module_import(
+            ModuleImportQuery {
+                index,
+                import: input,
+                binding,
+                imported_name,
+                module_file_id,
+            },
+            cancelled,
+        )?
+    {
+        return Ok(ImportResolution::Resolved(target));
     }
     if let Some(target) = resolve_rust_namespace_symbol_import(
         RustNamespaceImportQuery {
@@ -13641,6 +13701,65 @@ where
     } else {
         missing_import_module_resolution(index, reference, binding)
     })
+}
+
+#[derive(Clone, Copy)]
+struct ModuleImportQuery<'a, 'b> {
+    index: &'a ResolutionIndex,
+    import: ImportResolutionRequest<'a, 'b>,
+    binding: &'a ExtractedImportBinding,
+    imported_name: &'a str,
+    module_file_id: &'a FileId,
+}
+
+/// Bind an import to the declaration the resolved module file exposes under
+/// the imported name.
+fn resolve_module_import<Cancel>(
+    query: ModuleImportQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ResolvedTarget>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ModuleImportQuery {
+        index,
+        import,
+        binding,
+        imported_name,
+        module_file_id,
+    } = query;
+    let candidates = import_resolution_candidates(ImportCandidatesQuery {
+        index,
+        binding,
+        imported_name,
+        module_file_id,
+    });
+    let filter = ImportCandidateFilter {
+        index,
+        reference: import.reference,
+        imported_name,
+        module_file_id,
+        javascript_value_usage: javascript_value_import_usage(import),
+    };
+    Ok(
+        select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
+            .map(import_binding_target),
+    )
+}
+
+/// A JavaScript-family use of an imported name in a value position, which a
+/// type-only export cannot satisfy.
+fn javascript_value_import_usage(import: ImportResolutionRequest<'_, '_>) -> bool {
+    matches!(import.site, ImportReferenceSite::Usage)
+        && javascript_family_name(import.reference.language)
+        && !matches!(
+            import.reference.kind,
+            ReferenceKind::TypeOf
+                | ReferenceKind::Returns
+                | ReferenceKind::Inherits
+                | ReferenceKind::Implements
+                | ReferenceKind::Extends
+        )
 }
 
 fn import_binding_target(candidate: &ResolutionCandidate) -> ResolvedTarget {
@@ -14163,39 +14282,7 @@ fn resolve_module_file<'a>(
         ModuleResolutionAttempt::Rejected => return None,
         ModuleResolutionAttempt::NotMatched => {}
     }
-    if request.importing_language == SourceLanguage::Slang.as_str()
-        && let Some(normalized) = normalize_root_module_path(request.specifier)
-        && let Some(file_id) =
-            resolve_normalized_module_file(modules, &normalized, request.importing_language)
-    {
-        return Some(file_id);
-    }
-    if request.importing_language == SourceLanguage::Wesl.as_str()
-        && let Some(file_id) = resolve_wesl_module_file(modules, request)
-    {
-        return Some(file_id);
-    }
-    if request.importing_language == SourceLanguage::Rust.as_str()
-        && request.specifier == "crate"
-        && let Some(file_id) = rust_crate_entry_file(modules, request.importing_path)
-    {
-        return Some(file_id);
-    }
-    if SourceLanguage::from_stable_str(request.importing_language)
-        .is_some_and(SourceLanguage::is_game_scripting)
-        && let Some(normalized) =
-            normalize_game_script_module_path(request.importing_path, request.specifier)
-        && let Some(file_id) =
-            resolve_normalized_module_file(modules, &normalized, request.importing_language)
-    {
-        return Some(file_id);
-    }
-    if request.importing_language == SourceLanguage::Rust.as_str()
-        && let Some(normalized) =
-            normalize_rust_module_path(modules, request.importing_path, request.specifier)
-        && let Some(file_id) =
-            resolve_normalized_module_file(modules, &normalized, request.importing_language)
-    {
+    if let Some(file_id) = resolve_language_module_file(modules, request) {
         return Some(file_id);
     }
     if let Some(normalized) =
@@ -14211,6 +14298,47 @@ fn resolve_module_file<'a>(
         TypeScriptAliasModuleResolution::NotMatched => {}
     }
     resolve_framework_alias_file(modules, request)
+}
+
+/// Resolve a specifier through the importing language's own module path
+/// form (Slang root paths, WESL module paths, a Rust `crate` root or module
+/// path, game-script resource paths) before any relative or alias lookup.
+fn resolve_language_module_file<'a>(
+    modules: &'a ModulePathIndex,
+    request: ModuleResolutionRequest<'_>,
+) -> Option<&'a FileId> {
+    let language = request.importing_language;
+    if language == SourceLanguage::Wesl.as_str() {
+        return resolve_wesl_module_file(modules, request);
+    }
+    if language == SourceLanguage::Rust.as_str()
+        && request.specifier == "crate"
+        && let Some(file_id) = rust_crate_entry_file(modules, request.importing_path)
+    {
+        return Some(file_id);
+    }
+    let normalized = language_normalized_module_path(modules, request)?;
+    resolve_normalized_module_file(modules, &normalized, language)
+}
+
+/// The project-relative module path a language-specific specifier names, for
+/// the languages whose specifiers are not plain relative paths.
+fn language_normalized_module_path(
+    modules: &ModulePathIndex,
+    request: ModuleResolutionRequest<'_>,
+) -> Option<String> {
+    let language = request.importing_language;
+    if language == SourceLanguage::Slang.as_str() {
+        normalize_root_module_path(request.specifier)
+    } else if language == SourceLanguage::Rust.as_str() {
+        normalize_rust_module_path(modules, request.importing_path, request.specifier)
+    } else if SourceLanguage::from_stable_str(language)
+        .is_some_and(SourceLanguage::is_game_scripting)
+    {
+        normalize_game_script_module_path(request.importing_path, request.specifier)
+    } else {
+        None
+    }
 }
 
 enum ModuleResolutionAttempt<'a> {
