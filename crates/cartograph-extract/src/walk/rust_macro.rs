@@ -20,11 +20,11 @@
 //!
 //! A bare identifier that is not called is usually a local binding, which the
 //! resolver cannot tell apart from a project declaration, so it stays
-//! unrecorded as it does outside macros. The one exception is a
-//! constant-shaped name (`MAX_ROWS`) inside a std formatting or assertion
-//! macro, whose arguments are known expressions: Rust's naming lints reserve
-//! that shape for constants and statics, so it is recorded as a value
-//! reference both as an argument token and as an inline `{LIMIT}` /
+//! unrecorded. The exception is a constant-shaped name (`MAX_ROWS`): Rust's
+//! naming lints reserve that shape for constants and statics. Outside macros
+//! the usage walk records it in any read position; inside a macro it is
+//! recorded only for a std formatting or assertion macro, whose arguments are
+//! known expressions, both as an argument token and as an inline `{LIMIT}` /
 //! `{value:WIDTH$}` capture in the format string. Other macros may be DSLs in
 //! which such a token is a key, a type, or text, so they record none.
 //!
@@ -847,7 +847,7 @@ fn push_frame<'tree>(
 }
 
 /// Whether a name has the `SCREAMING_SNAKE_CASE` shape Rust reserves for constants and statics.
-fn constant_shaped(name: &str) -> bool {
+pub(super) fn constant_shaped(name: &str) -> bool {
     name.len() >= MINIMUM_CONSTANT_NAME_BYTES
         && name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
         && name

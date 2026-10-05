@@ -189,13 +189,18 @@ impl NativeExtractor {
             let extracted = framework::enrich(snapshot, extracted, cancelled)?;
             return test_names::enrich(snapshot, extracted);
         }
-        let extracted = walk::extract(
-            snapshot,
-            walk::WalkInput::new(root, parse_status, self.maximum_ast_depth),
-            cancelled,
-        )?;
-        let extracted = framework::enrich(snapshot, extracted, cancelled)?;
-        test_names::enrich(snapshot, extracted)
+        let input = walk::WalkInput::new(root, parse_status, self.maximum_ast_depth);
+        walk::extract_with_optional_fact_fallback(snapshot, |optional_facts| {
+            walk::extract(
+                snapshot,
+                input.with_optional_facts(optional_facts),
+                &mut *cancelled,
+            )?
+            .then(|extracted| {
+                let extracted = framework::enrich(snapshot, extracted, &mut *cancelled)?;
+                test_names::enrich(snapshot, extracted)
+            })
+        })
     }
 }
 

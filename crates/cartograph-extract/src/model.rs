@@ -383,6 +383,11 @@ pub enum DiagnosticCode {
     /// A defensive AST nesting limit was reached. The file remains in the
     /// generation as recoverably partial while its untrusted subtree is omitted.
     NestingLimitExceeded,
+    /// Optional enrichment facts (package bindings, struct fields, constant
+    /// reads, literal instantiations, declared-type uses, supertraits, and
+    /// decorators) would have exceeded the per-file output limit, so the file
+    /// was extracted without them. Its declarations and calls are complete.
+    OptionalFactsOmitted,
 }
 
 /// Bounded diagnostic that never embeds source text or project paths.

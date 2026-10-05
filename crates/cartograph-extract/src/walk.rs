@@ -37,6 +37,7 @@ mod managed_family;
 mod module_system;
 mod nix_family;
 mod numerical;
+mod optional_facts;
 mod polyglot;
 mod prisma_family;
 mod r_family;
@@ -54,6 +55,8 @@ mod sql_family;
 pub(crate) mod syntax;
 mod value_references;
 
+pub(crate) use optional_facts::extract_with_optional_fact_fallback;
+use optional_facts::{OptionalFactGate, OptionalFacts, PassFailure, WalkedFile};
 use syntax::{
     body_search_text, callable_signature, clone_token_profile, collect_diagnostics, contains_jsx,
     export_flags, has_child_kind, jsdoc, named_children, span_for, starts_uppercase,
@@ -98,6 +101,7 @@ pub(crate) struct WalkInput<'tree> {
     root: Node<'tree>,
     parse_status: FileParseStatus,
     maximum_ast_depth: usize,
+    optional_facts: OptionalFacts,
 }
 
 impl<'tree> WalkInput<'tree> {
@@ -110,25 +114,61 @@ impl<'tree> WalkInput<'tree> {
             root,
             parse_status,
             maximum_ast_depth,
+            optional_facts: OptionalFacts::Recorded,
+        }
+    }
+
+    /// The same walk under another optional-fact policy.
+    pub(crate) const fn with_optional_facts(self, optional_facts: OptionalFacts) -> Self {
+        Self {
+            optional_facts,
+            ..self
         }
     }
 }
 
+/// Walk one parsed file under its input's optional-fact policy. A failure
+/// says whether the pass recorded optional facts, so the caller can retry
+/// without them (see [`extract_with_optional_fact_fallback`]).
 pub(crate) fn extract(
     snapshot: &SourceSnapshot,
     input: WalkInput<'_>,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<ExtractedFile, ExtractError> {
+) -> Result<WalkedFile, PassFailure> {
     let strategy = LanguageSpec::for_language(snapshot.language()).strategy();
+    let unrecorded = |error| PassFailure {
+        error,
+        recorded_optional_facts: false,
+    };
     if !strategy.is_executable() {
-        return Err(ExtractError::UnsupportedLanguage);
+        return Err(unrecorded(ExtractError::UnsupportedLanguage));
     }
-    let mut builder = ExtractionBuilder::new(snapshot, input.maximum_ast_depth, cancelled)?;
+    let mut builder =
+        ExtractionBuilder::new(snapshot, input.maximum_ast_depth, cancelled).map_err(unrecorded)?;
+    builder.optional_facts = OptionalFactGate::new(input.optional_facts);
+    let diagnostics = walk_pass(&mut builder, input, strategy);
+    let recorded_optional_facts = builder.optional_facts.recorded_any();
+    diagnostics
+        .and_then(|diagnostics| finish_extraction(builder, input, diagnostics))
+        .map(|file| WalkedFile {
+            file,
+            recorded_optional_facts,
+        })
+        .map_err(|error| PassFailure {
+            error,
+            recorded_optional_facts,
+        })
+}
+
+fn walk_pass(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: WalkInput<'_>,
+    strategy: ExtractionStrategy,
+) -> Result<Vec<ExtractionDiagnostic>, ExtractError> {
     if strategy != ExtractionStrategy::ParserOnly {
-        enrich_extraction(&mut builder, input.root)?;
+        enrich_extraction(builder, input.root)?;
     }
-    let diagnostics = collect_extraction_diagnostics(&mut builder, input)?;
-    finish_extraction(builder, input, diagnostics)
+    collect_extraction_diagnostics(builder, input)
 }
 
 fn enrich_extraction(
@@ -337,6 +377,10 @@ struct ExtractionBuilder<'source, 'cancel> {
     /// Whether any synthesized name exceeded its canonical bound and had to be
     /// deterministically shortened for this file.
     shortened_canonical_names: bool,
+    /// Whether this pass records optional enrichment facts.
+    optional_facts: OptionalFactGate,
+    /// Per-file lookup state of the polyglot walk.
+    polyglot: polyglot::PolyglotIndex,
 }
 
 fn visit_container(
@@ -1335,6 +1379,8 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             script: script_support::ScriptState::default(),
             maximum_ast_depth,
             shortened_canonical_names: false,
+            optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),
+            polyglot: polyglot::PolyglotIndex::default(),
         })
     }
 
