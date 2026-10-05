@@ -123,31 +123,6 @@ pub(super) fn emit_load_import(
     })
 }
 
-/// One reference whose name was synthesized from source syntax.
-pub(super) struct NamedReference<'tree> {
-    pub(super) owner: Option<SymbolId>,
-    pub(super) name: String,
-    pub(super) kind: ReferenceKind,
-    pub(super) node: Node<'tree>,
-}
-
-/// Emit `reference` unless its synthesized name is empty.
-pub(super) fn emit_named_reference(
-    builder: &mut ExtractionBuilder<'_, '_>,
-    reference: NamedReference<'_>,
-) -> Result<(), ExtractError> {
-    if reference.name.is_empty() {
-        return Ok(());
-    }
-    builder.emit_reference(ExtractedReference {
-        owner: reference.owner,
-        name: reference.name,
-        resolution_name: None,
-        kind: reference.kind,
-        span: span_for(reference.node)?,
-    })
-}
-
 /// Trimmed node text when it is a bounded single-line name without quotes.
 pub(super) fn bounded_name(
     builder: &ExtractionBuilder<'_, '_>,

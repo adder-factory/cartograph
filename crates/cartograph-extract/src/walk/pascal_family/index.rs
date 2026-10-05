@@ -14,7 +14,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tree_sitter::Node;
 
-use super::names::{IDENTITY_BYTES, name_parts, syntax_identity, type_base_parts};
+use super::{
+    NestedScope,
+    names::{IDENTITY_BYTES, name_parts, syntax_identity, type_base_parts},
+};
 use crate::{
     ExtractError,
     bounded_name::{MAX_CANONICAL_QUALIFIED_NAME_BYTES, shortened_canonical_name},
@@ -237,15 +240,13 @@ struct TypeScope {
     depth: usize,
 }
 
-impl TypeScope {
-    /// The same scope one structural level deeper.
-    fn nested(&self) -> Self {
-        Self {
-            depth: self.depth.saturating_add(1),
-            ..self.clone()
-        }
+impl NestedScope for TypeScope {
+    fn depth_mut(&mut self) -> &mut usize {
+        &mut self.depth
     }
+}
 
+impl TypeScope {
     /// Inside a type that could not be indexed: nothing below is recorded.
     const fn unindexed(&self) -> bool {
         self.in_type && self.key.is_none()

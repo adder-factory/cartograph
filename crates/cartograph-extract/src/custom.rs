@@ -1853,83 +1853,135 @@ fn vb6_keyword_declaration<'source>(
     let lower = context.tokens.get(context.index)?.1.to_ascii_lowercase();
     match lower.as_str() {
         "declare" => vb6_declare(context),
-        "sub" | "function" => Some(VbDeclaration {
-            kind: if context.container_kind == SymbolKind::Module {
-                SymbolKind::Function
-            } else {
-                SymbolKind::Method
+        "sub" | "function" => vb6_named_declaration(
+            context,
+            VbNamedForm {
+                kind: vb6_routine_kind(context.container_kind),
+                name_offset: 1,
+                block: Some(VbBlock::Routine),
             },
-            name: context.tokens.get(context.index + 1)?.1,
-            block: Some(VbBlock::Routine),
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        "property" => Some(VbDeclaration {
-            kind: SymbolKind::Property,
-            name: context.tokens.get(context.index + 2)?.1,
-            block: Some(VbBlock::Routine),
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        "type" => Some(VbDeclaration {
-            kind: SymbolKind::Struct,
-            name: context.tokens.get(context.index + 1)?.1,
-            block: Some(VbBlock::Struct),
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        "enum" => Some(VbDeclaration {
-            kind: SymbolKind::Enum,
-            name: context.tokens.get(context.index + 1)?.1,
-            block: Some(VbBlock::Enum),
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        "const" => Some(VbDeclaration {
-            kind: SymbolKind::Constant,
-            name: context.tokens.get(context.index + 1)?.1,
-            block: None,
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        "dim" | "public" | "private" | "friend" => Some(VbDeclaration {
-            kind: if context.parent == Some(VbBlock::Routine) {
-                SymbolKind::Variable
-            } else {
-                SymbolKind::Field
-            },
-            name: vb6_variable_name(context.tokens, context.index + 1)?,
-            block: None,
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        _ if context.visibility.is_some() => Some(VbDeclaration {
-            kind: if context.parent == Some(VbBlock::Routine) {
-                SymbolKind::Variable
-            } else {
-                SymbolKind::Field
-            },
-            name: vb6_variable_name(context.tokens, context.index)?,
-            block: None,
-            visibility: context.visibility,
-            static_member: context.static_member,
-        }),
-        _ if context.parent == Some(VbBlock::Enum) => Some(VbDeclaration {
-            kind: SymbolKind::EnumMember,
-            name: context.tokens.get(context.index)?.1,
-            block: None,
-            visibility: None,
-            static_member: false,
-        }),
-        _ if context.parent == Some(VbBlock::Struct) => Some(VbDeclaration {
-            kind: SymbolKind::Field,
-            name: context.tokens.get(context.index)?.1,
-            block: None,
-            visibility: None,
-            static_member: false,
-        }),
-        _ => None,
+        ),
+        "dim" | "public" | "private" | "friend" => {
+            vb6_variable_declaration(context, context.index + 1)
+        }
+        keyword => match VB6_NAMED_KEYWORDS
+            .iter()
+            .find(|(candidate, _)| *candidate == keyword)
+        {
+            Some(&(_, form)) => vb6_named_declaration(context, form),
+            None => vb6_implicit_declaration(context),
+        },
     }
+}
+
+/// The shape of a declaration whose keyword names its symbol a fixed number
+/// of tokens later (`Type Point`, `Property Get Name`).
+#[derive(Clone, Copy)]
+struct VbNamedForm {
+    kind: SymbolKind,
+    name_offset: usize,
+    block: Option<VbBlock>,
+}
+
+/// Lowercase VB6 keywords that declare one named symbol of a fixed kind.
+const VB6_NAMED_KEYWORDS: &[(&str, VbNamedForm)] = &[
+    (
+        "property",
+        VbNamedForm {
+            kind: SymbolKind::Property,
+            name_offset: 2,
+            block: Some(VbBlock::Routine),
+        },
+    ),
+    (
+        "type",
+        VbNamedForm {
+            kind: SymbolKind::Struct,
+            name_offset: 1,
+            block: Some(VbBlock::Struct),
+        },
+    ),
+    (
+        "enum",
+        VbNamedForm {
+            kind: SymbolKind::Enum,
+            name_offset: 1,
+            block: Some(VbBlock::Enum),
+        },
+    ),
+    (
+        "const",
+        VbNamedForm {
+            kind: SymbolKind::Constant,
+            name_offset: 1,
+            block: None,
+        },
+    ),
+];
+
+/// A `Sub` or `Function` is a function in a standard module and a method in a
+/// class or form.
+fn vb6_routine_kind(container_kind: SymbolKind) -> SymbolKind {
+    if container_kind == SymbolKind::Module {
+        SymbolKind::Function
+    } else {
+        SymbolKind::Method
+    }
+}
+
+fn vb6_named_declaration<'source>(
+    context: VbDeclarationContext<'_, 'source>,
+    form: VbNamedForm,
+) -> Option<VbDeclaration<'source>> {
+    Some(VbDeclaration {
+        kind: form.kind,
+        name: context.tokens.get(context.index + form.name_offset)?.1,
+        block: form.block,
+        visibility: context.visibility,
+        static_member: context.static_member,
+    })
+}
+
+/// A variable declared by the token at `name_index`: a routine local, or a
+/// field of the enclosing module or type.
+fn vb6_variable_declaration<'source>(
+    context: VbDeclarationContext<'_, 'source>,
+    name_index: usize,
+) -> Option<VbDeclaration<'source>> {
+    Some(VbDeclaration {
+        kind: if context.parent == Some(VbBlock::Routine) {
+            SymbolKind::Variable
+        } else {
+            SymbolKind::Field
+        },
+        name: vb6_variable_name(context.tokens, name_index)?,
+        block: None,
+        visibility: context.visibility,
+        static_member: context.static_member,
+    })
+}
+
+/// A line without a declaration keyword: a variable after a visibility
+/// modifier (`Public Count As Long`), an enum member, or a field of a
+/// user-defined type.
+fn vb6_implicit_declaration<'source>(
+    context: VbDeclarationContext<'_, 'source>,
+) -> Option<VbDeclaration<'source>> {
+    if context.visibility.is_some() {
+        return vb6_variable_declaration(context, context.index);
+    }
+    let kind = match context.parent {
+        Some(VbBlock::Enum) => SymbolKind::EnumMember,
+        Some(VbBlock::Struct) => SymbolKind::Field,
+        _ => return None,
+    };
+    Some(VbDeclaration {
+        kind,
+        name: context.tokens.get(context.index)?.1,
+        block: None,
+        visibility: None,
+        static_member: false,
+    })
 }
 
 /// VB6 modifier that subscribes an object variable to its events

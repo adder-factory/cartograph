@@ -182,8 +182,7 @@ fn capture_named_type(
         .iter()
         .any(|segment| unescaped(builder.context.text(*segment)).is_empty())
         || capture.scope.generics.contains(&root_name)
-        || path.len() > 1 && root_name == STANDARD_LIBRARY_MODULE
-        || path.len() == 1 && SWIFT_BUILTIN_TYPES.contains(&root_name)
+        || is_standard_type_path(path.len(), root_name)
     {
         return Ok(());
     }
@@ -202,6 +201,13 @@ fn capture_named_type(
             node: span,
         },
     )
+}
+
+/// Whether a type path of `length` segments rooted at `root_name` names the
+/// standard library: a `Swift.`-qualified path or a bare builtin scalar.
+fn is_standard_type_path(length: usize, root_name: &str) -> bool {
+    length > 1 && root_name == STANDARD_LIBRARY_MODULE
+        || length == 1 && SWIFT_BUILTIN_TYPES.contains(&root_name)
 }
 
 fn qualified_type_name(

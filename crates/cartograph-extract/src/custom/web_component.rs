@@ -32,7 +32,7 @@ mod layout;
 mod template_scan;
 
 use layout::{TemplateSurface, component_layout, template_expression_regions};
-use template_scan::{SVELTE_DELIMITERS, TemplateScanner, VUE_DELIMITERS};
+use template_scan::{SVELTE_DELIMITERS, TemplateDelimiters, TemplateScanner, VUE_DELIMITERS};
 
 /// Event-handler attributes whose value is a script expression.
 const EVENT_HANDLER_ATTRIBUTES: &[&str] = &["@click", "v-on:click", "on:click", "onclick"];
@@ -75,39 +75,13 @@ pub(super) fn extract_component_file(
     if builder.source().is_empty() {
         return Ok(FileParseStatus::Parsed);
     }
-    let component_name = basename_stem(builder.path()).to_owned();
-    let component_span_end = builder
-        .source()
-        .find('\n')
-        .map_or(builder.source().len(), |index| index.saturating_add(1))
-        .max(1);
-    let component = builder.add_symbol(
-        CustomSymbolInput::new(
-            SymbolKind::Component,
-            &component_name,
-            component_name.clone(),
-        )
-        .at(0, component_span_end)
-        .with_options(file_component_options(&component_name)),
-    )?;
-    let vue = builder.snapshot.language() == SourceLanguage::Vue;
-    let mut scanner = TemplateScanner::new(
-        builder.source(),
-        if vue {
-            VUE_DELIMITERS
-        } else {
-            SVELTE_DELIMITERS
-        },
-    );
+    let component = add_file_component(builder)?;
+    let mut scanner = TemplateScanner::new(builder.source(), template_delimiters(builder));
     let layout = component_layout(builder, &mut scanner)?;
     let mut regions = layout.script_regions();
     let surface = TemplateSurface {
         layout: &layout,
-        dialect: if regions.iter().any(|region| region.dialect().is_typed()) {
-            ScriptDialect::TypeScript
-        } else {
-            ScriptDialect::JavaScript
-        },
+        dialect: template_dialect(&regions),
     };
     let markup = ComponentMarkup {
         component: &component,
@@ -125,6 +99,43 @@ pub(super) fn extract_component_file(
         facts.record_truncated_template();
     }
     merge_component_facts(builder, &component, facts)
+}
+
+/// Emit the file-level component, spanning the file's first line.
+fn add_file_component(builder: &mut CustomBuilder<'_, '_>) -> Result<SymbolId, ExtractError> {
+    let component_name = basename_stem(builder.path()).to_owned();
+    let component_span_end = builder
+        .source()
+        .find('\n')
+        .map_or(builder.source().len(), |index| index.saturating_add(1))
+        .max(1);
+    builder.add_symbol(
+        CustomSymbolInput::new(
+            SymbolKind::Component,
+            &component_name,
+            component_name.clone(),
+        )
+        .at(0, component_span_end)
+        .with_options(file_component_options(&component_name)),
+    )
+}
+
+/// Vue's `{{ … }}` or Svelte's `{ … }` template expression delimiters.
+fn template_delimiters(builder: &CustomBuilder<'_, '_>) -> TemplateDelimiters {
+    if builder.snapshot.language() == SourceLanguage::Vue {
+        VUE_DELIMITERS
+    } else {
+        SVELTE_DELIMITERS
+    }
+}
+
+/// Template expressions are TypeScript when any script region is typed.
+fn template_dialect(regions: &[ScriptRegion]) -> ScriptDialect {
+    if regions.iter().any(|region| region.dialect().is_typed()) {
+        ScriptDialect::TypeScript
+    } else {
+        ScriptDialect::JavaScript
+    }
 }
 
 /// The component and the template it owns.

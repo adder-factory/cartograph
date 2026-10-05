@@ -690,16 +690,24 @@ fn reference_target(
         .get(..SELF_RECEIVER_PREFIX.len())
         .filter(|prefix| prefix.eq_ignore_ascii_case(SELF_RECEIVER_PREFIX))
         .map_or(head, |prefix| &head[prefix.len()..]);
-    if raw.is_empty()
-        || raw.len() > MAX_REFERENCE_TARGET_BYTES
-        || raw.starts_with('.')
-        || raw.ends_with('.')
-        || !raw
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
-        || raw.as_bytes().first().is_some_and(u8::is_ascii_digit)
-    {
+    if !is_bounded_dotted_text(raw) || !is_identifier_path_text(raw) {
         return Ok(None);
     }
     builder.context.copy_text(raw).map(Some)
+}
+
+/// Non-empty, within the reference-target bound, and without a leading or
+/// trailing `.`.
+fn is_bounded_dotted_text(raw: &str) -> bool {
+    !raw.is_empty()
+        && raw.len() <= MAX_REFERENCE_TARGET_BYTES
+        && !raw.starts_with('.')
+        && !raw.ends_with('.')
+}
+
+/// Only identifier bytes and `.` separators, not starting with a digit.
+fn is_identifier_path_text(raw: &str) -> bool {
+    raw.bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
+        && !raw.as_bytes().first().is_some_and(u8::is_ascii_digit)
 }

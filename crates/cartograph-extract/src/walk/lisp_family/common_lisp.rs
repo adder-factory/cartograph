@@ -253,14 +253,40 @@ pub(super) fn visit_list(
         return Ok(false);
     };
     let key = operator_key(source_text(source, head_node), head);
-    let named = NamedForm {
-        node,
-        forms: &forms,
-        kind: SymbolKind::Namespace,
-        visit_rest: true,
-        depth,
-    };
-    match key.as_deref().map_or(Form::Call, form) {
+    visit_form(
+        builder,
+        ListForm {
+            named: NamedForm {
+                node,
+                forms: &forms,
+                kind: SymbolKind::Namespace,
+                visit_rest: true,
+                depth,
+            },
+            head_node,
+            head,
+        },
+        key.as_deref().map_or(Form::Call, form),
+    )
+}
+
+/// A list form with its designator head.
+#[derive(Clone, Copy)]
+struct ListForm<'tree, 'forms, 'head> {
+    named: NamedForm<'tree, 'forms>,
+    head_node: Node<'tree>,
+    head: &'head str,
+}
+
+/// Visit a list as the form its head operator selects; true when the list's
+/// children need no further traversal.
+fn visit_form(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    list: ListForm<'_, '_, '_>,
+    form: Form,
+) -> Result<bool, ExtractError> {
+    let named = list.named;
+    match form {
         Form::Namespace => visit_namespace(builder, named),
         Form::Function(qualified) => {
             visit_function_list(builder, named, qualified)?;
@@ -275,16 +301,16 @@ pub(super) fn visit_list(
             },
         ),
         Form::Import(shape) => {
-            visit_imports(builder, &forms, shape)?;
+            visit_imports(builder, named.forms, shape)?;
             Ok(true)
         }
         Form::Binding(layout) => {
             visit_binding_form(
                 builder,
                 BindingFormVisit {
-                    forms: &forms,
+                    forms: named.forms,
                     layout,
-                    depth,
+                    depth: named.depth,
                 },
             )?;
             Ok(true)
@@ -292,22 +318,31 @@ pub(super) fn visit_list(
         Form::Data => Ok(true),
         Form::NonCall => Ok(false),
         Form::Call => {
-            if matches!(
-                head_node.kind(),
-                "sym_lit" | "package_lit" | "fancy_literal"
-            ) {
-                emit_owned_reference(
-                    builder,
-                    OwnedReference {
-                        name: head,
-                        kind: ReferenceKind::Calls,
-                        node: head_node,
-                    },
-                )?;
-            }
+            emit_head_call(builder, list)?;
             Ok(false)
         }
     }
+}
+
+/// Record a call to the list's head when it is a plain symbol designator.
+fn emit_head_call(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    list: ListForm<'_, '_, '_>,
+) -> Result<(), ExtractError> {
+    if !matches!(
+        list.head_node.kind(),
+        "sym_lit" | "package_lit" | "fancy_literal"
+    ) {
+        return Ok(());
+    }
+    emit_owned_reference(
+        builder,
+        OwnedReference {
+            name: list.head,
+            kind: ReferenceKind::Calls,
+            node: list.head_node,
+        },
+    )
 }
 
 /// A binding form together with its layout and traversal depth.

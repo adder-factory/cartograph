@@ -120,14 +120,6 @@ impl DeclarationScope {
         }
     }
 
-    /// The same scope one structural level deeper.
-    fn nested(&self) -> Self {
-        Self {
-            depth: self.depth.saturating_add(1),
-            ..self.clone()
-        }
-    }
-
     /// Members after a visibility keyword; only public and published members
     /// of an exported type are visible to other units.
     fn section(&self, section: Node<'_>) -> Self {
@@ -137,6 +129,26 @@ impl DeclarationScope {
             visibility,
             ..self.nested()
         }
+    }
+}
+
+impl NestedScope for DeclarationScope {
+    fn depth_mut(&mut self) -> &mut usize {
+        &mut self.depth
+    }
+}
+
+/// A traversal scope that records its structural nesting depth.
+trait NestedScope: Clone {
+    /// The depth this scope records.
+    fn depth_mut(&mut self) -> &mut usize;
+
+    /// The same scope one structural level deeper.
+    fn nested(&self) -> Self {
+        let mut nested = self.clone();
+        let depth = nested.depth_mut();
+        *depth = depth.saturating_add(1);
+        nested
     }
 }
 

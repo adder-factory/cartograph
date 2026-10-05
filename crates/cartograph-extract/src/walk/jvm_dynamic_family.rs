@@ -2321,10 +2321,13 @@ fn is_recovered_literal_word(source: &str, node: Node<'_>) -> bool {
 /// `has_error` check per ancestor on the row.
 fn follows_parse_error_on_line(node: Node<'_>) -> bool {
     let start = node.start_position();
-    let line_start = node.start_byte().saturating_sub(start.column);
+    let line = NodeLine {
+        start_byte: node.start_byte().saturating_sub(start.column),
+        row: start.row,
+    };
     let mut current = node;
     while let Some(parent) = current.parent() {
-        if parent.has_error() && error_precedes_on_line(parent, current, line_start, start.row) {
+        if parent.has_error() && error_precedes_on_line(parent, current, line) {
             return true;
         }
         if parent.start_position().row != start.row {
@@ -2335,16 +2338,18 @@ fn follows_parse_error_on_line(node: Node<'_>) -> bool {
     false
 }
 
-/// Whether a child of `parent` before `current` holds a parse error and ends
-/// on `row`, at or after `line_start`.
-fn error_precedes_on_line(
-    parent: Node<'_>,
-    current: Node<'_>,
-    line_start: usize,
+/// The source line a node starts on: its first byte and its row.
+#[derive(Clone, Copy)]
+struct NodeLine {
+    start_byte: usize,
     row: usize,
-) -> bool {
+}
+
+/// Whether a child of `parent` before `current` holds a parse error and ends
+/// on `line`, at or after its start.
+fn error_precedes_on_line(parent: Node<'_>, current: Node<'_>, line: NodeLine) -> bool {
     let mut cursor = parent.walk();
-    if cursor.goto_first_child_for_byte(line_start).is_none() {
+    if cursor.goto_first_child_for_byte(line.start_byte).is_none() {
         return false;
     }
     loop {
@@ -2352,7 +2357,7 @@ fn error_precedes_on_line(
         if child.start_byte() >= current.start_byte() || same_node(child, current) {
             return false;
         }
-        if child.has_error() && child.end_position().row == row {
+        if child.has_error() && child.end_position().row == line.row {
             return true;
         }
         if !cursor.goto_next_sibling() {

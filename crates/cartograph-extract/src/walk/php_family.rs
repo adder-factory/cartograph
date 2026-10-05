@@ -28,7 +28,7 @@ use self::names::{
 use super::{
     ExtractionBuilder, PendingSymbol,
     specifier_safety::specifier_may_carry_credential,
-    syntax::{descendants, named_children, span_for},
+    syntax::{descendants, named_children, span_for, unwrap_parentheses},
     with_root_scope,
 };
 
@@ -413,7 +413,10 @@ fn capture_include(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     let source = builder.context.snapshot.source();
-    let Some(literal) = named_children(node).next().and_then(unwrap_parentheses) else {
+    let Some(literal) = named_children(node)
+        .next()
+        .and_then(|target| unwrap_parentheses(target, MAX_PARENTHESES_DEPTH))
+    else {
         return Ok(());
     };
     let Some(path) = static_string_literal(source, literal) else {
@@ -448,23 +451,6 @@ fn capture_include(
         local_name: "*".to_owned(),
         span,
     })
-}
-
-/// The expression inside nested single-child parentheses.
-fn unwrap_parentheses(node: Node<'_>) -> Option<Node<'_>> {
-    let mut current = node;
-    for _ in 0..MAX_PARENTHESES_DEPTH {
-        if current.kind() != "parenthesized_expression" {
-            return Some(current);
-        }
-        let mut children = named_children(current);
-        let inner = children.next()?;
-        if children.next().is_some() {
-            return None;
-        }
-        current = inner;
-    }
-    None
 }
 
 /// The text of a quoted string made only of literal content. Interpolated,

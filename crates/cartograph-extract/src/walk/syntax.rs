@@ -255,8 +255,10 @@ struct FacadeHealthInput<'tree, 'source> {
     source: &'source str,
 }
 
+/// A body's code and literal fields with its boundary evidence, scored for
+/// sensitive material.
 #[derive(Clone, Copy)]
-struct SensitiveBoundaryInput<'source> {
+struct SensitiveEvidenceInput<'source> {
     code_fields: &'source [&'source str],
     literal_fields: &'source [&'source str],
     boundary: SensitiveBoundaryEvidence,
@@ -1008,22 +1010,45 @@ fn sensitive_material_score(
     boundary: SensitiveBoundaryEvidence,
 ) -> (u16, u16, bool) {
     let mut score = SensitiveScore::default();
+    let input = SensitiveEvidenceInput {
+        code_fields,
+        literal_fields,
+        boundary,
+    };
+    let signed_claim_literal = add_sensitive_identity_signals(&mut score, input);
+    let cloud_literal = add_sensitive_key_material_signals(&mut score, input);
+    let actionable_boundary = add_sensitive_boundary_signals(&mut score, input);
+    let actionable = signed_claim_literal || cloud_literal || actionable_boundary;
+    (
+        score.value.min(MAX_SENSITIVE_SCORE),
+        score.signal_mask,
+        actionable,
+    )
+}
+
+/// Credential identifiers, signed claims, and login material; true when a
+/// signed-claim (JWT) literal makes the finding actionable.
+fn add_sensitive_identity_signals(
+    score: &mut SensitiveScore,
+    input: SensitiveEvidenceInput<'_>,
+) -> bool {
     add_sensitive_signal(
-        &mut score,
+        score,
         SensitiveSignal {
-            matched: contains_identifier_signal(code_fields),
+            matched: contains_identifier_signal(input.code_fields),
             category: SIGNAL_CATEGORY_CREDENTIAL,
             weight: IDENTIFIER_SIGNAL_WEIGHT,
         },
     );
-    let signed_claim_literal = literal_fields
+    let signed_claim_literal = input
+        .literal_fields
         .iter()
         .any(|field| contains_jwt_literal(field));
     add_sensitive_signal(
-        &mut score,
+        score,
         SensitiveSignal {
             matched: signed_claim_literal
-                || fields_contain_substring(code_fields, SIGNED_CLAIM_SUBSTRINGS),
+                || fields_contain_substring(input.code_fields, SIGNED_CLAIM_SUBSTRINGS),
             category: SIGNAL_CATEGORY_SIGNED_CLAIM,
             weight: if signed_claim_literal {
                 SIGNED_CLAIM_LITERAL_WEIGHT
@@ -1033,35 +1058,45 @@ fn sensitive_material_score(
         },
     );
     add_sensitive_signal(
-        &mut score,
+        score,
         SensitiveSignal {
-            matched: fields_contain_identifier_component(code_fields, LOGIN_MATERIAL_WORDS),
+            matched: fields_contain_identifier_component(input.code_fields, LOGIN_MATERIAL_WORDS),
             category: SIGNAL_CATEGORY_LOGIN_MATERIAL,
             weight: LOGIN_MATERIAL_SIGNAL_WEIGHT,
         },
     );
+    signed_claim_literal
+}
+
+/// Cryptographic operations on key material and cloud credentials; true when
+/// a cloud access-key literal makes the finding actionable.
+fn add_sensitive_key_material_signals(
+    score: &mut SensitiveScore,
+    input: SensitiveEvidenceInput<'_>,
+) -> bool {
     add_sensitive_signal(
-        &mut score,
+        score,
         SensitiveSignal {
             matched: fields_contain_identifier_component(
-                code_fields,
+                input.code_fields,
                 CRYPTOGRAPHIC_OPERATION_COMPONENTS,
             ) && fields_contain_identifier_component(
-                code_fields,
+                input.code_fields,
                 CRYPTOGRAPHIC_MATERIAL_COMPONENTS,
             ),
             category: SIGNAL_CATEGORY_CRYPTOGRAPHY,
             weight: CRYPTOGRAPHIC_SIGNAL_WEIGHT,
         },
     );
-    let cloud_literal = literal_fields
+    let cloud_literal = input
+        .literal_fields
         .iter()
         .any(|field| contains_aws_access_key_literal(field));
     add_sensitive_signal(
-        &mut score,
+        score,
         SensitiveSignal {
             matched: cloud_literal
-                || fields_contain_substring(code_fields, CLOUD_IDENTIFIER_SUBSTRINGS),
+                || fields_contain_substring(input.code_fields, CLOUD_IDENTIFIER_SUBSTRINGS),
             category: SIGNAL_CATEGORY_CLOUD,
             weight: if cloud_literal {
                 CLOUD_LITERAL_WEIGHT
@@ -1070,25 +1105,12 @@ fn sensitive_material_score(
             },
         },
     );
-    let actionable_boundary = add_sensitive_boundary_signals(
-        &mut score,
-        SensitiveBoundaryInput {
-            code_fields,
-            literal_fields,
-            boundary,
-        },
-    );
-    let actionable = signed_claim_literal || cloud_literal || actionable_boundary;
-    (
-        score.value.min(MAX_SENSITIVE_SCORE),
-        score.signal_mask,
-        actionable,
-    )
+    cloud_literal
 }
 
 fn add_sensitive_boundary_signals(
     score: &mut SensitiveScore,
-    input: SensitiveBoundaryInput<'_>,
+    input: SensitiveEvidenceInput<'_>,
 ) -> bool {
     add_sensitive_signal(
         score,
@@ -2341,7 +2363,7 @@ pub(super) fn export_flags(node: Node<'_>) -> (bool, bool) {
         if parent.kind() == "export_statement" {
             return (true, has_child_kind(parent, "default"));
         }
-        if is_export_scope_boundary(parent.kind()) {
+        if EXPORT_SCOPE_BOUNDARY_KINDS.contains(&parent.kind()) {
             return (false, false);
         }
         current = parent.parent();
@@ -2349,25 +2371,23 @@ pub(super) fn export_flags(node: Node<'_>) -> (bool, bool) {
     (false, false)
 }
 
-fn is_export_scope_boundary(kind: &str) -> bool {
-    matches!(
-        kind,
-        "arrow_function"
-            | "abstract_method_signature"
-            | "function_expression"
-            | "function_declaration"
-            | "function_signature"
-            | "interface_body"
-            | "interface_declaration"
-            | "method_definition"
-            | "method_signature"
-            | "class_declaration"
-            | "class_body"
-            // ArkTS-only kinds; the TypeScript grammars never produce them.
-            | "struct_declaration"
-            | "struct_body"
-    )
-}
+/// Ancestors that stop an `export_statement` from exporting what they contain.
+const EXPORT_SCOPE_BOUNDARY_KINDS: &[&str] = &[
+    "arrow_function",
+    "abstract_method_signature",
+    "function_expression",
+    "function_declaration",
+    "function_signature",
+    "interface_body",
+    "interface_declaration",
+    "method_definition",
+    "method_signature",
+    "class_declaration",
+    "class_body",
+    // ArkTS-only kinds; the TypeScript grammars never produce them.
+    "struct_declaration",
+    "struct_body",
+];
 
 pub(super) fn visibility(node: Node<'_>, source: &str) -> Option<Visibility> {
     children(node)
@@ -2953,6 +2973,25 @@ pub(super) fn children(node: Node<'_>) -> DirectChildren<'_> {
 
 pub(super) fn named_children(node: Node<'_>) -> DirectChildren<'_> {
     DirectChildren::new(node, true)
+}
+
+/// The expression inside fewer than `max_depth` nested single-child
+/// `parenthesized_expression`s: `save` of `((save))`. `None` when a wrapper
+/// holds anything but one expression or the nesting reaches the bound.
+pub(super) fn unwrap_parentheses(node: Node<'_>, max_depth: usize) -> Option<Node<'_>> {
+    let mut current = node;
+    for _ in 0..max_depth {
+        if current.kind() != "parenthesized_expression" {
+            return Some(current);
+        }
+        let mut children = named_children(current);
+        let inner = children.next()?;
+        if children.next().is_some() {
+            return None;
+        }
+        current = inner;
+    }
+    None
 }
 
 pub(super) struct DirectChildren<'tree> {

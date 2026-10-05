@@ -52,7 +52,7 @@ const MAX_STATIC_CHAIN_DEPTH: usize = 64;
 
 /// Nodes that open a function scope: its parameters and, for an expression,
 /// its own name.
-const FUNCTION_SCOPE_KINDS: &[&str] = &[
+pub(super) const FUNCTION_SCOPE_KINDS: &[&str] = &[
     "function_declaration",
     "generator_function_declaration",
     "method_definition",
@@ -801,20 +801,19 @@ impl ScopeCollector<'_> {
     /// Record what a scope node itself binds; a function body's hoisted
     /// `var`s are collected separately.
     fn collect(&mut self, builder: &ExtractionBuilder<'_, '_>, scope: Node<'_>) {
+        self.type_parameters(scope.child_by_field_name("type_parameters"));
+        if !self.collect_signature(scope) {
+            self.collect_block(builder, scope);
+        }
+    }
+
+    /// Record what a type-level or callable scope's signature binds; false
+    /// when the scope has no such signature.
+    fn collect_signature(&mut self, scope: Node<'_>) -> bool {
         let field = |name| scope.child_by_field_name(name);
-        self.type_parameters(field("type_parameters"));
         match scope.kind() {
             "conditional_type" => self.inferred_types(field("right")),
-            "index_signature" => {
-                let mapped =
-                    named_children(scope).find(|child| child.kind() == "mapped_type_clause");
-                if let Some(name) = mapped
-                    .and_then(|clause| clause.child_by_field_name("name"))
-                    .and_then(|name| self.source.get(name.start_byte()..name.end_byte()))
-                {
-                    self.names.type_parameters.push(name);
-                }
-            }
+            "index_signature" => self.mapped_type_parameter(scope),
             kind if FUNCTION_SCOPE_KINDS.contains(&kind) => {
                 let parameters = field("parameters").or_else(|| field("parameter"));
                 self.bind(parameters, parameter_form(scope, self.source));
@@ -827,6 +826,26 @@ impl ScopeCollector<'_> {
             kind if TYPE_SCOPE_KINDS.contains(&kind) && field("parameters").is_some() => {
                 self.bind(field("parameters"), Form::Anonymous);
             }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Record the key name a mapped type clause (`[K in Keys]`) introduces.
+    fn mapped_type_parameter(&mut self, scope: Node<'_>) {
+        let mapped = named_children(scope).find(|child| child.kind() == "mapped_type_clause");
+        if let Some(name) = mapped
+            .and_then(|clause| clause.child_by_field_name("name"))
+            .and_then(|name| self.source.get(name.start_byte()..name.end_byte()))
+        {
+            self.names.type_parameters.push(name);
+        }
+    }
+
+    /// Record what a class, clause, loop, or statement-list scope binds.
+    fn collect_block(&mut self, builder: &ExtractionBuilder<'_, '_>, scope: Node<'_>) {
+        let field = |name| scope.child_by_field_name(name);
+        match scope.kind() {
             "class" => self.bind_name(field("name"), Form::Anonymous),
             "catch_clause" => self.bind(field("parameter"), Form::Anonymous),
             "for_in_statement" if field("kind").is_some() => {

@@ -19,11 +19,11 @@ use self::locals::{LocalScope, ScopeKind, bind_targets, within_scope};
 use self::state::MethodRestriction;
 pub(super) use self::state::RubyState;
 use super::{
-    ExtractionBuilder,
+    ExtractionBuilder, PendingReference, references,
     script_support::{
-        LoadImport, NamedReference, OwnerScope, bounded_name, bounded_reference_name, bounded_text,
-        emit_load_import, emit_named_reference, is_relative_specifier,
-        literal_free_assignment_signature, literal_free_node_signature, plain_symbol, with_owner,
+        LoadImport, OwnerScope, bounded_name, bounded_reference_name, bounded_text,
+        emit_load_import, is_relative_specifier, literal_free_assignment_signature,
+        literal_free_node_signature, plain_symbol, with_owner,
     },
     syntax::{named_children, starts_uppercase},
 };
@@ -202,9 +202,9 @@ fn capture_superclass(
     let Some(name) = bounded_name(builder, target)? else {
         return Ok(());
     };
-    emit_named_reference(
+    references::push_reference(
         builder,
-        NamedReference {
+        PendingReference {
             owner: Some(owner.clone()),
             name,
             kind: ReferenceKind::Inherits,
@@ -854,9 +854,9 @@ fn capture_call(
         return Ok(());
     };
     let owner = builder.owners.last().cloned();
-    emit_named_reference(
+    references::push_reference(
         builder,
-        NamedReference {
+        PendingReference {
             owner,
             name,
             kind: ReferenceKind::Calls,
@@ -953,9 +953,9 @@ fn capture_bare_call(
         return Ok(());
     };
     let owner = builder.owners.last().cloned();
-    emit_named_reference(
+    references::push_reference(
         builder,
-        NamedReference {
+        PendingReference {
             owner,
             name,
             kind: ReferenceKind::Calls,

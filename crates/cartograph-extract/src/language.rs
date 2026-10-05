@@ -162,69 +162,152 @@ const fn strategy_for_language(language: SourceLanguage) -> ExtractionStrategy {
     }
 }
 
+/// Grammar-backed languages and the strategy each extracts with. The language
+/// sets are disjoint, so a language selects at most one strategy.
+const GRAMMAR_STRATEGIES: &[(&[SourceLanguage], ExtractionStrategy)] = &[
+    (
+        &[
+            SourceLanguage::TypeScript,
+            SourceLanguage::Tsx,
+            SourceLanguage::JavaScript,
+            SourceLanguage::Jsx,
+        ],
+        ExtractionStrategy::JavaScriptFamily,
+    ),
+    (
+        &[
+            SourceLanguage::Rust,
+            SourceLanguage::Python,
+            SourceLanguage::Go,
+        ],
+        ExtractionStrategy::PolyglotStructural,
+    ),
+    (
+        &[
+            SourceLanguage::Css,
+            SourceLanguage::EmbeddedTemplate,
+            SourceLanguage::JsDoc,
+            SourceLanguage::Json,
+            SourceLanguage::Jupyter,
+            SourceLanguage::Regex,
+        ],
+        ExtractionStrategy::ParserOnly,
+    ),
+    (
+        &[
+            SourceLanguage::Elixir,
+            SourceLanguage::Haskell,
+            SourceLanguage::Julia,
+            SourceLanguage::Ocaml,
+            SourceLanguage::OcamlInterface,
+            SourceLanguage::Verilog,
+        ],
+        ExtractionStrategy::TagsQuery,
+    ),
+    (
+        &[
+            SourceLanguage::C,
+            SourceLanguage::Cpp,
+            SourceLanguage::Cuda,
+            SourceLanguage::Glsl,
+            SourceLanguage::Hlsl,
+            SourceLanguage::Metal,
+            SourceLanguage::Slang,
+        ],
+        ExtractionStrategy::CFamily,
+    ),
+    (
+        &[SourceLanguage::Wesl, SourceLanguage::Wgsl],
+        ExtractionStrategy::ShaderFamily,
+    ),
+    (
+        &[SourceLanguage::Ada, SourceLanguage::Vhdl],
+        ExtractionStrategy::AdaFamily,
+    ),
+    (&[SourceLanguage::Dart], ExtractionStrategy::DartFamily),
+    (&[SourceLanguage::FSharp], ExtractionStrategy::FSharpFamily),
+    (&[SourceLanguage::ArkTs], ExtractionStrategy::ArkTsFamily),
+    (
+        &[SourceLanguage::Clojure, SourceLanguage::CommonLisp],
+        ExtractionStrategy::LispFamily,
+    ),
+    (&[SourceLanguage::Lean], ExtractionStrategy::LeanFamily),
+    (
+        &[SourceLanguage::ReScript],
+        ExtractionStrategy::ReScriptFamily,
+    ),
+    (
+        &[SourceLanguage::Solidity],
+        ExtractionStrategy::SolidityFamily,
+    ),
+    (&[SourceLanguage::Ruby], ExtractionStrategy::RubyFamily),
+    (
+        &[
+            SourceLanguage::Lua,
+            SourceLanguage::Luau,
+            SourceLanguage::Khn,
+        ],
+        ExtractionStrategy::LuaFamily,
+    ),
+    (&[SourceLanguage::R], ExtractionStrategy::RFamily),
+    (&[SourceLanguage::Nix], ExtractionStrategy::NixFamily),
+    (&[SourceLanguage::Hcl], ExtractionStrategy::HclFamily),
+    (&[SourceLanguage::VbNet], ExtractionStrategy::VbNetFamily),
+    (&[SourceLanguage::Apex], ExtractionStrategy::ApexFamily),
+    (&[SourceLanguage::Pascal], ExtractionStrategy::PascalFamily),
+    (
+        &[SourceLanguage::ObjectiveC],
+        ExtractionStrategy::ObjcFamily,
+    ),
+    (&[SourceLanguage::Swift], ExtractionStrategy::SwiftFamily),
+    (&[SourceLanguage::Php], ExtractionStrategy::PhpFamily),
+    (&[SourceLanguage::Astro], ExtractionStrategy::AstroFamily),
+    (
+        &[
+            SourceLanguage::Bash,
+            SourceLanguage::Fish,
+            SourceLanguage::PowerShell,
+            SourceLanguage::Zsh,
+        ],
+        ExtractionStrategy::ShellFamily,
+    ),
+    (
+        &[SourceLanguage::Java, SourceLanguage::CSharp],
+        ExtractionStrategy::ManagedFamily,
+    ),
+    (
+        &[
+            SourceLanguage::Kotlin,
+            SourceLanguage::Scala,
+            SourceLanguage::Groovy,
+        ],
+        ExtractionStrategy::JvmDynamicFamily,
+    ),
+];
+
+/// The grammar-backed strategy registered for `language`, if any.
 const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy> {
-    match language {
-        SourceLanguage::TypeScript
-        | SourceLanguage::Tsx
-        | SourceLanguage::JavaScript
-        | SourceLanguage::Jsx => Some(ExtractionStrategy::JavaScriptFamily),
-        SourceLanguage::Rust | SourceLanguage::Python | SourceLanguage::Go => {
-            Some(ExtractionStrategy::PolyglotStructural)
+    let mut entry = 0;
+    while entry < GRAMMAR_STRATEGIES.len() {
+        let (languages, strategy) = GRAMMAR_STRATEGIES[entry];
+        if contains_language(languages, language) {
+            return Some(strategy);
         }
-        SourceLanguage::Css
-        | SourceLanguage::EmbeddedTemplate
-        | SourceLanguage::JsDoc
-        | SourceLanguage::Json
-        | SourceLanguage::Jupyter
-        | SourceLanguage::Regex => Some(ExtractionStrategy::ParserOnly),
-        SourceLanguage::Elixir
-        | SourceLanguage::Haskell
-        | SourceLanguage::Julia
-        | SourceLanguage::Ocaml
-        | SourceLanguage::OcamlInterface
-        | SourceLanguage::Verilog => Some(ExtractionStrategy::TagsQuery),
-        SourceLanguage::C
-        | SourceLanguage::Cpp
-        | SourceLanguage::Cuda
-        | SourceLanguage::Glsl
-        | SourceLanguage::Hlsl
-        | SourceLanguage::Metal
-        | SourceLanguage::Slang => Some(ExtractionStrategy::CFamily),
-        SourceLanguage::Wesl | SourceLanguage::Wgsl => Some(ExtractionStrategy::ShaderFamily),
-        SourceLanguage::Ada | SourceLanguage::Vhdl => Some(ExtractionStrategy::AdaFamily),
-        SourceLanguage::Dart => Some(ExtractionStrategy::DartFamily),
-        SourceLanguage::FSharp => Some(ExtractionStrategy::FSharpFamily),
-        SourceLanguage::ArkTs => Some(ExtractionStrategy::ArkTsFamily),
-        SourceLanguage::Clojure | SourceLanguage::CommonLisp => {
-            Some(ExtractionStrategy::LispFamily)
-        }
-        SourceLanguage::Lean => Some(ExtractionStrategy::LeanFamily),
-        SourceLanguage::ReScript => Some(ExtractionStrategy::ReScriptFamily),
-        SourceLanguage::Solidity => Some(ExtractionStrategy::SolidityFamily),
-        SourceLanguage::Ruby => Some(ExtractionStrategy::RubyFamily),
-        SourceLanguage::Lua | SourceLanguage::Luau | SourceLanguage::Khn => {
-            Some(ExtractionStrategy::LuaFamily)
-        }
-        SourceLanguage::R => Some(ExtractionStrategy::RFamily),
-        SourceLanguage::Nix => Some(ExtractionStrategy::NixFamily),
-        SourceLanguage::Hcl => Some(ExtractionStrategy::HclFamily),
-        SourceLanguage::VbNet => Some(ExtractionStrategy::VbNetFamily),
-        SourceLanguage::Apex => Some(ExtractionStrategy::ApexFamily),
-        SourceLanguage::Pascal => Some(ExtractionStrategy::PascalFamily),
-        SourceLanguage::ObjectiveC => Some(ExtractionStrategy::ObjcFamily),
-        SourceLanguage::Swift => Some(ExtractionStrategy::SwiftFamily),
-        SourceLanguage::Php => Some(ExtractionStrategy::PhpFamily),
-        SourceLanguage::Astro => Some(ExtractionStrategy::AstroFamily),
-        SourceLanguage::Bash
-        | SourceLanguage::Fish
-        | SourceLanguage::PowerShell
-        | SourceLanguage::Zsh => Some(ExtractionStrategy::ShellFamily),
-        SourceLanguage::Java | SourceLanguage::CSharp => Some(ExtractionStrategy::ManagedFamily),
-        SourceLanguage::Kotlin | SourceLanguage::Scala | SourceLanguage::Groovy => {
-            Some(ExtractionStrategy::JvmDynamicFamily)
-        }
-        _ => None,
+        entry += 1;
     }
+    None
+}
+
+/// `languages.contains(&language)`, usable in a `const fn`.
+const fn contains_language(languages: &[SourceLanguage], language: SourceLanguage) -> bool {
+    let mut index = 0;
+    while index < languages.len() {
+        if languages[index] as usize == language as usize {
+            return true;
+        }
+        index += 1;
+    }
+    false
 }
 
 const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {

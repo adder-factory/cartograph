@@ -14,12 +14,11 @@ use tree_sitter::Node;
 use crate::{ExtractError, ImportBindingKind, SymbolExportFlags};
 
 use super::{
-    ExtractionBuilder, MAX_SAFE_SIGNATURE_BYTES,
+    ExtractionBuilder, MAX_SAFE_SIGNATURE_BYTES, PendingReference, references,
     script_support::{
-        LoadImport, MAX_SCRIPT_NAME_BYTES, NamedReference, OwnerScope, bounded_name,
-        bounded_reference_name, bounded_text, contains_literal, emit_load_import,
-        emit_named_reference, literal_free_assignment_signature, literal_free_signature,
-        plain_symbol, with_owner,
+        LoadImport, MAX_SCRIPT_NAME_BYTES, OwnerScope, bounded_name, bounded_reference_name,
+        bounded_text, contains_literal, emit_load_import, literal_free_assignment_signature,
+        literal_free_signature, plain_symbol, with_owner,
     },
     syntax::named_children,
 };
@@ -72,9 +71,9 @@ pub(super) fn capture_usage(
     };
     let is_require = name == "require";
     let owner = builder.owners.last().cloned();
-    emit_named_reference(
+    references::push_reference(
         builder,
-        NamedReference {
+        PendingReference {
             owner,
             name,
             kind: ReferenceKind::Calls,

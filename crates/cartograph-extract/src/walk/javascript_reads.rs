@@ -531,16 +531,7 @@ impl BindingTableScan<'_, '_> {
 /// Function-like values and class bodies leave the binding-table context: a
 /// read inside them belongs to that function, not to the table.
 fn is_binding_table_boundary(kind: &str) -> bool {
-    matches!(
-        kind,
-        "arrow_function"
-            | "function_expression"
-            | "function_declaration"
-            | "method_definition"
-            | "generator_function"
-            | "generator_function_declaration"
-            | "class_body"
-    )
+    kind == "class_body" || javascript_scopes::FUNCTION_SCOPE_KINDS.contains(&kind)
 }
 
 /// An identifier stored as an array element, a pair value, or an object

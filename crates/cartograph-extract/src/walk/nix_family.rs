@@ -12,11 +12,11 @@ use tree_sitter::Node;
 use crate::{ExtractError, ImportBindingKind};
 
 use super::{
-    ExtractionBuilder,
+    ExtractionBuilder, PendingReference, references,
     script_support::{
-        LoadImport, MAX_SCRIPT_NAME_BYTES, NamedReference, OwnerScope, bounded_text,
-        emit_load_import, emit_named_reference, is_relative_specifier, literal_free_node_signature,
-        literal_free_signature, plain_symbol, with_owner,
+        LoadImport, MAX_SCRIPT_NAME_BYTES, OwnerScope, bounded_text, emit_load_import,
+        is_relative_specifier, literal_free_node_signature, literal_free_signature, plain_symbol,
+        with_owner,
     },
     syntax::named_children,
 };
@@ -67,9 +67,9 @@ pub(super) fn capture_usage(
         return Ok(());
     };
     let owner = builder.owners.last().cloned();
-    emit_named_reference(
+    references::push_reference(
         builder,
-        NamedReference {
+        PendingReference {
             owner,
             name,
             kind: ReferenceKind::Calls,
@@ -193,9 +193,9 @@ fn visit_inherit(
     };
     if let Some(name) = target_name(builder, source, 0)? {
         let owner = builder.owners.last().cloned();
-        emit_named_reference(
+        references::push_reference(
             builder,
-            NamedReference {
+            PendingReference {
                 owner,
                 name,
                 kind: ReferenceKind::References,

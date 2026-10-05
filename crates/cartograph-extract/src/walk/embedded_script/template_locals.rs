@@ -18,7 +18,11 @@ use tree_sitter::Node;
 use crate::{ExtractError, ExtractedReference};
 
 use super::{
-    super::{AstVisitBudget, ExtractionBuilder, MAX_AST_DEPTH, syntax::named_children},
+    super::{
+        AstVisitBudget, ExtractionBuilder, MAX_AST_DEPTH,
+        javascript_scopes::FUNCTION_SCOPE_KINDS,
+        syntax::{named_children, unwrap_parentheses},
+    },
     component_conventions::callee_root_identifier,
 };
 
@@ -199,7 +203,7 @@ impl<'source> ScopeWalk<'_, 'source, '_> {
             "new_expression" => (node.child_by_field_name("constructor")?, Some(node)),
             _ => return None,
         };
-        let callee = unparenthesized(callee)?;
+        let callee = unwrap_parentheses(callee, MAX_CALLEE_PARENTHESES)?;
         let root = callee_root_identifier(callee)?;
         let name = self.source.get(root.start_byte()..root.end_byte())?;
         let anchor = construction.unwrap_or(callee);
@@ -403,36 +407,10 @@ fn clause_binding(node: Node<'_>) -> Option<Node<'_>> {
     node.child_by_field_name(field)
 }
 
-/// The callee inside any wrapping parentheses: `(save)` of `(save)()`.
-fn unparenthesized(callee: Node<'_>) -> Option<Node<'_>> {
-    let mut current = callee;
-    for _ in 0..MAX_CALLEE_PARENTHESES {
-        if current.kind() != "parenthesized_expression" {
-            return Some(current);
-        }
-        let mut children = named_children(current);
-        let inner = children.next()?;
-        if children.next().is_some() {
-            return None;
-        }
-        current = inner;
-    }
-    None
-}
-
 /// Whether a node kind is a function, whose parameters and `var`
 /// declarations are scoped to it.
 fn is_function_like(kind: &str) -> bool {
-    matches!(
-        kind,
-        "function_expression"
-            | "function"
-            | "function_declaration"
-            | "generator_function"
-            | "generator_function_declaration"
-            | "arrow_function"
-            | "method_definition"
-    )
+    kind == "function" || FUNCTION_SCOPE_KINDS.contains(&kind)
 }
 
 /// The binding part of a compound pattern element: a parameter's pattern, a

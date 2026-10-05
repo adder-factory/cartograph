@@ -915,42 +915,6 @@ pub(super) struct PendingReference<'tree> {
     node: Node<'tree>,
 }
 
-#[derive(Clone, Copy)]
-enum ExtractionFamily {
-    Ada,
-    Dart,
-    FSharp,
-    ArkTs,
-    Lisp,
-    Lean,
-    ReScript,
-    Solidity,
-    Ruby,
-    Lua,
-    R,
-    Nix,
-    Apex,
-    VbNet,
-    Pascal,
-    Objc,
-    Swift,
-    Php,
-    Astro,
-    Shader,
-    Shell,
-    C,
-    Managed,
-    JvmDynamic,
-    GraphQl,
-    Hcl,
-    Prisma,
-    Sql,
-    Generic,
-    Polyglot,
-    JavaScript,
-    Unsupported,
-}
-
 const SHELL_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Bash,
     SourceLanguage::Fish,
@@ -994,182 +958,218 @@ const JAVASCRIPT_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::JavaScript,
     SourceLanguage::Jsx,
 ];
+const LISP_LANGUAGES: &[SourceLanguage] = &[SourceLanguage::Clojure, SourceLanguage::CommonLisp];
+const SHADER_LANGUAGES: &[SourceLanguage] = &[SourceLanguage::Wesl, SourceLanguage::Wgsl];
 
-/// Declaration and usage entry points for one extraction family.
+/// A family's declaration pass: true when it handled the node's subtree.
+type DeclarationVisit =
+    fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<bool, ExtractError>;
+/// A family's usage pass over one node and, when it chooses, its subtree.
+type UsageVisit = fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<(), ExtractError>;
+/// A family's record of one node's own usage facts, before its children.
+type UsageCapture = fn(&mut ExtractionBuilder<'_, '_>, Node<'_>) -> Result<(), ExtractError>;
+
+/// How a family's usage pass treats a node the declaration pass left alone.
+#[derive(Clone, Copy)]
+enum UsagePass {
+    /// Visit only the node's children; the family records no usage facts.
+    Children,
+    /// Record the node's own usage facts, then visit its children.
+    CaptureThenChildren(UsageCapture),
+    /// The family drives the usage traversal itself.
+    Custom(UsageVisit),
+}
+
+/// Declaration and usage entry points for one extraction family, and the
+/// languages it extracts.
 ///
 /// Pairing them keeps a family from being wired into one traversal and
 /// forgotten in the other, which would make its files look successfully empty.
 struct FamilySlice {
-    visit_declaration:
-        fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<bool, ExtractError>,
-    visit_usage: fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<(), ExtractError>,
+    languages: &'static [SourceLanguage],
+    visit_declaration: DeclarationVisit,
+    usage: UsagePass,
 }
 
-/// The slice of a family whose usage pass records its own usage facts before
-/// visiting a node's children.
-macro_rules! usage_family_slice {
-    ($family:ident) => {
-        FamilySlice {
-            visit_declaration: $family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                $family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
+impl FamilySlice {
+    /// A family whose usage pass records its own usage facts before visiting
+    /// a node's children.
+    const fn capturing(
+        languages: &'static [SourceLanguage],
+        visit_declaration: DeclarationVisit,
+        capture_usage: UsageCapture,
+    ) -> Self {
+        Self {
+            languages,
+            visit_declaration,
+            usage: UsagePass::CaptureThenChildren(capture_usage),
         }
-    };
-}
-
-/// Structural family slices for the walker-driven language families.
-const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice> {
-    let slice = match family {
-        ExtractionFamily::Ada => usage_family_slice!(ada_family),
-        ExtractionFamily::Dart => usage_family_slice!(dart_family),
-        ExtractionFamily::FSharp => usage_family_slice!(fsharp_family),
-        ExtractionFamily::Ruby => usage_family_slice!(ruby_family),
-        ExtractionFamily::Lua => usage_family_slice!(lua_family),
-        ExtractionFamily::R => usage_family_slice!(r_family),
-        ExtractionFamily::Nix => usage_family_slice!(nix_family),
-        ExtractionFamily::Apex => usage_family_slice!(apex_family),
-        ExtractionFamily::VbNet => usage_family_slice!(vbnet_family),
-        ExtractionFamily::Pascal => FamilySlice {
-            visit_declaration: pascal_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Objc => usage_family_slice!(objc_family),
-        ExtractionFamily::Swift => usage_family_slice!(swift_family),
-        ExtractionFamily::Php => usage_family_slice!(php_family),
-        ExtractionFamily::Shader => usage_family_slice!(shader_family),
-        ExtractionFamily::Shell => usage_family_slice!(shell_family),
-        ExtractionFamily::C => usage_family_slice!(c_family),
-        ExtractionFamily::Managed => usage_family_slice!(managed_family),
-        ExtractionFamily::JvmDynamic => usage_family_slice!(jvm_dynamic_family),
-        _ => return None,
-    };
-    Some(slice)
-}
-
-/// Slices for the declarative, generic, and JavaScript-family languages.
-const fn family_slice_declarative(family: ExtractionFamily) -> Option<FamilySlice> {
-    let slice = match family {
-        ExtractionFamily::GraphQl => FamilySlice {
-            visit_declaration: graphql_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Hcl => FamilySlice {
-            visit_declaration: hcl_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Prisma => FamilySlice {
-            visit_declaration: prisma_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Sql => FamilySlice {
-            visit_declaration: sql_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Generic => usage_family_slice!(generic_family),
-        ExtractionFamily::Polyglot => usage_family_slice!(polyglot),
-        ExtractionFamily::JavaScript => FamilySlice {
-            visit_declaration: visit_javascript_declaration,
-            visit_usage: visit_javascript_usage,
-        },
-        ExtractionFamily::Astro => FamilySlice {
-            visit_declaration: astro_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::ArkTs => FamilySlice {
-            visit_declaration: arkts_family::visit_declaration,
-            visit_usage: visit_javascript_usage,
-        },
-        _ => return None,
-    };
-    Some(slice)
-}
-
-/// Slices for the dedicated borrowed-language families split out of the generic walker.
-const fn family_slice_borrowed(family: ExtractionFamily) -> Option<FamilySlice> {
-    let slice = match family {
-        ExtractionFamily::Lisp => FamilySlice {
-            visit_declaration: lisp_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Lean => FamilySlice {
-            visit_declaration: lean_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::ReScript => usage_family_slice!(rescript_family),
-        ExtractionFamily::Solidity => usage_family_slice!(solidity_family),
-        _ => return None,
-    };
-    Some(slice)
-}
-
-/// Entry points for one extraction family, or `None` for unsupported source.
-///
-/// The families are split across two lookups for the same reason the grammar
-/// bindings are: one exhaustive match over every family would make this the
-/// single highest-fan-out symbol in the crate.
-const fn family_slice(family: ExtractionFamily) -> Option<FamilySlice> {
-    if let Some(slice) = family_slice_structural(family) {
-        return Some(slice);
     }
-    if let Some(slice) = family_slice_borrowed(family) {
-        return Some(slice);
-    }
-    family_slice_declarative(family)
-}
 
-fn extraction_family(language: SourceLanguage) -> ExtractionFamily {
-    if ADA_LANGUAGES.contains(&language) {
-        ExtractionFamily::Ada
-    } else if LUA_LANGUAGES.contains(&language) {
-        ExtractionFamily::Lua
-    } else if SHELL_LANGUAGES.contains(&language) {
-        ExtractionFamily::Shell
-    } else if C_LANGUAGES.contains(&language) {
-        ExtractionFamily::C
-    } else if MANAGED_LANGUAGES.contains(&language) {
-        ExtractionFamily::Managed
-    } else if JVM_DYNAMIC_LANGUAGES.contains(&language) {
-        ExtractionFamily::JvmDynamic
-    } else if GENERIC_LANGUAGES.contains(&language) {
-        ExtractionFamily::Generic
-    } else if POLYGLOT_LANGUAGES.contains(&language) {
-        ExtractionFamily::Polyglot
-    } else if JAVASCRIPT_LANGUAGES.contains(&language) {
-        ExtractionFamily::JavaScript
-    } else {
-        single_language_family(language)
+    /// A family whose declaration pass records every fact; its usage pass only
+    /// descends.
+    const fn declarative(
+        languages: &'static [SourceLanguage],
+        visit_declaration: DeclarationVisit,
+    ) -> Self {
+        Self {
+            languages,
+            visit_declaration,
+            usage: UsagePass::Children,
+        }
+    }
+
+    /// A family that drives its own usage traversal.
+    const fn custom(
+        languages: &'static [SourceLanguage],
+        visit_declaration: DeclarationVisit,
+        visit_usage: UsageVisit,
+    ) -> Self {
+        Self {
+            languages,
+            visit_declaration,
+            usage: UsagePass::Custom(visit_usage),
+        }
     }
 }
 
-/// Families that each extract one language or one language pair.
-const fn single_language_family(language: SourceLanguage) -> ExtractionFamily {
-    match language {
-        SourceLanguage::Dart => ExtractionFamily::Dart,
-        SourceLanguage::FSharp => ExtractionFamily::FSharp,
-        SourceLanguage::ArkTs => ExtractionFamily::ArkTs,
-        SourceLanguage::Clojure | SourceLanguage::CommonLisp => ExtractionFamily::Lisp,
-        SourceLanguage::Lean => ExtractionFamily::Lean,
-        SourceLanguage::ReScript => ExtractionFamily::ReScript,
-        SourceLanguage::Solidity => ExtractionFamily::Solidity,
-        SourceLanguage::GraphQl => ExtractionFamily::GraphQl,
-        SourceLanguage::Hcl => ExtractionFamily::Hcl,
-        SourceLanguage::ObjectiveC => ExtractionFamily::Objc,
-        SourceLanguage::Swift => ExtractionFamily::Swift,
-        SourceLanguage::Wesl | SourceLanguage::Wgsl => ExtractionFamily::Shader,
-        SourceLanguage::Php => ExtractionFamily::Php,
-        SourceLanguage::Prisma => ExtractionFamily::Prisma,
-        SourceLanguage::Ruby => ExtractionFamily::Ruby,
-        SourceLanguage::R => ExtractionFamily::R,
-        SourceLanguage::Nix => ExtractionFamily::Nix,
-        SourceLanguage::Sql => ExtractionFamily::Sql,
-        SourceLanguage::VbNet => ExtractionFamily::VbNet,
-        SourceLanguage::Apex => ExtractionFamily::Apex,
-        SourceLanguage::Pascal => ExtractionFamily::Pascal,
-        SourceLanguage::Astro => ExtractionFamily::Astro,
-        _ => ExtractionFamily::Unsupported,
-    }
+/// Every walker-driven extraction family. The language sets are disjoint, so
+/// a language selects at most one family; any other language is unsupported.
+const FAMILY_SLICES: &[FamilySlice] = &[
+    FamilySlice::capturing(
+        ADA_LANGUAGES,
+        ada_family::visit_declaration,
+        ada_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        LUA_LANGUAGES,
+        lua_family::visit_declaration,
+        lua_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        SHELL_LANGUAGES,
+        shell_family::visit_declaration,
+        shell_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        C_LANGUAGES,
+        c_family::visit_declaration,
+        c_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        MANAGED_LANGUAGES,
+        managed_family::visit_declaration,
+        managed_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        JVM_DYNAMIC_LANGUAGES,
+        jvm_dynamic_family::visit_declaration,
+        jvm_dynamic_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        GENERIC_LANGUAGES,
+        generic_family::visit_declaration,
+        generic_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        POLYGLOT_LANGUAGES,
+        polyglot::visit_declaration,
+        polyglot::capture_usage,
+    ),
+    FamilySlice::custom(
+        JAVASCRIPT_LANGUAGES,
+        visit_javascript_declaration,
+        visit_javascript_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Dart],
+        dart_family::visit_declaration,
+        dart_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::FSharp],
+        fsharp_family::visit_declaration,
+        fsharp_family::capture_usage,
+    ),
+    FamilySlice::custom(
+        &[SourceLanguage::ArkTs],
+        arkts_family::visit_declaration,
+        visit_javascript_usage,
+    ),
+    FamilySlice::declarative(LISP_LANGUAGES, lisp_family::visit_declaration),
+    FamilySlice::declarative(&[SourceLanguage::Lean], lean_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::ReScript],
+        rescript_family::visit_declaration,
+        rescript_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Solidity],
+        solidity_family::visit_declaration,
+        solidity_family::capture_usage,
+    ),
+    FamilySlice::declarative(
+        &[SourceLanguage::GraphQl],
+        graphql_family::visit_declaration,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Hcl], hcl_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::ObjectiveC],
+        objc_family::visit_declaration,
+        objc_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Swift],
+        swift_family::visit_declaration,
+        swift_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        SHADER_LANGUAGES,
+        shader_family::visit_declaration,
+        shader_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Php],
+        php_family::visit_declaration,
+        php_family::capture_usage,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Prisma], prisma_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::Ruby],
+        ruby_family::visit_declaration,
+        ruby_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::R],
+        r_family::visit_declaration,
+        r_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Nix],
+        nix_family::visit_declaration,
+        nix_family::capture_usage,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Sql], sql_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::VbNet],
+        vbnet_family::visit_declaration,
+        vbnet_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Apex],
+        apex_family::visit_declaration,
+        apex_family::capture_usage,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Pascal], pascal_family::visit_declaration),
+    FamilySlice::declarative(&[SourceLanguage::Astro], astro_family::visit_declaration),
+];
+
+/// Entry points for the family that extracts `language`, or `None` for
+/// unsupported source.
+fn family_slice(language: SourceLanguage) -> Option<&'static FamilySlice> {
+    FAMILY_SLICES
+        .iter()
+        .find(|slice| slice.languages.contains(&language))
 }
 
 fn visit_javascript_declaration(
@@ -1441,19 +1441,24 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
     }
 
     fn visit_declaration(&mut self, node: Node<'_>, depth: usize) -> Result<bool, ExtractError> {
-        let family = extraction_family(self.context.snapshot.language());
-        let Some(slice) = family_slice(family) else {
+        let Some(slice) = family_slice(self.context.snapshot.language()) else {
             return Err(ExtractError::UnsupportedLanguage);
         };
         (slice.visit_declaration)(self, node, depth)
     }
 
     fn visit_usage(&mut self, node: Node<'_>, depth: usize) -> Result<(), ExtractError> {
-        let family = extraction_family(self.context.snapshot.language());
-        let Some(slice) = family_slice(family) else {
+        let Some(slice) = family_slice(self.context.snapshot.language()) else {
             return Err(ExtractError::UnsupportedLanguage);
         };
-        (slice.visit_usage)(self, node, depth)
+        match slice.usage {
+            UsagePass::Children => self.visit_named_children(node, depth),
+            UsagePass::CaptureThenChildren(capture_usage) => {
+                capture_usage(self, node)?;
+                self.visit_named_children(node, depth)
+            }
+            UsagePass::Custom(visit_usage) => visit_usage(self, node, depth),
+        }
     }
 
     fn visit_named_children(&mut self, node: Node<'_>, depth: usize) -> Result<(), ExtractError> {
