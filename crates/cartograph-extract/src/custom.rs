@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cartograph_domain::{
-    ContentDigest, FileParseStatus, ReferenceKind, SourceLanguage, SourceSpan, SymbolId,
-    SymbolKind, Visibility,
+    ContentDigest, FileParseStatus, ReferenceKind, SourceLanguage, SourcePosition, SourceSpan,
+    SymbolId, SymbolKind, Visibility,
 };
 use serde_json::Value;
 
@@ -22,7 +22,10 @@ const CUSTOM_DIGEST_CONTEXT: &str = "cartograph.v2.custom-structural-digest.2026
 const MAX_REFERENCE_NAME_BYTES: usize = 4_096;
 const CUSTOM_CANCELLATION_POLL_BYTES: usize = 4_096;
 
+mod bg3;
+mod bg3_tokens;
 mod game_scripting;
+mod liquid;
 mod rhai;
 
 fn poll_cancellation(
@@ -289,6 +292,13 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
     }
 
     fn span(&self, start: usize, end: usize) -> Result<SourceSpan, ExtractError> {
+        // An empty file's convention-derived facts (an Aura component, a
+        // Visualforce route) sit at a zero-width point, as framework landmarks do.
+        if start == end && self.source().is_empty() {
+            return Ok(SourceSpan::synthetic(
+                SourcePosition::new(0, 1, 0).map_err(|_| ExtractError::InvalidSpan)?,
+            ));
+        }
         self.lines
             .span(SourceByteRange::new(start, end, self.source().len()))
     }
@@ -361,6 +371,29 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
         self.add_reference_with_resolution(input)
     }
 
+    /// Normalize a reference name. In BG3 game data a GUIDSTRING
+    /// (`Name_<uuid>`) is a public object identity whose only high-entropy
+    /// part is a canonical UUID, so it is exempt from the entropy screen
+    /// there and nowhere else.
+    fn normalize_reference_name(&self, raw: &str) -> Option<String> {
+        let trimmed = raw.trim();
+        if matches!(
+            self.snapshot.language(),
+            SourceLanguage::Bg3Anubis
+                | SourceLanguage::Bg3Resource
+                | SourceLanguage::Bg3Stats
+                | SourceLanguage::Osiris
+        ) && let Some(name) = bg3_tokens::guid_string_name(trimmed)
+        {
+            // Only the entropy screen is waived: the name part must still
+            // pass every credential check.
+            return (!looks_sensitive(name))
+                .then(|| bounded_string(trimmed).ok())
+                .flatten();
+        }
+        normalize_reference(raw)
+    }
+
     fn add_reference_with_resolution(
         &mut self,
         input: CustomReferenceInput<'_>,
@@ -373,7 +406,7 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             start,
             end,
         } = input;
-        let Some(name) = normalize_reference(name) else {
+        let Some(name) = self.normalize_reference_name(name) else {
             return Ok(());
         };
         let resolution_name = resolution_name.and_then(normalize_reference);
@@ -710,6 +743,7 @@ fn is_qualified_name(value: &str) -> bool {
 fn extract_liquid(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {
     let source = builder.source();
     let mut cursor = 0;
+    let mut schemas = liquid::SchemaBlocks::default();
     while let Some(relative) = source[cursor..].find("{%") {
         builder.check_cancelled()?;
         let open = cursor + relative;
@@ -719,17 +753,19 @@ fn extract_liquid(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractErro
         let close = open + 2 + close_relative + 2;
         let raw = source[open + 2..close - 2]
             .trim_matches(|character: char| character.is_whitespace() || character == '-');
-        extract_liquid_tag(
-            builder,
-            SourceSliceInput {
-                value: raw,
-                start: open,
-                end: close,
-            },
-        )?;
+        let tag = SourceSliceInput {
+            value: raw,
+            start: open,
+            end: close,
+        };
+        if let Some(block_end) = liquid::extract_schema(builder, tag, &mut schemas)? {
+            cursor = block_end;
+            continue;
+        }
+        extract_liquid_tag(builder, tag)?;
         cursor = close;
     }
-    extract_liquid_output_references(builder)
+    extract_liquid_output_references(builder, schemas.ranges())
 }
 
 fn extract_liquid_tag(
@@ -748,10 +784,15 @@ fn extract_liquid_tag(
     let remainder = &raw[command_end..];
     match command {
         "render" | "include" | "section" => {
+            // The partner is the first argument; a dynamic partner followed by
+            // a quoted named argument (`render name, label: 'x'`) is not one.
+            if !remainder.trim_start().starts_with(['\'', '"']) {
+                return Ok(());
+            }
             let Some((_, partner)) = quoted_values(remainder).into_iter().next() else {
                 return Ok(());
             };
-            if !is_qualified_name(partner) {
+            if !liquid::is_display_name(partner) {
                 return Ok(());
             }
             let folder = if command == "section" {
@@ -779,6 +820,21 @@ fn extract_liquid_tag(
                     .binding(partner, partner)
                     .at(start, end),
             )?;
+            if command == "section" {
+                // Sections are both a rendered component and an import site.
+                builder.add_symbol(
+                    CustomSymbolInput::new(
+                        SymbolKind::Import,
+                        partner,
+                        format!("{}::{command}:{partner}", builder.path()),
+                    )
+                    .at(start, end)
+                    .with_options(SymbolOptions {
+                        body_search_text: format!("{command} {partner}"),
+                        ..SymbolOptions::default()
+                    }),
+                )?;
+            }
         }
         "assign" | "capture" => {
             let Some((_, name)) = first_identifier(remainder) else {
@@ -811,33 +867,37 @@ fn extract_liquid_tag(
                 }),
             )?;
         }
-        "schema" => {
-            builder.add_symbol(
-                CustomSymbolInput::new(
-                    SymbolKind::Resource,
-                    "schema",
-                    format!("{}::schema", builder.path()),
-                )
-                .at(start, end)
-                .with_options(SymbolOptions {
-                    body_search_text: "schema".to_owned(),
-                    ..SymbolOptions::default()
-                }),
-            )?;
-        }
         _ => {}
     }
     Ok(())
 }
 
+/// `{{ ... }}` output references, excluding literal schema JSON blocks.
 fn extract_liquid_output_references(
     builder: &mut CustomBuilder<'_, '_>,
+    schemas: &[std::ops::Range<usize>],
 ) -> Result<(), ExtractError> {
     let source = builder.source();
     let mut cursor = 0;
+    let mut next_schema = 0;
+    let mut next_poll = 0;
     let mut seen = BTreeSet::new();
     while let Some(relative) = source[cursor..].find("{{") {
         let open = cursor + relative;
+        poll_cancellation(&mut *builder.cancelled, open, &mut next_poll)?;
+        while schemas
+            .get(next_schema)
+            .is_some_and(|schema| schema.end <= open)
+        {
+            next_schema += 1;
+        }
+        if let Some(schema) = schemas
+            .get(next_schema)
+            .filter(|schema| schema.contains(&open))
+        {
+            cursor = schema.end;
+            continue;
+        }
         let Some(close_relative) = source[open + 2..].find("}}") else {
             break;
         };
@@ -1703,9 +1763,7 @@ fn extract_svelte_store_references(
 }
 
 fn extract_salesforce_markup(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {
-    let Some(context) = initialize_salesforce_markup(builder)? else {
-        return Ok(());
-    };
+    let context = initialize_salesforce_markup(builder)?;
     let source = builder.source();
     for tag in markup_tags(source) {
         builder.check_cancelled()?;
@@ -1713,14 +1771,60 @@ fn extract_salesforce_markup(builder: &mut CustomBuilder<'_, '_>) -> Result<(), 
             scan_salesforce_tag(builder, &context, tag)?;
         }
     }
-    extract_salesforce_expression_refs(
+    if builder.snapshot.language() != SourceLanguage::Aura {
+        return Ok(());
+    }
+    let uncommented = blank_markup_comments(builder, source)?;
+    extract_aura_action_refs(
         builder,
         OwnedSourceInput {
             owner: &context.component,
-            source,
+            source: &uncommented,
             offset: 0,
         },
     )
+}
+
+/// Opening delimiter of a markup comment.
+const MARKUP_COMMENT_OPEN: &str = "<!--";
+/// Closing delimiter of a markup comment.
+const MARKUP_COMMENT_CLOSE: &str = "-->";
+
+/// Copy `source` with every `<!-- ... -->` comment blanked to spaces (newlines
+/// kept), so offsets still address the original text.
+fn blank_markup_comments(
+    builder: &mut CustomBuilder<'_, '_>,
+    source: &str,
+) -> Result<String, ExtractError> {
+    let mut output = String::new();
+    output
+        .try_reserve_exact(source.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    let mut cursor = 0;
+    let mut next_poll = 0;
+    while let Some(open) = source[cursor..]
+        .find(MARKUP_COMMENT_OPEN)
+        .map(|relative| cursor + relative)
+    {
+        poll_cancellation(&mut *builder.cancelled, open, &mut next_poll)?;
+        let body = open + MARKUP_COMMENT_OPEN.len();
+        let close = source[body..]
+            .find(MARKUP_COMMENT_CLOSE)
+            .map_or(source.len(), |relative| {
+                body + relative + MARKUP_COMMENT_CLOSE.len()
+            });
+        output.push_str(&source[cursor..open]);
+        for character in source[open..close].chars() {
+            if character == '\n' {
+                output.push('\n');
+            } else {
+                output.extend(std::iter::repeat_n(' ', character.len_utf8()));
+            }
+        }
+        cursor = close;
+    }
+    output.push_str(&source[cursor..]);
+    Ok(output)
 }
 
 struct SalesforceMarkupContext {
@@ -1730,10 +1834,7 @@ struct SalesforceMarkupContext {
 
 fn initialize_salesforce_markup(
     builder: &mut CustomBuilder<'_, '_>,
-) -> Result<Option<SalesforceMarkupContext>, ExtractError> {
-    if builder.source().is_empty() {
-        return Ok(None);
-    }
+) -> Result<SalesforceMarkupContext, ExtractError> {
     let language = builder.snapshot.language();
     let name = basename_stem(builder.path()).to_owned();
     let extension = builder
@@ -1752,7 +1853,8 @@ fn initialize_salesforce_markup(
         .source()
         .find('\n')
         .map_or(builder.source().len(), |index| index.saturating_add(1))
-        .max(1);
+        .max(1)
+        .min(builder.source().len());
     let component = builder.add_symbol(
         CustomSymbolInput::new(component_kind, &name, name.clone())
             .at(0, end)
@@ -1777,7 +1879,7 @@ fn initialize_salesforce_markup(
                 }),
         )?;
     }
-    Ok(Some(SalesforceMarkupContext { name, component }))
+    Ok(SalesforceMarkupContext { name, component })
 }
 
 fn scan_salesforce_tag(
@@ -1787,7 +1889,41 @@ fn scan_salesforce_tag(
 ) -> Result<(), ExtractError> {
     scan_salesforce_attribute(builder, context, &tag)?;
     scan_salesforce_component_reference(builder, context, &tag)?;
-    scan_salesforce_controller_references(builder, context, &tag)
+    scan_salesforce_controller_references(builder, context, &tag)?;
+    if builder.snapshot.language() == SourceLanguage::Visualforce {
+        scan_visualforce_action(builder, context, &tag)?;
+    }
+    Ok(())
+}
+
+/// Visualforce invokes controller methods only through `action="{!name}"`;
+/// other `{!expr}` merge fields read values rather than call.
+fn scan_visualforce_action(
+    builder: &mut CustomBuilder<'_, '_>,
+    context: &SalesforceMarkupContext,
+    tag: &MarkupTag<'_>,
+) -> Result<(), ExtractError> {
+    let Some((offset, value)) = tag_attribute(*tag, "action") else {
+        return Ok(());
+    };
+    let Some((relative, name)) = salesforce_merge_field(value) else {
+        return Ok(());
+    };
+    builder.add_reference(
+        CustomReferenceInput::new(Some(context.component.clone()), name, ReferenceKind::Calls)
+            .at(offset + relative, offset + relative + name.len()),
+    )
+}
+
+/// The identifier of an exact `{!name}` merge field, with its offset.
+fn salesforce_merge_field(value: &str) -> Option<(usize, &str)> {
+    let leading = value.len() - value.trim_start().len();
+    let (offset, name) = merge_field_body(value.trim())?;
+    is_salesforce_identifier(name).then_some((leading + offset, name))
+}
+
+const fn is_salesforce_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn scan_salesforce_attribute(
@@ -1809,22 +1945,57 @@ fn scan_salesforce_attribute(
         )
         .at(name_offset, name_offset + field_name.len())
         .with_options(SymbolOptions {
+            signature: tag_attribute(*tag, "type")
+                .and_then(|(_, type_name)| salesforce_type_signature(type_name)),
             body_search_text: format!("field {field_name}"),
             parent: Some(context.component.clone()),
             ..SymbolOptions::default()
         }),
     )?;
     if let Some((type_offset, type_name)) = tag_attribute(*tag, "type") {
-        let reference = type_name.trim_end_matches("[]");
+        let reference = salesforce_type_head(type_name);
         if is_qualified_name(reference) {
+            let relative = type_name.find(reference).unwrap_or(0);
             builder.add_reference(
-                CustomReferenceInput::new(Some(field), reference, ReferenceKind::TypeOf)
-                    .at(type_offset, type_offset + reference.len()),
+                CustomReferenceInput::new(Some(field), reference, ReferenceKind::TypeOf).at(
+                    type_offset + relative,
+                    type_offset + relative + reference.len(),
+                ),
             )?;
         }
     }
     Ok(())
 }
+
+/// The referenced type of an Aura attribute type: `List<Account>` -> `List`,
+/// `Opportunity[]` -> `Opportunity`, `Schema.Account` -> `Schema`.
+fn salesforce_type_head(type_name: &str) -> &str {
+    type_name
+        .trim()
+        .trim_end_matches("[]")
+        .split(['.', '<'])
+        .next()
+        .unwrap_or_default()
+        .trim()
+}
+
+/// A literal-free Aura attribute type kept as the field signature.
+fn salesforce_type_signature(type_name: &str) -> Option<String> {
+    let type_name = type_name.trim();
+    (!type_name.is_empty()
+        && type_name.len() <= MAX_SALESFORCE_TYPE_BYTES
+        && type_name.bytes().all(|byte| {
+            is_salesforce_word_byte(byte)
+                || matches!(byte, b'.' | b'<' | b'>' | b',' | b'[' | b']' | b' ')
+        })
+        && !type_name
+            .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .any(looks_sensitive))
+    .then(|| type_name.to_owned())
+}
+
+/// Longest Aura attribute type retained as a field signature.
+const MAX_SALESFORCE_TYPE_BYTES: usize = 256;
 
 fn scan_salesforce_component_reference(
     builder: &mut CustomBuilder<'_, '_>,
@@ -1889,28 +2060,24 @@ fn salesforce_component_name(raw: &str) -> String {
         .collect()
 }
 
-fn extract_salesforce_expression_refs(
+/// Aura invokes client-controller actions only as `{!c.name}` or
+/// `{!controller.name}`; value-provider expressions (`{!v.rows}`) read data.
+fn extract_aura_action_refs(
     builder: &mut CustomBuilder<'_, '_>,
     input: OwnedSourceInput<'_, '_>,
 ) -> Result<(), ExtractError> {
     let mut cursor = 0;
-    while let Some(relative) = input.source[cursor..].find("{!") {
+    let mut next_poll = 0;
+    while let Some(relative) = input.source[cursor..].find(MERGE_FIELD_OPEN) {
         let open = cursor + relative;
-        let Some(close_relative) = input.source[open + 2..].find('}') else {
+        poll_cancellation(&mut *builder.cancelled, open, &mut next_poll)?;
+        let body = open + MERGE_FIELD_OPEN.len();
+        let Some(close_relative) = input.source[body..].find('}') else {
             break;
         };
-        let close = open + 2 + close_relative;
-        let expression = input.source[open + 2..close].trim();
-        let expression_leading =
-            input.source[open + 2..close].len() - input.source[open + 2..close].trim_start().len();
-        let candidate = expression
-            .strip_prefix("c.")
-            .or_else(|| expression.strip_prefix("controller."))
-            .unwrap_or(expression);
-        if let Some((relative_name, name)) = first_identifier(candidate) {
-            let candidate_start = expression.find(candidate).unwrap_or(0);
-            let start =
-                input.offset + open + 2 + expression_leading + candidate_start + relative_name;
+        let close = body + close_relative;
+        if let Some((relative_name, name)) = aura_action_name(&input.source[open..=close]) {
+            let start = input.offset + open + relative_name;
             builder.add_reference(
                 CustomReferenceInput::new(Some(input.owner.clone()), name, ReferenceKind::Calls)
                     .at(start, start + name.len()),
@@ -1919,6 +2086,34 @@ fn extract_salesforce_expression_refs(
         cursor = close + 1;
     }
     Ok(())
+}
+
+/// The action of an exact `{!c.name}` / `{!controller.name}` expression.
+fn aura_action_name(expression: &str) -> Option<(usize, &str)> {
+    let (offset, inner) = merge_field_body(expression)?;
+    AURA_ACTION_PROVIDERS.into_iter().find_map(|provider| {
+        let name = inner.strip_prefix(provider)?;
+        is_salesforce_identifier(name).then_some((offset + provider.len(), name))
+    })
+}
+
+/// Client-controller value providers whose members are invocable actions.
+const AURA_ACTION_PROVIDERS: [&str; 2] = ["c.", "controller."];
+/// Opening delimiter of a Salesforce `{!expr}` merge field.
+const MERGE_FIELD_OPEN: &str = "{!";
+
+/// The trimmed body of an exact `{!...}` merge field and its byte offset.
+fn merge_field_body(value: &str) -> Option<(usize, &str)> {
+    let body = value.strip_prefix(MERGE_FIELD_OPEN)?.strip_suffix('}')?;
+    let leading = body.len() - body.trim_start().len();
+    Some((MERGE_FIELD_OPEN.len() + leading, body.trim()))
+}
+
+fn is_salesforce_identifier(name: &str) -> bool {
+    name.bytes()
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic())
+        && name.bytes().all(is_salesforce_word_byte)
 }
 
 #[derive(Clone)]
@@ -2789,6 +2984,11 @@ fn scan_anubis_declaration(
                     ..SymbolOptions::default()
                 }),
         )?;
+        // An event handler belongs to the state, not the preceding behavior
+        // node, so later references are the state's own.
+        if label == "event" {
+            state.behavior = None;
+        }
     }
     Ok(())
 }
@@ -2824,6 +3024,29 @@ fn scan_anubis_references(
             ),
         )?;
     }
+    scan_anubis_string_references(builder, owner.as_ref(), line)
+}
+
+/// Quoted and `[[long-bracket]]` strings naming BG3 resources or events
+/// (`Entity("S_Trigger_<uuid>")`, `SetEntityEvent(me, "RaiseAlarm")`).
+fn scan_anubis_string_references(
+    builder: &mut CustomBuilder<'_, '_>,
+    owner: Option<&SymbolId>,
+    line: AnubisLine<'_>,
+) -> Result<(), ExtractError> {
+    let text_offset = line.start + line.raw.find(line.text).unwrap_or(0);
+    let mut strings = quoted_values(line.text);
+    strings.extend(bg3_tokens::long_bracket_values(line.text));
+    strings.sort_unstable_by_key(|(offset, _)| *offset);
+    for (offset, value) in strings {
+        for (relative, token) in bg3_tokens::script_string_references(value) {
+            let start = text_offset + offset + relative;
+            builder.add_reference(
+                CustomReferenceInput::new(owner.cloned(), token, ReferenceKind::References)
+                    .at(start, start + token.len()),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -2852,8 +3075,8 @@ fn anubis_behavior(line: &str) -> Option<(usize, &str, &str)> {
     let after_nodes = &line[nodes + "nodes".len()..];
     let name = after_nodes
         .strip_prefix('.')
-        .and_then(first_identifier)
-        .map_or("nodes", |(_, name)| name);
+        .and_then(leading_dotted_identifier)
+        .unwrap_or("nodes");
     let name_start = if name == "nodes" {
         nodes
     } else {
@@ -2885,6 +3108,28 @@ fn anubis_handler(line: &str) -> Option<(usize, &str, &str)> {
         {
             return Some((start, callback, "callback"));
         }
+    }
+    None
+}
+
+/// `A.B.C` at the start of `value` (a nested behavior-node path).
+fn leading_dotted_identifier(value: &str) -> Option<&str> {
+    let bytes = value.as_bytes();
+    let mut end = 0;
+    loop {
+        if !bytes.get(end).copied().is_some_and(is_identifier_start) {
+            break;
+        }
+        end += 1;
+        while bytes.get(end).copied().is_some_and(is_identifier_body) {
+            end += 1;
+        }
+        if bytes.get(end) != Some(&b'.')
+            || !bytes.get(end + 1).copied().is_some_and(is_identifier_start)
+        {
+            return Some(&value[..end]);
+        }
+        end += 1;
     }
     None
 }
@@ -3039,8 +3284,23 @@ fn extract_bg3_entry_line(
             },
         ),
         Some("data") => add_bg3_data_references(builder, owner, source),
+        Some("object") if is_bg3_object_category(words) => add_bg3_command_reference(
+            builder,
+            Bg3Command {
+                owner,
+                source,
+                command: command.as_deref(),
+            },
+        ),
         _ => Ok(()),
     }
+}
+
+/// Treasure-table `object category "Item",...` rows reference the item.
+fn is_bg3_object_category(words: &[(usize, &str)]) -> bool {
+    words
+        .get(1)
+        .is_some_and(|(_, word)| word.eq_ignore_ascii_case("category"))
 }
 
 #[derive(Clone, Copy)]
@@ -3089,16 +3349,16 @@ fn add_bg3_data_references(
         text: line,
     } = source;
     let values = quoted_values(line);
-    let Some((offset, value)) = values.get(1).copied() else {
+    let (Some((_, field)), Some((offset, value))) =
+        (values.first().copied(), values.get(1).copied())
+    else {
         return Ok(());
     };
-    for token in bg3_reference_tokens(value) {
-        let relative = value.find(token).unwrap_or(0);
+    for (relative, token, kind) in bg3::field_references(field, value) {
+        let start = line_start + offset + relative;
         builder.add_reference(
-            CustomReferenceInput::new(Some(owner.clone()), token, ReferenceKind::References).at(
-                line_start + offset + relative,
-                line_start + offset + relative + token.len(),
-            ),
+            CustomReferenceInput::new(Some(owner.clone()), token, kind)
+                .at(start, start + token.len()),
         )?;
     }
     Ok(())
@@ -3511,13 +3771,18 @@ fn strip_line_comment<'source>(line: &'source str, marker: &str) -> &'source str
 }
 
 fn extract_bg3_resource(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {
+    // Binary (`.lsf`/`.lsb`) payloads are not text resources: stop instead of
+    // emitting byte noise, so the file is recorded as degraded.
+    if builder.source().contains('\0') {
+        return Err(ExtractError::ParserStopped);
+    }
     let trimmed = builder.source().trim_start();
     if (trimmed.starts_with('{') || trimmed.starts_with('['))
         && let Ok(value) = serde_json::from_str::<Value>(builder.source())
     {
         return extract_bg3_json(builder, &value, None);
     }
-    extract_bg3_markup(builder)
+    bg3::extract_markup(builder)
 }
 
 fn extract_bg3_json(
@@ -3562,10 +3827,8 @@ fn bg3_object_parent(
     fields: &serde_json::Map<String, Value>,
     parent: Option<SymbolId>,
 ) -> Result<Option<SymbolId>, ExtractError> {
-    let Some(name) = ["NameFS", "Name", "name", "UUID", "Guid", "id"]
-        .into_iter()
-        .find_map(|key| fields.get(key).and_then(Value::as_str))
-        .filter(|name| !name.is_empty() && !looks_sensitive(name))
+    let Some(name) =
+        bg3_json_field(fields, &BG3_JSON_NAME_KEYS).filter(|name| !looks_sensitive(name))
     else {
         return Ok(parent);
     };
@@ -3573,19 +3836,40 @@ fn bg3_object_parent(
     if offset >= builder.source().len() {
         return Ok(parent);
     }
+    // A UUID/Guid/id is the game-global identity other files reference.
+    let uuid =
+        bg3_json_field(fields, &BG3_JSON_IDENTITY_KEYS).and_then(bg3_tokens::global_identity);
+    let addressable = parent.is_none() || uuid.is_some();
+    let qualified_name = uuid.map_or_else(|| format!("{}::{name}", builder.path()), str::to_owned);
     builder
         .add_symbol(
-            CustomSymbolInput::new(SymbolKind::Resource, name, name.to_owned())
+            CustomSymbolInput::new(SymbolKind::Resource, name, qualified_name)
                 .at(offset, (offset + name.len()).min(builder.source().len()))
                 .with_options(SymbolOptions {
                     body_search_text: format!("bg3 resource {name}"),
-                    export: SymbolExportFlags::named(parent.is_none()),
-                    visibility: parent.is_none().then_some(Visibility::Public),
+                    export: SymbolExportFlags::named(addressable),
+                    visibility: addressable.then_some(Visibility::Public),
                     parent,
                     ..SymbolOptions::default()
                 }),
         )
         .map(Some)
+}
+
+/// LSJ name fields in v1 precedence order.
+const BG3_JSON_NAME_KEYS: [&str; 6] = ["Name", "NameFS", "name", "UUID", "Guid", "id"];
+/// LSJ fields that carry a game-global identity.
+const BG3_JSON_IDENTITY_KEYS: [&str; 3] = ["UUID", "Guid", "id"];
+
+/// The first non-empty (trimmed) string among `keys`, in order.
+fn bg3_json_field<'value>(
+    fields: &'value serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'value str> {
+    keys.iter()
+        .filter_map(|key| fields.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
 }
 
 fn add_bg3_references(
@@ -3594,8 +3878,7 @@ fn add_bg3_references(
     parent: Option<&SymbolId>,
 ) -> Result<(), ExtractError> {
     let base = builder.source().find(raw).unwrap_or(0);
-    for token in bg3_reference_tokens(raw) {
-        let relative = raw.find(token).unwrap_or(0);
+    for (relative, token) in bg3_tokens::reference_tokens(raw) {
         if base + relative + token.len() <= builder.source().len() {
             builder.add_reference(
                 CustomReferenceInput::new(parent.cloned(), token, ReferenceKind::References)
@@ -3608,33 +3891,6 @@ fn add_bg3_references(
 
 fn is_bg3_name_key(key: &str) -> bool {
     matches!(key, "NameFS" | "Name" | "name" | "UUID" | "Guid" | "id")
-}
-
-fn extract_bg3_markup(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> {
-    let source = builder.source();
-    let tags = markup_tags(source);
-    let mut regions = vec![(None, builder.path().to_owned())];
-    for (index, tag) in tags.iter().copied().enumerate() {
-        builder.check_cancelled()?;
-        if scan_bg3_region(builder, &mut regions, tag)? {
-            continue;
-        }
-        if scan_bg3_content(builder, &regions, tag)? {
-            continue;
-        }
-        if tag.closing || !matches_ignore_ascii_case(tag.name, &["node", "stat_object"]) {
-            continue;
-        }
-        add_bg3_object(
-            builder,
-            Bg3ObjectInput {
-                regions: &regions,
-                tag,
-                fields: bg3_object_fields(&tags, index, tag),
-            },
-        )?;
-    }
-    Ok(())
 }
 
 type Bg3Region = (Option<SymbolId>, String);
@@ -3696,86 +3952,4 @@ fn scan_bg3_content(
             }),
     )?;
     Ok(true)
-}
-
-fn bg3_object_fields<'source>(
-    tags: &[MarkupTag<'source>],
-    index: usize,
-    tag: MarkupTag<'source>,
-) -> BTreeMap<String, (usize, &'source str)> {
-    let close = find_matching_close(tags, index).map_or(tag.end, |(_, close_start)| close_start);
-    let mut fields = BTreeMap::new();
-    for field in tags
-        .iter()
-        .copied()
-        .skip(index + 1)
-        .take_while(|candidate| candidate.start < close)
-    {
-        if field.closing || !matches_ignore_ascii_case(field.name, &["attribute", "field"]) {
-            continue;
-        }
-        let key = tag_attribute(
-            field,
-            if tag_name_eq(field, "field") {
-                "name"
-            } else {
-                "id"
-            },
-        );
-        let value = tag_attribute(field, "value").or_else(|| tag_attribute(field, "handle"));
-        if let (Some((_, key)), Some((offset, value))) = (key, value) {
-            fields.insert(key.to_owned(), (offset, value));
-        }
-    }
-    fields
-}
-
-struct Bg3ObjectInput<'source, 'regions> {
-    regions: &'regions [Bg3Region],
-    tag: MarkupTag<'source>,
-    fields: BTreeMap<String, (usize, &'source str)>,
-}
-
-fn add_bg3_object(
-    builder: &mut CustomBuilder<'_, '_>,
-    input: Bg3ObjectInput<'_, '_>,
-) -> Result<(), ExtractError> {
-    let name = ["NameFS", "DisplayName", "Name", "UUID"]
-        .into_iter()
-        .find_map(|key| input.fields.get(key).copied())
-        .or_else(|| tag_attribute(input.tag, "id"));
-    let Some((name_offset, name)) =
-        name.filter(|(_, name)| !name.is_empty() && !looks_sensitive(name))
-    else {
-        return Ok(());
-    };
-    let prefix = input
-        .regions
-        .last()
-        .map_or(builder.path(), |(_, name)| name);
-    let top_level = input.regions.len() == 1;
-    let id = builder.add_symbol(
-        CustomSymbolInput::new(SymbolKind::Resource, name, format!("{prefix}::{name}"))
-            .at(name_offset, name_offset + name.len())
-            .with_options(SymbolOptions {
-                body_search_text: format!("bg3 resource {name}"),
-                export: SymbolExportFlags::named(top_level),
-                visibility: top_level.then_some(Visibility::Public),
-                parent: input.regions.last().and_then(|(id, _)| id.clone()),
-                ..SymbolOptions::default()
-            }),
-    )?;
-    for (field, (offset, value)) in input.fields {
-        if matches!(field.as_str(), "NameFS" | "DisplayName" | "Name") {
-            continue;
-        }
-        for token in bg3_reference_tokens(value) {
-            let relative = value.find(token).unwrap_or(0);
-            builder.add_reference(
-                CustomReferenceInput::new(Some(id.clone()), token, ReferenceKind::References)
-                    .at(offset + relative, offset + relative + token.len()),
-            )?;
-        }
-    }
-    Ok(())
 }

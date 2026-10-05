@@ -3,7 +3,10 @@ use tree_sitter::Node;
 
 use crate::{
     ExtractError, ExtractedImportBinding, ExtractedReference, ImportBindingKind,
-    walk::{ExtractionBuilder, PendingSymbol, syntax::span_for},
+    walk::{
+        ExtractionBuilder, PendingSymbol, specifier_safety::specifier_may_carry_credential,
+        syntax::span_for,
+    },
 };
 
 const NAME_SEARCH_DEPTH: usize = 6;
@@ -116,7 +119,7 @@ fn declaration(
     node: Node<'_>,
 ) -> Result<Option<(SymbolKind, String)>, ExtractError> {
     if let Some(kind) = declaration_kind(node.kind()) {
-        let name = find_name_node(node, 0)
+        let name = declared_name_node(node)
             .map(|name| builder.context.owned_text(name))
             .transpose()?
             .and_then(|name| normalize_name(&name));
@@ -125,6 +128,34 @@ fn declaration(
         }
     }
     textual_declaration(builder, node)
+}
+
+/// Function-value node kinds that are anonymous unless they carry their own
+/// name (`function(q) ... end`, `(a, b) => ...`).
+const ANONYMOUS_CAPABLE_FUNCTION_KINDS: [&str; 6] = [
+    "function",
+    "function_definition",
+    "function_expression",
+    "arrow_function",
+    "lambda",
+    "lambda_expression",
+];
+
+/// The node naming a declaration. An anonymous function value is named only
+/// by its own identifier-shaped `name` field: never by a parameter, by a bare
+/// identifier body (`function(v) v`), or by a keyword token (R stores
+/// `function` itself in the `name` field).
+fn declared_name_node(node: Node<'_>) -> Option<Node<'_>> {
+    // C-family definitions (Objective-C) name the function through their
+    // `declarator`, so only declarator-free function values can be anonymous.
+    if ANONYMOUS_CAPABLE_FUNCTION_KINDS.contains(&node.kind())
+        && node.child_by_field_name("declarator").is_none()
+    {
+        return node
+            .child_by_field_name("name")
+            .filter(|name| is_name_node(name.kind()));
+    }
+    find_name_node(node, 0)
 }
 
 fn declaration_kind(node_kind: &str) -> Option<SymbolKind> {
@@ -385,7 +416,6 @@ fn textual_declaration(
         SourceLanguage::Sql if node.kind().contains("create") || starts_keyword(text, "create") => {
             sql_declaration(text)
         }
-        SourceLanguage::Hcl if node.kind() == "block" => hcl_declaration(text),
         SourceLanguage::Nix if matches!(node.kind(), "binding" | "attrpath_value") => {
             assignment_declaration(text, SymbolKind::Property)
         }
@@ -437,19 +467,6 @@ fn sql_declaration(text: &str) -> Option<(SymbolKind, String)> {
         return None;
     };
     normalize_name(tokens.next()?).map(|name| (kind, name))
-}
-
-fn hcl_declaration(text: &str) -> Option<(SymbolKind, String)> {
-    let mut tokens = text.split_whitespace();
-    let head = normalize_name(tokens.next()?)?;
-    let label = tokens.next().and_then(normalize_name);
-    let name = label.map_or(head.clone(), |label| format!("{head}.{label}"));
-    let kind = if head.eq_ignore_ascii_case("resource") || head.eq_ignore_ascii_case("data") {
-        SymbolKind::Resource
-    } else {
-        SymbolKind::Module
-    };
-    Some((kind, name))
 }
 
 fn assignment_declaration(text: &str, kind: SymbolKind) -> Option<(SymbolKind, String)> {
@@ -619,7 +636,9 @@ fn capture_import(
         return Ok(());
     };
     let raw = builder.context.owned_text(target)?;
-    let Some(module) = normalize_module_specifier(&raw) else {
+    let Some(module) =
+        normalize_module_specifier(&raw).filter(|module| !specifier_may_carry_credential(module))
+    else {
         return Ok(());
     };
     let span = span_for(target)?;
@@ -630,6 +649,7 @@ fn capture_import(
         kind: ReferenceKind::Imports,
         span,
     })?;
+    emit_import_symbol(builder, node, &module)?;
     builder.emit_import_binding(ExtractedImportBinding {
         kind: ImportBindingKind::Namespace,
         module_specifier: module,
@@ -637,6 +657,31 @@ fn capture_import(
         local_name: "*".to_owned(),
         span,
     })
+}
+
+/// One `Import` declaration per recognized import, named by its module, so
+/// file import listings see it. The raw statement is not retained.
+fn emit_import_symbol(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    module: &str,
+) -> Result<(), ExtractError> {
+    builder
+        .emit_symbol(PendingSymbol {
+            kind: SymbolKind::Import,
+            name: builder.context.copy_text(module)?,
+            span_node: node,
+            structural_node: node,
+            doc_anchor: node,
+            body_node: None,
+            declaration_only: false,
+            signature: None,
+            export: crate::SymbolExportFlags::named(false),
+            async_symbol: false,
+            static_member: false,
+            visibility: None,
+        })
+        .map(drop)
 }
 
 fn find_import_target(node: Node<'_>, depth: usize) -> Option<Node<'_>> {
@@ -725,7 +770,6 @@ fn generic_exported(input: GenericExportInput<'_>) -> bool {
             language,
             SourceLanguage::Dart
                 | SourceLanguage::GraphQl
-                | SourceLanguage::Hcl
                 | SourceLanguage::Html
                 | SourceLanguage::Khn
                 | SourceLanguage::Lua

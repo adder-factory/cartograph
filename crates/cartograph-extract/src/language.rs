@@ -48,6 +48,8 @@ pub enum ExtractionStrategy {
     RFamily,
     /// Nix attribute bindings, inherits, applications, and path imports.
     NixFamily,
+    /// HCL/Terraform blocks addressed by their Terraform names, with address references.
+    HclFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -81,6 +83,7 @@ impl ExtractionStrategy {
                 | Self::LuaFamily
                 | Self::RFamily
                 | Self::NixFamily
+                | Self::HclFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -181,6 +184,7 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         }
         SourceLanguage::R => Some(ExtractionStrategy::RFamily),
         SourceLanguage::Nix => Some(ExtractionStrategy::NixFamily),
+        SourceLanguage::Hcl => Some(ExtractionStrategy::HclFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -199,7 +203,6 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
         | SourceLanguage::Apex
         | SourceLanguage::Astro
         | SourceLanguage::GraphQl
-        | SourceLanguage::Hcl
         | SourceLanguage::Html
         | SourceLanguage::ObjectiveC
         | SourceLanguage::Pascal

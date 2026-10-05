@@ -11939,6 +11939,66 @@ where
     Ok(None)
 }
 
+/// Resolve a Terraform address (`var.x`, `local.x`, `module.x`, `T.N`,
+/// `data.T.N`) terminally: a Terraform module is one directory, and an
+/// address names exactly the HCL declaration whose qualified name it equals.
+/// Display names (`T.N` is also a data source's name) and other languages
+/// never satisfy it; duplicates and self-references stay unresolved.
+fn resolve_terraform_address<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if request.language != SourceLanguage::Hcl.as_str() || request.kind != ReferenceKind::References
+    {
+        return Ok(None);
+    }
+    let source = project_source_context(index, request)?;
+    let candidates = index.candidates.get(request.name).map_or(
+        &[] as &[ResolutionCandidate],
+        ResolutionCandidateBucket::as_slice,
+    );
+    let mut declaration = None;
+    let mut declarations = 0_usize;
+    for candidate in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        let in_module = index
+            .modules
+            .files
+            .get(&candidate.file_id)
+            .is_some_and(|target| {
+                target.language == source.language && target.directory == source.directory
+            });
+        if in_module && candidate.qualified_name == request.name {
+            declarations = declarations.saturating_add(1);
+            declaration = Some(candidate);
+        }
+    }
+    let target = declaration
+        .filter(|candidate| declarations == 1 && request.owner != Some(&candidate.symbol_id));
+    Ok(Some(target.map_or(
+        ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
+        |candidate| {
+            let (confidence, provenance) = if &candidate.file_id == request.file_id {
+                (EXACT_SAME_FILE_CONFIDENCE, EXACT_SAME_FILE_PROVENANCE)
+            } else {
+                (EXACT_PROJECT_CONFIDENCE, EXACT_PROJECT_PROVENANCE)
+            };
+            ReferenceResolution::resolved(ResolvedTarget {
+                symbol_id: candidate.symbol_id.clone(),
+                kind: candidate.kind,
+                confidence,
+                provenance,
+            })
+        },
+    )))
+}
+
 fn resolve_reference<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
@@ -11951,6 +12011,9 @@ where
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
+    }
+    if let Some(resolution) = resolve_terraform_address(index, request, cancelled)? {
+        return Ok(resolution);
     }
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
@@ -15897,7 +15960,7 @@ mod tests {
         (28, 230, 226, 78, 230);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "461cec8cccf24f4374a440ca7c8884d547b82653a89427859197af63ff968573";
+        "49aa27281e2fa4be845bad26e601efc4e891d6bf179a03f9987e25fad98217f7";
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (13, 49, 44, 32, 49);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [
@@ -20226,6 +20289,195 @@ export function secondClone(value: number) {
             );
             assert_eq!(reference.resolution_provenance, MODULE_IMPORT_PROVENANCE);
         }
+    }
+
+    const TERRAFORM_RESOLUTION_FIXTURES: [(&str, &str); 8] = [
+        (
+            "infra/main.tf",
+            "locals {\n  name = \"${var.prefix}-app\"\n}\nresource \"aws_instance\" \"web\" {\n  ami = data.aws_ami.ubuntu.id\n  tags = { Name = local.name }\n}\nresource \"aws_instance\" \"db\" {\n  ami  = aws_instance.web.ami\n  zone = var.missing\n  peer = aws_instance.db.id\n  logs = aws_s3_bucket.logs.arn\n  dup  = var.duplicated\n}\nmodule \"vpc\" {\n  source = \"../modules/vpc\"\n}\noutput \"vpc_id\" {\n  value = module.vpc.vpc_id\n}\n",
+        ),
+        (
+            "infra/variables.tf",
+            "variable \"prefix\" {\n  type = string\n}\nvariable \"duplicated\" {}\n",
+        ),
+        ("infra/more.tf", "variable \"duplicated\" {}\n"),
+        (
+            "infra/data.tf",
+            "data \"aws_ami\" \"ubuntu\" {}\ndata \"aws_s3_bucket\" \"logs\" {}\n",
+        ),
+        (
+            "infra/terraform.properties",
+            "var.missing=present-in-properties\n",
+        ),
+        (
+            "modules/vpc/variables.tf",
+            "variable \"prefix\" {\n  type = string\n}\n",
+        ),
+        (
+            "modules/vpc/main.tf",
+            "resource \"aws_vpc\" \"this\" {\n  tags = { Name = var.prefix }\n}\n",
+        ),
+        (
+            "modules/vpc/outputs.tf",
+            "output \"vpc_id\" { value = aws_vpc.this.id }\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn terraform_addresses_resolve_within_their_module_directory_only() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create Terraform resolver fixture: {error}"));
+        for (path, source) in TERRAFORM_RESOLUTION_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("Terraform fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        let parallel = build(directory.path(), PARALLEL_WORKERS).await;
+        assert_eq!(serial.facts().digest(), parallel.facts().digest());
+        let facts = ModuleResolverFacts {
+            facts: serial.facts(),
+        };
+        let local_name = facts.symbol("infra/main.tf", "local.name");
+        let web = facts.symbol("infra/main.tf", "aws_instance.web");
+        let db = facts.symbol("infra/main.tf", "aws_instance.db");
+        let output = facts.symbol("infra/main.tf", "output.vpc_id");
+        for (owner, name, target, provenance) in [
+            (
+                &local_name,
+                "var.prefix",
+                facts.symbol("infra/variables.tf", "var.prefix"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                &web,
+                "data.aws_ami.ubuntu",
+                facts.symbol("infra/data.tf", "data.aws_ami.ubuntu"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                &web,
+                "local.name",
+                local_name.clone(),
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                &db,
+                "aws_instance.web",
+                web.clone(),
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                &output,
+                "module.vpc",
+                facts.symbol("infra/main.tf", "module.vpc"),
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                &facts.symbol("modules/vpc/main.tf", "aws_vpc.this"),
+                "var.prefix",
+                facts.symbol("modules/vpc/variables.tf", "var.prefix"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                &facts.symbol("modules/vpc/outputs.tf", "output.vpc_id"),
+                "aws_vpc.this",
+                facts.symbol("modules/vpc/main.tf", "aws_vpc.this"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+        ] {
+            let reference = facts.reference(owner, name);
+            assert_eq!(reference.target_symbol_id.as_ref(), Some(&target), "{name}");
+            assert_eq!(reference.resolution_provenance, provenance, "{name}");
+        }
+        // A missing address is not satisfied by a same-named properties key,
+        // a data source's display name never stands in for a resource
+        // address, duplicated declarations stay ambiguous, and a block never
+        // resolves to itself.
+        for name in [
+            "var.missing",
+            "aws_s3_bucket.logs",
+            "var.duplicated",
+            "aws_instance.db",
+        ] {
+            let reference = facts.reference(&db, name);
+            assert_eq!(reference.target_symbol_id, None, "{name}");
+            assert_eq!(
+                reference.resolution_provenance, UNRESOLVED_PROVENANCE,
+                "{name}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn bg3_template_uuid_references_resolve_across_files_unless_ambiguous() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create BG3 resolver fixture: {error}"));
+        let template = |name: &str, uuid: &str| {
+            format!(
+                "<save><region id=\"Templates\"><node id=\"GameObjects\"><children><node id=\"GameObject\"><attribute id=\"UUID\" value=\"{uuid}\"/><attribute id=\"Name\" value=\"{name}\"/></node></children></node></region></save>\n"
+            )
+        };
+        for (path, source) in [
+            (
+                "Public/Mod/RootTemplates/Sword.lsx",
+                template("WPN_Sword", "11111111-1111-1111-1111-111111111111"),
+            ),
+            (
+                "Public/Mod/RootTemplates/ShieldA.lsx",
+                template("ARM_Shield_A", "55555555-5555-5555-5555-555555555555"),
+            ),
+            (
+                "Public/Mod/RootTemplates/ShieldB.lsx",
+                template("ARM_Shield_B", "55555555-5555-5555-5555-555555555555"),
+            ),
+            (
+                "Public/Mod/RootTemplates/Items.lsx",
+                "<save><region id=\"Templates\"><node id=\"GameObject\"><attribute id=\"Name\" value=\"MAG_Sword\"/><attribute id=\"ParentTemplateId\" value=\"11111111-1111-1111-1111-111111111111\"/><attribute id=\"ShieldTemplateId\" value=\"55555555-5555-5555-5555-555555555555\"/></node></region></save>\n".to_owned(),
+            ),
+        ] {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("BG3 fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        let parallel = build(directory.path(), PARALLEL_WORKERS).await;
+        assert_eq!(serial.facts().digest(), parallel.facts().digest());
+        let facts = ModuleResolverFacts {
+            facts: serial.facts(),
+        };
+        let item = facts.symbol(
+            "Public/Mod/RootTemplates/Items.lsx",
+            "Public/Mod/RootTemplates/Items.lsx::Templates::MAG_Sword",
+        );
+        let parent = facts.reference(&item, "11111111-1111-1111-1111-111111111111");
+        assert_eq!(
+            parent.target_symbol_id.as_ref(),
+            Some(&facts.symbol(
+                "Public/Mod/RootTemplates/Sword.lsx",
+                "11111111-1111-1111-1111-111111111111"
+            ))
+        );
+        assert_eq!(parent.resolution_provenance, EXACT_PROJECT_PROVENANCE);
+        let duplicated = facts.reference(&item, "55555555-5555-5555-5555-555555555555");
+        assert_eq!(
+            duplicated.target_symbol_id, None,
+            "duplicate UUIDs stay ambiguous"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

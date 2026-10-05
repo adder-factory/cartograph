@@ -61,7 +61,7 @@ pub fn declaration_value_is_search_safe(value: &str) -> bool {
         .filter(|token| !token.is_empty())
     {
         token_count = token_count.saturating_add(1);
-        if is_sensitive_value_token(token) || looks_like_high_entropy_token(token) {
+        if value_token_is_sensitive(token) {
             return false;
         }
     }
@@ -176,6 +176,66 @@ const fn is_reference_expression_operator(byte: u8) -> bool {
     )
 }
 
+/// Prefixes of provider-issued access keys and tokens (AWS, GitHub, GitLab,
+/// Stripe, Slack), in the case each provider issues them. Hyphenated forms
+/// only match callers that keep `-` inside a segment; identifier tokens never
+/// contain it.
+const CREDENTIAL_TOKEN_PREFIXES: &[&str] = &[
+    "AKIA",
+    "ASIA",
+    "ghp_",
+    "gho_",
+    "ghu_",
+    "ghs_",
+    "ghr_",
+    "github_pat_",
+    "glpat-",
+    "sk_live_",
+    "sk_test_",
+    "xoxb_",
+    "xoxb-",
+    "xoxp_",
+    "xoxp-",
+];
+
+/// Shortest key body after a provider prefix; issued keys carry 16 or more.
+const MINIMUM_PROVIDER_KEY_BODY_BYTES: usize = 8;
+
+/// Return whether one token starts with a provider access-key prefix in any
+/// case. This is the conservative half of the declaration-value screen.
+fn token_has_credential_prefix(token: &str) -> bool {
+    CREDENTIAL_TOKEN_PREFIXES
+        .iter()
+        .any(|prefix| starts_with_ignore_ascii_case(token, prefix))
+}
+
+/// Return whether one path segment is shaped like an issued provider access
+/// key: a prefix in the provider's own case (`AKIA`, `sk_live_`, `ghp_`,
+/// `glpat-`) followed by a key body of at least eight `[A-Za-z0-9_-]` bytes.
+///
+/// Unlike the declaration screen this never matches an ordinary directory or
+/// module name such as `asia-east1`, `AsiaToken.sol`, or `token`, so it is the
+/// screen for path-like specifiers that may name real directories.
+#[must_use]
+pub fn token_has_provider_key_shape(segment: &str) -> bool {
+    CREDENTIAL_TOKEN_PREFIXES.iter().any(|prefix| {
+        segment.strip_prefix(prefix).is_some_and(|body| {
+            body.len() >= MINIMUM_PROVIDER_KEY_BODY_BYTES
+                && body
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        })
+    })
+}
+
+/// Return whether one identifier token (`[A-Za-z0-9_]`) is a credential word
+/// (`password`, `api_key`, ...), a provider access key, or a high-entropy
+/// secret — the same screen [`declaration_value_is_search_safe`] applies.
+#[must_use]
+pub fn value_token_is_sensitive(token: &str) -> bool {
+    is_sensitive_value_token(token) || looks_like_high_entropy_token(token)
+}
+
 fn is_sensitive_value_token(token: &str) -> bool {
     const EXACT: &[&str] = &[
         "apikey",
@@ -189,20 +249,8 @@ fn is_sensitive_value_token(token: &str) -> bool {
         "secret",
         "token",
     ];
-    const PREFIXES: &[&str] = &[
-        "akia",
-        "asia",
-        "ghp_",
-        "github_pat_",
-        "sk_live_",
-        "sk_test_",
-        "xoxb_",
-        "xoxp_",
-    ];
     if EXACT.iter().any(|word| token.eq_ignore_ascii_case(word))
-        || PREFIXES
-            .iter()
-            .any(|prefix| starts_with_ignore_ascii_case(token, prefix))
+        || token_has_credential_prefix(token)
     {
         return true;
     }
@@ -1949,7 +1997,8 @@ mod tests {
         NormalizedPath, ReferenceKind, STABLE_SYMBOL_KINDS, SourceLanguage, SourcePosition,
         SourceSpan, SymbolKind, callable_signature_is_literal_free,
         declaration_value_is_search_safe, is_candidate_path_with, symbol_signature_is_search_safe,
-        v1_language_registry_digest, v2_language_additions_digest,
+        token_has_provider_key_shape, v1_language_registry_digest, v2_language_additions_digest,
+        value_token_is_sensitive,
     };
 
     const SPAN_START_BYTE: u64 = 7;
@@ -2378,6 +2427,51 @@ mod tests {
                 !declaration_value_is_search_safe(unsafe_value),
                 "{unsafe_value}"
             );
+        }
+    }
+
+    #[test]
+    fn credential_token_screens_split_value_shapes_from_credential_words() {
+        // Issued provider keys are recognised with either separator style.
+        for key in [
+            "AKIAIOSFODNN7EXAMPLE",
+            "ASIAY34FZKBOKMUTVV7A",
+            "sk_live_FAKE1234",
+            "gho_abcdefgh",
+            "ghs_abcdefgh12",
+            "glpat-abcdefgh",
+            "xoxb-1234-5678",
+        ] {
+            assert!(token_has_provider_key_shape(key), "{key}");
+        }
+        // Directory and module names, even ones sharing a prefix, are not keys.
+        for word in [
+            "token",
+            "ERC20",
+            "glpat",
+            "xoxb",
+            "asia-east1",
+            "AsiaToken",
+            "akiapolaau",
+            "AKIA",
+            "ghp_x",
+            "sk_live_",
+        ] {
+            assert!(!token_has_provider_key_shape(word), "{word}");
+        }
+        // The declaration screen stays case-insensitive and adds credential
+        // words and high-entropy values.
+        for sensitive in [
+            "password",
+            "api_key",
+            "access_token",
+            "akiaiosfodnn7example",
+            "Zx9mQ2vL8kP4rT6yW1nB3cD5",
+        ] {
+            assert!(value_token_is_sensitive(sensitive), "{sensitive}");
+        }
+        for plain in ["modules", "vpc", "ref", "v1", "IUniswapV3Pool"] {
+            assert!(!value_token_is_sensitive(plain), "{plain}");
         }
     }
 
