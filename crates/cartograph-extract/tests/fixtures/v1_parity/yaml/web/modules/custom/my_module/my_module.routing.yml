@@ -1,0 +1,42 @@
+my_module.hello:
+  path: '/hello'
+  defaults:
+    _controller: '\Drupal\my_module\Controller\HelloController::build'
+    _title: 'Hello'
+  requirements:
+    _permission: 'access content'
+
+my_module.settings:
+  path: '/admin/config/my_module'
+  defaults:
+    _form: '\Drupal\my_module\Form\SettingsForm'
+    _title: 'Settings'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'administer site configuration'
+
+my_module.entity_add:
+  path: '/thing/add'
+  defaults:
+    _entity_form: 'thing.add'
+  requirements:
+    _permission: 'create thing'
+
+my_module.entity_list:
+  path: '/admin/things'
+  defaults:
+    _entity_list: 'thing'
+
+my_module.entity_view:
+  path: '/thing/{thing}'
+  defaults:
+    _entity_view: 'thing.full'
+
+my_module.missing_method:
+  path: '/missing'
+  defaults:
+    _controller: '\Drupal\my_module\Controller\HelloController::missing'
+
+my_module.no_path:
+  defaults:
+    _controller: '\Drupal\my_module\Controller\HelloController::build'

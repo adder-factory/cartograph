@@ -1,0 +1,765 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "osiris",
+  "files": [
+    "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+    "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+    "Mods/Demo/Story/RawFiles/story_header.div"
+  ],
+  "symbols": [
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "file",
+      "name": "Init.txt",
+      "qualified_name": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "module",
+      "name": "Init",
+      "qualified_name": "Init",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "namespace",
+      "name": "INIT",
+      "qualified_name": "Init::INIT",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "table",
+      "name": "DB_Check",
+      "qualified_name": "DB_Check",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "namespace",
+      "name": "KB",
+      "qualified_name": "Init::KB",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "method",
+      "name": "rule:CharacterUsedSkill",
+      "qualified_name": "Init::rule:7",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "table",
+      "name": "DB_Seen",
+      "qualified_name": "DB_Seen",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "method",
+      "name": "rule:Unequipped",
+      "qualified_name": "Init::rule:15",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "namespace",
+      "name": "EXIT",
+      "qualified_name": "Init::EXIT",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "file",
+      "name": "ToolkitStyle.txt",
+      "qualified_name": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "start_line": 1,
+      "end_line": 26
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "module",
+      "name": "ToolkitStyle",
+      "qualified_name": "ToolkitStyle",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "namespace",
+      "name": "INIT",
+      "qualified_name": "ToolkitStyle::INIT",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "table",
+      "name": "DB_Characters",
+      "qualified_name": "DB_Characters",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "namespace",
+      "name": "KB",
+      "qualified_name": "ToolkitStyle::KB",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "method",
+      "name": "proc:PROC_Target",
+      "qualified_name": "ToolkitStyle::proc:6",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "method",
+      "name": "query:QRY_Target",
+      "qualified_name": "ToolkitStyle::query:13",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "method",
+      "name": "query:QRY_OnlyOnce",
+      "qualified_name": "ToolkitStyle::query:18",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "table",
+      "name": "DB_Seen",
+      "qualified_name": "DB_Seen",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "namespace",
+      "name": "EXIT",
+      "qualified_name": "ToolkitStyle::EXIT",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "file",
+      "name": "story_header.div",
+      "qualified_name": "Mods/Demo/Story/RawFiles/story_header.div",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "module",
+      "name": "story_header",
+      "qualified_name": "story_header",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "type_alias",
+      "name": "CHARACTER",
+      "qualified_name": "CHARACTER",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "type_alias",
+      "name": "ITEM",
+      "qualified_name": "ITEM",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "enum",
+      "name": "TAGCATEGORY",
+      "qualified_name": "TAGCATEGORY",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "enum_member",
+      "name": "Undefined",
+      "qualified_name": "TAGCATEGORY.Undefined",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "enum_member",
+      "name": "Code",
+      "qualified_name": "TAGCATEGORY.Code",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "SysCompleteGoal",
+      "qualified_name": "SysCompleteGoal",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "SysStatus",
+      "qualified_name": "SysStatus",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "ApplyStatus",
+      "qualified_name": "ApplyStatus",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "RemoveStatus",
+      "qualified_name": "RemoveStatus",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "DebugText",
+      "qualified_name": "DebugText",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "HasActiveStatus",
+      "qualified_name": "HasActiveStatus",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "IntegerSum",
+      "qualified_name": "IntegerSum",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "CharacterUsedSkill",
+      "qualified_name": "CharacterUsedSkill",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "function",
+      "name": "Unequipped",
+      "qualified_name": "Unequipped",
+      "start_line": 12,
+      "end_line": 12
+    }
+  ],
+  "edges": [
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "namespace",
+      "target": "Init::EXIT",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "namespace",
+      "target": "Init::INIT",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "namespace",
+      "target": "Init::KB",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Init::INIT",
+      "target_kind": "table",
+      "target": "DB_Check",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Init::KB",
+      "target_kind": "table",
+      "target": "DB_Seen",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Init::KB",
+      "target_kind": "method",
+      "target": "Init::rule:15",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Init::KB",
+      "target_kind": "method",
+      "target": "Init::rule:7",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "target_kind": "module",
+      "target": "Init",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "table",
+      "target": "DB_Check",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": 4
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Init::rule:7",
+      "target_kind": "function",
+      "target": "CharacterUsedSkill",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 7
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "Init::rule:7",
+      "target_kind": "table",
+      "target": "DB_Check",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": 9
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Init::rule:7",
+      "target_kind": "function",
+      "target": "ApplyStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 11
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "Init::rule:7",
+      "target_kind": "table",
+      "target": "DB_Seen",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": 12
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Init::rule:15",
+      "target_kind": "function",
+      "target": "Unequipped",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 15
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Init::rule:15",
+      "target_kind": "function",
+      "target": "HasActiveStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 17
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Init::rule:15",
+      "target_kind": "function",
+      "target": "RemoveStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 19
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "table",
+      "target": "DB_Seen",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": 22
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "function",
+      "target": "SysCompleteGoal",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 23
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "Init",
+      "target_kind": "module",
+      "target": "Init",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/Init.txt",
+      "line": 23
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "target_kind": "module",
+      "target": "ToolkitStyle",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "ToolkitStyle",
+      "target_kind": "namespace",
+      "target": "ToolkitStyle::EXIT",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "ToolkitStyle",
+      "target_kind": "namespace",
+      "target": "ToolkitStyle::INIT",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "ToolkitStyle",
+      "target_kind": "namespace",
+      "target": "ToolkitStyle::KB",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "ToolkitStyle::INIT",
+      "target_kind": "table",
+      "target": "DB_Characters",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "ToolkitStyle::KB",
+      "target_kind": "table",
+      "target": "DB_Seen",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "ToolkitStyle::KB",
+      "target_kind": "method",
+      "target": "ToolkitStyle::proc:6",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "ToolkitStyle::KB",
+      "target_kind": "method",
+      "target": "ToolkitStyle::query:13",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "ToolkitStyle::KB",
+      "target_kind": "method",
+      "target": "ToolkitStyle::query:18",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "ToolkitStyle",
+      "target_kind": "table",
+      "target": "DB_Characters",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": 2
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "ToolkitStyle::proc:6",
+      "target_kind": "function",
+      "target": "DebugText",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 10
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "ToolkitStyle::query:13",
+      "target_kind": "function",
+      "target": "IntegerSum",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": 15
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "ToolkitStyle::query:18",
+      "target_kind": "table",
+      "target": "DB_Seen",
+      "target_file": "Mods/Demo/Story/RawFiles/Goals/ToolkitStyle.txt",
+      "line": 20
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Story/RawFiles/story_header.div",
+      "target_kind": "module",
+      "target": "story_header",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "TAGCATEGORY",
+      "target_kind": "enum_member",
+      "target": "TAGCATEGORY.Code",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "TAGCATEGORY",
+      "target_kind": "enum_member",
+      "target": "TAGCATEGORY.Undefined",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "ApplyStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "type_alias",
+      "target": "CHARACTER",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "CharacterUsedSkill",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "DebugText",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "HasActiveStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "type_alias",
+      "target": "ITEM",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "IntegerSum",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "RemoveStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "SysCompleteGoal",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "SysStatus",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "enum",
+      "target": "TAGCATEGORY",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "story_header",
+      "target_kind": "function",
+      "target": "Unequipped",
+      "target_file": "Mods/Demo/Story/RawFiles/story_header.div",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

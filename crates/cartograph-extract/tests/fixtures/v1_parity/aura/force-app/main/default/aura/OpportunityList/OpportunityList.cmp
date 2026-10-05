@@ -1,0 +1,15 @@
+<aura:component controller="acme.OpportunityController" implements="flexipage:availableForAllPageTypes">
+    <aura:attribute name="rows" type="Opportunity[]"/>
+    <aura:attribute name="accounts" type="List&lt;Account&gt;" default="[]"/>
+    <aura:attribute name="selected" type="String"/>
+    <aura:handler name="init" value="{!this}" action="{!c.doInit}"/>
+    <aura:registerEvent name="orderEvent" type="c:OrderEvent"/>
+    <!-- {!c.legacySave} is commented out -->
+    <lightning:button label="Save" onclick="{!c.handleSave}"/>
+    <lightning:button label="Reload" onclick="{! controller.reload }"/>
+    <aura:iteration items="{!v.rows}" var="row">
+        <c:ChildCard record="{!row}"/>
+    </aura:iteration>
+    <c:accountCard/>
+    <span>{!v.selected}</span>
+</aura:component>

@@ -1,0 +1,3 @@
+admin_dashboard:
+  path: /admin
+  controller: App\Controller\BlogController::admin

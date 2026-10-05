@@ -1,0 +1,3 @@
+<aura:event type="COMPONENT" description="Order selected">
+    <aura:attribute name="orderId" type="Id"/>
+</aura:event>

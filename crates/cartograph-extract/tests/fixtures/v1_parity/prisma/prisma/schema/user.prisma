@@ -1,0 +1,21 @@
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  role      Role     @default(VIEWER)
+  posts     Post[]
+  profile   Profile?
+  createdAt DateTime @default(now())
+  meta      Json
+  location  Unsupported("geography(Point, 4326)")?
+
+  @@map("users")
+}
+
+model Profile {
+  id     Int    @id
+  bio    String
+  user   User   @relation(fields: [userId], references: [id])
+  userId Int    @unique
+  avatar Photo?
+}

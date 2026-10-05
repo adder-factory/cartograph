@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    {% assign page_title = shop.name %}
+    {%- assign body_class = template | handle -%}
+    <title>{{ page_title }}</title>
+  </head>
+  <body class="{{ body_class }}">
+    {% section 'header' %}
+    {% render 'loading-spinner' %}
+    {%- render 'drawer-menu' -%}
+    {% include 'icon-cart' %}
+    {% render "hero card" %}
+    {{ content_for_layout }}
+    {% section 'hero' %}
+  </body>
+</html>

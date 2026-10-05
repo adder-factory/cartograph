@@ -1,0 +1,11 @@
+{
+  "service": {
+    "name": "orders",
+    "port": 8080,
+    "enabled": true,
+    "ratio": 0.75,
+    "owner": null
+  },
+  "features": ["search", "export", { "name": "beta", "rollout": [10, 50, 100] }],
+  "nested": { "deep": { "deeper": { "value": "x" } } }
+}

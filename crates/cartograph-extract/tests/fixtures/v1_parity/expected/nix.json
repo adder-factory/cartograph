@@ -1,0 +1,1003 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "nix",
+  "files": [
+    "default.nix",
+    "flake.nix",
+    "lib/helpers.nix",
+    "lib/utils.nix",
+    "pkgs/hello/default.nix"
+  ],
+  "symbols": [
+    {
+      "file": "default.nix",
+      "kind": "file",
+      "name": "default.nix",
+      "qualified_name": "default.nix",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "default.nix",
+      "kind": "import",
+      "name": "<nixpkgs>",
+      "qualified_name": "<nixpkgs>",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "default.nix",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "localValue",
+      "qualified_name": "localValue",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "utils",
+      "qualified_name": "utils",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "default.nix",
+      "kind": "import",
+      "name": "./lib/utils.nix",
+      "qualified_name": "utils::./lib/utils.nix",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "pkgs",
+      "qualified_name": "utils::pkgs",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "hello",
+      "qualified_name": "hello",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "package",
+      "qualified_name": "package",
+      "start_line": 8,
+      "end_line": 12
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "name",
+      "qualified_name": "package::name",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "src",
+      "qualified_name": "package::src",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "buildInputs",
+      "qualified_name": "package::buildInputs",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "lib",
+      "qualified_name": "lib",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "localValue",
+      "qualified_name": "localValue",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "greeting",
+      "qualified_name": "greeting",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "meta.description",
+      "qualified_name": "meta.description",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "default.nix",
+      "kind": "constant",
+      "name": "quoted-name",
+      "qualified_name": "quoted-name",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "flake.nix",
+      "kind": "file",
+      "name": "flake.nix",
+      "qualified_name": "flake.nix",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "description",
+      "qualified_name": "description",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "inputs.nixpkgs.url",
+      "qualified_name": "inputs.nixpkgs.url",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "flake.nix",
+      "kind": "function",
+      "name": "outputs",
+      "qualified_name": "outputs",
+      "start_line": 4,
+      "end_line": 11
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "system",
+      "qualified_name": "outputs::system",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "pkgs",
+      "qualified_name": "outputs::pkgs",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "packages.default",
+      "qualified_name": "outputs::packages.default",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "flake.nix",
+      "kind": "import",
+      "name": "./default.nix",
+      "qualified_name": "outputs::packages.default::./default.nix",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "pkgs",
+      "qualified_name": "outputs::packages.default::pkgs",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "devShells.default",
+      "qualified_name": "outputs::devShells.default",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "flake.nix",
+      "kind": "constant",
+      "name": "buildInputs",
+      "qualified_name": "outputs::devShells.default::buildInputs",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "file",
+      "name": "helpers.nix",
+      "qualified_name": "lib/helpers.nix",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "function",
+      "name": "double",
+      "qualified_name": "double",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "function",
+      "name": "quadruple",
+      "qualified_name": "quadruple",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "function",
+      "name": "compose",
+      "qualified_name": "compose",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "file",
+      "name": "utils.nix",
+      "qualified_name": "lib/utils.nix",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "constant",
+      "name": "lib",
+      "qualified_name": "lib",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "function",
+      "name": "joinWords",
+      "qualified_name": "joinWords",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "greet",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "function",
+      "name": "shout",
+      "qualified_name": "shout",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "constant",
+      "name": "joined",
+      "qualified_name": "joined",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "constant",
+      "name": "settings.enable",
+      "qualified_name": "settings.enable",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "constant",
+      "name": "settings.level",
+      "qualified_name": "settings.level",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "constant",
+      "name": "version",
+      "qualified_name": "version",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "constant",
+      "name": "helpers",
+      "qualified_name": "helpers",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "import",
+      "name": "./helpers.nix",
+      "qualified_name": "helpers::./helpers.nix",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "file",
+      "name": "default.nix",
+      "qualified_name": "pkgs/hello/default.nix",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "pname",
+      "qualified_name": "pname",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "version",
+      "qualified_name": "version",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "src",
+      "qualified_name": "src",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "url",
+      "qualified_name": "src::url",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "sha256",
+      "qualified_name": "src::sha256",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "meta",
+      "qualified_name": "meta",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "license",
+      "qualified_name": "meta::license",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "constant",
+      "name": "platforms",
+      "qualified_name": "meta::platforms",
+      "start_line": 11,
+      "end_line": 11
+    }
+  ],
+  "edges": [
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "import",
+      "target": "<nixpkgs>",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "greeting",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "hello",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "lib",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "localValue",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "localValue",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "meta.description",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "package",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "quoted-name",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "utils",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "package",
+      "target_kind": "constant",
+      "target": "package::buildInputs",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "package",
+      "target_kind": "constant",
+      "target": "package::name",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "package",
+      "target_kind": "constant",
+      "target": "package::src",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "utils",
+      "target_kind": "import",
+      "target": "utils::./lib/utils.nix",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "utils",
+      "target_kind": "constant",
+      "target": "utils::pkgs",
+      "target_file": "default.nix",
+      "line": null
+    },
+    {
+      "file": "default.nix",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "import",
+      "target": "<nixpkgs>",
+      "target_file": "default.nix",
+      "line": 1
+    },
+    {
+      "file": "default.nix",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "localValue",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "default.nix",
+      "line": 4
+    },
+    {
+      "file": "default.nix",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "utils",
+      "target_kind": "file",
+      "target": "lib/utils.nix",
+      "target_file": "lib/utils.nix",
+      "line": 5
+    },
+    {
+      "file": "default.nix",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "package::name",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "default.nix",
+      "line": 9
+    },
+    {
+      "file": "default.nix",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "default.nix",
+      "target_kind": "constant",
+      "target": "utils::pkgs",
+      "target_file": "default.nix",
+      "line": 13
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "flake.nix",
+      "target_kind": "constant",
+      "target": "description",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "flake.nix",
+      "target_kind": "constant",
+      "target": "inputs.nixpkgs.url",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "flake.nix",
+      "target_kind": "function",
+      "target": "outputs",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "outputs",
+      "target_kind": "constant",
+      "target": "outputs::devShells.default",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "outputs",
+      "target_kind": "constant",
+      "target": "outputs::packages.default",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "outputs",
+      "target_kind": "constant",
+      "target": "outputs::pkgs",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "outputs",
+      "target_kind": "constant",
+      "target": "outputs::system",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "outputs::devShells.default",
+      "target_kind": "constant",
+      "target": "outputs::devShells.default::buildInputs",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "outputs::packages.default",
+      "target_kind": "import",
+      "target": "outputs::packages.default::./default.nix",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "outputs::packages.default",
+      "target_kind": "constant",
+      "target": "outputs::packages.default::pkgs",
+      "target_file": "flake.nix",
+      "line": null
+    },
+    {
+      "file": "flake.nix",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "outputs::packages.default",
+      "target_kind": "import",
+      "target": "outputs::packages.default::./default.nix",
+      "target_file": "flake.nix",
+      "line": 9
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/helpers.nix",
+      "target_kind": "function",
+      "target": "compose",
+      "target_file": "lib/helpers.nix",
+      "line": null
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/helpers.nix",
+      "target_kind": "function",
+      "target": "double",
+      "target_file": "lib/helpers.nix",
+      "line": null
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/helpers.nix",
+      "target_kind": "function",
+      "target": "quadruple",
+      "target_file": "lib/helpers.nix",
+      "line": null
+    },
+    {
+      "file": "lib/helpers.nix",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "quadruple",
+      "target_kind": "function",
+      "target": "double",
+      "target_file": "lib/helpers.nix",
+      "line": 3
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "helpers",
+      "target_kind": "import",
+      "target": "helpers::./helpers.nix",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "helpers",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "function",
+      "target": "joinWords",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "joined",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "lib",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "settings.enable",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "settings.level",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "version",
+      "target_file": "lib/utils.nix",
+      "line": null
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "lib/utils.nix",
+      "target_kind": "constant",
+      "target": "utils::pkgs",
+      "target_file": "default.nix",
+      "line": 3
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "joined",
+      "target_kind": "function",
+      "target": "joinWords",
+      "target_file": "lib/utils.nix",
+      "line": 9
+    },
+    {
+      "file": "lib/utils.nix",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "helpers",
+      "target_kind": "file",
+      "target": "lib/helpers.nix",
+      "target_file": "lib/helpers.nix",
+      "line": 13
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "meta",
+      "target_kind": "constant",
+      "target": "meta::license",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "meta",
+      "target_kind": "constant",
+      "target": "meta::platforms",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pkgs/hello/default.nix",
+      "target_kind": "constant",
+      "target": "meta",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pkgs/hello/default.nix",
+      "target_kind": "constant",
+      "target": "pname",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pkgs/hello/default.nix",
+      "target_kind": "constant",
+      "target": "src",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pkgs/hello/default.nix",
+      "target_kind": "constant",
+      "target": "version",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "src",
+      "target_kind": "constant",
+      "target": "src::sha256",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    },
+    {
+      "file": "pkgs/hello/default.nix",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "src",
+      "target_kind": "constant",
+      "target": "src::url",
+      "target_file": "pkgs/hello/default.nix",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

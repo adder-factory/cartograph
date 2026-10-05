@@ -1,0 +1,9 @@
+local helpers = require("Helpers")
+
+function ShouldAssist(context)
+  return IsWounded(context.Source) and Blooded(context.Target)
+end
+
+function Ranged(context)
+  return ShouldAssist(context) and HasWeapon(context.Source, "Ranged")
+end

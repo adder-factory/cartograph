@@ -1,0 +1,18 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(binding = 0, rgba8) uniform readonly image2D srcImage;
+layout(binding = 1, rgba8) uniform writeonly image2D dstImage;
+
+shared vec4 cache[16][16];
+
+vec4 sampleAt(ivec2 p) {
+  return imageLoad(srcImage, p);
+}
+
+void main() {
+  ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+  cache[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = sampleAt(p);
+  barrier();
+  imageStore(dstImage, p, cache[gl_LocalInvocationID.x][gl_LocalInvocationID.y]);
+}

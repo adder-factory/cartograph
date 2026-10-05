@@ -1,0 +1,2413 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "go",
+  "files": [
+    "cmd/shop/main.go",
+    "go.mod",
+    "internal/handlers/handlers.go",
+    "internal/models/user.go",
+    "internal/models/user_test.go",
+    "internal/native/cgo.go",
+    "internal/service/service.go"
+  ],
+  "symbols": [
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "file",
+      "name": "main.go",
+      "qualified_name": "cmd/shop/main.go",
+      "start_line": 1,
+      "end_line": 54
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "import",
+      "name": "log",
+      "qualified_name": "log",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "import",
+      "name": "net/http",
+      "qualified_name": "net/http",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "import",
+      "name": "github.com/gin-gonic/gin",
+      "qualified_name": "github.com/gin-gonic/gin",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "import",
+      "name": "github.com/go-chi/chi/v5",
+      "qualified_name": "github.com/go-chi/chi/v5",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "import",
+      "name": "github.com/spf13/cobra",
+      "qualified_name": "github.com/spf13/cobra",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "import",
+      "name": "example.com/shop/internal/handlers",
+      "qualified_name": "example.com/shop/internal/handlers",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "cmd shop",
+      "qualified_name": "cmd/shop/main.go::cmd:shop",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "variable",
+      "name": "rootCmd",
+      "qualified_name": "rootCmd",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "cmd migrate",
+      "qualified_name": "cmd/shop/main.go::cmd:migrate",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "cmd serve",
+      "qualified_name": "cmd/shop/main.go::cmd:serve",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "variable",
+      "name": "serveCmd",
+      "qualified_name": "serveCmd",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "health",
+      "qualified_name": "health",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "setupGin",
+      "qualified_name": "setupGin",
+      "start_line": 23,
+      "end_line": 28
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "GET /ping",
+      "qualified_name": "cmd/shop/main.go::GET:/ping",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "POST /orders",
+      "qualified_name": "cmd/shop/main.go::POST:/orders",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "createOrder",
+      "qualified_name": "createOrder",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "setupChi",
+      "qualified_name": "setupChi",
+      "start_line": 32,
+      "end_line": 37
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "GET /items",
+      "qualified_name": "cmd/shop/main.go::GET:/items",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "DELETE /items/{id}",
+      "qualified_name": "cmd/shop/main.go::DELETE:/items/{id}",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "listItems",
+      "qualified_name": "listItems",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "deleteItem",
+      "qualified_name": "deleteItem",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 42,
+      "end_line": 53
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "ANY /health",
+      "qualified_name": "cmd/shop/main.go::ANY:/health",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "ANY /static/",
+      "qualified_name": "cmd/shop/main.go::ANY:/static/",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "route",
+      "name": "GET /api/users/{id}",
+      "qualified_name": "cmd/shop/main.go::GET:/api/users/{id}",
+      "start_line": 46,
+      "end_line": 46
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "file",
+      "name": "handlers.go",
+      "qualified_name": "internal/handlers/handlers.go",
+      "start_line": 1,
+      "end_line": 31
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "import",
+      "name": "net/http",
+      "qualified_name": "net/http",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "import",
+      "name": "example.com/shop/internal/service",
+      "qualified_name": "example.com/shop/internal/service",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "interface",
+      "name": "Router",
+      "qualified_name": "Router",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "method",
+      "name": "GET",
+      "qualified_name": "Router::GET",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "method",
+      "name": "POST",
+      "qualified_name": "Router::POST",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "struct",
+      "name": "UserHandler",
+      "qualified_name": "UserHandler",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "field",
+      "name": "svc",
+      "qualified_name": "UserHandler::svc",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "method",
+      "name": "HandleCreate",
+      "qualified_name": "UserHandler::HandleCreate",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "function",
+      "name": "HandleList",
+      "qualified_name": "HandleList",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "function",
+      "name": "register",
+      "qualified_name": "register",
+      "start_line": 27,
+      "end_line": 30
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "route",
+      "name": "GET /users",
+      "qualified_name": "internal/handlers/handlers.go::GET:/users",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "route",
+      "name": "POST /users",
+      "qualified_name": "internal/handlers/handlers.go::POST:/users",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "file",
+      "name": "user.go",
+      "qualified_name": "internal/models/user.go",
+      "start_line": 1,
+      "end_line": 84
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "import",
+      "name": "io",
+      "qualified_name": "io",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "import",
+      "name": "sync",
+      "qualified_name": "sync",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "constant",
+      "name": "MaxUsers",
+      "qualified_name": "MaxUsers",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "constant",
+      "name": "RoleAdmin",
+      "qualified_name": "RoleAdmin",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "constant",
+      "name": "RoleMember",
+      "qualified_name": "RoleMember",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "constant",
+      "name": "roleGuest",
+      "qualified_name": "roleGuest",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "variable",
+      "name": "DefaultRegion",
+      "qualified_name": "DefaultRegion",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "variable",
+      "name": "retryBudget",
+      "qualified_name": "retryBudget",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "variable",
+      "name": "Single",
+      "qualified_name": "Single",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "type_alias",
+      "name": "ID",
+      "qualified_name": "ID",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "struct",
+      "name": "Base",
+      "qualified_name": "Base",
+      "start_line": 29,
+      "end_line": 31
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "Created",
+      "qualified_name": "Base::Created",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "interface",
+      "name": "Auditable",
+      "qualified_name": "Auditable",
+      "start_line": 33,
+      "end_line": 35
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "method",
+      "name": "Audit",
+      "qualified_name": "Auditable::Audit",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "interface",
+      "name": "Named",
+      "qualified_name": "Named",
+      "start_line": 37,
+      "end_line": 41
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "method",
+      "name": "Name",
+      "qualified_name": "Named::Name",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "struct",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 44,
+      "end_line": 53
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "ID",
+      "qualified_name": "User::ID",
+      "start_line": 47,
+      "end_line": 47
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "Email",
+      "qualified_name": "User::Email",
+      "start_line": 48,
+      "end_line": 48
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "age",
+      "qualified_name": "User::age",
+      "start_line": 49,
+      "end_line": 49
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "X",
+      "qualified_name": "User::X",
+      "start_line": 50,
+      "end_line": 50
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "Y",
+      "qualified_name": "User::Y",
+      "start_line": 50,
+      "end_line": 50
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "Profile",
+      "qualified_name": "User::Profile",
+      "start_line": 51,
+      "end_line": 51
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "Tags",
+      "qualified_name": "User::Tags",
+      "start_line": 52,
+      "end_line": 52
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "struct",
+      "name": "Profile",
+      "qualified_name": "Profile",
+      "start_line": 55,
+      "end_line": 57
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field",
+      "name": "Bio",
+      "qualified_name": "Profile::Bio",
+      "start_line": 56,
+      "end_line": 56
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "method",
+      "name": "Name",
+      "qualified_name": "User::Name",
+      "start_line": 59,
+      "end_line": 61
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "method",
+      "name": "Audit",
+      "qualified_name": "User::Audit",
+      "start_line": 63,
+      "end_line": 65
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "method",
+      "name": "Write",
+      "qualified_name": "User::Write",
+      "start_line": 67,
+      "end_line": 69
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "function",
+      "name": "NewUser",
+      "qualified_name": "NewUser",
+      "start_line": 72,
+      "end_line": 79
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "function",
+      "name": "Limit",
+      "qualified_name": "Limit",
+      "start_line": 81,
+      "end_line": 83
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "file",
+      "name": "user_test.go",
+      "qualified_name": "internal/models/user_test.go",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "import",
+      "name": "testing",
+      "qualified_name": "testing",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "function",
+      "name": "TestNewUser",
+      "qualified_name": "TestNewUser",
+      "start_line": 5,
+      "end_line": 10
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "file",
+      "name": "cgo.go",
+      "qualified_name": "internal/native/cgo.go",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "import",
+      "name": "C",
+      "qualified_name": "C",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "struct",
+      "name": "Client",
+      "qualified_name": "Client",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "method",
+      "name": "do_thing",
+      "qualified_name": "Client::do_thing",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "function",
+      "name": "RunIt",
+      "qualified_name": "RunIt",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "function",
+      "name": "NotCgo",
+      "qualified_name": "NotCgo",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "file",
+      "name": "service.go",
+      "qualified_name": "internal/service/service.go",
+      "start_line": 1,
+      "end_line": 48
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "import",
+      "name": "fmt",
+      "qualified_name": "fmt",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "import",
+      "name": "example.com/shop/internal/models",
+      "qualified_name": "example.com/shop/internal/models",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "import",
+      "name": "strings",
+      "qualified_name": "strings",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "import",
+      "name": "embed",
+      "qualified_name": "embed",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "interface",
+      "name": "Store",
+      "qualified_name": "Store",
+      "start_line": 10,
+      "end_line": 13
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "method",
+      "name": "Save",
+      "qualified_name": "Store::Save",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "method",
+      "name": "Find",
+      "qualified_name": "Store::Find",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "struct",
+      "name": "UserService",
+      "qualified_name": "UserService",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "field",
+      "name": "store",
+      "qualified_name": "UserService::store",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "field",
+      "name": "cache",
+      "qualified_name": "UserService::cache",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "struct",
+      "name": "Committer",
+      "qualified_name": "Committer",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "method",
+      "name": "Commit",
+      "qualified_name": "Committer::Commit",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "struct",
+      "name": "Builder",
+      "qualified_name": "Builder",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "method",
+      "name": "Build",
+      "qualified_name": "Builder::Build",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "function",
+      "name": "NewUserService",
+      "qualified_name": "NewUserService",
+      "start_line": 28,
+      "end_line": 30
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "method",
+      "name": "Register",
+      "qualified_name": "UserService::Register",
+      "start_line": 32,
+      "end_line": 43
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "UserService::audit",
+      "start_line": 45,
+      "end_line": 47
+    }
+  ],
+  "edges": [
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "createOrder",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "deleteItem",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/handlers",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "github.com/gin-gonic/gin",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "github.com/go-chi/chi/v5",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "github.com/spf13/cobra",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "health",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "listItems",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "log",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "net/http",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "variable",
+      "target": "rootCmd",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "variable",
+      "target": "serveCmd",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "setupChi",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "function",
+      "target": "setupGin",
+      "target_file": "cmd/shop/main.go",
+      "line": null
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "log",
+      "target_file": "cmd/shop/main.go",
+      "line": 4
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "net/http",
+      "target_file": "cmd/shop/main.go",
+      "line": 5
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "github.com/gin-gonic/gin",
+      "target_file": "cmd/shop/main.go",
+      "line": 7
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "github.com/go-chi/chi/v5",
+      "target_file": "cmd/shop/main.go",
+      "line": 8
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "github.com/spf13/cobra",
+      "target_file": "cmd/shop/main.go",
+      "line": 9
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "cmd/shop/main.go",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/handlers",
+      "target_file": "cmd/shop/main.go",
+      "line": 11
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "setupGin",
+      "target_kind": "import",
+      "target": "github.com/gin-gonic/gin",
+      "target_file": "cmd/shop/main.go",
+      "line": 24
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "setupGin",
+      "target_kind": "method",
+      "target": "Router::GET",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 25
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "setupGin",
+      "target_kind": "method",
+      "target": "Router::POST",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 26
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "field_access",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "HandleList",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 46
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "setupGin",
+      "target_file": "cmd/shop/main.go",
+      "line": 48
+    },
+    {
+      "file": "cmd/shop/main.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "setupChi",
+      "target_file": "cmd/shop/main.go",
+      "line": 49
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Router",
+      "target_kind": "method",
+      "target": "Router::GET",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Router",
+      "target_kind": "method",
+      "target": "Router::POST",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserHandler",
+      "target_kind": "method",
+      "target": "UserHandler::HandleCreate",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserHandler",
+      "target_kind": "field",
+      "target": "UserHandler::svc",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "function",
+      "target": "HandleList",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "interface",
+      "target": "Router",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "struct",
+      "target": "UserHandler",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "method",
+      "target": "UserHandler::HandleCreate",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/service",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "import",
+      "target": "net/http",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "function",
+      "target": "register",
+      "target_file": "internal/handlers/handlers.go",
+      "line": null
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "import",
+      "target": "net/http",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 4
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/handlers/handlers.go",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/service",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 6
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "UserHandler",
+      "target_kind": "struct",
+      "target": "UserService",
+      "target_file": "internal/service/service.go",
+      "line": 15
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserHandler::HandleCreate",
+      "target_kind": "method",
+      "target": "UserService::Register",
+      "target_file": "internal/service/service.go",
+      "line": 19
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserHandler::HandleCreate",
+      "target_kind": "field",
+      "target": "UserHandler::svc",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 19
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "register",
+      "target_kind": "interface",
+      "target": "Router",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 27
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "register",
+      "target_kind": "struct",
+      "target": "UserHandler",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 27
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "register",
+      "target_kind": "method",
+      "target": "Router::GET",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 28
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "register",
+      "target_kind": "function",
+      "target": "HandleList",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 28
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "register",
+      "target_kind": "method",
+      "target": "Router::POST",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 29
+    },
+    {
+      "file": "internal/handlers/handlers.go",
+      "kind": "field_access",
+      "source_kind": "function",
+      "source": "register",
+      "target_kind": "method",
+      "target": "UserHandler::HandleCreate",
+      "target_file": "internal/handlers/handlers.go",
+      "line": 29
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Auditable",
+      "target_kind": "method",
+      "target": "Auditable::Audit",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Base",
+      "target_kind": "field",
+      "target": "Base::Created",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Named",
+      "target_kind": "method",
+      "target": "Named::Name",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Profile",
+      "target_kind": "field",
+      "target": "Profile::Bio",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::Audit",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::Email",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::ID",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::Name",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::Profile",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::Tags",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::Write",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::X",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::Y",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::age",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "interface",
+      "target": "Auditable",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "struct",
+      "target": "Base",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "variable",
+      "target": "DefaultRegion",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "type_alias",
+      "target": "ID",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "function",
+      "target": "Limit",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "constant",
+      "target": "MaxUsers",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "interface",
+      "target": "Named",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "function",
+      "target": "NewUser",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "constant",
+      "target": "RoleAdmin",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "constant",
+      "target": "RoleMember",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "variable",
+      "target": "Single",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "method",
+      "target": "User::Audit",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "method",
+      "target": "User::Name",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "method",
+      "target": "User::Write",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "import",
+      "target": "io",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "variable",
+      "target": "retryBudget",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "constant",
+      "target": "roleGuest",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "import",
+      "target": "sync",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "implements",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Auditable",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "implements",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Named",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "import",
+      "target": "io",
+      "target_file": "internal/models/user.go",
+      "line": 4
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/models/user.go",
+      "target_kind": "import",
+      "target": "sync",
+      "target_file": "internal/models/user.go",
+      "line": 5
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "extends",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "struct",
+      "target": "Base",
+      "target_file": "internal/models/user.go",
+      "line": 45
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::ID",
+      "target_file": "internal/models/user.go",
+      "line": 47
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "internal/models/user.go",
+      "line": 51
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "User::Name",
+      "target_kind": "field",
+      "target": "User::Email",
+      "target_file": "internal/models/user.go",
+      "line": 60
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "User::Audit",
+      "target_kind": "field",
+      "target": "User::ID",
+      "target_file": "internal/models/user.go",
+      "line": 64
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "internal/models/user.go",
+      "line": 72
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "internal/models/user.go",
+      "line": 73
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "field",
+      "target": "Profile::Bio",
+      "target_file": "internal/models/user.go",
+      "line": 73
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "internal/models/user.go",
+      "line": 74
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "internal/models/user.go",
+      "line": 74
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "field",
+      "target": "User::Email",
+      "target_file": "internal/models/user.go",
+      "line": 74
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "field_access",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "field",
+      "target": "User::Email",
+      "target_file": "internal/models/user.go",
+      "line": 75
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "NewUser",
+      "target_kind": "constant",
+      "target": "MaxUsers",
+      "target_file": "internal/models/user.go",
+      "line": 75
+    },
+    {
+      "file": "internal/models/user.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "Limit",
+      "target_kind": "constant",
+      "target": "MaxUsers",
+      "target_file": "internal/models/user.go",
+      "line": 82
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user_test.go",
+      "target_kind": "function",
+      "target": "TestNewUser",
+      "target_file": "internal/models/user_test.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/models/user_test.go",
+      "target_kind": "import",
+      "target": "testing",
+      "target_file": "internal/models/user_test.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "tests",
+      "source_kind": "file",
+      "source": "internal/models/user_test.go",
+      "target_kind": "file",
+      "target": "internal/models/user.go",
+      "target_file": "internal/models/user.go",
+      "line": null
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/models/user_test.go",
+      "target_kind": "import",
+      "target": "testing",
+      "target_file": "internal/models/user_test.go",
+      "line": 3
+    },
+    {
+      "file": "internal/models/user_test.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "TestNewUser",
+      "target_kind": "function",
+      "target": "NewUser",
+      "target_file": "internal/models/user.go",
+      "line": 6
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Client",
+      "target_kind": "method",
+      "target": "Client::do_thing",
+      "target_file": "internal/native/cgo.go",
+      "line": null
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/native/cgo.go",
+      "target_kind": "import",
+      "target": "C",
+      "target_file": "internal/native/cgo.go",
+      "line": null
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/native/cgo.go",
+      "target_kind": "struct",
+      "target": "Client",
+      "target_file": "internal/native/cgo.go",
+      "line": null
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/native/cgo.go",
+      "target_kind": "method",
+      "target": "Client::do_thing",
+      "target_file": "internal/native/cgo.go",
+      "line": null
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/native/cgo.go",
+      "target_kind": "function",
+      "target": "NotCgo",
+      "target_file": "internal/native/cgo.go",
+      "line": null
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/native/cgo.go",
+      "target_kind": "function",
+      "target": "RunIt",
+      "target_file": "internal/native/cgo.go",
+      "line": null
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/native/cgo.go",
+      "target_kind": "import",
+      "target": "C",
+      "target_file": "internal/native/cgo.go",
+      "line": 7
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "RunIt",
+      "target_kind": "method",
+      "target": "Client::do_thing",
+      "target_file": "internal/native/cgo.go",
+      "line": 14
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "RunIt",
+      "target_kind": "import",
+      "target": "C",
+      "target_file": "internal/native/cgo.go",
+      "line": 14
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "NotCgo",
+      "target_kind": "struct",
+      "target": "Client",
+      "target_file": "internal/native/cgo.go",
+      "line": 18
+    },
+    {
+      "file": "internal/native/cgo.go",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "NotCgo",
+      "target_kind": "method",
+      "target": "Client::do_thing",
+      "target_file": "internal/native/cgo.go",
+      "line": 19
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Builder",
+      "target_kind": "method",
+      "target": "Builder::Build",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::Commit",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Store",
+      "target_kind": "method",
+      "target": "Store::Find",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Store",
+      "target_kind": "method",
+      "target": "Store::Save",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::Register",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::audit",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::cache",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::store",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "struct",
+      "target": "Builder",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "method",
+      "target": "Builder::Build",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "struct",
+      "target": "Committer",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "method",
+      "target": "Committer::Commit",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "function",
+      "target": "NewUserService",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "interface",
+      "target": "Store",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "struct",
+      "target": "UserService",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "method",
+      "target": "UserService::Register",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "method",
+      "target": "UserService::audit",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "embed",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/models",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "fmt",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "strings",
+      "target_file": "internal/service/service.go",
+      "line": null
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "fmt",
+      "target_file": "internal/service/service.go",
+      "line": 4
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/models",
+      "target_file": "internal/service/service.go",
+      "line": 5
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "strings",
+      "target_file": "internal/service/service.go",
+      "line": 6
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "internal/service/service.go",
+      "target_kind": "import",
+      "target": "embed",
+      "target_file": "internal/service/service.go",
+      "line": 7
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "interface",
+      "target": "Store",
+      "target_file": "internal/service/service.go",
+      "line": 16
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "type_alias",
+      "target": "ID",
+      "target_file": "internal/models/user.go",
+      "line": 17
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "UserService",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "internal/models/user.go",
+      "line": 17
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Builder::Build",
+      "target_kind": "struct",
+      "target": "Committer",
+      "target_file": "internal/service/service.go",
+      "line": 26
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Builder::Build",
+      "target_kind": "struct",
+      "target": "Committer",
+      "target_file": "internal/service/service.go",
+      "line": 26
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "NewUserService",
+      "target_kind": "struct",
+      "target": "UserService",
+      "target_file": "internal/service/service.go",
+      "line": 28
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "NewUserService",
+      "target_kind": "interface",
+      "target": "Store",
+      "target_file": "internal/service/service.go",
+      "line": 28
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "NewUserService",
+      "target_kind": "struct",
+      "target": "UserService",
+      "target_file": "internal/service/service.go",
+      "line": 29
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "internal/models/user.go",
+      "line": 32
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "internal/models/user.go",
+      "line": 33
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/models",
+      "target_file": "internal/service/service.go",
+      "line": 35
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "method",
+      "target": "Store::Save",
+      "target_file": "internal/service/service.go",
+      "line": 36
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "field",
+      "target": "UserService::store",
+      "target_file": "internal/service/service.go",
+      "line": 36
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "method",
+      "target": "UserService::audit",
+      "target_file": "internal/service/service.go",
+      "line": 39
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "struct",
+      "target": "Builder",
+      "target_file": "internal/service/service.go",
+      "line": 40
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::Register",
+      "target_kind": "method",
+      "target": "Builder::Build",
+      "target_file": "internal/service/service.go",
+      "line": 41
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::audit",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "internal/models/user.go",
+      "line": 45
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::audit",
+      "target_kind": "import",
+      "target": "example.com/shop/internal/models",
+      "target_file": "internal/service/service.go",
+      "line": 46
+    },
+    {
+      "file": "internal/service/service.go",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::audit",
+      "target_kind": "variable",
+      "target": "DefaultRegion",
+      "target_file": "internal/models/user.go",
+      "line": 46
+    }
+  ],
+  "unresolved": []
+}

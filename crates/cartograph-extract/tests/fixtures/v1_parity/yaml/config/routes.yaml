@@ -1,0 +1,14 @@
+blog_show:
+  path: /blog/{slug}
+  controller: App\Controller\BlogController::show
+
+blog_list:
+  path: '/blog'
+  controller: 'App\Controller\BlogController::list'
+
+blog_fallback:
+  path: /blog/fallback
+  controller: App\Controller\BlogController::missing
+
+noPath:
+  controller: App\Controller\BlogController::list

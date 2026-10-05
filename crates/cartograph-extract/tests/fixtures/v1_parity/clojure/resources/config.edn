@@ -1,0 +1,3 @@
+{:app/name "demo"
+ :app/port 8080
+ :features #{:greet :log}}

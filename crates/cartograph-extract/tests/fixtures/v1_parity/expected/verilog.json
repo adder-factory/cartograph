@@ -1,0 +1,354 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "verilog",
+  "files": [
+    "include/defs.vh",
+    "include/types.svh",
+    "rtl/adder.v",
+    "rtl/bus_pkg.sv",
+    "rtl/counter.sv",
+    "tb/top_tb.sv"
+  ],
+  "symbols": [
+    {
+      "file": "include/defs.vh",
+      "kind": "file",
+      "name": "defs.vh",
+      "qualified_name": "include/defs.vh",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "include/defs.vh",
+      "kind": "module",
+      "name": "defs_holder",
+      "qualified_name": "defs_holder",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "include/types.svh",
+      "kind": "class",
+      "name": "Packet",
+      "qualified_name": "Packet",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "include/types.svh",
+      "kind": "file",
+      "name": "types.svh",
+      "qualified_name": "include/types.svh",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "include/types.svh",
+      "kind": "function",
+      "name": "get_id",
+      "qualified_name": "Packet.get_id",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "rtl/adder.v",
+      "kind": "file",
+      "name": "adder.v",
+      "qualified_name": "rtl/adder.v",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "rtl/adder.v",
+      "kind": "module",
+      "name": "adder",
+      "qualified_name": "adder",
+      "start_line": 2,
+      "end_line": 16
+    },
+    {
+      "file": "rtl/adder.v",
+      "kind": "function",
+      "name": "add8",
+      "qualified_name": "adder.add8",
+      "start_line": 7,
+      "end_line": 13
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "file",
+      "name": "bus_pkg.sv",
+      "qualified_name": "rtl/bus_pkg.sv",
+      "start_line": 1,
+      "end_line": 32
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "module",
+      "name": "bus_pkg",
+      "qualified_name": "bus_pkg",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "function",
+      "name": "parity",
+      "qualified_name": "bus_pkg.parity",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "class",
+      "name": "Transaction",
+      "qualified_name": "bus_pkg.Transaction",
+      "start_line": 13,
+      "end_line": 24
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "function",
+      "name": "display",
+      "qualified_name": "bus_pkg.Transaction.display",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "bus_pkg.Transaction.run",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "interface",
+      "name": "bus_if",
+      "qualified_name": "bus_if",
+      "start_line": 27,
+      "end_line": 31
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "file",
+      "name": "counter.sv",
+      "qualified_name": "rtl/counter.sv",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "module",
+      "name": "counter",
+      "qualified_name": "counter",
+      "start_line": 2,
+      "end_line": 20
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "function",
+      "name": "next_value",
+      "qualified_name": "counter.next_value",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "function",
+      "name": "reset_value",
+      "qualified_name": "counter.reset_value",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "tb/top_tb.sv",
+      "kind": "file",
+      "name": "top_tb.sv",
+      "qualified_name": "tb/top_tb.sv",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "tb/top_tb.sv",
+      "kind": "module",
+      "name": "top_tb",
+      "qualified_name": "top_tb",
+      "start_line": 4,
+      "end_line": 24
+    },
+    {
+      "file": "tb/top_tb.sv",
+      "kind": "function",
+      "name": "tick",
+      "qualified_name": "top_tb.tick",
+      "start_line": 14,
+      "end_line": 16
+    }
+  ],
+  "edges": [
+    {
+      "file": "include/defs.vh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/defs.vh",
+      "target_kind": "module",
+      "target": "defs_holder",
+      "target_file": "include/defs.vh",
+      "line": null
+    },
+    {
+      "file": "include/types.svh",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Packet",
+      "target_kind": "function",
+      "target": "Packet.get_id",
+      "target_file": "include/types.svh",
+      "line": null
+    },
+    {
+      "file": "include/types.svh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/types.svh",
+      "target_kind": "class",
+      "target": "Packet",
+      "target_file": "include/types.svh",
+      "line": null
+    },
+    {
+      "file": "rtl/adder.v",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "adder",
+      "target_kind": "function",
+      "target": "adder.add8",
+      "target_file": "rtl/adder.v",
+      "line": null
+    },
+    {
+      "file": "rtl/adder.v",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "rtl/adder.v",
+      "target_kind": "module",
+      "target": "adder",
+      "target_file": "rtl/adder.v",
+      "line": null
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "bus_pkg",
+      "target_kind": "class",
+      "target": "bus_pkg.Transaction",
+      "target_file": "rtl/bus_pkg.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "bus_pkg",
+      "target_kind": "function",
+      "target": "bus_pkg.parity",
+      "target_file": "rtl/bus_pkg.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "bus_pkg.Transaction",
+      "target_kind": "function",
+      "target": "bus_pkg.Transaction.display",
+      "target_file": "rtl/bus_pkg.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "bus_pkg.Transaction",
+      "target_kind": "function",
+      "target": "bus_pkg.Transaction.run",
+      "target_file": "rtl/bus_pkg.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "rtl/bus_pkg.sv",
+      "target_kind": "interface",
+      "target": "bus_if",
+      "target_file": "rtl/bus_pkg.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/bus_pkg.sv",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "rtl/bus_pkg.sv",
+      "target_kind": "module",
+      "target": "bus_pkg",
+      "target_file": "rtl/bus_pkg.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "counter",
+      "target_kind": "function",
+      "target": "counter.next_value",
+      "target_file": "rtl/counter.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "counter",
+      "target_kind": "function",
+      "target": "counter.reset_value",
+      "target_file": "rtl/counter.sv",
+      "line": null
+    },
+    {
+      "file": "rtl/counter.sv",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "rtl/counter.sv",
+      "target_kind": "module",
+      "target": "counter",
+      "target_file": "rtl/counter.sv",
+      "line": null
+    },
+    {
+      "file": "tb/top_tb.sv",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tb/top_tb.sv",
+      "target_kind": "module",
+      "target": "top_tb",
+      "target_file": "tb/top_tb.sv",
+      "line": null
+    },
+    {
+      "file": "tb/top_tb.sv",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "top_tb",
+      "target_kind": "function",
+      "target": "top_tb.tick",
+      "target_file": "tb/top_tb.sv",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

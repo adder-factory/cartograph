@@ -1,0 +1,389 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "julia",
+  "files": [
+    "src/Report.jl",
+    "src/Shapes.jl",
+    "test/runtests.jl"
+  ],
+  "symbols": [
+    {
+      "file": "src/Report.jl",
+      "kind": "file",
+      "name": "Report.jl",
+      "qualified_name": "src/Report.jl",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "module",
+      "name": "Report",
+      "qualified_name": "Report",
+      "start_line": 1,
+      "end_line": 27
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "function",
+      "name": "summarize",
+      "qualified_name": "Report.summarize",
+      "start_line": 8,
+      "end_line": 14
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "function",
+      "name": "print_report",
+      "qualified_name": "Report.print_report",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "function",
+      "name": "build",
+      "qualified_name": "Report.build",
+      "start_line": 20,
+      "end_line": 25
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "file",
+      "name": "Shapes.jl",
+      "qualified_name": "src/Shapes.jl",
+      "start_line": 1,
+      "end_line": 55
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "module",
+      "name": "Shapes",
+      "qualified_name": "Shapes",
+      "start_line": 1,
+      "end_line": 54
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "type_alias",
+      "name": "Shape",
+      "qualified_name": "Shapes.Shape",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "type_alias",
+      "name": "Flag8",
+      "qualified_name": "Shapes.Flag8",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "struct",
+      "name": "Point",
+      "qualified_name": "Shapes.Point",
+      "start_line": 18,
+      "end_line": 21
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "struct",
+      "name": "Counter",
+      "qualified_name": "Shapes.Counter",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "function",
+      "name": "bump!",
+      "qualified_name": "Shapes.bump!",
+      "start_line": 29,
+      "end_line": 31
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "Shapes.area",
+      "start_line": 37,
+      "end_line": 39
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "Shapes.describe",
+      "start_line": 41,
+      "end_line": 44
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "function",
+      "name": "label",
+      "qualified_name": "Shapes.label",
+      "start_line": 46,
+      "end_line": 48
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "function",
+      "name": "checked",
+      "qualified_name": "Shapes.checked",
+      "start_line": 50,
+      "end_line": 52
+    },
+    {
+      "file": "test/runtests.jl",
+      "kind": "file",
+      "name": "runtests.jl",
+      "qualified_name": "test/runtests.jl",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "test/runtests.jl",
+      "kind": "function",
+      "name": "run_checks",
+      "qualified_name": "run_checks",
+      "start_line": 9,
+      "end_line": 11
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/Report.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Report",
+      "target_kind": "function",
+      "target": "Report.build",
+      "target_file": "src/Report.jl",
+      "line": null
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Report",
+      "target_kind": "function",
+      "target": "Report.print_report",
+      "target_file": "src/Report.jl",
+      "line": null
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Report",
+      "target_kind": "function",
+      "target": "Report.summarize",
+      "target_file": "src/Report.jl",
+      "line": null
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Report.jl",
+      "target_kind": "module",
+      "target": "Report",
+      "target_file": "src/Report.jl",
+      "line": null
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Report.summarize",
+      "target_kind": "function",
+      "target": "Report.print_report",
+      "target_file": "src/Report.jl",
+      "line": 13
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Report.build",
+      "target_kind": "function",
+      "target": "Report.summarize",
+      "target_file": "src/Report.jl",
+      "line": 23
+    },
+    {
+      "file": "src/Report.jl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Report.build",
+      "target_kind": "function",
+      "target": "Shapes.describe",
+      "target_file": "src/Shapes.jl",
+      "line": 24
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "struct",
+      "target": "Shapes.Counter",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "type_alias",
+      "target": "Shapes.Flag8",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "struct",
+      "target": "Shapes.Point",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "type_alias",
+      "target": "Shapes.Shape",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "function",
+      "target": "Shapes.area",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "function",
+      "target": "Shapes.bump!",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "function",
+      "target": "Shapes.checked",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "function",
+      "target": "Shapes.describe",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "function",
+      "target": "Shapes.label",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shapes.jl",
+      "target_kind": "module",
+      "target": "Shapes",
+      "target_file": "src/Shapes.jl",
+      "line": null
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Shapes",
+      "target_kind": "function",
+      "target": "Shapes.area",
+      "target_file": "src/Shapes.jl",
+      "line": 35
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shapes.describe",
+      "target_kind": "function",
+      "target": "Shapes.area",
+      "target_file": "src/Shapes.jl",
+      "line": 42
+    },
+    {
+      "file": "src/Shapes.jl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shapes.describe",
+      "target_kind": "function",
+      "target": "Shapes.label",
+      "target_file": "src/Shapes.jl",
+      "line": 43
+    },
+    {
+      "file": "test/runtests.jl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "test/runtests.jl",
+      "target_kind": "function",
+      "target": "run_checks",
+      "target_file": "test/runtests.jl",
+      "line": null
+    },
+    {
+      "file": "test/runtests.jl",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "test/runtests.jl",
+      "target_kind": "function",
+      "target": "run_checks",
+      "target_file": "test/runtests.jl",
+      "line": 6
+    },
+    {
+      "file": "test/runtests.jl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run_checks",
+      "target_kind": "function",
+      "target": "Report.summarize",
+      "target_file": "src/Report.jl",
+      "line": 10
+    }
+  ],
+  "unresolved": []
+}

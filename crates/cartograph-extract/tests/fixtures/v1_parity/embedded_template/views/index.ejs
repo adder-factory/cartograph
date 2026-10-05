@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <%- include('partials/header', { title: title }) %>
+  <ul>
+    <% items.forEach(function (item) { %>
+      <li><%= item.name %></li>
+    <% }) %>
+  </ul>
+  <%# comment %>
+</body>
+</html>

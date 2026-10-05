@@ -1,0 +1,5 @@
+# Play routes
+GET     /users              controllers.UserController.list
+GET     /users/:id          controllers.UserController.show(id: Long)
+POST    /users              controllers.UserController.create()
+->      /api                api.Routes

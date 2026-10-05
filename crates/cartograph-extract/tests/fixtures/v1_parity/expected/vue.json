@@ -1,0 +1,1410 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "vue",
+  "files": [
+    "App.vue",
+    "components/Panel/index.vue",
+    "components/UserCard.vue",
+    "middleware/auth.ts",
+    "package.json",
+    "pages/users/[id].vue",
+    "plugins/analytics.js",
+    "server/api/users.ts"
+  ],
+  "symbols": [
+    {
+      "file": "App.vue",
+      "kind": "component",
+      "name": "App",
+      "qualified_name": "App.vue::App",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "App.vue",
+      "kind": "file",
+      "name": "App.vue",
+      "qualified_name": "App.vue",
+      "start_line": 8,
+      "end_line": 11
+    },
+    {
+      "file": "App.vue",
+      "kind": "import",
+      "name": "./components/Panel/index.vue",
+      "qualified_name": "./components/Panel/index.vue",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "App.vue",
+      "kind": "constant",
+      "name": "config",
+      "qualified_name": "config",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "component",
+      "name": "index",
+      "qualified_name": "components/Panel/index.vue::index",
+      "start_line": 1,
+      "end_line": 34
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "file",
+      "name": "index.vue",
+      "qualified_name": "components/Panel/index.vue",
+      "start_line": 9,
+      "end_line": 33
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "import",
+      "name": "vue",
+      "qualified_name": "vue",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "import",
+      "name": "../../server/api/users",
+      "qualified_name": "../../server/api/users",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "component",
+      "name": "UserCard",
+      "qualified_name": "components/UserCard.vue::UserCard",
+      "start_line": 1,
+      "end_line": 64
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "file",
+      "name": "UserCard.vue",
+      "qualified_name": "components/UserCard.vue",
+      "start_line": 10,
+      "end_line": 59
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "import",
+      "name": "vue",
+      "qualified_name": "vue",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "import",
+      "name": "~/components/Panel",
+      "qualified_name": "~/components/Panel",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "import",
+      "name": "./BaseBadge.vue",
+      "qualified_name": "./BaseBadge.vue",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "import",
+      "name": "../server/api/users",
+      "qualified_name": "../server/api/users",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "import",
+      "name": "../server/api/users",
+      "qualified_name": "../server/api/users",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "interface",
+      "name": "Props",
+      "qualified_name": "Props",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "enum",
+      "name": "Status",
+      "qualified_name": "Status",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "enum_member",
+      "name": "Active",
+      "qualified_name": "Status::Active",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "enum_member",
+      "name": "Hidden",
+      "qualified_name": "Status::Hidden",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "constant",
+      "name": "props",
+      "qualified_name": "props",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "constant",
+      "name": "emit",
+      "qualified_name": "emit",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "constant",
+      "name": "visible",
+      "qualified_name": "visible",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "constant",
+      "name": "status",
+      "qualified_name": "status",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "constant",
+      "name": "route",
+      "qualified_name": "route",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "class",
+      "name": "Tracker",
+      "qualified_name": "Tracker",
+      "start_line": 37,
+      "end_line": 43
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "field",
+      "name": "hits",
+      "qualified_name": "Tracker::hits",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "method",
+      "name": "hit",
+      "qualified_name": "Tracker::hit",
+      "start_line": 39,
+      "end_line": 42
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "constant",
+      "name": "tracker",
+      "qualified_name": "tracker",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "function",
+      "name": "hide",
+      "qualified_name": "hide",
+      "start_line": 47,
+      "end_line": 52
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "function",
+      "name": "reload",
+      "qualified_name": "reload",
+      "start_line": 54,
+      "end_line": 56
+    },
+    {
+      "file": "middleware/auth.ts",
+      "kind": "file",
+      "name": "auth.ts",
+      "qualified_name": "middleware/auth.ts",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "middleware/auth.ts",
+      "kind": "function",
+      "name": "auth",
+      "qualified_name": "middleware/auth.ts::middleware:auth",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "component",
+      "name": "[id]",
+      "qualified_name": "pages/users/[id].vue::[id]",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "route",
+      "name": "/users/:id",
+      "qualified_name": "pages/users/[id].vue::route:/users/:id",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "file",
+      "name": "[id].vue",
+      "qualified_name": "pages/users/[id].vue",
+      "start_line": 5,
+      "end_line": 14
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "import",
+      "name": "~/components/UserCard.vue",
+      "qualified_name": "~/components/UserCard.vue",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "import",
+      "name": "../../server/api/users",
+      "qualified_name": "../../server/api/users",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "import",
+      "name": "#imports",
+      "qualified_name": "#imports",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "constant",
+      "name": "route",
+      "qualified_name": "route",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "constant",
+      "name": "user",
+      "qualified_name": "user",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "plugins/analytics.js",
+      "kind": "file",
+      "name": "analytics.js",
+      "qualified_name": "plugins/analytics.js",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "plugins/analytics.js",
+      "kind": "function",
+      "name": "trackView",
+      "qualified_name": "trackView",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "file",
+      "name": "users.ts",
+      "qualified_name": "server/api/users.ts",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "route",
+      "name": "/api/users",
+      "qualified_name": "server/api/users.ts::route:/api/users",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "interface",
+      "name": "UserShape",
+      "qualified_name": "UserShape",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "constant",
+      "name": "USERS",
+      "qualified_name": "USERS",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "function",
+      "name": "formatName",
+      "qualified_name": "formatName",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "function",
+      "name": "listUsers",
+      "qualified_name": "listUsers",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "function",
+      "name": "findUser",
+      "qualified_name": "findUser",
+      "start_line": 16,
+      "end_line": 18
+    }
+  ],
+  "edges": [
+    {
+      "file": "App.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "App.vue",
+      "target_kind": "import",
+      "target": "./components/Panel/index.vue",
+      "target_file": "App.vue",
+      "line": null
+    },
+    {
+      "file": "App.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "App.vue",
+      "target_kind": "constant",
+      "target": "config",
+      "target_file": "App.vue",
+      "line": null
+    },
+    {
+      "file": "App.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "App.vue::App",
+      "target_kind": "import",
+      "target": "./components/Panel/index.vue",
+      "target_file": "App.vue",
+      "line": null
+    },
+    {
+      "file": "App.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "App.vue::App",
+      "target_kind": "file",
+      "target": "App.vue",
+      "target_file": "App.vue",
+      "line": null
+    },
+    {
+      "file": "App.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "App.vue::App",
+      "target_kind": "constant",
+      "target": "config",
+      "target_file": "App.vue",
+      "line": null
+    },
+    {
+      "file": "App.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "App.vue",
+      "target_kind": "file",
+      "target": "components/Panel/index.vue",
+      "target_file": "components/Panel/index.vue",
+      "line": 9
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/Panel/index.vue",
+      "target_kind": "import",
+      "target": "../../server/api/users",
+      "target_file": "components/Panel/index.vue",
+      "line": null
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/Panel/index.vue",
+      "target_kind": "import",
+      "target": "vue",
+      "target_file": "components/Panel/index.vue",
+      "line": null
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/Panel/index.vue::index",
+      "target_kind": "import",
+      "target": "../../server/api/users",
+      "target_file": "components/Panel/index.vue",
+      "line": null
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/Panel/index.vue::index",
+      "target_kind": "file",
+      "target": "components/Panel/index.vue",
+      "target_file": "components/Panel/index.vue",
+      "line": null
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/Panel/index.vue::index",
+      "target_kind": "import",
+      "target": "vue",
+      "target_file": "components/Panel/index.vue",
+      "line": null
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "components/Panel/index.vue",
+      "target_kind": "import",
+      "target": "vue",
+      "target_file": "components/Panel/index.vue",
+      "line": 10
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "components/Panel/index.vue",
+      "target_kind": "import",
+      "target": "../../server/api/users",
+      "target_file": "components/Panel/index.vue",
+      "line": 11
+    },
+    {
+      "file": "components/Panel/index.vue",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "components/Panel/index.vue",
+      "target_kind": "function",
+      "target": "listUsers",
+      "target_file": "server/api/users.ts",
+      "line": 11
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Active",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Hidden",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Tracker",
+      "target_kind": "method",
+      "target": "Tracker::hit",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Tracker",
+      "target_kind": "field",
+      "target": "Tracker::hits",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "../server/api/users",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "../server/api/users",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "./BaseBadge.vue",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "enum",
+      "target": "Status",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "class",
+      "target": "Tracker",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "constant",
+      "target": "emit",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "function",
+      "target": "hide",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "constant",
+      "target": "props",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "function",
+      "target": "reload",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "constant",
+      "target": "route",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "constant",
+      "target": "status",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "constant",
+      "target": "tracker",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "constant",
+      "target": "visible",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "vue",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "~/components/Panel",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "import",
+      "target": "../server/api/users",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "import",
+      "target": "../server/api/users",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "import",
+      "target": "./BaseBadge.vue",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "enum",
+      "target": "Status",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "enum_member",
+      "target": "Status::Active",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "enum_member",
+      "target": "Status::Hidden",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "class",
+      "target": "Tracker",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "method",
+      "target": "Tracker::hit",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "field",
+      "target": "Tracker::hits",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "file",
+      "target": "components/UserCard.vue",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "constant",
+      "target": "emit",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "function",
+      "target": "hide",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "constant",
+      "target": "props",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "function",
+      "target": "reload",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "constant",
+      "target": "route",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "constant",
+      "target": "status",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "constant",
+      "target": "tracker",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "constant",
+      "target": "visible",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "import",
+      "target": "vue",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "import",
+      "target": "~/components/Panel",
+      "target_file": "components/UserCard.vue",
+      "line": null
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "components/UserCard.vue::UserCard",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "server/api/users.ts",
+      "line": 3
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "vue",
+      "target_file": "components/UserCard.vue",
+      "line": 11
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "component",
+      "target": "components/Panel/index.vue::index",
+      "target_file": "components/Panel/index.vue",
+      "line": 12
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "./BaseBadge.vue",
+      "target_file": "components/UserCard.vue",
+      "line": 13
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "import",
+      "target": "../server/api/users",
+      "target_file": "components/UserCard.vue",
+      "line": 14
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "server/api/users.ts",
+      "line": 15
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "components/UserCard.vue",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": 16
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "type_of",
+      "source_kind": "constant",
+      "source": "props",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "components/UserCard.vue",
+      "line": 30
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "field_access",
+      "source_kind": "constant",
+      "source": "status",
+      "target_kind": "enum_member",
+      "target": "Status::Active",
+      "target_file": "components/UserCard.vue",
+      "line": 33
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "field_access",
+      "source_kind": "constant",
+      "source": "status",
+      "target_kind": "enum_member",
+      "target": "Status::Hidden",
+      "target_file": "components/UserCard.vue",
+      "line": 33
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Tracker::hit",
+      "target_kind": "field",
+      "target": "Tracker::hits",
+      "target_file": "components/UserCard.vue",
+      "line": 40
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "instantiates",
+      "source_kind": "constant",
+      "source": "tracker",
+      "target_kind": "class",
+      "target": "Tracker",
+      "target_file": "components/UserCard.vue",
+      "line": 45
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "hide",
+      "target_kind": "method",
+      "target": "Tracker::hit",
+      "target_file": "components/UserCard.vue",
+      "line": 49
+    },
+    {
+      "file": "components/UserCard.vue",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "hide",
+      "target_kind": "constant",
+      "target": "emit",
+      "target_file": "components/UserCard.vue",
+      "line": 50
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "import",
+      "target": "#imports",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "import",
+      "target": "../../server/api/users",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "constant",
+      "target": "route",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "constant",
+      "target": "user",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "import",
+      "target": "~/components/UserCard.vue",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "import",
+      "target": "#imports",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "import",
+      "target": "../../server/api/users",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "file",
+      "target": "pages/users/[id].vue",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "constant",
+      "target": "route",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "constant",
+      "target": "user",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "import",
+      "target": "~/components/UserCard.vue",
+      "target_file": "pages/users/[id].vue",
+      "line": null
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "pages/users/[id].vue::[id]",
+      "target_kind": "component",
+      "target": "components/UserCard.vue::UserCard",
+      "target_file": "components/UserCard.vue",
+      "line": 2
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "component",
+      "target": "components/UserCard.vue::UserCard",
+      "target_file": "components/UserCard.vue",
+      "line": 6
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "import",
+      "target": "../../server/api/users",
+      "target_file": "pages/users/[id].vue",
+      "line": 7
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "function",
+      "target": "findUser",
+      "target_file": "server/api/users.ts",
+      "line": 7
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "pages/users/[id].vue",
+      "target_kind": "file",
+      "target": "pages/users/[id].vue",
+      "target_file": "pages/users/[id].vue",
+      "line": 8
+    },
+    {
+      "file": "pages/users/[id].vue",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "user",
+      "target_kind": "function",
+      "target": "findUser",
+      "target_file": "server/api/users.ts",
+      "line": 12
+    },
+    {
+      "file": "plugins/analytics.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "plugins/analytics.js",
+      "target_kind": "function",
+      "target": "trackView",
+      "target_file": "plugins/analytics.js",
+      "line": null
+    },
+    {
+      "file": "plugins/analytics.js",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "plugins/analytics.js",
+      "target_kind": "function",
+      "target": "trackView",
+      "target_file": "plugins/analytics.js",
+      "line": 6
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "server/api/users.ts",
+      "target_kind": "constant",
+      "target": "USERS",
+      "target_file": "server/api/users.ts",
+      "line": null
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "server/api/users.ts",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": null
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "server/api/users.ts",
+      "target_kind": "function",
+      "target": "findUser",
+      "target_file": "server/api/users.ts",
+      "line": null
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "server/api/users.ts",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "server/api/users.ts",
+      "line": null
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "server/api/users.ts",
+      "target_kind": "function",
+      "target": "listUsers",
+      "target_file": "server/api/users.ts",
+      "line": null
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "type_of",
+      "source_kind": "constant",
+      "source": "USERS",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": 6
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "listUsers",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": 12
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "listUsers",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": 12
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "findUser",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": 16
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "findUser",
+      "target_kind": "interface",
+      "target": "UserShape",
+      "target_file": "server/api/users.ts",
+      "line": 16
+    },
+    {
+      "file": "server/api/users.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "server/api/users.ts",
+      "target_kind": "function",
+      "target": "listUsers",
+      "target_file": "server/api/users.ts",
+      "line": 20
+    }
+  ],
+  "unresolved": []
+}

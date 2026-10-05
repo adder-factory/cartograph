@@ -1,0 +1,952 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "xml",
+  "files": [
+    "app/src/main/AndroidManifest.xml",
+    "pom.xml",
+    "src/main/java/com/acme/mapper/AuditMapper.java",
+    "src/main/java/com/acme/mapper/UserMapper.java",
+    "src/main/java/com/acme/model/User.java",
+    "src/main/resources/mapper/AuditMapper.xml",
+    "src/main/resources/mapper/UserMapper.xml",
+    "src/main/resources/mybatis-config.xml"
+  ],
+  "symbols": [
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "file",
+      "name": "AuditMapper.java",
+      "qualified_name": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "import",
+      "name": "org.apache.ibatis.annotations.Param",
+      "qualified_name": "org.apache.ibatis.annotations.Param",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "interface",
+      "name": "AuditMapper",
+      "qualified_name": "AuditMapper",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "method",
+      "name": "record",
+      "qualified_name": "AuditMapper::record",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "parameter",
+      "name": "action",
+      "qualified_name": "AuditMapper::record::action",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "file",
+      "name": "UserMapper.java",
+      "qualified_name": "src/main/java/com/acme/mapper/UserMapper.java",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "import",
+      "name": "com.acme.model.User",
+      "qualified_name": "com.acme.model.User",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "import",
+      "name": "org.apache.ibatis.annotations.Param",
+      "qualified_name": "org.apache.ibatis.annotations.Param",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "interface",
+      "name": "UserMapper",
+      "qualified_name": "UserMapper",
+      "start_line": 6,
+      "end_line": 14
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "method",
+      "name": "findById",
+      "qualified_name": "UserMapper::findById",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserMapper::findById::id",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "method",
+      "name": "insertUser",
+      "qualified_name": "UserMapper::insertUser",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "parameter",
+      "name": "user",
+      "qualified_name": "UserMapper::insertUser::user",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "method",
+      "name": "updateName",
+      "qualified_name": "UserMapper::updateName",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserMapper::updateName::id",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "parameter",
+      "name": "name",
+      "qualified_name": "UserMapper::updateName::name",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "method",
+      "name": "deleteById",
+      "qualified_name": "UserMapper::deleteById",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserMapper::deleteById::id",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "file",
+      "name": "User.java",
+      "qualified_name": "src/main/java/com/acme/model/User.java",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 3,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "User::id",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "User::name",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "file",
+      "name": "AuditMapper.xml",
+      "qualified_name": "src/main/resources/mapper/AuditMapper.xml",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "type_alias",
+      "name": "AuditResult",
+      "qualified_name": "AuditMapper::AuditResult",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "method",
+      "name": "auditColumns",
+      "qualified_name": "AuditMapper::auditColumns",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "method",
+      "name": "record",
+      "qualified_name": "AuditMapper::record",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "file",
+      "name": "UserMapper.xml",
+      "qualified_name": "src/main/resources/mapper/UserMapper.xml",
+      "start_line": 1,
+      "end_line": 43
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "type_alias",
+      "name": "UserResult",
+      "qualified_name": "UserMapper::UserResult",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "type_alias",
+      "name": "ExtendedResult",
+      "qualified_name": "UserMapper::ExtendedResult",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "type_alias",
+      "name": "UserParams",
+      "qualified_name": "UserMapper::UserParams",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "userColumns",
+      "qualified_name": "UserMapper::userColumns",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "findById",
+      "qualified_name": "UserMapper::findById",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "insertUser",
+      "qualified_name": "UserMapper::insertUser",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "updateName",
+      "qualified_name": "UserMapper::updateName",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "deleteById",
+      "qualified_name": "UserMapper::deleteById",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "countAll",
+      "qualified_name": "UserMapper::countAll",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "legacyFind",
+      "qualified_name": "UserMapper::legacyFind",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/main/resources/mybatis-config.xml",
+      "kind": "file",
+      "name": "mybatis-config.xml",
+      "qualified_name": "src/main/resources/mybatis-config.xml",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/resources/mybatis-config.xml",
+      "kind": "type_alias",
+      "name": "User",
+      "qualified_name": "src/main/resources/mybatis-config.xml::User",
+      "start_line": 5,
+      "end_line": 5
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "AuditMapper",
+      "target_kind": "method",
+      "target": "AuditMapper::record",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "AuditMapper",
+      "target_kind": "parameter",
+      "target": "AuditMapper::record::action",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "AuditMapper::record",
+      "target_kind": "parameter",
+      "target": "AuditMapper::record::action",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "target_kind": "interface",
+      "target": "AuditMapper",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "AuditMapper::record",
+      "target_kind": "method",
+      "target": "AuditMapper::record",
+      "target_file": "src/main/resources/mapper/AuditMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "method",
+      "target": "UserMapper::deleteById",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::deleteById::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "method",
+      "target": "UserMapper::findById",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::findById::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "method",
+      "target": "UserMapper::insertUser",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::insertUser::user",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "method",
+      "target": "UserMapper::updateName",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::updateName::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::updateName::name",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::deleteById",
+      "target_kind": "parameter",
+      "target": "UserMapper::deleteById::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "parameter",
+      "target": "UserMapper::findById::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::insertUser",
+      "target_kind": "parameter",
+      "target": "UserMapper::insertUser::user",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::updateName",
+      "target_kind": "parameter",
+      "target": "UserMapper::updateName::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::updateName",
+      "target_kind": "parameter",
+      "target": "UserMapper::updateName::name",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/UserMapper.java",
+      "target_kind": "interface",
+      "target": "UserMapper",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/UserMapper.java",
+      "target_kind": "import",
+      "target": "com.acme.model.User",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/UserMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::deleteById",
+      "target_kind": "method",
+      "target": "UserMapper::deleteById",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "method",
+      "target": "UserMapper::findById",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::insertUser",
+      "target_kind": "method",
+      "target": "UserMapper::insertUser",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::updateName",
+      "target_kind": "method",
+      "target": "UserMapper::updateName",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/UserMapper.java",
+      "target_kind": "import",
+      "target": "com.acme.model.User",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/mapper/UserMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/java/com/acme/model/User.java",
+      "line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserMapper::insertUser",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/java/com/acme/model/User.java",
+      "line": 9
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::id",
+      "target_file": "src/main/java/com/acme/model/User.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::name",
+      "target_file": "src/main/java/com/acme/model/User.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/model/User.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/model/User.java",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/java/com/acme/model/User.java",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/AuditMapper.xml",
+      "target_kind": "type_alias",
+      "target": "AuditMapper::AuditResult",
+      "target_file": "src/main/resources/mapper/AuditMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/AuditMapper.xml",
+      "target_kind": "method",
+      "target": "AuditMapper::auditColumns",
+      "target_file": "src/main/resources/mapper/AuditMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/AuditMapper.xml",
+      "target_kind": "method",
+      "target": "AuditMapper::record",
+      "target_file": "src/main/resources/mapper/AuditMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/AuditMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "AuditMapper::record",
+      "target_kind": "parameter",
+      "target": "AuditMapper::record::action",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": 6
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "type_alias",
+      "target": "UserMapper::ExtendedResult",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "type_alias",
+      "target": "UserMapper::UserParams",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "type_alias",
+      "target": "UserMapper::UserResult",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::countAll",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::deleteById",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::findById",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::insertUser",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::legacyFind",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::updateName",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::userColumns",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "type_alias",
+      "target": "UserMapper::UserResult",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": 20
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "method",
+      "target": "AuditMapper::auditColumns",
+      "target_file": "src/main/resources/mapper/AuditMapper.xml",
+      "line": 21
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "method",
+      "target": "UserMapper::userColumns",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": 21
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::findById",
+      "target_kind": "parameter",
+      "target": "UserMapper::findById::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 22
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::insertUser",
+      "target_kind": "type_alias",
+      "target": "UserMapper::UserParams",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": 25
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::insertUser",
+      "target_kind": "parameter",
+      "target": "UserMapper::insertUser::user",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 26
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::updateName",
+      "target_kind": "parameter",
+      "target": "UserMapper::updateName::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 30
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::updateName",
+      "target_kind": "parameter",
+      "target": "UserMapper::updateName::name",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 30
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::deleteById",
+      "target_kind": "parameter",
+      "target": "UserMapper::deleteById::id",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 34
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::legacyFind",
+      "target_kind": "type_alias",
+      "target": "AuditMapper::AuditResult",
+      "target_file": "src/main/resources/mapper/AuditMapper.xml",
+      "line": 39
+    },
+    {
+      "file": "src/main/resources/mybatis-config.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mybatis-config.xml",
+      "target_kind": "type_alias",
+      "target": "src/main/resources/mybatis-config.xml::User",
+      "target_file": "src/main/resources/mybatis-config.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mybatis-config.xml",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/main/resources/mybatis-config.xml",
+      "target_kind": "interface",
+      "target": "UserMapper",
+      "target_file": "src/main/java/com/acme/mapper/UserMapper.java",
+      "line": 10
+    },
+    {
+      "file": "src/main/resources/mybatis-config.xml",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/main/resources/mybatis-config.xml",
+      "target_kind": "interface",
+      "target": "AuditMapper",
+      "target_file": "src/main/java/com/acme/mapper/AuditMapper.java",
+      "line": 11
+    }
+  ],
+  "unresolved": []
+}

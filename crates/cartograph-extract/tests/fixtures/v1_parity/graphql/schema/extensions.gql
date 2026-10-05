@@ -1,0 +1,26 @@
+extend type User implements Owned {
+  owner: User!
+  lastSeen: DateTime
+}
+
+extend interface Node {
+  version: Int
+}
+
+extend input PostFilter {
+  tagLabel: String
+}
+
+extend enum Role {
+  GUEST
+}
+
+extend union SearchResult = Comment
+
+extend scalar DateTime @internal
+
+type Comment implements Node {
+  id: ID!
+  post: Post!
+  text: String!
+}

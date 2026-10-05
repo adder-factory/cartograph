@@ -1,0 +1,15 @@
+game.states.DefaultCharacter = State {
+  function ()
+    nodes.Idle = Action {
+      function ()
+        Sleep(2.0)
+      end,
+      OnUpdate = function()
+        CheckSurroundings(me)
+      end,
+      OnFailed = function()
+        DebugText(me, "IdleFailed")
+      end
+    }
+  end
+}

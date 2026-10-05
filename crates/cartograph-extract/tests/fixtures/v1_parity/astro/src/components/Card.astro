@@ -1,0 +1,47 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { formatDate, getPosts, type Post } from '../utils/date';
+import PostCard from './PostCard.astro';
+
+interface Props {
+  post: Post;
+  featured?: boolean;
+}
+
+const { post, featured = false } = Astro.props;
+const posts = await getPosts();
+const MAX = 3;
+
+function shout(text: string): string {
+  return text.toUpperCase();
+}
+
+class Highlighter {
+  mark(text: string): string {
+    return `*${text}*`;
+  }
+}
+
+const highlighter = new Highlighter();
+---
+<Layout title={post.title}>
+  <article class:list={{ featured }}>
+    <h2>{shout(post.title)}</h2>
+    <time>{formatDate(new Date())}</time>
+    <p>{highlighter.mark(post.title)}</p>
+    {posts.slice(0, MAX).map((p) => <PostCard post={p} />)}
+    {featured && <span>featured</span>}
+    {if (featured) {}}
+  </article>
+</Layout>
+
+<script>
+  function clientOnly() {
+    return document.title;
+  }
+  clientOnly();
+</script>
+
+<style>
+  article { margin: 0; }
+</style>

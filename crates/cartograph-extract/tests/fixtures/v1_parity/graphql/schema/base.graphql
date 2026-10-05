@@ -1,0 +1,74 @@
+"""
+Custom scalar for ISO dates.
+"""
+scalar DateTime
+
+scalar JSONValue
+
+"Marks a field as deprecated in favour of another."
+directive @replacedBy(field: String!, reason: String = "renamed") on FIELD_DEFINITION | ENUM_VALUE
+
+directive @internal on OBJECT
+
+"""
+Anything with a stable identifier.
+"""
+interface Node {
+  id: ID!
+}
+
+interface Timestamped {
+  createdAt: DateTime!
+  updatedAt: DateTime
+}
+
+interface Owned implements Node {
+  id: ID!
+  owner: User!
+}
+
+"Account role"
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER @replacedBy(field: "READER")
+}
+
+type User implements Node & Timestamped @internal {
+  id: ID!
+  name: String!
+  email: String
+  role: Role!
+  posts(first: Int = 10, after: String): [Post!]!
+  friends: [[User!]!]!
+  createdAt: DateTime!
+  updatedAt: DateTime
+  metadata: JSONValue
+}
+
+type Post implements Owned {
+  id: ID!
+  owner: User!
+  title: String!
+  body: String
+  tags: [Tag!]
+}
+
+type Tag {
+  label: String!
+}
+
+union SearchResult = User | Post | Tag
+
+input PostFilter {
+  titleContains: String
+  ownerId: ID
+  roles: [Role!]
+  createdAfter: DateTime
+}
+
+input CreatePostInput {
+  title: String!
+  body: String
+  filter: PostFilter
+}

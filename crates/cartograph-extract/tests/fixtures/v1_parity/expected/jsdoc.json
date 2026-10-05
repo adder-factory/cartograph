@@ -1,0 +1,103 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "jsdoc",
+  "files": [
+    "docs/api.jsdoc",
+    "docs/types.jsdoc",
+    "src/geometry.js"
+  ],
+  "symbols": [
+    {
+      "file": "docs/api.jsdoc",
+      "kind": "file",
+      "name": "api.jsdoc",
+      "qualified_name": "docs/api.jsdoc",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "docs/types.jsdoc",
+      "kind": "file",
+      "name": "types.jsdoc",
+      "qualified_name": "docs/types.jsdoc",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "file",
+      "name": "geometry.js",
+      "qualified_name": "src/geometry.js",
+      "start_line": 1,
+      "end_line": 26
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "function",
+      "name": "distance",
+      "qualified_name": "distance",
+      "start_line": 11,
+      "end_line": 13
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "function",
+      "name": "each",
+      "qualified_name": "each",
+      "start_line": 19,
+      "end_line": 22
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "constant",
+      "name": "ORIGIN",
+      "qualified_name": "ORIGIN",
+      "start_line": 25,
+      "end_line": 25
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/geometry.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.js",
+      "target_kind": "constant",
+      "target": "ORIGIN",
+      "target_file": "src/geometry.js",
+      "line": null
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.js",
+      "target_kind": "function",
+      "target": "distance",
+      "target_file": "src/geometry.js",
+      "line": null
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.js",
+      "target_kind": "function",
+      "target": "each",
+      "target_file": "src/geometry.js",
+      "line": null
+    },
+    {
+      "file": "src/geometry.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "each",
+      "target_kind": "function",
+      "target": "distance",
+      "target_file": "src/geometry.js",
+      "line": 21
+    }
+  ],
+  "unresolved": []
+}

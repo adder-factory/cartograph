@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="com.acme.mapper.AuditMapper">
+  <resultMap id="AuditResult" type="com.acme.model.User"/>
+  <sql id="auditColumns">created_at, created_by</sql>
+  <insert id="record">
+    INSERT INTO audit (action) VALUES (#{action})
+  </insert>
+</mapper>

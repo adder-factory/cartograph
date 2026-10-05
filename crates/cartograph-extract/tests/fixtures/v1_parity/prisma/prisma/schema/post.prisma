@@ -1,0 +1,27 @@
+model Post {
+  id        Int        @id
+  title     String
+  author    User       @relation(fields: [authorId], references: [id])
+  authorId  Int
+  tags      Tag[]
+  status    PostStatus @default(DRAFT)
+  views     BigInt
+  rating    Decimal
+  score     Float
+  published Boolean
+  blob      Bytes
+
+  @@index([authorId])
+}
+
+model Tag {
+  id    Int    @id
+  name  String
+  posts Post[]
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}

@@ -1,0 +1,3 @@
+<design:component label="Opportunity List">
+    <design:attribute name="selected" label="Selected"/>
+</design:component>

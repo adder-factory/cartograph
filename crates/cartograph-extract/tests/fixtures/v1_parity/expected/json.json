@@ -1,0 +1,149 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "json",
+  "files": [
+    "config/settings.json",
+    "locales/en.json",
+    "package.json",
+    "src/index.js",
+    "tsconfig.json"
+  ],
+  "symbols": [
+    {
+      "file": "config/settings.json",
+      "kind": "file",
+      "name": "settings.json",
+      "qualified_name": "config/settings.json",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "locales/en.json",
+      "kind": "file",
+      "name": "en.json",
+      "qualified_name": "locales/en.json",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "src/index.js",
+      "kind": "file",
+      "name": "index.js",
+      "qualified_name": "src/index.js",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "src/index.js",
+      "kind": "import",
+      "name": "../config/settings.json",
+      "qualified_name": "../config/settings.json",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/index.js",
+      "kind": "import",
+      "name": "../locales/en.json",
+      "qualified_name": "../locales/en.json",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/index.js",
+      "kind": "function",
+      "name": "serviceName",
+      "qualified_name": "serviceName",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "src/index.js",
+      "kind": "function",
+      "name": "firstGreeting",
+      "qualified_name": "firstGreeting",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "tsconfig.json",
+      "kind": "file",
+      "name": "tsconfig.json",
+      "qualified_name": "tsconfig.json",
+      "start_line": 1,
+      "end_line": 8
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/index.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/index.js",
+      "target_kind": "import",
+      "target": "../config/settings.json",
+      "target_file": "src/index.js",
+      "line": null
+    },
+    {
+      "file": "src/index.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/index.js",
+      "target_kind": "import",
+      "target": "../locales/en.json",
+      "target_file": "src/index.js",
+      "line": null
+    },
+    {
+      "file": "src/index.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/index.js",
+      "target_kind": "function",
+      "target": "firstGreeting",
+      "target_file": "src/index.js",
+      "line": null
+    },
+    {
+      "file": "src/index.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/index.js",
+      "target_kind": "function",
+      "target": "serviceName",
+      "target_file": "src/index.js",
+      "line": null
+    },
+    {
+      "file": "src/index.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/index.js",
+      "target_kind": "file",
+      "target": "config/settings.json",
+      "target_file": "config/settings.json",
+      "line": 1
+    },
+    {
+      "file": "src/index.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/index.js",
+      "target_kind": "file",
+      "target": "locales/en.json",
+      "target_file": "locales/en.json",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

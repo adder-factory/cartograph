@@ -1,0 +1,7 @@
+[package]
+name = "shop-web"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+shop-core = { path = "../shop-core" }

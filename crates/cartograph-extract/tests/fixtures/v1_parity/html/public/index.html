@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fixture</title>
+    <link rel="stylesheet" href="./app.css" />
+    <script type="module" src="./main.js"></script>
+    <script>
+      function inlineBoot() {
+        return document.title;
+      }
+      window.addEventListener('load', inlineBoot);
+    </script>
+    <style>
+      .hero { color: navy; }
+    </style>
+  </head>
+  <body>
+    <main id="app" class="hero" data-role="root">
+      <h1>Hello</h1>
+      <a href="./about.htm">About</a>
+      <img src="./logo.png" alt="logo" />
+      <!-- comment node -->
+      <template id="row"><li></li></template>
+      <my-widget title="custom"></my-widget>
+      <button onclick="inlineBoot()">Go</button>
+    </main>
+  </body>
+</html>

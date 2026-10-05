@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN" "mybatis-3-config.dtd">
+<configuration>
+  <typeAliases>
+    <typeAlias alias="User" type="com.acme.model.User"/>
+    <typeAlias alias="Broken"/>
+    <typeAlias type="com.acme.model.Orphan"/>
+  </typeAliases>
+  <mappers>
+    <mapper class="com.acme.mapper.UserMapper"/>
+    <mapper class="com.acme.mapper.AuditMapper"></mapper>
+    <mapper resource="mapper/UserMapper.xml"/>
+  </mappers>
+</configuration>

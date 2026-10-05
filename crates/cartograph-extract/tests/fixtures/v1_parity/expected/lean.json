@@ -1,0 +1,528 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "lean",
+  "files": [
+    "Demo/Basic.lean",
+    "Demo/Main.lean"
+  ],
+  "symbols": [
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "file",
+      "name": "Basic.lean",
+      "qualified_name": "Demo/Basic.lean",
+      "start_line": 1,
+      "end_line": 31
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "import",
+      "name": "Mathlib.Data.Nat.Basic",
+      "qualified_name": "Mathlib.Data.Nat.Basic",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "struct",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "User::name",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "field",
+      "name": "age",
+      "qualified_name": "User::age",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "struct",
+      "name": "Point",
+      "qualified_name": "Point",
+      "start_line": 8,
+      "end_line": 13
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "field",
+      "name": "x",
+      "qualified_name": "Point::x",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "field",
+      "name": "y",
+      "qualified_name": "Point::y",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum_member",
+      "name": "admin",
+      "qualified_name": "Role::admin",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum_member",
+      "name": "user",
+      "qualified_name": "Role::user",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum_member",
+      "name": "guest",
+      "qualified_name": "Role::guest",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum",
+      "name": "Tree",
+      "qualified_name": "Tree",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum_member",
+      "name": "leaf",
+      "qualified_name": "Tree::leaf",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "enum_member",
+      "name": "node",
+      "qualified_name": "Tree::node",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "greet",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "function",
+      "name": "id_eq",
+      "qualified_name": "id_eq",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "type_alias",
+      "name": "UserName",
+      "qualified_name": "UserName",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "function",
+      "name": "double",
+      "qualified_name": "double",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "function",
+      "name": "Point.add",
+      "qualified_name": "Point.add",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "function",
+      "name": "double_eq",
+      "qualified_name": "double_eq",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "file",
+      "name": "Main.lean",
+      "qualified_name": "Demo/Main.lean",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "import",
+      "name": "Demo.Basic",
+      "qualified_name": "Demo.Basic",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "import",
+      "name": "Std.Data.HashMap",
+      "qualified_name": "Std.Data.HashMap",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "type_alias",
+      "name": "Score",
+      "qualified_name": "Score",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "describe",
+      "start_line": 8,
+      "end_line": 12
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 14,
+      "end_line": 19
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "function",
+      "name": "describe_admin",
+      "qualified_name": "describe_admin",
+      "start_line": 19,
+      "end_line": 19
+    }
+  ],
+  "edges": [
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "import",
+      "target": "Mathlib.Data.Nat.Basic",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "struct",
+      "target": "Point",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "function",
+      "target": "Point.add",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "enum",
+      "target": "Tree",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "type_alias",
+      "target": "UserName",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "function",
+      "target": "double",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "function",
+      "target": "double_eq",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "function",
+      "target": "id_eq",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Point",
+      "target_kind": "field",
+      "target": "Point::x",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Point",
+      "target_kind": "field",
+      "target": "Point::y",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::admin",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::guest",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::user",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Tree",
+      "target_kind": "enum_member",
+      "target": "Tree::leaf",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Tree",
+      "target_kind": "enum_member",
+      "target": "Tree::node",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::age",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::name",
+      "target_file": "Demo/Basic.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Basic.lean",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Demo/Basic.lean",
+      "target_kind": "import",
+      "target": "Mathlib.Data.Nat.Basic",
+      "target_file": "Demo/Basic.lean",
+      "line": 1
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "import",
+      "target": "Demo.Basic",
+      "target_file": "Demo/Main.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "type_alias",
+      "target": "Score",
+      "target_file": "Demo/Main.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "import",
+      "target": "Std.Data.HashMap",
+      "target_file": "Demo/Main.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "function",
+      "target": "describe",
+      "target_file": "Demo/Main.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "function",
+      "target": "describe_admin",
+      "target_file": "Demo/Main.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "Demo/Main.lean",
+      "line": null
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "import",
+      "target": "Demo.Basic",
+      "target_file": "Demo/Main.lean",
+      "line": 1
+    },
+    {
+      "file": "Demo/Main.lean",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Demo/Main.lean",
+      "target_kind": "import",
+      "target": "Std.Data.HashMap",
+      "target_file": "Demo/Main.lean",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

@@ -1,0 +1,2283 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "csharp",
+  "files": [
+    "src/Shop/Controllers/OrdersController.cs",
+    "src/Shop/Data/OrderRepository.cs",
+    "src/Shop/Models/Order.cs",
+    "src/Shop/Program.cs",
+    "src/Shop/Services/OrderService.cs",
+    "src/Shop/Shop.csproj",
+    "tests/Shop.Tests/OrderTests.cs"
+  ],
+  "symbols": [
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "file",
+      "name": "OrdersController.cs",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs",
+      "start_line": 1,
+      "end_line": 44
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "import",
+      "name": "System.Threading.Tasks",
+      "qualified_name": "System.Threading.Tasks",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "import",
+      "name": "Microsoft.AspNetCore.Mvc",
+      "qualified_name": "Microsoft.AspNetCore.Mvc",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "import",
+      "name": "Shop.Models",
+      "qualified_name": "Shop.Models",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "import",
+      "name": "Shop.Services",
+      "qualified_name": "Shop.Services",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "class",
+      "name": "OrdersController",
+      "qualified_name": "OrdersController",
+      "start_line": 9,
+      "end_line": 33
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "ROUTE api/[controller]",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::ROUTE:api/[controller]",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "field",
+      "name": "_orders",
+      "qualified_name": "OrdersController::_orders",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "method",
+      "name": "OrdersController",
+      "qualified_name": "OrdersController::OrdersController",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "GET {id}",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::GET:{id}",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "method",
+      "name": "Get",
+      "qualified_name": "OrdersController::Get",
+      "start_line": 20,
+      "end_line": 25
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "POST",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::POST",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "method",
+      "name": "Create",
+      "qualified_name": "OrdersController::Create",
+      "start_line": 27,
+      "end_line": 28
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "GET /a",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::GET:/a",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "method",
+      "name": "Both",
+      "qualified_name": "OrdersController::Both",
+      "start_line": 30,
+      "end_line": 32
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "POST /b",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::POST:/b",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "class",
+      "name": "LegacyController",
+      "qualified_name": "LegacyController",
+      "start_line": 35,
+      "end_line": 42
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "GET /api/legacy",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::GET:/api/legacy",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "method",
+      "name": "List",
+      "qualified_name": "LegacyController::List",
+      "start_line": 37,
+      "end_line": 38
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "route",
+      "name": "DELETE /api/legacy/{id}",
+      "qualified_name": "src/Shop/Controllers/OrdersController.cs::DELETE:/api/legacy/{id}",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "method",
+      "name": "Remove",
+      "qualified_name": "LegacyController::Remove",
+      "start_line": 40,
+      "end_line": 41
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "file",
+      "name": "OrderRepository.cs",
+      "qualified_name": "src/Shop/Data/OrderRepository.cs",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "import",
+      "name": "System.Threading.Tasks",
+      "qualified_name": "System.Threading.Tasks",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "import",
+      "name": "Shop.Models",
+      "qualified_name": "Shop.Models",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "interface",
+      "name": "IOrderRepository",
+      "qualified_name": "IOrderRepository",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "method",
+      "name": "GetAsync",
+      "qualified_name": "IOrderRepository::GetAsync",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "class",
+      "name": "OrderRepository",
+      "qualified_name": "OrderRepository",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "method",
+      "name": "GetAsync",
+      "qualified_name": "OrderRepository::GetAsync",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "file",
+      "name": "Order.cs",
+      "qualified_name": "src/Shop/Models/Order.cs",
+      "start_line": 1,
+      "end_line": 73
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "import",
+      "name": "System.Collections.Generic",
+      "qualified_name": "System.Collections.Generic",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "enum",
+      "name": "OrderStatus",
+      "qualified_name": "OrderStatus",
+      "start_line": 6,
+      "end_line": 11
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "enum_member",
+      "name": "New",
+      "qualified_name": "OrderStatus::New",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "enum_member",
+      "name": "Paid",
+      "qualified_name": "OrderStatus::Paid",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "enum_member",
+      "name": "Shipped",
+      "qualified_name": "OrderStatus::Shipped",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "interface",
+      "name": "IEntity",
+      "qualified_name": "IEntity",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "property",
+      "name": "Id",
+      "qualified_name": "IEntity::Id",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "interface",
+      "name": "IAuditable",
+      "qualified_name": "IAuditable",
+      "start_line": 18,
+      "end_line": 21
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Audit",
+      "qualified_name": "IAuditable::Audit",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "struct",
+      "name": "Money",
+      "qualified_name": "Money",
+      "start_line": 23,
+      "end_line": 30
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "field",
+      "name": "Amount",
+      "qualified_name": "Money::Amount",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Money",
+      "qualified_name": "Money::Money",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Zero",
+      "qualified_name": "Money::Zero",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "class",
+      "name": "Order",
+      "qualified_name": "Order",
+      "start_line": 32,
+      "end_line": 63
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "field",
+      "name": "MaxLines",
+      "qualified_name": "Order::MaxLines",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "field",
+      "name": "_lines",
+      "qualified_name": "Order::_lines",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "property",
+      "name": "Id",
+      "qualified_name": "Order::Id",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "property",
+      "name": "Status",
+      "qualified_name": "Order::Status",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "property",
+      "name": "Total",
+      "qualified_name": "Order::Total",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Order",
+      "qualified_name": "Order::Order",
+      "start_line": 41,
+      "end_line": 44
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Audit",
+      "qualified_name": "Order::Audit",
+      "start_line": 46,
+      "end_line": 46
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "AddLine",
+      "qualified_name": "Order::AddLine",
+      "start_line": 48,
+      "end_line": 53
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Validate",
+      "qualified_name": "Order::Validate",
+      "start_line": 55,
+      "end_line": 58
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Touch",
+      "qualified_name": "Order::Touch",
+      "start_line": 60,
+      "end_line": 60
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Create",
+      "qualified_name": "Order::Create",
+      "start_line": 62,
+      "end_line": 62
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "class",
+      "name": "Customer",
+      "qualified_name": "Customer",
+      "start_line": 67,
+      "end_line": 71
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "method",
+      "name": "Customer",
+      "qualified_name": "Customer::Customer",
+      "start_line": 67,
+      "end_line": 67
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "property",
+      "name": "Name",
+      "qualified_name": "Customer::Name",
+      "start_line": 69,
+      "end_line": 69
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "property",
+      "name": "Tier",
+      "qualified_name": "Customer::Tier",
+      "start_line": 70,
+      "end_line": 70
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "file",
+      "name": "Program.cs",
+      "qualified_name": "src/Shop/Program.cs",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "import",
+      "name": "Shop.Data",
+      "qualified_name": "Shop.Data",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "import",
+      "name": "Shop.Services",
+      "qualified_name": "Shop.Services",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "route",
+      "name": "GET /health",
+      "qualified_name": "src/Shop/Program.cs::GET:/health",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "route",
+      "name": "GET /ready",
+      "qualified_name": "src/Shop/Program.cs::GET:/ready",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "route",
+      "name": "POST /orders",
+      "qualified_name": "src/Shop/Program.cs::POST:/orders",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "route",
+      "name": "PUT /orders/{id}",
+      "qualified_name": "src/Shop/Program.cs::PUT:/orders/{id}",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "route",
+      "name": "DELETE /orders/{id}",
+      "qualified_name": "src/Shop/Program.cs::DELETE:/orders/{id}",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "file",
+      "name": "OrderService.cs",
+      "qualified_name": "src/Shop/Services/OrderService.cs",
+      "start_line": 1,
+      "end_line": 76
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "import",
+      "name": "System.Threading.Tasks",
+      "qualified_name": "System.Threading.Tasks",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "import",
+      "name": "Shop.Data",
+      "qualified_name": "Shop.Data",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "import",
+      "name": "Shop.Models",
+      "qualified_name": "Shop.Models",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "import",
+      "name": "System.Math",
+      "qualified_name": "System.Math",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "import",
+      "name": "System.DateTime",
+      "qualified_name": "System.DateTime",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "interface",
+      "name": "IOrderService",
+      "qualified_name": "IOrderService",
+      "start_line": 10,
+      "end_line": 13
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "FindAsync",
+      "qualified_name": "IOrderService::FindAsync",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "class",
+      "name": "ServiceBase",
+      "qualified_name": "ServiceBase",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Load",
+      "qualified_name": "ServiceBase::Load",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "class",
+      "name": "OrderService",
+      "qualified_name": "OrderService",
+      "start_line": 20,
+      "end_line": 53
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "field",
+      "name": "_repository",
+      "qualified_name": "OrderService::_repository",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "field",
+      "name": "_builder",
+      "qualified_name": "OrderService::_builder",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "OrderService",
+      "qualified_name": "OrderService::OrderService",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "FindAsync",
+      "qualified_name": "OrderService::FindAsync",
+      "start_line": 30,
+      "end_line": 35
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Load",
+      "qualified_name": "OrderService::Load",
+      "start_line": 37,
+      "end_line": 42
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Build",
+      "qualified_name": "OrderService::Build",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Import",
+      "qualified_name": "OrderService::Import",
+      "start_line": 46,
+      "end_line": 50
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Log",
+      "qualified_name": "OrderService::Log",
+      "start_line": 52,
+      "end_line": 52
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "class",
+      "name": "OrderBuilder",
+      "qualified_name": "OrderBuilder",
+      "start_line": 55,
+      "end_line": 66
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "field",
+      "name": "_id",
+      "qualified_name": "OrderBuilder::_id",
+      "start_line": 57,
+      "end_line": 57
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "WithId",
+      "qualified_name": "OrderBuilder::WithId",
+      "start_line": 59,
+      "end_line": 63
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Build",
+      "qualified_name": "OrderBuilder::Build",
+      "start_line": 65,
+      "end_line": 65
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "class",
+      "name": "Committer",
+      "qualified_name": "Committer",
+      "start_line": 68,
+      "end_line": 75
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "field",
+      "name": "_order",
+      "qualified_name": "Committer::_order",
+      "start_line": 70,
+      "end_line": 70
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Committer",
+      "qualified_name": "Committer::Committer",
+      "start_line": 72,
+      "end_line": 72
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "method",
+      "name": "Commit",
+      "qualified_name": "Committer::Commit",
+      "start_line": 74,
+      "end_line": 74
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "file",
+      "name": "OrderTests.cs",
+      "qualified_name": "tests/Shop.Tests/OrderTests.cs",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "import",
+      "name": "Shop.Models",
+      "qualified_name": "Shop.Models",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "import",
+      "name": "Xunit",
+      "qualified_name": "Xunit",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "class",
+      "name": "OrderTests",
+      "qualified_name": "OrderTests",
+      "start_line": 7,
+      "end_line": 16
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "method",
+      "name": "AddLineKeepsStatus",
+      "qualified_name": "OrderTests::AddLineKeepsStatus",
+      "start_line": 9,
+      "end_line": 15
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "LegacyController",
+      "target_kind": "method",
+      "target": "LegacyController::List",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "LegacyController",
+      "target_kind": "method",
+      "target": "LegacyController::Remove",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::Both",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::Create",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::Get",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::OrdersController",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "field",
+      "target": "OrdersController::_orders",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "class",
+      "target": "LegacyController",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "Microsoft.AspNetCore.Mvc",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "class",
+      "target": "OrdersController",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "Shop.Services",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "System.Threading.Tasks",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": 1
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "System.Threading.Tasks",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": 2
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "Microsoft.AspNetCore.Mvc",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": 3
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": 4
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Controllers/OrdersController.cs",
+      "target_kind": "import",
+      "target": "Shop.Services",
+      "target_file": "src/Shop/Controllers/OrdersController.cs",
+      "line": 5
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrdersController::OrdersController",
+      "target_kind": "interface",
+      "target": "IOrderService",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 15
+    },
+    {
+      "file": "src/Shop/Controllers/OrdersController.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrdersController::Get",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 21
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IOrderRepository",
+      "target_kind": "method",
+      "target": "IOrderRepository::GetAsync",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderRepository",
+      "target_kind": "method",
+      "target": "OrderRepository::GetAsync",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "interface",
+      "target": "IOrderRepository",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "class",
+      "target": "OrderRepository",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "import",
+      "target": "System.Threading.Tasks",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": 1
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "import",
+      "target": "System.Threading.Tasks",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": 2
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Data/OrderRepository.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": 3
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "IOrderRepository::GetAsync",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 9
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "OrderRepository",
+      "target_kind": "interface",
+      "target": "IOrderRepository",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": 12
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderRepository::GetAsync",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 14
+    },
+    {
+      "file": "src/Shop/Data/OrderRepository.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderRepository::GetAsync",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 14
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "method",
+      "target": "Customer::Customer",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "property",
+      "target": "Customer::Name",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "property",
+      "target": "Customer::Tier",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IAuditable",
+      "target_kind": "method",
+      "target": "IAuditable::Audit",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IEntity",
+      "target_kind": "property",
+      "target": "IEntity::Id",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Money",
+      "target_kind": "field",
+      "target": "Money::Amount",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Money",
+      "target_kind": "method",
+      "target": "Money::Money",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Money",
+      "target_kind": "method",
+      "target": "Money::Zero",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::AddLine",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::Audit",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::Create",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "property",
+      "target": "Order::Id",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "field",
+      "target": "Order::MaxLines",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "property",
+      "target": "Order::Status",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "property",
+      "target": "Order::Total",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::Touch",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::Validate",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "field",
+      "target": "Order::_lines",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::New",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::Paid",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::Shipped",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "class",
+      "target": "Customer",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "interface",
+      "target": "IAuditable",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "interface",
+      "target": "IEntity",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "struct",
+      "target": "Money",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "enum",
+      "target": "OrderStatus",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "import",
+      "target": "System.Collections.Generic",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 1
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Models/Order.cs",
+      "target_kind": "import",
+      "target": "System.Collections.Generic",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 2
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "IAuditable",
+      "target_kind": "interface",
+      "target": "IEntity",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 18
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Money::Zero",
+      "target_kind": "method",
+      "target": "Money::Money",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 29
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Money::Zero",
+      "target_kind": "method",
+      "target": "Money::Money",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 29
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "interface",
+      "target": "IAuditable",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 32
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Order::AddLine",
+      "target_kind": "method",
+      "target": "Order::Validate",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 51
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Order::Create",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 62
+    },
+    {
+      "file": "src/Shop/Models/Order.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Order::Create",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 62
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Program.cs",
+      "target_kind": "import",
+      "target": "Shop.Data",
+      "target_file": "src/Shop/Program.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Program.cs",
+      "target_kind": "import",
+      "target": "Shop.Services",
+      "target_file": "src/Shop/Program.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Program.cs",
+      "target_kind": "import",
+      "target": "Shop.Data",
+      "target_file": "src/Shop/Program.cs",
+      "line": 1
+    },
+    {
+      "file": "src/Shop/Program.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Program.cs",
+      "target_kind": "import",
+      "target": "Shop.Services",
+      "target_file": "src/Shop/Program.cs",
+      "line": 2
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::Commit",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::Committer",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "field",
+      "target": "Committer::_order",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IOrderService",
+      "target_kind": "method",
+      "target": "IOrderService::FindAsync",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "method",
+      "target": "OrderBuilder::Build",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "method",
+      "target": "OrderBuilder::WithId",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "field",
+      "target": "OrderBuilder::_id",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::Build",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::FindAsync",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::Import",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::Load",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::Log",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::OrderService",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "field",
+      "target": "OrderService::_builder",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "field",
+      "target": "OrderService::_repository",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ServiceBase",
+      "target_kind": "method",
+      "target": "ServiceBase::Load",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "interface",
+      "target": "IOrderService",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "class",
+      "target": "OrderBuilder",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "class",
+      "target": "OrderService",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "class",
+      "target": "ServiceBase",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "Shop.Data",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System.DateTime",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System.Math",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System.Threading.Tasks",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": null
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 1
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System.Threading.Tasks",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 2
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "Shop.Data",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 3
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 4
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System.Math",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 5
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Shop/Services/OrderService.cs",
+      "target_kind": "import",
+      "target": "System.DateTime",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 6
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "IOrderService::FindAsync",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 12
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "class",
+      "target": "ServiceBase",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 20
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "interface",
+      "target": "IOrderService",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 20
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::OrderService",
+      "target_kind": "interface",
+      "target": "IOrderRepository",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": 25
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderService::FindAsync",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 30
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::FindAsync",
+      "target_kind": "method",
+      "target": "IOrderRepository::GetAsync",
+      "target_file": "src/Shop/Data/OrderRepository.cs",
+      "line": 32
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::FindAsync",
+      "target_kind": "method",
+      "target": "OrderService::Log",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 33
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::FindAsync",
+      "target_kind": "method",
+      "target": "OrderService::Load",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 34
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderService::Load",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 37
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::Load",
+      "target_kind": "method",
+      "target": "Order::Create",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 39
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::Load",
+      "target_kind": "method",
+      "target": "Order::AddLine",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 40
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::Build",
+      "target_kind": "method",
+      "target": "OrderBuilder::WithId",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 44
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderService::Build",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 44
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::Import",
+      "target_kind": "struct",
+      "target": "Money",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 46
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::Log",
+      "target_kind": "method",
+      "target": "Order::Audit",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 52
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::Log",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 52
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderBuilder::WithId",
+      "target_kind": "class",
+      "target": "OrderBuilder",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 59
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderBuilder::Build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 65
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderBuilder::Build",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 65
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderBuilder::Build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/Shop/Services/OrderService.cs",
+      "line": 65
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Committer::Committer",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 72
+    },
+    {
+      "file": "src/Shop/Services/OrderService.cs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Committer::Commit",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 74
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderTests",
+      "target_kind": "method",
+      "target": "OrderTests::AddLineKeepsStatus",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": null
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "class",
+      "target": "OrderTests",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": null
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": null
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": null
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "import",
+      "target": "Xunit",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": null
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "tests",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "file",
+      "target": "src/Shop/Models/Order.cs",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": null
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": 1
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "import",
+      "target": "Shop.Models",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": 2
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "tests/Shop.Tests/OrderTests.cs",
+      "target_kind": "import",
+      "target": "Xunit",
+      "target_file": "tests/Shop.Tests/OrderTests.cs",
+      "line": 3
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderTests::AddLineKeepsStatus",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 12
+    },
+    {
+      "file": "tests/Shop.Tests/OrderTests.cs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderTests::AddLineKeepsStatus",
+      "target_kind": "method",
+      "target": "Order::AddLine",
+      "target_file": "src/Shop/Models/Order.cs",
+      "line": 13
+    }
+  ],
+  "unresolved": []
+}

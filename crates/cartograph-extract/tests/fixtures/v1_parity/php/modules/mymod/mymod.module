@@ -1,0 +1,19 @@
+<?php
+
+/**
+ * Implements hook_help().
+ */
+function mymod_help($route_name)
+{
+    return mymod_format($route_name);
+}
+
+function mymod_form_alter(&$form, $form_state, $form_id)
+{
+    $form['#title'] = 'x';
+}
+
+function mymod_format($text)
+{
+    return trim($text);
+}

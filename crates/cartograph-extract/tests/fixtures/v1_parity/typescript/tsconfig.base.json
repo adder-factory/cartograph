@@ -1,0 +1,9 @@
+{
+  // shared compiler settings
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+    },
+  },
+}

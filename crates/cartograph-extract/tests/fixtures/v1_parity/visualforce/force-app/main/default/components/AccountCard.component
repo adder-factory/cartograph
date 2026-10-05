@@ -1,0 +1,5 @@
+<apex:component controller="AccountController">
+    <apex:attribute name="record" type="Account" description="row"/>
+    <apex:outputText value="{!record.Name}"/>
+    <apex:commandButton action="{!save}" value="Save"/>
+</apex:component>

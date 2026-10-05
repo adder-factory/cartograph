@@ -1,0 +1,2431 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "php",
+  "files": [
+    "app/Http/Controllers/UserController.php",
+    "app/Models/User.php",
+    "app/Support/helpers.php",
+    "application/config/routes.php",
+    "application/controllers/Welcome.php",
+    "application/models/Audit_model.php",
+    "application/models/User_model.php",
+    "artisan",
+    "composer.json",
+    "index.php",
+    "modules/mymod/mymod.module",
+    "modules/mymod/src/Plugin/Block/HelloBlock.php",
+    "routes/web.php",
+    "src/Controller/BlogController.php",
+    "symfony.lock"
+  ],
+  "symbols": [
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "file",
+      "name": "UserController.php",
+      "qualified_name": "app/Http/Controllers/UserController.php",
+      "start_line": 1,
+      "end_line": 59
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "App\\Models\\User",
+      "qualified_name": "App\\Models\\User",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "App\\Models\\UserRepo",
+      "qualified_name": "App\\Models\\UserRepo",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "App\\Models\\ApiClient",
+      "qualified_name": "App\\Models\\ApiClient",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "App\\Models\\Suit",
+      "qualified_name": "App\\Models\\Suit",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "App\\Support\\helper_fn",
+      "qualified_name": "App\\Support\\helper_fn",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "App\\Support\\Config",
+      "qualified_name": "App\\Support\\Config",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "Illuminate\\Support\\Facades\\Cache",
+      "qualified_name": "Illuminate\\Support\\Facades\\Cache",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "app/Support/helpers.php",
+      "qualified_name": "app/Support/helpers.php",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "app/Models/User.php",
+      "qualified_name": "app/Models/User.php",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "import",
+      "name": "partials/header.php",
+      "qualified_name": "partials/header.php",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "class",
+      "name": "BaseController",
+      "qualified_name": "BaseController",
+      "start_line": 16,
+      "end_line": 22
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "method",
+      "name": "authorize",
+      "qualified_name": "BaseController::authorize",
+      "start_line": 18,
+      "end_line": 21
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "class",
+      "name": "UserController",
+      "qualified_name": "UserController",
+      "start_line": 24,
+      "end_line": 58
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "field",
+      "name": "users",
+      "qualified_name": "UserController::users",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "method",
+      "name": "__construct",
+      "qualified_name": "UserController::__construct",
+      "start_line": 28,
+      "end_line": 31
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "method",
+      "name": "index",
+      "qualified_name": "UserController::index",
+      "start_line": 33,
+      "end_line": 46
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "UserController::show",
+      "start_line": 48,
+      "end_line": 51
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "method",
+      "name": "store",
+      "qualified_name": "UserController::store",
+      "start_line": 53,
+      "end_line": 57
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "file",
+      "name": "User.php",
+      "qualified_name": "app/Models/User.php",
+      "start_line": 1,
+      "end_line": 122
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "import",
+      "name": "App\\Contracts\\Repo",
+      "qualified_name": "App\\Contracts\\Repo",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "import",
+      "name": "JsonSerializable",
+      "qualified_name": "JsonSerializable",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "constant",
+      "name": "MODEL_VERSION",
+      "qualified_name": "MODEL_VERSION",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "interface",
+      "name": "Repo",
+      "qualified_name": "Repo",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "Repo::find",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "class",
+      "name": "Model",
+      "qualified_name": "Model",
+      "start_line": 14,
+      "end_line": 29
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "where",
+      "qualified_name": "Model::where",
+      "start_line": 16,
+      "end_line": 19
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "get",
+      "qualified_name": "Model::get",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "boot",
+      "qualified_name": "Model::boot",
+      "start_line": 26,
+      "end_line": 28
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "trait",
+      "name": "Loggable",
+      "qualified_name": "Loggable",
+      "start_line": 31,
+      "end_line": 37
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "Loggable::log",
+      "start_line": 33,
+      "end_line": 36
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "trait",
+      "name": "Timestamps",
+      "qualified_name": "Timestamps",
+      "start_line": 39,
+      "end_line": 41
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "enum",
+      "name": "Suit",
+      "qualified_name": "Suit",
+      "start_line": 43,
+      "end_line": 52
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "enum_member",
+      "name": "Hearts",
+      "qualified_name": "Suit::Hearts",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "enum_member",
+      "name": "Spades",
+      "qualified_name": "Suit::Spades",
+      "start_line": 46,
+      "end_line": 46
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "label",
+      "qualified_name": "Suit::label",
+      "start_line": 48,
+      "end_line": 51
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 54,
+      "end_line": 101
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "constant",
+      "name": "ROLE_ADMIN",
+      "qualified_name": "User::ROLE_ADMIN",
+      "start_line": 58,
+      "end_line": 58
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "constant",
+      "name": "ROLE_USER",
+      "qualified_name": "User::ROLE_USER",
+      "start_line": 59,
+      "end_line": 59
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "field",
+      "name": "repo",
+      "qualified_name": "User::repo",
+      "start_line": 61,
+      "end_line": 61
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "field",
+      "name": "email",
+      "qualified_name": "User::email",
+      "start_line": 62,
+      "end_line": 62
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "User::count",
+      "start_line": 63,
+      "end_line": 63
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "__construct",
+      "qualified_name": "User::__construct",
+      "start_line": 65,
+      "end_line": 68
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "User::find",
+      "start_line": 70,
+      "end_line": 73
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "make",
+      "qualified_name": "User::make",
+      "start_line": 75,
+      "end_line": 78
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "User::save",
+      "start_line": 80,
+      "end_line": 85
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "touch",
+      "qualified_name": "User::touch",
+      "start_line": 87,
+      "end_line": 90
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "jsonSerialize",
+      "qualified_name": "User::jsonSerialize",
+      "start_line": 92,
+      "end_line": 95
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "count",
+      "qualified_name": "User::count",
+      "start_line": 97,
+      "end_line": 100
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "class",
+      "name": "UserRepo",
+      "qualified_name": "UserRepo",
+      "start_line": 103,
+      "end_line": 109
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "UserRepo::find",
+      "start_line": 105,
+      "end_line": 108
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "class",
+      "name": "ApiClient",
+      "qualified_name": "ApiClient",
+      "start_line": 111,
+      "end_line": 121
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "for",
+      "qualified_name": "ApiClient::for",
+      "start_line": 113,
+      "end_line": 116
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "method",
+      "name": "createOrder",
+      "qualified_name": "ApiClient::createOrder",
+      "start_line": 118,
+      "end_line": 120
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "file",
+      "name": "helpers.php",
+      "qualified_name": "app/Support/helpers.php",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "constant",
+      "name": "APP_VERSION",
+      "qualified_name": "APP_VERSION",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "class",
+      "name": "Config",
+      "qualified_name": "Config",
+      "start_line": 6,
+      "end_line": 9
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "field",
+      "name": "env",
+      "qualified_name": "Config::env",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "class",
+      "name": "Opts",
+      "qualified_name": "Opts",
+      "start_line": 11,
+      "end_line": 13
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "function",
+      "name": "helper_fn",
+      "qualified_name": "helper_fn",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "function",
+      "name": "format_name",
+      "qualified_name": "format_name",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "file",
+      "name": "routes.php",
+      "qualified_name": "application/config/routes.php",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "route",
+      "name": "ANY /",
+      "qualified_name": "application/config/routes.php::ANY:/",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "route",
+      "name": "ANY <404>",
+      "qualified_name": "application/config/routes.php::ANY:<404>",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "route",
+      "name": "ANY /shop",
+      "qualified_name": "application/config/routes.php::ANY:/shop",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "route",
+      "name": "POST /login",
+      "qualified_name": "application/config/routes.php::POST:/login",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "file",
+      "name": "Welcome.php",
+      "qualified_name": "application/controllers/Welcome.php",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "class",
+      "name": "Welcome",
+      "qualified_name": "Welcome",
+      "start_line": 4,
+      "end_line": 24
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "method",
+      "name": "index",
+      "qualified_name": "Welcome::index",
+      "start_line": 6,
+      "end_line": 13
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "route",
+      "name": "ANY /welcome",
+      "qualified_name": "application/controllers/Welcome.php::ANY:/welcome",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "method",
+      "name": "login",
+      "qualified_name": "Welcome::login",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "route",
+      "name": "ANY /welcome/login",
+      "qualified_name": "application/controllers/Welcome.php::ANY:/welcome/login",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "Welcome::helper",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "application/models/Audit_model.php",
+      "kind": "file",
+      "name": "Audit_model.php",
+      "qualified_name": "application/models/Audit_model.php",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "application/models/Audit_model.php",
+      "kind": "class",
+      "name": "Audit_model",
+      "qualified_name": "Audit_model",
+      "start_line": 2,
+      "end_line": 8
+    },
+    {
+      "file": "application/models/Audit_model.php",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "Audit_model::log",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "file",
+      "name": "User_model.php",
+      "qualified_name": "application/models/User_model.php",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "class",
+      "name": "User_model",
+      "qualified_name": "User_model",
+      "start_line": 2,
+      "end_line": 10
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "User_model::find",
+      "start_line": 4,
+      "end_line": 9
+    },
+    {
+      "file": "composer.json",
+      "kind": "file",
+      "name": "composer.json",
+      "qualified_name": "composer.json",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "index.php",
+      "kind": "file",
+      "name": "index.php",
+      "qualified_name": "index.php",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "index.php",
+      "kind": "import",
+      "name": "application/config/routes.php",
+      "qualified_name": "application/config/routes.php",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "file",
+      "name": "mymod.module",
+      "qualified_name": "modules/mymod/mymod.module",
+      "start_line": 1,
+      "end_line": 20
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "resource",
+      "name": "hook_form_alter",
+      "qualified_name": "modules/mymod/mymod.module::drupal-hook:hook_form_alter",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "resource",
+      "name": "hook_format",
+      "qualified_name": "modules/mymod/mymod.module::drupal-hook:hook_format",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "resource",
+      "name": "hook_help",
+      "qualified_name": "modules/mymod/mymod.module::drupal-hook:hook_help",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "function",
+      "name": "mymod_help",
+      "qualified_name": "mymod_help",
+      "start_line": 6,
+      "end_line": 9
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "function",
+      "name": "mymod_form_alter",
+      "qualified_name": "mymod_form_alter",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "function",
+      "name": "mymod_format",
+      "qualified_name": "mymod_format",
+      "start_line": 16,
+      "end_line": 19
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "file",
+      "name": "HelloBlock.php",
+      "qualified_name": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "class",
+      "name": "HelloBlock",
+      "qualified_name": "HelloBlock",
+      "start_line": 12,
+      "end_line": 18
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "resource",
+      "name": "hello_block",
+      "qualified_name": "modules/mymod/src/Plugin/Block/HelloBlock.php::Block:hello_block",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "HelloBlock::build",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "class",
+      "name": "GoodbyeBlock",
+      "qualified_name": "GoodbyeBlock",
+      "start_line": 20,
+      "end_line": 27
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "GoodbyeBlock::build",
+      "start_line": 23,
+      "end_line": 26
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "file",
+      "name": "web.php",
+      "qualified_name": "routes/web.php",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "import",
+      "name": "Illuminate\\Support\\Facades\\Route",
+      "qualified_name": "Illuminate\\Support\\Facades\\Route",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "import",
+      "name": "App\\Http\\Controllers\\UserController",
+      "qualified_name": "App\\Http\\Controllers\\UserController",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "route",
+      "name": "GET /users",
+      "qualified_name": "routes/web.php::GET:/users",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "route",
+      "name": "POST /users",
+      "qualified_name": "routes/web.php::POST:/users",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "route",
+      "name": "ANY /ping",
+      "qualified_name": "routes/web.php::ANY:/ping",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "route",
+      "name": "DELETE /users/{id}",
+      "qualified_name": "routes/web.php::DELETE:/users/{id}",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "route",
+      "name": "resource:photos",
+      "qualified_name": "routes/web.php::resource:photos",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "route",
+      "name": "resource:posts",
+      "qualified_name": "routes/web.php::resource:posts",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "file",
+      "name": "BlogController.php",
+      "qualified_name": "src/Controller/BlogController.php",
+      "start_line": 1,
+      "end_line": 26
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "import",
+      "name": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "qualified_name": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "class",
+      "name": "BlogController",
+      "qualified_name": "BlogController",
+      "start_line": 6,
+      "end_line": 25
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "route",
+      "name": "blog_",
+      "qualified_name": "src/Controller/BlogController.php#blog_",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "method",
+      "name": "list",
+      "qualified_name": "BlogController::list",
+      "start_line": 9,
+      "end_line": 13
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "route",
+      "name": "list",
+      "qualified_name": "src/Controller/BlogController.php#list",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "BlogController::show",
+      "start_line": 15,
+      "end_line": 19
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "route",
+      "name": "/post/{slug}",
+      "qualified_name": "src/Controller/BlogController.php#/post/{slug}",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "BlogController::render",
+      "start_line": 21,
+      "end_line": 24
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseController",
+      "target_kind": "method",
+      "target": "BaseController::authorize",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::__construct",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::index",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::show",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::store",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "field",
+      "target": "UserController::users",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Models\\ApiClient",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Models\\Suit",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Models\\User",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Models\\UserRepo",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Support\\Config",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Support\\helper_fn",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "class",
+      "target": "BaseController",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "Illuminate\\Support\\Facades\\Cache",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "class",
+      "target": "UserController",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "app/Models/User.php",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "app/Support/helpers.php",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "partials/header.php",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": null
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Models\\User",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 4
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Models\\UserRepo",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 5
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Support\\helper_fn",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 7
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "App\\Support\\Config",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 8
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "Illuminate\\Support\\Facades\\Cache",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 9
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "file",
+      "target": "app/Support/helpers.php",
+      "target_file": "app/Support/helpers.php",
+      "line": 11
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "file",
+      "target": "app/Models/User.php",
+      "target_file": "app/Models/User.php",
+      "line": 12
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Http/Controllers/UserController.php",
+      "target_kind": "import",
+      "target": "partials/header.php",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 13
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "class",
+      "target": "BaseController",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 24
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserController::__construct",
+      "target_kind": "import",
+      "target": "App\\Models\\UserRepo",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 30
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "BaseController::authorize",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 35
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "User::find",
+      "target_file": "app/Models/User.php",
+      "line": 36
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "User::save",
+      "target_file": "app/Models/User.php",
+      "line": 37
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "Model::where",
+      "target_file": "app/Models/User.php",
+      "line": 38
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "Model::get",
+      "target_file": "app/Models/User.php",
+      "line": 39
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "User::make",
+      "target_file": "app/Models/User.php",
+      "line": 41
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "ApiClient::createOrder",
+      "target_file": "app/Models/User.php",
+      "line": 42
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "ApiClient::for",
+      "target_file": "app/Models/User.php",
+      "line": 42
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "function",
+      "target": "helper_fn",
+      "target_file": "app/Support/helpers.php",
+      "line": 43
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "class",
+      "target": "Config",
+      "target_file": "app/Support/helpers.php",
+      "line": 43
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserController::show",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/Models/User.php",
+      "line": 48
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserController::store",
+      "target_kind": "import",
+      "target": "App\\Models\\UserRepo",
+      "target_file": "app/Http/Controllers/UserController.php",
+      "line": 55
+    },
+    {
+      "file": "app/Http/Controllers/UserController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::store",
+      "target_kind": "method",
+      "target": "Repo::find",
+      "target_file": "app/Models/User.php",
+      "line": 56
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ApiClient",
+      "target_kind": "method",
+      "target": "ApiClient::createOrder",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ApiClient",
+      "target_kind": "method",
+      "target": "ApiClient::for",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "trait",
+      "source": "Loggable",
+      "target_kind": "method",
+      "target": "Loggable::log",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Model",
+      "target_kind": "method",
+      "target": "Model::boot",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Model",
+      "target_kind": "method",
+      "target": "Model::get",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Model",
+      "target_kind": "method",
+      "target": "Model::where",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Repo",
+      "target_kind": "method",
+      "target": "Repo::find",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Suit",
+      "target_kind": "enum_member",
+      "target": "Suit::Hearts",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Suit",
+      "target_kind": "enum_member",
+      "target": "Suit::Spades",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Suit",
+      "target_kind": "method",
+      "target": "Suit::label",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "constant",
+      "target": "User::ROLE_ADMIN",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "constant",
+      "target": "User::ROLE_USER",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::__construct",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::count",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::count",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::email",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::find",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::jsonSerialize",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::make",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::repo",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::save",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::touch",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "method",
+      "target": "UserRepo::find",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "class",
+      "target": "ApiClient",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "import",
+      "target": "App\\Contracts\\Repo",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "import",
+      "target": "JsonSerializable",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "trait",
+      "target": "Loggable",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "constant",
+      "target": "MODEL_VERSION",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "class",
+      "target": "Model",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "interface",
+      "target": "Repo",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "enum",
+      "target": "Suit",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "trait",
+      "target": "Timestamps",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "app/Models/User.php",
+      "line": null
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "import",
+      "target": "App\\Contracts\\Repo",
+      "target_file": "app/Models/User.php",
+      "line": 4
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/Models/User.php",
+      "target_kind": "import",
+      "target": "JsonSerializable",
+      "target_file": "app/Models/User.php",
+      "line": 5
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Repo::find",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/Models/User.php",
+      "line": 11
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "Model",
+      "target_file": "app/Models/User.php",
+      "line": 54
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "import",
+      "target": "JsonSerializable",
+      "target_file": "app/Models/User.php",
+      "line": 54
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "trait",
+      "target": "Loggable",
+      "target_file": "app/Models/User.php",
+      "line": 56
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "trait",
+      "target": "Timestamps",
+      "target_file": "app/Models/User.php",
+      "line": 56
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "User::__construct",
+      "target_kind": "interface",
+      "target": "Repo",
+      "target_file": "app/Models/User.php",
+      "line": 65
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "User::find",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "app/Models/User.php",
+      "line": 72
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::make",
+      "target_kind": "method",
+      "target": "User::find",
+      "target_file": "app/Models/User.php",
+      "line": 77
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::save",
+      "target_kind": "method",
+      "target": "Loggable::log",
+      "target_file": "app/Models/User.php",
+      "line": 82
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::save",
+      "target_kind": "method",
+      "target": "User::touch",
+      "target_file": "app/Models/User.php",
+      "line": 83
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::touch",
+      "target_kind": "method",
+      "target": "Model::boot",
+      "target_file": "app/Models/User.php",
+      "line": 89
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "interface",
+      "target": "Repo",
+      "target_file": "app/Models/User.php",
+      "line": 103
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserRepo::find",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/Models/User.php",
+      "line": 105
+    },
+    {
+      "file": "app/Models/User.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserRepo::find",
+      "target_kind": "method",
+      "target": "User::find",
+      "target_file": "app/Models/User.php",
+      "line": 107
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Config",
+      "target_kind": "field",
+      "target": "Config::env",
+      "target_file": "app/Support/helpers.php",
+      "line": null
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Support/helpers.php",
+      "target_kind": "constant",
+      "target": "APP_VERSION",
+      "target_file": "app/Support/helpers.php",
+      "line": null
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Support/helpers.php",
+      "target_kind": "class",
+      "target": "Config",
+      "target_file": "app/Support/helpers.php",
+      "line": null
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Support/helpers.php",
+      "target_kind": "class",
+      "target": "Opts",
+      "target_file": "app/Support/helpers.php",
+      "line": null
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Support/helpers.php",
+      "target_kind": "function",
+      "target": "format_name",
+      "target_file": "app/Support/helpers.php",
+      "line": null
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Support/helpers.php",
+      "target_kind": "function",
+      "target": "helper_fn",
+      "target_file": "app/Support/helpers.php",
+      "line": null
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "helper_fn",
+      "target_kind": "class",
+      "target": "Config",
+      "target_file": "app/Support/helpers.php",
+      "line": 15
+    },
+    {
+      "file": "app/Support/helpers.php",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "helper_fn",
+      "target_kind": "class",
+      "target": "Opts",
+      "target_file": "app/Support/helpers.php",
+      "line": 15
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "application/config/routes.php::ANY:/",
+      "target_kind": "method",
+      "target": "Welcome::index",
+      "target_file": "application/controllers/Welcome.php",
+      "line": 4
+    },
+    {
+      "file": "application/config/routes.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "application/config/routes.php::POST:/login",
+      "target_kind": "method",
+      "target": "Welcome::login",
+      "target_file": "application/controllers/Welcome.php",
+      "line": 8
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Welcome",
+      "target_kind": "method",
+      "target": "Welcome::helper",
+      "target_file": "application/controllers/Welcome.php",
+      "line": null
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Welcome",
+      "target_kind": "method",
+      "target": "Welcome::index",
+      "target_file": "application/controllers/Welcome.php",
+      "line": null
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Welcome",
+      "target_kind": "method",
+      "target": "Welcome::login",
+      "target_file": "application/controllers/Welcome.php",
+      "line": null
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "application/controllers/Welcome.php",
+      "target_kind": "class",
+      "target": "Welcome",
+      "target_file": "application/controllers/Welcome.php",
+      "line": null
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "application/controllers/Welcome.php::ANY:/welcome",
+      "target_kind": "method",
+      "target": "Welcome::index",
+      "target_file": "application/controllers/Welcome.php",
+      "line": 6
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "application/controllers/Welcome.php",
+      "target_kind": "class",
+      "target": "User_model",
+      "target_file": "application/models/User_model.php",
+      "line": 8
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "application/controllers/Welcome.php",
+      "target_kind": "method",
+      "target": "User_model::find",
+      "target_file": "application/models/User_model.php",
+      "line": 10
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "application/controllers/Welcome.php",
+      "target_kind": "method",
+      "target": "Audit_model::log",
+      "target_file": "application/models/Audit_model.php",
+      "line": 12
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "application/controllers/Welcome.php::ANY:/welcome/login",
+      "target_kind": "method",
+      "target": "Welcome::login",
+      "target_file": "application/controllers/Welcome.php",
+      "line": 15
+    },
+    {
+      "file": "application/controllers/Welcome.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Welcome::login",
+      "target_kind": "method",
+      "target": "Welcome::helper",
+      "target_file": "application/controllers/Welcome.php",
+      "line": 17
+    },
+    {
+      "file": "application/models/Audit_model.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Audit_model",
+      "target_kind": "method",
+      "target": "Audit_model::log",
+      "target_file": "application/models/Audit_model.php",
+      "line": null
+    },
+    {
+      "file": "application/models/Audit_model.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "application/models/Audit_model.php",
+      "target_kind": "class",
+      "target": "Audit_model",
+      "target_file": "application/models/Audit_model.php",
+      "line": null
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User_model",
+      "target_kind": "method",
+      "target": "User_model::find",
+      "target_file": "application/models/User_model.php",
+      "line": null
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "application/models/User_model.php",
+      "target_kind": "class",
+      "target": "User_model",
+      "target_file": "application/models/User_model.php",
+      "line": null
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "application/models/User_model.php",
+      "target_kind": "class",
+      "target": "Audit_model",
+      "target_file": "application/models/Audit_model.php",
+      "line": 6
+    },
+    {
+      "file": "application/models/User_model.php",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "application/models/User_model.php",
+      "target_kind": "method",
+      "target": "Audit_model::log",
+      "target_file": "application/models/Audit_model.php",
+      "line": 7
+    },
+    {
+      "file": "index.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "index.php",
+      "target_kind": "import",
+      "target": "application/config/routes.php",
+      "target_file": "index.php",
+      "line": null
+    },
+    {
+      "file": "index.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "index.php",
+      "target_kind": "file",
+      "target": "application/config/routes.php",
+      "target_file": "application/config/routes.php",
+      "line": 3
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "modules/mymod/mymod.module",
+      "target_kind": "function",
+      "target": "mymod_form_alter",
+      "target_file": "modules/mymod/mymod.module",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "modules/mymod/mymod.module",
+      "target_kind": "function",
+      "target": "mymod_format",
+      "target_file": "modules/mymod/mymod.module",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "modules/mymod/mymod.module",
+      "target_kind": "function",
+      "target": "mymod_help",
+      "target_file": "modules/mymod/mymod.module",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "mymod_form_alter",
+      "target_kind": "resource",
+      "target": "modules/mymod/mymod.module::drupal-hook:hook_form_alter",
+      "target_file": "modules/mymod/mymod.module",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "mymod_format",
+      "target_kind": "resource",
+      "target": "modules/mymod/mymod.module::drupal-hook:hook_format",
+      "target_file": "modules/mymod/mymod.module",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "mymod_help",
+      "target_kind": "resource",
+      "target": "modules/mymod/mymod.module::drupal-hook:hook_help",
+      "target_file": "modules/mymod/mymod.module",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/mymod.module",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "mymod_help",
+      "target_kind": "function",
+      "target": "mymod_format",
+      "target_file": "modules/mymod/mymod.module",
+      "line": 8
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "GoodbyeBlock",
+      "target_kind": "method",
+      "target": "GoodbyeBlock::build",
+      "target_file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HelloBlock",
+      "target_kind": "method",
+      "target": "HelloBlock::build",
+      "target_file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "target_kind": "class",
+      "target": "GoodbyeBlock",
+      "target_file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "target_kind": "class",
+      "target": "HelloBlock",
+      "target_file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "line": null
+    },
+    {
+      "file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "modules/mymod/src/Plugin/Block/HelloBlock.php::Block:hello_block",
+      "target_kind": "class",
+      "target": "HelloBlock",
+      "target_file": "modules/mymod/src/Plugin/Block/HelloBlock.php",
+      "line": null
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "routes/web.php",
+      "target_kind": "import",
+      "target": "App\\Http\\Controllers\\UserController",
+      "target_file": "routes/web.php",
+      "line": null
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "routes/web.php",
+      "target_kind": "import",
+      "target": "Illuminate\\Support\\Facades\\Route",
+      "target_file": "routes/web.php",
+      "line": null
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "routes/web.php",
+      "target_kind": "import",
+      "target": "Illuminate\\Support\\Facades\\Route",
+      "target_file": "routes/web.php",
+      "line": 2
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "routes/web.php",
+      "target_kind": "import",
+      "target": "App\\Http\\Controllers\\UserController",
+      "target_file": "routes/web.php",
+      "line": 3
+    },
+    {
+      "file": "routes/web.php",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "routes/web.php",
+      "target_kind": "method",
+      "target": "Model::get",
+      "target_file": "app/Models/User.php",
+      "line": 5
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "method",
+      "target": "BlogController::list",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "method",
+      "target": "BlogController::render",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "method",
+      "target": "BlogController::show",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Controller/BlogController.php",
+      "target_kind": "class",
+      "target": "BlogController",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Controller/BlogController.php",
+      "target_kind": "import",
+      "target": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Controller/BlogController.php",
+      "target_kind": "import",
+      "target": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 4
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "src/Controller/BlogController.php#blog_",
+      "target_kind": "method",
+      "target": "BlogController::list",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 6
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "decorates",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "import",
+      "target": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 6
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "src/Controller/BlogController.php#list",
+      "target_kind": "method",
+      "target": "BlogController::list",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 9
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "BlogController::list",
+      "target_kind": "import",
+      "target": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 9
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "BlogController::list",
+      "target_kind": "method",
+      "target": "BlogController::render",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 12
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "src/Controller/BlogController.php#/post/{slug}",
+      "target_kind": "method",
+      "target": "BlogController::show",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 15
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "BlogController::show",
+      "target_kind": "import",
+      "target": "Symfony\\Component\\Routing\\Attribute\\Route",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 15
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "BlogController::show",
+      "target_kind": "method",
+      "target": "BlogController::render",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 18
+    }
+  ],
+  "unresolved": []
+}

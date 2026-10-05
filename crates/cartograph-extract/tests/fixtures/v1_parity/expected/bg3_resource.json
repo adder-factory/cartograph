@@ -1,0 +1,442 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "bg3_resource",
+  "files": [
+    "Mods/Demo/Localization/English/english.xml",
+    "Public/Demo/Assets/Effects/Test.lsx",
+    "Public/Demo/Assets/Weapons/WPN_Hand_Cannon_Revolver_03.xml",
+    "Public/Demo/Content/Rules.lsx",
+    "Public/Demo/RootTemplates/Base.lsx",
+    "Public/Demo/RootTemplates/Binary.lsf",
+    "Public/Demo/RootTemplates/JsonItem.lsj",
+    "Public/Demo/RootTemplates/Sword.lsx"
+  ],
+  "symbols": [
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "file",
+      "name": "english.xml",
+      "qualified_name": "Mods/Demo/Localization/English/english.xml",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "resource",
+      "name": "h123456789abc",
+      "qualified_name": "h123456789abc",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "resource",
+      "name": "h00a33f75ge607g4aa2ga34ag4e2849aa53f9",
+      "qualified_name": "h00a33f75ge607g4aa2ga34ag4e2849aa53f9",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "resource",
+      "name": "h0000aaaabbbbcccc",
+      "qualified_name": "h0000aaaabbbbcccc",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "file",
+      "name": "Test.lsx",
+      "qualified_name": "Public/Demo/Assets/Effects/Test.lsx",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "resource",
+      "name": "FX_Target",
+      "qualified_name": "Public/Demo/Assets/Effects/Test.lsx::FX_Target",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "resource",
+      "name": "FX_Component_Glow",
+      "qualified_name": "Public/Demo/Assets/Effects/Test.lsx::FX_Component_Glow",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "file",
+      "name": "Rules.lsx",
+      "qualified_name": "Public/Demo/Content/Rules.lsx",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "namespace",
+      "name": "Rulesets",
+      "qualified_name": "Public/Demo/Content/Rules.lsx::Rulesets",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "resource",
+      "name": "Demo_Ruleset",
+      "qualified_name": "Public/Demo/Content/Rules.lsx::Demo_Ruleset",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "resource",
+      "name": "Demo_Selector",
+      "qualified_name": "Public/Demo/Content/Rules.lsx::Demo_Selector",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "file",
+      "name": "Base.lsx",
+      "qualified_name": "Public/Demo/RootTemplates/Base.lsx",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "namespace",
+      "name": "Templates",
+      "qualified_name": "Public/Demo/RootTemplates/Base.lsx::Templates",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "resource",
+      "name": "BASE_Sword",
+      "qualified_name": "22222222-2222-2222-2222-222222222222",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "resource",
+      "name": "TAG_Weapon_Blade",
+      "qualified_name": "33333333-3333-3333-3333-333333333333",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Binary.lsf",
+      "kind": "file",
+      "name": "Binary.lsf",
+      "qualified_name": "Public/Demo/RootTemplates/Binary.lsf",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "file",
+      "name": "JsonItem.lsj",
+      "qualified_name": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "resource",
+      "name": "MAG_JSON_Item",
+      "qualified_name": "44444444-4444-4444-4444-444444444444",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "resource",
+      "name": "MAG_JSON_Child",
+      "qualified_name": "Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "file",
+      "name": "Sword.lsx",
+      "qualified_name": "Public/Demo/RootTemplates/Sword.lsx",
+      "start_line": 1,
+      "end_line": 41
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "namespace",
+      "name": "Templates",
+      "qualified_name": "Public/Demo/RootTemplates/Sword.lsx::Templates",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "resource",
+      "name": "MAG_Test_Sword",
+      "qualified_name": "11111111-1111-1111-1111-111111111111",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "resource",
+      "name": "Action",
+      "qualified_name": "Public/Demo/RootTemplates/Sword.lsx::Action",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "resource",
+      "name": "Demo_Folder_Object",
+      "qualified_name": "Public/Demo/RootTemplates/Sword.lsx::Demo_Folder_Object",
+      "start_line": 32,
+      "end_line": 32
+    }
+  ],
+  "edges": [
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Localization/English/english.xml",
+      "target_kind": "resource",
+      "target": "h0000aaaabbbbcccc",
+      "target_file": "Mods/Demo/Localization/English/english.xml",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Localization/English/english.xml",
+      "target_kind": "resource",
+      "target": "h00a33f75ge607g4aa2ga34ag4e2849aa53f9",
+      "target_file": "Mods/Demo/Localization/English/english.xml",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Localization/English/english.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Localization/English/english.xml",
+      "target_kind": "resource",
+      "target": "h123456789abc",
+      "target_file": "Mods/Demo/Localization/English/english.xml",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/Assets/Effects/Test.lsx",
+      "target_kind": "resource",
+      "target": "Public/Demo/Assets/Effects/Test.lsx::FX_Component_Glow",
+      "target_file": "Public/Demo/Assets/Effects/Test.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/Assets/Effects/Test.lsx",
+      "target_kind": "resource",
+      "target": "Public/Demo/Assets/Effects/Test.lsx::FX_Target",
+      "target_file": "Public/Demo/Assets/Effects/Test.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Public/Demo/Assets/Effects/Test.lsx::FX_Target",
+      "target_kind": "resource",
+      "target": "h00a33f75ge607g4aa2ga34ag4e2849aa53f9",
+      "target_file": "Mods/Demo/Localization/English/english.xml",
+      "line": 2
+    },
+    {
+      "file": "Public/Demo/Assets/Effects/Test.lsx",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Public/Demo/Assets/Effects/Test.lsx::FX_Component_Glow",
+      "target_kind": "resource",
+      "target": "Public/Demo/Assets/Effects/Test.lsx::FX_Target",
+      "target_file": "Public/Demo/Assets/Effects/Test.lsx",
+      "line": 3
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/Content/Rules.lsx",
+      "target_kind": "namespace",
+      "target": "Public/Demo/Content/Rules.lsx::Rulesets",
+      "target_file": "Public/Demo/Content/Rules.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/Content/Rules.lsx::Rulesets",
+      "target_kind": "resource",
+      "target": "Public/Demo/Content/Rules.lsx::Demo_Ruleset",
+      "target_file": "Public/Demo/Content/Rules.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/Content/Rules.lsx::Rulesets",
+      "target_kind": "resource",
+      "target": "Public/Demo/Content/Rules.lsx::Demo_Selector",
+      "target_file": "Public/Demo/Content/Rules.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Content/Rules.lsx",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Public/Demo/Content/Rules.lsx::Demo_Ruleset",
+      "target_kind": "resource",
+      "target": "h0000aaaabbbbcccc",
+      "target_file": "Mods/Demo/Localization/English/english.xml",
+      "line": 9
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/RootTemplates/Base.lsx",
+      "target_kind": "namespace",
+      "target": "Public/Demo/RootTemplates/Base.lsx::Templates",
+      "target_file": "Public/Demo/RootTemplates/Base.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/RootTemplates/Base.lsx::Templates",
+      "target_kind": "resource",
+      "target": "22222222-2222-2222-2222-222222222222",
+      "target_file": "Public/Demo/RootTemplates/Base.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Base.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/RootTemplates/Base.lsx::Templates",
+      "target_kind": "resource",
+      "target": "33333333-3333-3333-3333-333333333333",
+      "target_file": "Public/Demo/RootTemplates/Base.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "contains",
+      "source_kind": "resource",
+      "source": "44444444-4444-4444-4444-444444444444",
+      "target_kind": "resource",
+      "target": "Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child",
+      "target_file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "target_kind": "resource",
+      "target": "44444444-4444-4444-4444-444444444444",
+      "target_file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "44444444-4444-4444-4444-444444444444",
+      "target_kind": "resource",
+      "target": "44444444-4444-4444-4444-444444444444",
+      "target_file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "line": 2
+    },
+    {
+      "file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child",
+      "target_kind": "resource",
+      "target": "Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child",
+      "target_file": "Public/Demo/RootTemplates/JsonItem.lsj",
+      "line": 7
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/RootTemplates/Sword.lsx",
+      "target_kind": "namespace",
+      "target": "Public/Demo/RootTemplates/Sword.lsx::Templates",
+      "target_file": "Public/Demo/RootTemplates/Sword.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/RootTemplates/Sword.lsx::Templates",
+      "target_kind": "resource",
+      "target": "11111111-1111-1111-1111-111111111111",
+      "target_file": "Public/Demo/RootTemplates/Sword.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/RootTemplates/Sword.lsx::Templates",
+      "target_kind": "resource",
+      "target": "Public/Demo/RootTemplates/Sword.lsx::Action",
+      "target_file": "Public/Demo/RootTemplates/Sword.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Public/Demo/RootTemplates/Sword.lsx::Templates",
+      "target_kind": "resource",
+      "target": "Public/Demo/RootTemplates/Sword.lsx::Demo_Folder_Object",
+      "target_file": "Public/Demo/RootTemplates/Sword.lsx",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/RootTemplates/Sword.lsx",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "11111111-1111-1111-1111-111111111111",
+      "target_kind": "resource",
+      "target": "h123456789abc",
+      "target_file": "Mods/Demo/Localization/English/english.xml",
+      "line": 11
+    }
+  ],
+  "unresolved": []
+}

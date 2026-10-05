@@ -1,0 +1,416 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "fish",
+  "files": [
+    "conf.d/aliases.fish",
+    "config.fish",
+    "functions/deploy.fish",
+    "functions/greet.fish"
+  ],
+  "symbols": [
+    {
+      "file": "conf.d/aliases.fish",
+      "kind": "file",
+      "name": "aliases.fish",
+      "qualified_name": "conf.d/aliases.fish",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "conf.d/aliases.fish",
+      "kind": "function",
+      "name": "setup_aliases",
+      "qualified_name": "setup_aliases",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "conf.d/aliases.fish",
+      "kind": "function",
+      "name": "log_info",
+      "qualified_name": "log_info",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "config.fish",
+      "kind": "file",
+      "name": "config.fish",
+      "qualified_name": "config.fish",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "config.fish",
+      "kind": "variable",
+      "name": "VERSION",
+      "qualified_name": "VERSION",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "config.fish",
+      "kind": "variable",
+      "name": "EDITOR",
+      "qualified_name": "EDITOR",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "config.fish",
+      "kind": "variable",
+      "name": "PAGER",
+      "qualified_name": "PAGER",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "config.fish",
+      "kind": "variable",
+      "name": "fish_greeting",
+      "qualified_name": "fish_greeting",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "config.fish",
+      "kind": "variable",
+      "name": "LANG",
+      "qualified_name": "LANG",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "config.fish",
+      "kind": "import",
+      "name": "conf.d/aliases.fish",
+      "qualified_name": "conf.d/aliases.fish",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "config.fish",
+      "kind": "import",
+      "name": "functions/greet.fish",
+      "qualified_name": "functions/greet.fish",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "config.fish",
+      "kind": "import",
+      "name": "functions/deploy.fish",
+      "qualified_name": "functions/deploy.fish",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "file",
+      "name": "deploy.fish",
+      "qualified_name": "functions/deploy.fish",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "variable",
+      "name": "DEPLOY_TARGET",
+      "qualified_name": "DEPLOY_TARGET",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "function",
+      "name": "deploy",
+      "qualified_name": "deploy",
+      "start_line": 3,
+      "end_line": 8
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "function",
+      "name": "run_step",
+      "qualified_name": "run_step",
+      "start_line": 10,
+      "end_line": 13
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "file",
+      "name": "greet.fish",
+      "qualified_name": "functions/greet.fish",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "greet",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "variable",
+      "name": "who",
+      "qualified_name": "greet::who",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "function",
+      "name": "format_name",
+      "qualified_name": "format_name",
+      "start_line": 11,
+      "end_line": 13
+    }
+  ],
+  "edges": [
+    {
+      "file": "conf.d/aliases.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "conf.d/aliases.fish",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "conf.d/aliases.fish",
+      "line": null
+    },
+    {
+      "file": "conf.d/aliases.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "conf.d/aliases.fish",
+      "target_kind": "function",
+      "target": "setup_aliases",
+      "target_file": "conf.d/aliases.fish",
+      "line": null
+    },
+    {
+      "file": "conf.d/aliases.fish",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "setup_aliases",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "conf.d/aliases.fish",
+      "line": 4
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "variable",
+      "target": "EDITOR",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "variable",
+      "target": "LANG",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "variable",
+      "target": "PAGER",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "variable",
+      "target": "VERSION",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "import",
+      "target": "conf.d/aliases.fish",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "variable",
+      "target": "fish_greeting",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "import",
+      "target": "functions/deploy.fish",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "import",
+      "target": "functions/greet.fish",
+      "target_file": "config.fish",
+      "line": null
+    },
+    {
+      "file": "config.fish",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "functions/greet.fish",
+      "line": 15
+    },
+    {
+      "file": "config.fish",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "config.fish",
+      "target_kind": "function",
+      "target": "setup_aliases",
+      "target_file": "conf.d/aliases.fish",
+      "line": 16
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "functions/deploy.fish",
+      "target_kind": "variable",
+      "target": "DEPLOY_TARGET",
+      "target_file": "functions/deploy.fish",
+      "line": null
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "functions/deploy.fish",
+      "target_kind": "function",
+      "target": "deploy",
+      "target_file": "functions/deploy.fish",
+      "line": null
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "functions/deploy.fish",
+      "target_kind": "function",
+      "target": "run_step",
+      "target_file": "functions/deploy.fish",
+      "line": null
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "deploy",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "functions/greet.fish",
+      "line": 5
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "deploy",
+      "target_kind": "function",
+      "target": "run_step",
+      "target_file": "functions/deploy.fish",
+      "line": 6
+    },
+    {
+      "file": "functions/deploy.fish",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run_step",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "conf.d/aliases.fish",
+      "line": 11
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "functions/greet.fish",
+      "target_kind": "function",
+      "target": "format_name",
+      "target_file": "functions/greet.fish",
+      "line": null
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "functions/greet.fish",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "functions/greet.fish",
+      "line": null
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "greet",
+      "target_kind": "variable",
+      "target": "greet::who",
+      "target_file": "functions/greet.fish",
+      "line": null
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "greet",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "conf.d/aliases.fish",
+      "line": 6
+    },
+    {
+      "file": "functions/greet.fish",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "greet",
+      "target_kind": "function",
+      "target": "format_name",
+      "target_file": "functions/greet.fish",
+      "line": 8
+    }
+  ],
+  "unresolved": []
+}

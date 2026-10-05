@@ -1,0 +1,12 @@
+alias_type {CHARACTER, 6, 5}
+alias_type {ITEM, 7, 5}
+enum_type {TAGCATEGORY, 31, 0, Undefined = 0, Code = 1}
+syscall SysCompleteGoal((STRING)_GoalTitle) (1,0,0,0)
+sysquery SysStatus([in](STRING)_GoalTitle,[out](INTEGER)_Status) (100,0,0,0)
+call ApplyStatus((GUIDSTRING)_Object, (STRING)_Status, (REAL)_Duration) (1,0,0,0)
+call RemoveStatus((GUIDSTRING)_Object, (STRING)_Status, (GUIDSTRING)_Cause) (1,0,0,0)
+call DebugText((GUIDSTRING)_Object, (STRING)_Text) (1,0,0,0)
+query HasActiveStatus([in](GUIDSTRING)_Object,[in](STRING)_Status,[out](INTEGER)_Bool) (2,0,0,0)
+query IntegerSum([in](INTEGER)_A,[in](INTEGER)_B,[out](INTEGER)_Sum) (2,0,0,0)
+event CharacterUsedSkill((CHARACTER)_Character, (STRING)_Skill, (STRING)_Type) (3,0,0,0)
+event Unequipped((ITEM)_Item, (CHARACTER)_Character) (3,0,0,0)

@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/shop-core", "crates/shop-web"]
+resolver = "2"

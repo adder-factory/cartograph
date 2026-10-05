@@ -1,0 +1,4 @@
+<save>
+  <effect Name='FX_Target' class='VisualEffect' Resource='h00a33f75ge607g4aa2ga34ag4e2849aa53f9' />
+  <component instancename='FX_Component_Glow' Resource='FX_Target' />
+</save>

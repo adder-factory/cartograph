@@ -1,0 +1,592 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "bash",
+  "files": [
+    "scripts/deploy.sh",
+    "scripts/lib/fs.bash",
+    "scripts/lib/log.sh",
+    "tools/run.sh"
+  ],
+  "symbols": [
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "file",
+      "name": "deploy.sh",
+      "qualified_name": "scripts/deploy.sh",
+      "start_line": 1,
+      "end_line": 46
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "import",
+      "name": "./scripts/lib/log.sh",
+      "qualified_name": "./scripts/lib/log.sh",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "import",
+      "name": "./scripts/lib/fs.bash",
+      "qualified_name": "./scripts/lib/fs.bash",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "import",
+      "name": "./scripts/lib/log.sh",
+      "qualified_name": "./scripts/lib/log.sh",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "variable",
+      "name": "DEPLOY_ENV",
+      "qualified_name": "DEPLOY_ENV",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "variable",
+      "name": "PATH",
+      "qualified_name": "PATH",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "constant",
+      "name": "RELEASE_DIR",
+      "qualified_name": "RELEASE_DIR",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "variable",
+      "name": "COUNT",
+      "qualified_name": "COUNT",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "variable",
+      "name": "BUILD_ID",
+      "qualified_name": "BUILD_ID",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "function",
+      "name": "build",
+      "qualified_name": "build",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "function",
+      "name": "package",
+      "qualified_name": "package",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "function",
+      "name": "deploy",
+      "qualified_name": "deploy",
+      "start_line": 25,
+      "end_line": 32
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 38,
+      "end_line": 43
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "file",
+      "name": "fs.bash",
+      "qualified_name": "scripts/lib/fs.bash",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "import",
+      "name": "./scripts/lib/log.sh",
+      "qualified_name": "./scripts/lib/log.sh",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "function",
+      "name": "ensure_dir",
+      "qualified_name": "ensure_dir",
+      "start_line": 4,
+      "end_line": 10
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "function",
+      "name": "copy_tree",
+      "qualified_name": "copy_tree",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "file",
+      "name": "log.sh",
+      "qualified_name": "scripts/lib/log.sh",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "constant",
+      "name": "LOG_PREFIX",
+      "qualified_name": "LOG_PREFIX",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "variable",
+      "name": "LOG_LEVEL",
+      "qualified_name": "LOG_LEVEL",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "variable",
+      "name": "LOG_TARGETS",
+      "qualified_name": "LOG_TARGETS",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "function",
+      "name": "log_info",
+      "qualified_name": "log_info",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "function",
+      "name": "log_error",
+      "qualified_name": "log_error",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "function",
+      "name": "log_debug",
+      "qualified_name": "log_debug",
+      "start_line": 16,
+      "end_line": 21
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "file",
+      "name": "run.sh",
+      "qualified_name": "tools/run.sh",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "import",
+      "name": "./scripts/lib/log.sh",
+      "qualified_name": "./scripts/lib/log.sh",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "function",
+      "name": "usage",
+      "qualified_name": "usage",
+      "start_line": 4,
+      "end_line": 6
+    }
+  ],
+  "edges": [
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "import",
+      "target": "./scripts/lib/fs.bash",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "import",
+      "target": "./scripts/lib/log.sh",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "import",
+      "target": "./scripts/lib/log.sh",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "variable",
+      "target": "BUILD_ID",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "variable",
+      "target": "COUNT",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "variable",
+      "target": "DEPLOY_ENV",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "variable",
+      "target": "PATH",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "constant",
+      "target": "RELEASE_DIR",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "function",
+      "target": "build",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "function",
+      "target": "deploy",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "function",
+      "target": "package",
+      "target_file": "scripts/deploy.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "build",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "scripts/lib/log.sh",
+      "line": 16
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "package",
+      "target_kind": "function",
+      "target": "copy_tree",
+      "target_file": "scripts/lib/fs.bash",
+      "line": 21
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "deploy",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "scripts/lib/log.sh",
+      "line": 28
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "deploy",
+      "target_kind": "function",
+      "target": "log_error",
+      "target_file": "scripts/lib/log.sh",
+      "line": 29
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "deploy",
+      "target_kind": "function",
+      "target": "log_debug",
+      "target_file": "scripts/lib/log.sh",
+      "line": 30
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "build",
+      "target_file": "scripts/deploy.sh",
+      "line": 39
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "package",
+      "target_file": "scripts/deploy.sh",
+      "line": 40
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "deploy",
+      "target_file": "scripts/deploy.sh",
+      "line": 41
+    },
+    {
+      "file": "scripts/deploy.sh",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "scripts/deploy.sh",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "scripts/deploy.sh",
+      "line": 45
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/fs.bash",
+      "target_kind": "import",
+      "target": "./scripts/lib/log.sh",
+      "target_file": "scripts/lib/fs.bash",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/fs.bash",
+      "target_kind": "function",
+      "target": "copy_tree",
+      "target_file": "scripts/lib/fs.bash",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/fs.bash",
+      "target_kind": "function",
+      "target": "ensure_dir",
+      "target_file": "scripts/lib/fs.bash",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "ensure_dir",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "scripts/lib/log.sh",
+      "line": 8
+    },
+    {
+      "file": "scripts/lib/fs.bash",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "copy_tree",
+      "target_kind": "function",
+      "target": "ensure_dir",
+      "target_file": "scripts/lib/fs.bash",
+      "line": 13
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/log.sh",
+      "target_kind": "variable",
+      "target": "LOG_LEVEL",
+      "target_file": "scripts/lib/log.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/log.sh",
+      "target_kind": "constant",
+      "target": "LOG_PREFIX",
+      "target_file": "scripts/lib/log.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/log.sh",
+      "target_kind": "variable",
+      "target": "LOG_TARGETS",
+      "target_file": "scripts/lib/log.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/log.sh",
+      "target_kind": "function",
+      "target": "log_debug",
+      "target_file": "scripts/lib/log.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/log.sh",
+      "target_kind": "function",
+      "target": "log_error",
+      "target_file": "scripts/lib/log.sh",
+      "line": null
+    },
+    {
+      "file": "scripts/lib/log.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/lib/log.sh",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "scripts/lib/log.sh",
+      "line": null
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tools/run.sh",
+      "target_kind": "import",
+      "target": "./scripts/lib/log.sh",
+      "target_file": "tools/run.sh",
+      "line": null
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tools/run.sh",
+      "target_kind": "function",
+      "target": "usage",
+      "target_file": "tools/run.sh",
+      "line": null
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "tools/run.sh",
+      "target_kind": "function",
+      "target": "usage",
+      "target_file": "tools/run.sh",
+      "line": 9
+    },
+    {
+      "file": "tools/run.sh",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "tools/run.sh",
+      "target_kind": "function",
+      "target": "log_info",
+      "target_file": "scripts/lib/log.sh",
+      "line": 12
+    }
+  ],
+  "unresolved": []
+}

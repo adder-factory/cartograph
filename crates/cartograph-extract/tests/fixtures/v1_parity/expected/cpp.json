@@ -1,0 +1,1524 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "cpp",
+  "files": [
+    "include/shapes/shape.hpp",
+    "src/client.cpp",
+    "src/client.hpp",
+    "src/logger.cpp",
+    "src/logger.hpp",
+    "src/main.cpp",
+    "src/shape.cpp"
+  ],
+  "symbols": [
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "file",
+      "name": "shape.hpp",
+      "qualified_name": "include/shapes/shape.hpp",
+      "start_line": 1,
+      "end_line": 74
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "import",
+      "name": "string",
+      "qualified_name": "string",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "import",
+      "name": "vector",
+      "qualified_name": "vector",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "import",
+      "name": "memory",
+      "qualified_name": "memory",
+      "start_line": 5,
+      "end_line": 6
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "constant",
+      "name": "SHAPES_API",
+      "qualified_name": "SHAPES_API",
+      "start_line": 7,
+      "end_line": 8
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "constant",
+      "name": "MAX_SHAPES",
+      "qualified_name": "MAX_SHAPES",
+      "start_line": 8,
+      "end_line": 9
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "struct",
+      "name": "Vec2",
+      "qualified_name": "Vec2",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "enum",
+      "name": "Kind",
+      "qualified_name": "Kind",
+      "start_line": 17,
+      "end_line": 20
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "enum_member",
+      "name": "Circle",
+      "qualified_name": "Kind::Circle",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "enum_member",
+      "name": "Square",
+      "qualified_name": "Kind::Square",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "enum",
+      "name": "Legacy",
+      "qualified_name": "Legacy",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "enum_member",
+      "name": "LEGACY_A",
+      "qualified_name": "Legacy::LEGACY_A",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "enum_member",
+      "name": "LEGACY_B",
+      "qualified_name": "Legacy::LEGACY_B",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "type_alias",
+      "name": "Points",
+      "qualified_name": "Points",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "type_alias",
+      "name": "real_t",
+      "qualified_name": "real_t",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "class",
+      "name": "Drawable",
+      "qualified_name": "Drawable",
+      "start_line": 27,
+      "end_line": 31
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "method",
+      "name": "~Drawable",
+      "qualified_name": "Drawable::~Drawable",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "class",
+      "name": "Shape",
+      "qualified_name": "Shape",
+      "start_line": 33,
+      "end_line": 46
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "method",
+      "name": "&name() const",
+      "qualified_name": "Shape::&name() const",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "class",
+      "name": "Circle",
+      "qualified_name": "Circle",
+      "start_line": 48,
+      "end_line": 57
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "class",
+      "name": "Registry",
+      "qualified_name": "Registry",
+      "start_line": 60,
+      "end_line": 67
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "method",
+      "name": "add",
+      "qualified_name": "Registry::add",
+      "start_line": 62,
+      "end_line": 62
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "method",
+      "name": "size",
+      "qualified_name": "Registry::size",
+      "start_line": 63,
+      "end_line": 63
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "file",
+      "name": "client.cpp",
+      "qualified_name": "src/client.cpp",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "import",
+      "name": "client.hpp",
+      "qualified_name": "client.hpp",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "function",
+      "name": "Client::create",
+      "qualified_name": "Client::create",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "function",
+      "name": "Client::commit",
+      "qualified_name": "Client::commit",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "function",
+      "name": "deal_command",
+      "qualified_name": "deal_command",
+      "start_line": 11,
+      "end_line": 13
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "function",
+      "name": "api_foo",
+      "qualified_name": "api_foo",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "file",
+      "name": "client.hpp",
+      "qualified_name": "src/client.hpp",
+      "start_line": 1,
+      "end_line": 20
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "class",
+      "name": "Client",
+      "qualified_name": "Client",
+      "start_line": 3,
+      "end_line": 8
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "class",
+      "name": "Pooled",
+      "qualified_name": "Pooled",
+      "start_line": 10,
+      "end_line": 14
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "method",
+      "name": "acquire",
+      "qualified_name": "Pooled::acquire",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "method",
+      "name": "release",
+      "qualified_name": "Pooled::release",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "struct",
+      "name": "pod_t",
+      "qualified_name": "pod_t",
+      "start_line": 16,
+      "end_line": 19
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "file",
+      "name": "logger.cpp",
+      "qualified_name": "src/logger.cpp",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "import",
+      "name": "logger.hpp",
+      "qualified_name": "logger.hpp",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "function",
+      "name": "Logger::log",
+      "qualified_name": "Logger::log",
+      "start_line": 3,
+      "end_line": 7
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "function",
+      "name": "FileLogger::write",
+      "qualified_name": "FileLogger::write",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "function",
+      "name": "make_logger",
+      "qualified_name": "make_logger",
+      "start_line": 13,
+      "end_line": 17
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "file",
+      "name": "logger.hpp",
+      "qualified_name": "src/logger.hpp",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "import",
+      "name": "string",
+      "qualified_name": "string",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "class",
+      "name": "Sink",
+      "qualified_name": "Sink",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "class",
+      "name": "Logger",
+      "qualified_name": "Logger",
+      "start_line": 9,
+      "end_line": 14
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "class",
+      "name": "FileLogger",
+      "qualified_name": "FileLogger",
+      "start_line": 16,
+      "end_line": 20
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "method",
+      "name": "rotate",
+      "qualified_name": "FileLogger::rotate",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "struct",
+      "name": "Point3",
+      "qualified_name": "Point3",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "file",
+      "name": "main.cpp",
+      "qualified_name": "src/main.cpp",
+      "start_line": 1,
+      "end_line": 36
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "import",
+      "name": "iostream",
+      "qualified_name": "iostream",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "import",
+      "name": "memory",
+      "qualified_name": "memory",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "import",
+      "name": "shapes/shape.hpp",
+      "qualified_name": "shapes/shape.hpp",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "import",
+      "name": "client.hpp",
+      "qualified_name": "client.hpp",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "struct",
+      "name": "Widget",
+      "qualified_name": "Widget",
+      "start_line": 8,
+      "end_line": 11
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "method",
+      "name": "doWork",
+      "qualified_name": "Widget::doWork",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "function",
+      "name": "use",
+      "qualified_name": "use",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "run",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 21,
+      "end_line": 35
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "file",
+      "name": "shape.cpp",
+      "qualified_name": "src/shape.cpp",
+      "start_line": 1,
+      "end_line": 42
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "import",
+      "name": "shapes/shape.hpp",
+      "qualified_name": "shapes/shape.hpp",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "import",
+      "name": "cmath",
+      "qualified_name": "cmath",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "import",
+      "name": "iostream",
+      "qualified_name": "iostream",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Shape::Shape",
+      "qualified_name": "Shape::Shape",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Shape::count",
+      "qualified_name": "Shape::count",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Shape::touch",
+      "qualified_name": "Shape::touch",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Circle::Circle",
+      "qualified_name": "Circle::Circle",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Circle::area",
+      "qualified_name": "Circle::area",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Circle::draw",
+      "qualified_name": "Circle::draw",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "Circle::scaled",
+      "qualified_name": "Circle::scaled",
+      "start_line": 31,
+      "end_line": 33
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "function",
+      "name": "clamp",
+      "qualified_name": "clamp",
+      "start_line": 36,
+      "end_line": 38
+    }
+  ],
+  "edges": [
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Drawable",
+      "target_kind": "method",
+      "target": "Drawable::~Drawable",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Kind",
+      "target_kind": "enum_member",
+      "target": "Kind::Circle",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Kind",
+      "target_kind": "enum_member",
+      "target": "Kind::Square",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Legacy",
+      "target_kind": "enum_member",
+      "target": "Legacy::LEGACY_A",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Legacy",
+      "target_kind": "enum_member",
+      "target": "Legacy::LEGACY_B",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Registry",
+      "target_kind": "method",
+      "target": "Registry::add",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Registry",
+      "target_kind": "method",
+      "target": "Registry::size",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Shape",
+      "target_kind": "method",
+      "target": "Shape::&name() const",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "class",
+      "target": "Circle",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "class",
+      "target": "Drawable",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "enum",
+      "target": "Kind",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "enum",
+      "target": "Legacy",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "constant",
+      "target": "MAX_SHAPES",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "type_alias",
+      "target": "Points",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "class",
+      "target": "Registry",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "constant",
+      "target": "SHAPES_API",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "class",
+      "target": "Shape",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "struct",
+      "target": "Vec2",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "import",
+      "target": "memory",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "type_alias",
+      "target": "real_t",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "import",
+      "target": "string",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "import",
+      "target": "vector",
+      "target_file": "include/shapes/shape.hpp",
+      "line": null
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "import",
+      "target": "string",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 3
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "import",
+      "target": "vector",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 4
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "include/shapes/shape.hpp",
+      "target_kind": "import",
+      "target": "memory",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 5
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Registry::size",
+      "target_kind": "method",
+      "target": "Registry::size",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 63
+    },
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "type_of",
+      "source_kind": "class",
+      "source": "Registry",
+      "target_kind": "import",
+      "target": "vector",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 66
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.cpp",
+      "target_kind": "function",
+      "target": "Client::commit",
+      "target_file": "src/client.cpp",
+      "line": null
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.cpp",
+      "target_kind": "function",
+      "target": "Client::create",
+      "target_file": "src/client.cpp",
+      "line": null
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.cpp",
+      "target_kind": "function",
+      "target": "api_foo",
+      "target_file": "src/client.cpp",
+      "line": null
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.cpp",
+      "target_kind": "import",
+      "target": "client.hpp",
+      "target_file": "src/client.cpp",
+      "line": null
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.cpp",
+      "target_kind": "function",
+      "target": "deal_command",
+      "target_file": "src/client.cpp",
+      "line": null
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/client.cpp",
+      "target_kind": "import",
+      "target": "client.hpp",
+      "target_file": "src/client.cpp",
+      "line": 1
+    },
+    {
+      "file": "src/client.cpp",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "Client::create",
+      "target_kind": "class",
+      "target": "Client",
+      "target_file": "src/client.hpp",
+      "line": 3
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Pooled",
+      "target_kind": "method",
+      "target": "Pooled::acquire",
+      "target_file": "src/client.hpp",
+      "line": null
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Pooled",
+      "target_kind": "method",
+      "target": "Pooled::release",
+      "target_file": "src/client.hpp",
+      "line": null
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.hpp",
+      "target_kind": "class",
+      "target": "Client",
+      "target_file": "src/client.hpp",
+      "line": null
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.hpp",
+      "target_kind": "class",
+      "target": "Pooled",
+      "target_file": "src/client.hpp",
+      "line": null
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/client.hpp",
+      "target_kind": "struct",
+      "target": "pod_t",
+      "target_file": "src/client.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.cpp",
+      "target_kind": "function",
+      "target": "FileLogger::write",
+      "target_file": "src/logger.cpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.cpp",
+      "target_kind": "function",
+      "target": "Logger::log",
+      "target_file": "src/logger.cpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.cpp",
+      "target_kind": "import",
+      "target": "logger.hpp",
+      "target_file": "src/logger.cpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.cpp",
+      "target_kind": "function",
+      "target": "make_logger",
+      "target_file": "src/logger.cpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/logger.cpp",
+      "target_kind": "import",
+      "target": "logger.hpp",
+      "target_file": "src/logger.cpp",
+      "line": 1
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "FileLogger::write",
+      "target_kind": "method",
+      "target": "FileLogger::rotate",
+      "target_file": "src/logger.hpp",
+      "line": 10
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "make_logger",
+      "target_kind": "class",
+      "target": "FileLogger",
+      "target_file": "src/logger.hpp",
+      "line": 13
+    },
+    {
+      "file": "src/logger.cpp",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "make_logger",
+      "target_kind": "class",
+      "target": "FileLogger",
+      "target_file": "src/logger.hpp",
+      "line": 14
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FileLogger",
+      "target_kind": "method",
+      "target": "FileLogger::rotate",
+      "target_file": "src/logger.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.hpp",
+      "target_kind": "class",
+      "target": "FileLogger",
+      "target_file": "src/logger.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.hpp",
+      "target_kind": "class",
+      "target": "Logger",
+      "target_file": "src/logger.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.hpp",
+      "target_kind": "struct",
+      "target": "Point3",
+      "target_file": "src/logger.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.hpp",
+      "target_kind": "class",
+      "target": "Sink",
+      "target_file": "src/logger.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/logger.hpp",
+      "target_kind": "import",
+      "target": "string",
+      "target_file": "src/logger.hpp",
+      "line": null
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/logger.hpp",
+      "target_kind": "import",
+      "target": "string",
+      "target_file": "src/logger.hpp",
+      "line": 2
+    },
+    {
+      "file": "src/logger.hpp",
+      "kind": "type_of",
+      "source_kind": "class",
+      "source": "Logger",
+      "target_kind": "class",
+      "target": "Sink",
+      "target_file": "src/logger.hpp",
+      "line": 13
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Widget",
+      "target_kind": "method",
+      "target": "Widget::doWork",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "struct",
+      "target": "Widget",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "client.hpp",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "iostream",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "memory",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "shapes/shape.hpp",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "function",
+      "target": "use",
+      "target_file": "src/main.cpp",
+      "line": null
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "iostream",
+      "target_file": "src/main.cpp",
+      "line": 1
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "memory",
+      "target_file": "src/main.cpp",
+      "line": 2
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "file",
+      "target": "include/shapes/shape.hpp",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 3
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main.cpp",
+      "target_kind": "import",
+      "target": "client.hpp",
+      "target_file": "src/main.cpp",
+      "line": 4
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "Client::commit",
+      "target_file": "src/client.cpp",
+      "line": 18
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "Client::create",
+      "target_file": "src/client.cpp",
+      "line": 18
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "enum_member",
+      "target": "Kind::Circle",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 23
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "method",
+      "target": "Registry::add",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 25
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "Shape::count",
+      "target_file": "src/shape.cpp",
+      "line": 28
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "method",
+      "target": "Registry::size",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 31
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "use",
+      "target_file": "src/main.cpp",
+      "line": 31
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "src/main.cpp",
+      "line": 32
+    },
+    {
+      "file": "src/main.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "deal_command",
+      "target_file": "src/client.cpp",
+      "line": 34
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Circle::Circle",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Circle::area",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Circle::draw",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Circle::scaled",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Shape::Shape",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Shape::count",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "Shape::touch",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "function",
+      "target": "clamp",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "import",
+      "target": "cmath",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "import",
+      "target": "iostream",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "import",
+      "target": "shapes/shape.hpp",
+      "target_file": "src/shape.cpp",
+      "line": null
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "file",
+      "target": "include/shapes/shape.hpp",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 1
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "import",
+      "target": "cmath",
+      "target_file": "src/shape.cpp",
+      "line": 2
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/shape.cpp",
+      "target_kind": "import",
+      "target": "iostream",
+      "target_file": "src/shape.cpp",
+      "line": 3
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "Circle::scaled",
+      "target_kind": "enum_member",
+      "target": "Kind::Circle",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 31
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Circle::scaled",
+      "target_kind": "enum_member",
+      "target": "Kind::Circle",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 32
+    },
+    {
+      "file": "src/shape.cpp",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "clamp",
+      "target_kind": "type_alias",
+      "target": "real_t",
+      "target_file": "include/shapes/shape.hpp",
+      "line": 36
+    }
+  ],
+  "unresolved": [
+    {
+      "file": "include/shapes/shape.hpp",
+      "kind": "type_of",
+      "name": "Circle",
+      "line": 53
+    },
+    {
+      "file": "src/client.hpp",
+      "kind": "type_of",
+      "name": "Client",
+      "line": 5
+    }
+  ]
+}

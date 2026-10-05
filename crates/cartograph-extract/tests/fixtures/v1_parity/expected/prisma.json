@@ -1,0 +1,921 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "prisma",
+  "files": [
+    "prisma/schema/base.prisma",
+    "prisma/schema/post.prisma",
+    "prisma/schema/user.prisma"
+  ],
+  "symbols": [
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "file",
+      "name": "base.prisma",
+      "qualified_name": "prisma/schema/base.prisma",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 10,
+      "end_line": 14
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "enum_member",
+      "name": "ADMIN",
+      "qualified_name": "Role.ADMIN",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "enum_member",
+      "name": "EDITOR",
+      "qualified_name": "Role.EDITOR",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "enum_member",
+      "name": "VIEWER",
+      "qualified_name": "Role.VIEWER",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "struct",
+      "name": "Photo",
+      "qualified_name": "Photo",
+      "start_line": 17,
+      "end_line": 21
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "field",
+      "name": "height",
+      "qualified_name": "Photo.height",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "field",
+      "name": "width",
+      "qualified_name": "Photo.width",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "field",
+      "name": "url",
+      "qualified_name": "Photo.url",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "file",
+      "name": "post.prisma",
+      "qualified_name": "prisma/schema/post.prisma",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "struct",
+      "name": "Post",
+      "qualified_name": "Post",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "Post.id",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "title",
+      "qualified_name": "Post.title",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "author",
+      "qualified_name": "Post.author",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "authorId",
+      "qualified_name": "Post.authorId",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "tags",
+      "qualified_name": "Post.tags",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "status",
+      "qualified_name": "Post.status",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "views",
+      "qualified_name": "Post.views",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "rating",
+      "qualified_name": "Post.rating",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "score",
+      "qualified_name": "Post.score",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "published",
+      "qualified_name": "Post.published",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "blob",
+      "qualified_name": "Post.blob",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "struct",
+      "name": "Tag",
+      "qualified_name": "Tag",
+      "start_line": 17,
+      "end_line": 21
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "Tag.id",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "Tag.name",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "field",
+      "name": "posts",
+      "qualified_name": "Tag.posts",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "enum",
+      "name": "PostStatus",
+      "qualified_name": "PostStatus",
+      "start_line": 23,
+      "end_line": 27
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "enum_member",
+      "name": "DRAFT",
+      "qualified_name": "PostStatus.DRAFT",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "enum_member",
+      "name": "PUBLISHED",
+      "qualified_name": "PostStatus.PUBLISHED",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "enum_member",
+      "name": "ARCHIVED",
+      "qualified_name": "PostStatus.ARCHIVED",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "file",
+      "name": "user.prisma",
+      "qualified_name": "prisma/schema/user.prisma",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "struct",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "User.id",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "email",
+      "qualified_name": "User.email",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "User.name",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "User.role",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "posts",
+      "qualified_name": "User.posts",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "profile",
+      "qualified_name": "User.profile",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "User.createdAt",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "meta",
+      "qualified_name": "User.meta",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "location",
+      "qualified_name": "User.location",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "struct",
+      "name": "Profile",
+      "qualified_name": "Profile",
+      "start_line": 15,
+      "end_line": 21
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "Profile.id",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "bio",
+      "qualified_name": "Profile.bio",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "user",
+      "qualified_name": "Profile.user",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "userId",
+      "qualified_name": "Profile.userId",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "field",
+      "name": "avatar",
+      "qualified_name": "Profile.avatar",
+      "start_line": 20,
+      "end_line": 20
+    }
+  ],
+  "edges": [
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Photo",
+      "target_kind": "field",
+      "target": "Photo.height",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Photo",
+      "target_kind": "field",
+      "target": "Photo.url",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Photo",
+      "target_kind": "field",
+      "target": "Photo.width",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role.ADMIN",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role.EDITOR",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role.VIEWER",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/base.prisma",
+      "target_kind": "struct",
+      "target": "Photo",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/base.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/base.prisma",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "prisma/schema/base.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.author",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.authorId",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.blob",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.id",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.published",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.rating",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.score",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.status",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.tags",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.title",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "Post.views",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "PostStatus",
+      "target_kind": "enum_member",
+      "target": "PostStatus.ARCHIVED",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "PostStatus",
+      "target_kind": "enum_member",
+      "target": "PostStatus.DRAFT",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "PostStatus",
+      "target_kind": "enum_member",
+      "target": "PostStatus.PUBLISHED",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Tag",
+      "target_kind": "field",
+      "target": "Tag.id",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Tag",
+      "target_kind": "field",
+      "target": "Tag.name",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Tag",
+      "target_kind": "field",
+      "target": "Tag.posts",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/post.prisma",
+      "target_kind": "struct",
+      "target": "Post",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/post.prisma",
+      "target_kind": "enum",
+      "target": "PostStatus",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/post.prisma",
+      "target_kind": "struct",
+      "target": "Tag",
+      "target_file": "prisma/schema/post.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Post.author",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "prisma/schema/user.prisma",
+      "line": 4
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Post.tags",
+      "target_kind": "struct",
+      "target": "Tag",
+      "target_file": "prisma/schema/post.prisma",
+      "line": 6
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Post.status",
+      "target_kind": "enum",
+      "target": "PostStatus",
+      "target_file": "prisma/schema/post.prisma",
+      "line": 7
+    },
+    {
+      "file": "prisma/schema/post.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Tag.posts",
+      "target_kind": "struct",
+      "target": "Post",
+      "target_file": "prisma/schema/post.prisma",
+      "line": 20
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Profile",
+      "target_kind": "field",
+      "target": "Profile.avatar",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Profile",
+      "target_kind": "field",
+      "target": "Profile.bio",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Profile",
+      "target_kind": "field",
+      "target": "Profile.id",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Profile",
+      "target_kind": "field",
+      "target": "Profile.user",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Profile",
+      "target_kind": "field",
+      "target": "Profile.userId",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.createdAt",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.email",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.id",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.location",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.meta",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.name",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.posts",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.profile",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User.role",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/user.prisma",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "prisma/schema/user.prisma",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "prisma/schema/user.prisma",
+      "line": null
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User.role",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "prisma/schema/base.prisma",
+      "line": 5
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User.posts",
+      "target_kind": "struct",
+      "target": "Post",
+      "target_file": "prisma/schema/post.prisma",
+      "line": 6
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User.profile",
+      "target_kind": "struct",
+      "target": "Profile",
+      "target_file": "prisma/schema/user.prisma",
+      "line": 7
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Profile.user",
+      "target_kind": "struct",
+      "target": "User",
+      "target_file": "prisma/schema/user.prisma",
+      "line": 18
+    },
+    {
+      "file": "prisma/schema/user.prisma",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Profile.avatar",
+      "target_kind": "struct",
+      "target": "Photo",
+      "target_file": "prisma/schema/base.prisma",
+      "line": 20
+    }
+  ],
+  "unresolved": []
+}

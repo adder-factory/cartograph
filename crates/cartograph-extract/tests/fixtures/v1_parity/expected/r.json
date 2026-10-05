@@ -1,0 +1,659 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "r",
+  "files": [
+    "R/model.r",
+    "R/utils.R",
+    "scripts/setup.r"
+  ],
+  "symbols": [
+    {
+      "file": "R/model.r",
+      "kind": "file",
+      "name": "model.r",
+      "qualified_name": "R/model.r",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "dplyr",
+      "qualified_name": "dplyr",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "tidyr",
+      "qualified_name": "tidyr",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "stats",
+      "qualified_name": "stats",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "ggplot2",
+      "qualified_name": "ggplot2",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "mypkg",
+      "qualified_name": "mypkg",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "R/utils.R",
+      "qualified_name": "R/utils.R",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "R/model.r",
+      "kind": "import",
+      "name": "scripts/setup.r",
+      "qualified_name": "scripts/setup.r",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "R/model.r",
+      "kind": "function",
+      "name": "fit_model",
+      "qualified_name": "fit_model",
+      "start_line": 10,
+      "end_line": 14
+    },
+    {
+      "file": "R/model.r",
+      "kind": "variable",
+      "name": "cleaned",
+      "qualified_name": "fit_model::cleaned",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "R/model.r",
+      "kind": "variable",
+      "name": "scaled",
+      "qualified_name": "fit_model::scaled",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "R/model.r",
+      "kind": "function",
+      "name": "summary_stats",
+      "qualified_name": "summary_stats",
+      "start_line": 16,
+      "end_line": 20
+    },
+    {
+      "file": "R/model.r",
+      "kind": "variable",
+      "name": "m",
+      "qualified_name": "summary_stats::m",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "R/model.r",
+      "kind": "variable",
+      "name": "s",
+      "qualified_name": "summary_stats::s",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "file",
+      "name": "utils.R",
+      "qualified_name": "R/utils.R",
+      "start_line": 1,
+      "end_line": 31
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "constant",
+      "name": "MAX_N",
+      "qualified_name": "MAX_N",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "constant",
+      "name": "COLORS",
+      "qualified_name": "COLORS",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "constant",
+      "name": "threshold",
+      "qualified_name": "threshold",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "function",
+      "name": "add",
+      "qualified_name": "add",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "function",
+      "name": "subtract",
+      "qualified_name": "subtract",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "function",
+      "name": "divide",
+      "qualified_name": "divide",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "function",
+      "name": "print.summary_box",
+      "qualified_name": "print.summary_box",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "function",
+      "name": "format_label",
+      "qualified_name": "format_label",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "variable",
+      "name": "tmp",
+      "qualified_name": "format_label::tmp",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "function",
+      "name": "scale_values",
+      "qualified_name": "scale_values",
+      "start_line": 26,
+      "end_line": 30
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "variable",
+      "name": "result",
+      "qualified_name": "scale_values::result",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "variable",
+      "name": "total",
+      "qualified_name": "scale_values::total",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "file",
+      "name": "setup.r",
+      "qualified_name": "scripts/setup.r",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "import",
+      "name": "R/model.r",
+      "qualified_name": "R/model.r",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "constant",
+      "name": "DATA_PATH",
+      "qualified_name": "DATA_PATH",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "run",
+      "start_line": 4,
+      "end_line": 9
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "variable",
+      "name": "df",
+      "qualified_name": "run::df",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "variable",
+      "name": "result",
+      "qualified_name": "run::result",
+      "start_line": 6,
+      "end_line": 6
+    }
+  ],
+  "edges": [
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "R/utils.R",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "dplyr",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "function",
+      "target": "fit_model",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "ggplot2",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "mypkg",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "scripts/setup.r",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "stats",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "function",
+      "target": "summary_stats",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/model.r",
+      "target_kind": "import",
+      "target": "tidyr",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "fit_model",
+      "target_kind": "variable",
+      "target": "fit_model::cleaned",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "fit_model",
+      "target_kind": "variable",
+      "target": "fit_model::scaled",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "summary_stats",
+      "target_kind": "variable",
+      "target": "summary_stats::m",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "summary_stats",
+      "target_kind": "variable",
+      "target": "summary_stats::s",
+      "target_file": "R/model.r",
+      "line": null
+    },
+    {
+      "file": "R/model.r",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "fit_model",
+      "target_kind": "function",
+      "target": "scale_values",
+      "target_file": "R/utils.R",
+      "line": 12
+    },
+    {
+      "file": "R/model.r",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "fit_model",
+      "target_kind": "function",
+      "target": "summary_stats",
+      "target_file": "R/model.r",
+      "line": 13
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "constant",
+      "target": "COLORS",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "constant",
+      "target": "MAX_N",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "function",
+      "target": "add",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "function",
+      "target": "divide",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "function",
+      "target": "format_label",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "function",
+      "target": "print.summary_box",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "function",
+      "target": "scale_values",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "function",
+      "target": "subtract",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "R/utils.R",
+      "target_kind": "constant",
+      "target": "threshold",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "format_label",
+      "target_kind": "variable",
+      "target": "format_label::tmp",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "scale_values",
+      "target_kind": "variable",
+      "target": "scale_values::result",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "scale_values",
+      "target_kind": "variable",
+      "target": "scale_values::total",
+      "target_file": "R/utils.R",
+      "line": null
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "print.summary_box",
+      "target_kind": "function",
+      "target": "format_label",
+      "target_file": "R/utils.R",
+      "line": 18
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "scale_values",
+      "target_kind": "function",
+      "target": "add",
+      "target_file": "R/utils.R",
+      "line": 28
+    },
+    {
+      "file": "R/utils.R",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "scale_values",
+      "target_kind": "function",
+      "target": "divide",
+      "target_file": "R/utils.R",
+      "line": 29
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "variable",
+      "target": "run::df",
+      "target_file": "scripts/setup.r",
+      "line": null
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "variable",
+      "target": "run::result",
+      "target_file": "scripts/setup.r",
+      "line": null
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/setup.r",
+      "target_kind": "constant",
+      "target": "DATA_PATH",
+      "target_file": "scripts/setup.r",
+      "line": null
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/setup.r",
+      "target_kind": "import",
+      "target": "R/model.r",
+      "target_file": "scripts/setup.r",
+      "line": null
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/setup.r",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "scripts/setup.r",
+      "line": null
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "fit_model",
+      "target_file": "R/model.r",
+      "line": 6
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "add",
+      "target_file": "R/utils.R",
+      "line": 8
+    },
+    {
+      "file": "scripts/setup.r",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "scripts/setup.r",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "scripts/setup.r",
+      "line": 11
+    }
+  ],
+  "unresolved": []
+}

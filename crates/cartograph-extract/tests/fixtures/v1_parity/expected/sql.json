@@ -1,0 +1,705 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "sql",
+  "files": [
+    "db/legacy/informix.sql",
+    "db/migrations/001_schema.sql",
+    "db/migrations/002_views.sql",
+    "db/migrations/003_functions.sql",
+    "db/migrations/004_triggers.sql",
+    "db/seed.dml",
+    "db/types.ddl"
+  ],
+  "symbols": [
+    {
+      "file": "db/legacy/informix.sql",
+      "kind": "file",
+      "name": "informix.sql",
+      "qualified_name": "db/legacy/informix.sql",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "db/legacy/informix.sql",
+      "kind": "function",
+      "name": "legacy_total",
+      "qualified_name": "legacy_total",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "file",
+      "name": "001_schema.sql",
+      "qualified_name": "db/migrations/001_schema.sql",
+      "start_line": 1,
+      "end_line": 32
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "namespace",
+      "name": "reporting",
+      "qualified_name": "reporting",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "table",
+      "name": "users",
+      "qualified_name": "users",
+      "start_line": 3,
+      "end_line": 6
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "table",
+      "name": "orders",
+      "qualified_name": "orders",
+      "start_line": 8,
+      "end_line": 12
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "table",
+      "name": "order_items",
+      "qualified_name": "order_items",
+      "start_line": 14,
+      "end_line": 19
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "table",
+      "name": "reporting.events",
+      "qualified_name": "reporting.events",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "table",
+      "name": "audit_log",
+      "qualified_name": "audit_log",
+      "start_line": 26,
+      "end_line": 29
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "file",
+      "name": "002_views.sql",
+      "qualified_name": "db/migrations/002_views.sql",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "table",
+      "name": "active_users",
+      "qualified_name": "active_users",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "table",
+      "name": "user_orders",
+      "qualified_name": "user_orders",
+      "start_line": 3,
+      "end_line": 6
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "table",
+      "name": "double_users",
+      "qualified_name": "double_users",
+      "start_line": 8,
+      "end_line": 9
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "table",
+      "name": "nested_orders",
+      "qualified_name": "nested_orders",
+      "start_line": 11,
+      "end_line": 12
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "table",
+      "name": "reporting.daily_events",
+      "qualified_name": "reporting.daily_events",
+      "start_line": 14,
+      "end_line": 15
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "file",
+      "name": "003_functions.sql",
+      "qualified_name": "db/migrations/003_functions.sql",
+      "start_line": 1,
+      "end_line": 33
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "add_numbers",
+      "qualified_name": "add_numbers",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "calc",
+      "qualified_name": "calc",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "order_count",
+      "qualified_name": "order_count",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "audit_orders",
+      "qualified_name": "audit_orders",
+      "start_line": 9,
+      "end_line": 14
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "audit_cols",
+      "qualified_name": "audit_cols",
+      "start_line": 16,
+      "end_line": 20
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "process",
+      "qualified_name": "process",
+      "start_line": 22,
+      "end_line": 26
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "function",
+      "name": "refresh_stats",
+      "qualified_name": "refresh_stats",
+      "start_line": 28,
+      "end_line": 32
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "file",
+      "name": "004_triggers.sql",
+      "qualified_name": "db/migrations/004_triggers.sql",
+      "start_line": 1,
+      "end_line": 20
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "function",
+      "name": "orders_audit",
+      "qualified_name": "orders_audit",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "function",
+      "name": "t_cols",
+      "qualified_name": "t_cols",
+      "start_line": 6,
+      "end_line": 9
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "function",
+      "name": "users_process",
+      "qualified_name": "users_process",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "function",
+      "name": "items_stats",
+      "qualified_name": "items_stats",
+      "start_line": 16,
+      "end_line": 19
+    },
+    {
+      "file": "db/seed.dml",
+      "kind": "file",
+      "name": "seed.dml",
+      "qualified_name": "db/seed.dml",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "db/types.ddl",
+      "kind": "enum",
+      "name": "order_status",
+      "qualified_name": "order_status",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "db/types.ddl",
+      "kind": "file",
+      "name": "types.ddl",
+      "qualified_name": "db/types.ddl",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "db/types.ddl",
+      "kind": "type_alias",
+      "name": "point",
+      "qualified_name": "point",
+      "start_line": 3,
+      "end_line": 3
+    }
+  ],
+  "edges": [
+    {
+      "file": "db/legacy/informix.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/legacy/informix.sql",
+      "target_kind": "function",
+      "target": "legacy_total",
+      "target_file": "db/legacy/informix.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/001_schema.sql",
+      "target_kind": "table",
+      "target": "audit_log",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/001_schema.sql",
+      "target_kind": "table",
+      "target": "order_items",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/001_schema.sql",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/001_schema.sql",
+      "target_kind": "namespace",
+      "target": "reporting",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/001_schema.sql",
+      "target_kind": "table",
+      "target": "reporting.events",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/001_schema.sql",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "orders",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 10
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "order_items",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 18
+    },
+    {
+      "file": "db/migrations/001_schema.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "reporting.events",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 23
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/002_views.sql",
+      "target_kind": "table",
+      "target": "active_users",
+      "target_file": "db/migrations/002_views.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/002_views.sql",
+      "target_kind": "table",
+      "target": "double_users",
+      "target_file": "db/migrations/002_views.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/002_views.sql",
+      "target_kind": "table",
+      "target": "nested_orders",
+      "target_file": "db/migrations/002_views.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/002_views.sql",
+      "target_kind": "table",
+      "target": "reporting.daily_events",
+      "target_file": "db/migrations/002_views.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/002_views.sql",
+      "target_kind": "table",
+      "target": "user_orders",
+      "target_file": "db/migrations/002_views.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "active_users",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 1
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "user_orders",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 5
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "user_orders",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 6
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "double_users",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 9
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "nested_orders",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 12
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "nested_orders",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 12
+    },
+    {
+      "file": "db/migrations/002_views.sql",
+      "kind": "references",
+      "source_kind": "table",
+      "source": "reporting.daily_events",
+      "target_kind": "table",
+      "target": "reporting.events",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 15
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "add_numbers",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "audit_cols",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "audit_orders",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "calc",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "order_count",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "process",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/003_functions.sql",
+      "target_kind": "function",
+      "target": "refresh_stats",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "order_count",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 6
+    },
+    {
+      "file": "db/migrations/003_functions.sql",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "audit_orders",
+      "target_kind": "table",
+      "target": "audit_log",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 11
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/004_triggers.sql",
+      "target_kind": "function",
+      "target": "items_stats",
+      "target_file": "db/migrations/004_triggers.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/004_triggers.sql",
+      "target_kind": "function",
+      "target": "orders_audit",
+      "target_file": "db/migrations/004_triggers.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/004_triggers.sql",
+      "target_kind": "function",
+      "target": "t_cols",
+      "target_file": "db/migrations/004_triggers.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/migrations/004_triggers.sql",
+      "target_kind": "function",
+      "target": "users_process",
+      "target_file": "db/migrations/004_triggers.sql",
+      "line": null
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "orders_audit",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 2
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "orders_audit",
+      "target_kind": "function",
+      "target": "audit_orders",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": 4
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "t_cols",
+      "target_kind": "table",
+      "target": "orders",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 7
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "t_cols",
+      "target_kind": "function",
+      "target": "audit_cols",
+      "target_file": "db/migrations/003_functions.sql",
+      "line": 9
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "users_process",
+      "target_kind": "table",
+      "target": "users",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 12
+    },
+    {
+      "file": "db/migrations/004_triggers.sql",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "items_stats",
+      "target_kind": "table",
+      "target": "order_items",
+      "target_file": "db/migrations/001_schema.sql",
+      "line": 17
+    },
+    {
+      "file": "db/types.ddl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/types.ddl",
+      "target_kind": "enum",
+      "target": "order_status",
+      "target_file": "db/types.ddl",
+      "line": null
+    },
+    {
+      "file": "db/types.ddl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "db/types.ddl",
+      "target_kind": "type_alias",
+      "target": "point",
+      "target_file": "db/types.ddl",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

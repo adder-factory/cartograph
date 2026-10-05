@@ -1,0 +1,2018 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "swift",
+  "files": [
+    "Package.swift",
+    "Sources/App/Cells/UserCell.swift",
+    "Sources/App/Controllers/UserController.swift",
+    "Sources/App/Middleware/LoggingMiddleware.swift",
+    "Sources/App/Models/User.swift",
+    "Sources/App/Views/ContentView.swift",
+    "Tests/AppTests/UserTests.swift",
+    "ios/HapticsModule.swift"
+  ],
+  "symbols": [
+    {
+      "file": "Package.swift",
+      "kind": "file",
+      "name": "Package.swift",
+      "qualified_name": "Package.swift",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "Package.swift",
+      "kind": "import",
+      "name": "PackageDescription",
+      "qualified_name": "PackageDescription",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Package.swift",
+      "kind": "constant",
+      "name": "package",
+      "qualified_name": "package",
+      "start_line": 4,
+      "end_line": 13
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "file",
+      "name": "UserCell.swift",
+      "qualified_name": "Sources/App/Cells/UserCell.swift",
+      "start_line": 1,
+      "end_line": 35
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "import",
+      "name": "UIKit",
+      "qualified_name": "UIKit",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "interface",
+      "name": "ProfileDelegate",
+      "qualified_name": "ProfileDelegate",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "interface",
+      "name": "ProfileDataSource",
+      "qualified_name": "ProfileDataSource",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "class",
+      "name": "UserCell",
+      "qualified_name": "UserCell",
+      "start_line": 11,
+      "end_line": 15
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "method",
+      "name": "configure",
+      "qualified_name": "UserCell::configure",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "class",
+      "name": "BadgeView",
+      "qualified_name": "BadgeView",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "class",
+      "name": "BadgeView",
+      "qualified_name": "Sources/App/Cells/UserCell.swift::BadgeView",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "BadgeView::count",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "class",
+      "name": "ProfileViewController",
+      "qualified_name": "ProfileViewController",
+      "start_line": 21,
+      "end_line": 34
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "class",
+      "name": "ProfileViewController",
+      "qualified_name": "Sources/App/Cells/UserCell.swift::ProfileViewController",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "field",
+      "name": "delegate",
+      "qualified_name": "ProfileViewController::delegate",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "field",
+      "name": "badge",
+      "qualified_name": "ProfileViewController::badge",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "method",
+      "name": "viewDidLoad",
+      "qualified_name": "ProfileViewController::viewDidLoad",
+      "start_line": 25,
+      "end_line": 29
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "method",
+      "name": "profileDidUpdate",
+      "qualified_name": "ProfileViewController::profileDidUpdate",
+      "start_line": 31,
+      "end_line": 33
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "file",
+      "name": "UserController.swift",
+      "qualified_name": "Sources/App/Controllers/UserController.swift",
+      "start_line": 1,
+      "end_line": 32
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "import",
+      "name": "Vapor",
+      "qualified_name": "Vapor",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "struct",
+      "name": "UserController",
+      "qualified_name": "UserController",
+      "start_line": 3,
+      "end_line": 18
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "method",
+      "name": "boot",
+      "qualified_name": "UserController::boot",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "method",
+      "name": "index",
+      "qualified_name": "UserController::index",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "UserController::create",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "struct",
+      "name": "AuthMiddleware",
+      "qualified_name": "AuthMiddleware",
+      "start_line": 20,
+      "end_line": 24
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "method",
+      "name": "respond",
+      "qualified_name": "AuthMiddleware::respond",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "function",
+      "name": "routes",
+      "qualified_name": "routes",
+      "start_line": 26,
+      "end_line": 31
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "route",
+      "name": "GET health",
+      "qualified_name": "Sources/App/Controllers/UserController.swift::GET:health",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "route",
+      "name": "POST orders",
+      "qualified_name": "Sources/App/Controllers/UserController.swift::POST:orders",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "route",
+      "name": "GET /api/users",
+      "qualified_name": "Sources/App/Controllers/UserController.swift::GET:api/users",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "route",
+      "name": "GET users",
+      "qualified_name": "Sources/App/Controllers/UserController.swift::GET:users",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "file",
+      "name": "LoggingMiddleware.swift",
+      "qualified_name": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "import",
+      "name": "Vapor",
+      "qualified_name": "Vapor",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "class",
+      "name": "LoggingMiddleware",
+      "qualified_name": "LoggingMiddleware",
+      "start_line": 3,
+      "end_line": 8
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "method",
+      "name": "respond",
+      "qualified_name": "LoggingMiddleware::respond",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "file",
+      "name": "User.swift",
+      "qualified_name": "Sources/App/Models/User.swift",
+      "start_line": 1,
+      "end_line": 92
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "import",
+      "name": "Foundation",
+      "qualified_name": "Foundation",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "import",
+      "name": "Security",
+      "qualified_name": "Security",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "type_alias",
+      "name": "UserID",
+      "qualified_name": "UserID",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "constant",
+      "name": "defaultRegion",
+      "qualified_name": "defaultRegion",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "variable",
+      "name": "activeSessions",
+      "qualified_name": "activeSessions",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "interface",
+      "name": "Identifiable",
+      "qualified_name": "Identifiable",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "interface",
+      "name": "Repository",
+      "qualified_name": "Repository",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 19,
+      "end_line": 22
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "enum_member",
+      "name": "admin",
+      "qualified_name": "Role::admin",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "enum_member",
+      "name": "member",
+      "qualified_name": "Role::member",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "struct",
+      "name": "Address",
+      "qualified_name": "Address",
+      "start_line": 24,
+      "end_line": 28
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "street",
+      "qualified_name": "Address::street",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "city",
+      "qualified_name": "Address::city",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "class",
+      "name": "Entity",
+      "qualified_name": "Entity",
+      "start_line": 30,
+      "end_line": 35
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "created",
+      "qualified_name": "Entity::created",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 37,
+      "end_line": 76
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "User::id",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "User::name",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "User::role",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "address",
+      "qualified_name": "User::address",
+      "start_line": 41,
+      "end_line": 41
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "anonymous",
+      "qualified_name": "User::anonymous",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "displayName",
+      "qualified_name": "User::displayName",
+      "start_line": 50,
+      "end_line": 52
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "promote",
+      "qualified_name": "User::promote",
+      "start_line": 54,
+      "end_line": 57
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "make",
+      "qualified_name": "User::make",
+      "start_line": 59,
+      "end_line": 61
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "validate",
+      "qualified_name": "User::validate",
+      "start_line": 63,
+      "end_line": 65
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "refresh",
+      "qualified_name": "User::refresh",
+      "start_line": 67,
+      "end_line": 69
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "fetch",
+      "qualified_name": "User::fetch",
+      "start_line": 71,
+      "end_line": 73
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "struct",
+      "name": "Config",
+      "qualified_name": "Config",
+      "start_line": 78,
+      "end_line": 80
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "field",
+      "name": "retries",
+      "qualified_name": "Config::retries",
+      "start_line": 79,
+      "end_line": 79
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 82,
+      "end_line": 88
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "User::greet",
+      "start_line": 85,
+      "end_line": 87
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "function",
+      "name": "overload",
+      "qualified_name": "overload",
+      "start_line": 90,
+      "end_line": 90
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "function",
+      "name": "overload",
+      "qualified_name": "overload",
+      "start_line": 91,
+      "end_line": 91
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "file",
+      "name": "ContentView.swift",
+      "qualified_name": "Sources/App/Views/ContentView.swift",
+      "start_line": 1,
+      "end_line": 34
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "import",
+      "name": "SwiftUI",
+      "qualified_name": "SwiftUI",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "class",
+      "name": "ShopApp",
+      "qualified_name": "Sources/App/Views/ContentView.swift::ShopApp",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "struct",
+      "name": "ShopApp",
+      "qualified_name": "ShopApp",
+      "start_line": 3,
+      "end_line": 10
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "component",
+      "name": "ContentView",
+      "qualified_name": "Sources/App/Views/ContentView.swift::ContentView",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "struct",
+      "name": "ContentView",
+      "qualified_name": "ContentView",
+      "start_line": 12,
+      "end_line": 25
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "ContentView::count",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "method",
+      "name": "increment",
+      "qualified_name": "ContentView::increment",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "component",
+      "name": "ProfileView",
+      "qualified_name": "Sources/App/Views/ContentView.swift::ProfileView",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "struct",
+      "name": "ProfileView",
+      "qualified_name": "ProfileView",
+      "start_line": 27,
+      "end_line": 33
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "field",
+      "name": "user",
+      "qualified_name": "ProfileView::user",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "file",
+      "name": "UserTests.swift",
+      "qualified_name": "Tests/AppTests/UserTests.swift",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "import",
+      "name": "XCTest",
+      "qualified_name": "XCTest",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "import",
+      "name": "App",
+      "qualified_name": "App",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "class",
+      "name": "UserTests",
+      "qualified_name": "UserTests",
+      "start_line": 4,
+      "end_line": 13
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "method",
+      "name": "testDisplayName",
+      "qualified_name": "UserTests::testDisplayName",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "method",
+      "name": "testValidate",
+      "qualified_name": "UserTests::testValidate",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "file",
+      "name": "HapticsModule.swift",
+      "qualified_name": "ios/HapticsModule.swift",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "import",
+      "name": "ExpoModulesCore",
+      "qualified_name": "ExpoModulesCore",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "class",
+      "name": "Helper",
+      "qualified_name": "Helper",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "doX",
+      "qualified_name": "Helper::doX",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "class",
+      "name": "HapticsModule",
+      "qualified_name": "HapticsModule",
+      "start_line": 7,
+      "end_line": 21
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "definition",
+      "qualified_name": "HapticsModule::definition",
+      "start_line": 8,
+      "end_line": 20
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "PI",
+      "qualified_name": "Haptics::PI",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "impact",
+      "qualified_name": "Haptics::impact",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "notify",
+      "qualified_name": "Haptics::notify",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "spaced",
+      "qualified_name": "Haptics::spaced",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "isSupported",
+      "qualified_name": "Haptics::isSupported",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "addListener",
+      "qualified_name": "Haptics::addListener",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "class",
+      "name": "BareModule",
+      "qualified_name": "BareModule",
+      "start_line": 23,
+      "end_line": 27
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "definition",
+      "qualified_name": "BareModule::definition",
+      "start_line": 24,
+      "end_line": 26
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "method",
+      "name": "doBare",
+      "qualified_name": "Haptics::doBare",
+      "start_line": 25,
+      "end_line": 25
+    }
+  ],
+  "edges": [
+    {
+      "file": "Package.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Package.swift",
+      "target_kind": "import",
+      "target": "PackageDescription",
+      "target_file": "Package.swift",
+      "line": null
+    },
+    {
+      "file": "Package.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Package.swift",
+      "target_kind": "constant",
+      "target": "package",
+      "target_file": "Package.swift",
+      "line": null
+    },
+    {
+      "file": "Package.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Package.swift",
+      "target_kind": "import",
+      "target": "PackageDescription",
+      "target_file": "Package.swift",
+      "line": 2
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BadgeView",
+      "target_kind": "field",
+      "target": "BadgeView::count",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ProfileViewController",
+      "target_kind": "field",
+      "target": "ProfileViewController::badge",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ProfileViewController",
+      "target_kind": "field",
+      "target": "ProfileViewController::delegate",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ProfileViewController",
+      "target_kind": "method",
+      "target": "ProfileViewController::profileDidUpdate",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ProfileViewController",
+      "target_kind": "method",
+      "target": "ProfileViewController::viewDidLoad",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "class",
+      "target": "BadgeView",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "interface",
+      "target": "ProfileDataSource",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "interface",
+      "target": "ProfileDelegate",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "class",
+      "target": "ProfileViewController",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "import",
+      "target": "UIKit",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "class",
+      "target": "UserCell",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserCell",
+      "target_kind": "method",
+      "target": "UserCell::configure",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Sources/App/Cells/UserCell.swift",
+      "target_kind": "import",
+      "target": "UIKit",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": 1
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserCell::configure",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 12
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserCell::configure",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 13
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "ProfileViewController",
+      "target_kind": "interface",
+      "target": "ProfileDelegate",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": 21
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "ProfileViewController::viewDidLoad",
+      "target_kind": "method",
+      "target": "ProfileViewController::viewDidLoad",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": 26
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "ProfileViewController::viewDidLoad",
+      "target_kind": "method",
+      "target": "ProfileViewController::profileDidUpdate",
+      "target_file": "Sources/App/Cells/UserCell.swift",
+      "line": 28
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "ProfileViewController::viewDidLoad",
+      "target_kind": "method",
+      "target": "User::make",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 28
+    },
+    {
+      "file": "Sources/App/Cells/UserCell.swift",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "ProfileViewController::profileDidUpdate",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 31
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "AuthMiddleware",
+      "target_kind": "method",
+      "target": "AuthMiddleware::respond",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Controllers/UserController.swift",
+      "target_kind": "struct",
+      "target": "AuthMiddleware",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Controllers/UserController.swift",
+      "target_kind": "struct",
+      "target": "UserController",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Controllers/UserController.swift",
+      "target_kind": "import",
+      "target": "Vapor",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Controllers/UserController.swift",
+      "target_kind": "function",
+      "target": "routes",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::boot",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::create",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::index",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Sources/App/Controllers/UserController.swift",
+      "target_kind": "import",
+      "target": "Vapor",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": 1
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::index",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 11
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::create",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 15
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::create",
+      "target_kind": "method",
+      "target": "User::greet",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 16
+    },
+    {
+      "file": "Sources/App/Controllers/UserController.swift",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "routes",
+      "target_kind": "struct",
+      "target": "UserController",
+      "target_file": "Sources/App/Controllers/UserController.swift",
+      "line": 30
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "LoggingMiddleware",
+      "target_kind": "method",
+      "target": "LoggingMiddleware::respond",
+      "target_file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "target_kind": "class",
+      "target": "LoggingMiddleware",
+      "target_file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "target_kind": "import",
+      "target": "Vapor",
+      "target_file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "target_kind": "import",
+      "target": "Vapor",
+      "target_file": "Sources/App/Middleware/LoggingMiddleware.swift",
+      "line": 1
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Address",
+      "target_kind": "field",
+      "target": "Address::city",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Address",
+      "target_kind": "field",
+      "target": "Address::street",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Config",
+      "target_kind": "field",
+      "target": "Config::retries",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Entity",
+      "target_kind": "field",
+      "target": "Entity::created",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::admin",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::member",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "struct",
+      "target": "Address",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "struct",
+      "target": "Config",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "class",
+      "target": "Entity",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "import",
+      "target": "Foundation",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "interface",
+      "target": "Identifiable",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "interface",
+      "target": "Repository",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "import",
+      "target": "Security",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "type_alias",
+      "target": "UserID",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "variable",
+      "target": "activeSessions",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "constant",
+      "target": "defaultRegion",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "function",
+      "target": "overload",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "function",
+      "target": "overload",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::address",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::anonymous",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::fetch",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::greet",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::id",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::make",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::name",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::promote",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::refresh",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::role",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::validate",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "import",
+      "target": "Foundation",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 1
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Sources/App/Models/User.swift",
+      "target_kind": "import",
+      "target": "Security",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 2
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "Repository",
+      "target_kind": "interface",
+      "target": "Identifiable",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 14
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "Entity",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 37
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Identifiable",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 37
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "User::promote",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 54
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "User::make",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 59
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::make",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 60
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::refresh",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 68
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "User::fetch",
+      "target_kind": "struct",
+      "target": "Address",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 71
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "User::fetch",
+      "target_kind": "struct",
+      "target": "Config",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 71
+    },
+    {
+      "file": "Sources/App/Models/User.swift",
+      "kind": "calls",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 83
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "ContentView",
+      "target_kind": "field",
+      "target": "ContentView::count",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "ContentView",
+      "target_kind": "method",
+      "target": "ContentView::increment",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "ProfileView",
+      "target_kind": "field",
+      "target": "ProfileView::user",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Views/ContentView.swift",
+      "target_kind": "struct",
+      "target": "ContentView",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Views/ContentView.swift",
+      "target_kind": "struct",
+      "target": "ProfileView",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Views/ContentView.swift",
+      "target_kind": "struct",
+      "target": "ShopApp",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Sources/App/Views/ContentView.swift",
+      "target_kind": "import",
+      "target": "SwiftUI",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": null
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Sources/App/Views/ContentView.swift",
+      "target_kind": "import",
+      "target": "SwiftUI",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": 1
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "extends",
+      "source_kind": "struct",
+      "source": "ShopApp",
+      "target_kind": "import",
+      "target": "App",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": 4
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "calls",
+      "source_kind": "struct",
+      "source": "ShopApp",
+      "target_kind": "struct",
+      "target": "ContentView",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": 7
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "calls",
+      "source_kind": "struct",
+      "source": "ContentView",
+      "target_kind": "struct",
+      "target": "ProfileView",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": 17
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "calls",
+      "source_kind": "struct",
+      "source": "ContentView",
+      "target_kind": "method",
+      "target": "User::make",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 17
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "calls",
+      "source_kind": "struct",
+      "source": "ContentView",
+      "target_kind": "method",
+      "target": "ContentView::increment",
+      "target_file": "Sources/App/Views/ContentView.swift",
+      "line": 18
+    },
+    {
+      "file": "Sources/App/Views/ContentView.swift",
+      "kind": "calls",
+      "source_kind": "struct",
+      "source": "ProfileView",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 31
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Tests/AppTests/UserTests.swift",
+      "target_kind": "import",
+      "target": "App",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": null
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Tests/AppTests/UserTests.swift",
+      "target_kind": "class",
+      "target": "UserTests",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": null
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Tests/AppTests/UserTests.swift",
+      "target_kind": "import",
+      "target": "XCTest",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": null
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserTests",
+      "target_kind": "method",
+      "target": "UserTests::testDisplayName",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": null
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserTests",
+      "target_kind": "method",
+      "target": "UserTests::testValidate",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": null
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "tests",
+      "source_kind": "file",
+      "source": "Tests/AppTests/UserTests.swift",
+      "target_kind": "file",
+      "target": "Sources/App/Models/User.swift",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": null
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Tests/AppTests/UserTests.swift",
+      "target_kind": "import",
+      "target": "XCTest",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": 1
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "Tests/AppTests/UserTests.swift",
+      "target_kind": "import",
+      "target": "App",
+      "target_file": "Tests/AppTests/UserTests.swift",
+      "line": 2
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserTests::testDisplayName",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 6
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserTests::testDisplayName",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 7
+    },
+    {
+      "file": "Tests/AppTests/UserTests.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserTests::testValidate",
+      "target_kind": "method",
+      "target": "User::validate",
+      "target_file": "Sources/App/Models/User.swift",
+      "line": 11
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BareModule",
+      "target_kind": "method",
+      "target": "BareModule::definition",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HapticsModule",
+      "target_kind": "method",
+      "target": "HapticsModule::definition",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Helper",
+      "target_kind": "method",
+      "target": "Helper::doX",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/HapticsModule.swift",
+      "target_kind": "class",
+      "target": "BareModule",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/HapticsModule.swift",
+      "target_kind": "import",
+      "target": "ExpoModulesCore",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/HapticsModule.swift",
+      "target_kind": "class",
+      "target": "HapticsModule",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/HapticsModule.swift",
+      "target_kind": "class",
+      "target": "Helper",
+      "target_file": "ios/HapticsModule.swift",
+      "line": null
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/HapticsModule.swift",
+      "target_kind": "import",
+      "target": "ExpoModulesCore",
+      "target_file": "ios/HapticsModule.swift",
+      "line": 1
+    },
+    {
+      "file": "ios/HapticsModule.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "HapticsModule::definition",
+      "target_kind": "class",
+      "target": "Helper",
+      "target_file": "ios/HapticsModule.swift",
+      "line": 12
+    }
+  ],
+  "unresolved": []
+}

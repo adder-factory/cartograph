@@ -1,0 +1,1017 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "solidity",
+  "files": [
+    "contracts/Ownable.sol",
+    "contracts/Token.sol",
+    "contracts/Vault.sol",
+    "contracts/interfaces/IToken.sol",
+    "contracts/lib/SafeMath.sol"
+  ],
+  "symbols": [
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "file",
+      "name": "Ownable.sol",
+      "qualified_name": "contracts/Ownable.sol",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "import",
+      "name": "pragma solidity ^0.8.0;",
+      "qualified_name": "pragma solidity ^0.8.0;",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "class",
+      "name": "Ownable",
+      "qualified_name": "Ownable",
+      "start_line": 4,
+      "end_line": 21
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "field",
+      "name": "owner",
+      "qualified_name": "Ownable::owner",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "method",
+      "name": "onlyOwner",
+      "qualified_name": "Ownable::onlyOwner",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "method",
+      "name": "transferOwnership",
+      "qualified_name": "Ownable::transferOwnership",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "file",
+      "name": "Token.sol",
+      "qualified_name": "contracts/Token.sol",
+      "start_line": 1,
+      "end_line": 62
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "import",
+      "name": "pragma solidity ^0.8.0;",
+      "qualified_name": "pragma solidity ^0.8.0;",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "import",
+      "name": "./Ownable.sol",
+      "qualified_name": "./Ownable.sol",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "import",
+      "name": "./interfaces/IToken.sol",
+      "qualified_name": "./interfaces/IToken.sol",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "import",
+      "name": "./lib/SafeMath.sol",
+      "qualified_name": "./lib/SafeMath.sol",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "import",
+      "name": "./lib/SafeMath.sol",
+      "qualified_name": "./lib/SafeMath.sol",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "class",
+      "name": "Token",
+      "qualified_name": "Token",
+      "start_line": 9,
+      "end_line": 61
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "enum",
+      "name": "State",
+      "qualified_name": "Token::State",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "enum_member",
+      "name": "Active",
+      "qualified_name": "Token::State::Active",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "enum_member",
+      "name": "Paused",
+      "qualified_name": "Token::State::Paused",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "enum_member",
+      "name": "Closed",
+      "qualified_name": "Token::State::Closed",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "struct",
+      "name": "Holder",
+      "qualified_name": "Token::Holder",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "field",
+      "name": "account",
+      "qualified_name": "Token::Holder::account",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "field",
+      "name": "balance",
+      "qualified_name": "Token::Holder::balance",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "field",
+      "name": "total",
+      "qualified_name": "Token::total",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "field",
+      "name": "state",
+      "qualified_name": "Token::state",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "field",
+      "name": "balances",
+      "qualified_name": "Token::balances",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "field",
+      "name": "holders",
+      "qualified_name": "Token::holders",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "method",
+      "name": "whenActive",
+      "qualified_name": "Token::whenActive",
+      "start_line": 26,
+      "end_line": 29
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "method",
+      "name": "transfer",
+      "qualified_name": "Token::transfer",
+      "start_line": 31,
+      "end_line": 35
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "method",
+      "name": "balanceOf",
+      "qualified_name": "Token::balanceOf",
+      "start_line": 37,
+      "end_line": 39
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "method",
+      "name": "mint",
+      "qualified_name": "Token::mint",
+      "start_line": 41,
+      "end_line": 47
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "method",
+      "name": "_move",
+      "qualified_name": "Token::_move",
+      "start_line": 49,
+      "end_line": 52
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "method",
+      "name": "pause",
+      "qualified_name": "Token::pause",
+      "start_line": 54,
+      "end_line": 56
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "file",
+      "name": "Vault.sol",
+      "qualified_name": "contracts/Vault.sol",
+      "start_line": 1,
+      "end_line": 30
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "import",
+      "name": "pragma solidity ^0.8.0;",
+      "qualified_name": "pragma solidity ^0.8.0;",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "import",
+      "name": "./Token.sol",
+      "qualified_name": "./Token.sol",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "class",
+      "name": "Vault",
+      "qualified_name": "Vault",
+      "start_line": 5,
+      "end_line": 29
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "struct",
+      "name": "Entry",
+      "qualified_name": "Vault::Entry",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "field",
+      "name": "amount",
+      "qualified_name": "Vault::Entry::amount",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "field",
+      "name": "total",
+      "qualified_name": "Vault::total",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "field",
+      "name": "token",
+      "qualified_name": "Vault::token",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "Vault::helper",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "method",
+      "name": "deposit",
+      "qualified_name": "Vault::deposit",
+      "start_line": 18,
+      "end_line": 23
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "method",
+      "name": "spawn",
+      "qualified_name": "Vault::spawn",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "file",
+      "name": "IToken.sol",
+      "qualified_name": "contracts/interfaces/IToken.sol",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "import",
+      "name": "pragma solidity ^0.8.0;",
+      "qualified_name": "pragma solidity ^0.8.0;",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "interface",
+      "name": "IToken",
+      "qualified_name": "IToken",
+      "start_line": 4,
+      "end_line": 9
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "method",
+      "name": "transfer",
+      "qualified_name": "IToken::transfer",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "method",
+      "name": "balanceOf",
+      "qualified_name": "IToken::balanceOf",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "file",
+      "name": "SafeMath.sol",
+      "qualified_name": "contracts/lib/SafeMath.sol",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "import",
+      "name": "pragma solidity ^0.8.0;",
+      "qualified_name": "pragma solidity ^0.8.0;",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "function",
+      "name": "add",
+      "qualified_name": "add",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "function",
+      "name": "mul",
+      "qualified_name": "mul",
+      "start_line": 9,
+      "end_line": 11
+    }
+  ],
+  "edges": [
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Ownable",
+      "target_kind": "method",
+      "target": "Ownable::onlyOwner",
+      "target_file": "contracts/Ownable.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Ownable",
+      "target_kind": "field",
+      "target": "Ownable::owner",
+      "target_file": "contracts/Ownable.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Ownable",
+      "target_kind": "method",
+      "target": "Ownable::transferOwnership",
+      "target_file": "contracts/Ownable.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Ownable.sol",
+      "target_kind": "class",
+      "target": "Ownable",
+      "target_file": "contracts/Ownable.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Ownable.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/Ownable.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Ownable.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Ownable.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/Ownable.sol",
+      "line": 2
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "struct",
+      "target": "Token::Holder",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "enum",
+      "target": "Token::State",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "method",
+      "target": "Token::_move",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "method",
+      "target": "Token::balanceOf",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "field",
+      "target": "Token::balances",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "field",
+      "target": "Token::holders",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "method",
+      "target": "Token::mint",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "method",
+      "target": "Token::pause",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "field",
+      "target": "Token::state",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "field",
+      "target": "Token::total",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "method",
+      "target": "Token::transfer",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Token",
+      "target_kind": "method",
+      "target": "Token::whenActive",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Token::Holder",
+      "target_kind": "field",
+      "target": "Token::Holder::account",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Token::Holder",
+      "target_kind": "field",
+      "target": "Token::Holder::balance",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Token::State",
+      "target_kind": "enum_member",
+      "target": "Token::State::Active",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Token::State",
+      "target_kind": "enum_member",
+      "target": "Token::State::Closed",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Token::State",
+      "target_kind": "enum_member",
+      "target": "Token::State::Paused",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "import",
+      "target": "./Ownable.sol",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "import",
+      "target": "./interfaces/IToken.sol",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "import",
+      "target": "./lib/SafeMath.sol",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "import",
+      "target": "./lib/SafeMath.sol",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "class",
+      "target": "Token",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/Token.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/Token.sol",
+      "line": 2
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "file",
+      "target": "contracts/Ownable.sol",
+      "target_file": "contracts/Ownable.sol",
+      "line": 4
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "file",
+      "target": "contracts/interfaces/IToken.sol",
+      "target_file": "contracts/interfaces/IToken.sol",
+      "line": 5
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Token.sol",
+      "target_kind": "file",
+      "target": "contracts/lib/SafeMath.sol",
+      "target_file": "contracts/lib/SafeMath.sol",
+      "line": 6
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Token::transfer",
+      "target_kind": "method",
+      "target": "Token::_move",
+      "target_file": "contracts/Token.sol",
+      "line": 32
+    },
+    {
+      "file": "contracts/Token.sol",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Token::mint",
+      "target_kind": "struct",
+      "target": "Token::Holder",
+      "target_file": "contracts/Token.sol",
+      "line": 45
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "struct",
+      "target": "Vault::Entry",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "method",
+      "target": "Vault::deposit",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "method",
+      "target": "Vault::helper",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "method",
+      "target": "Vault::spawn",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "field",
+      "target": "Vault::token",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "field",
+      "target": "Vault::total",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Vault::Entry",
+      "target_kind": "field",
+      "target": "Vault::Entry::amount",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Vault.sol",
+      "target_kind": "import",
+      "target": "./Token.sol",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Vault.sol",
+      "target_kind": "class",
+      "target": "Vault",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/Vault.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/Vault.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Vault.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/Vault.sol",
+      "line": 2
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/Vault.sol",
+      "target_kind": "file",
+      "target": "contracts/Token.sol",
+      "target_file": "contracts/Token.sol",
+      "line": 3
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "calls",
+      "source_kind": "class",
+      "source": "Vault",
+      "target_kind": "class",
+      "target": "Token",
+      "target_file": "contracts/Token.sol",
+      "line": 11
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Vault::deposit",
+      "target_kind": "method",
+      "target": "Vault::helper",
+      "target_file": "contracts/Vault.sol",
+      "line": 19
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Vault::deposit",
+      "target_kind": "method",
+      "target": "Token::mint",
+      "target_file": "contracts/Token.sol",
+      "line": 21
+    },
+    {
+      "file": "contracts/Vault.sol",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Vault::spawn",
+      "target_kind": "class",
+      "target": "Token",
+      "target_file": "contracts/Token.sol",
+      "line": 26
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IToken",
+      "target_kind": "method",
+      "target": "IToken::balanceOf",
+      "target_file": "contracts/interfaces/IToken.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IToken",
+      "target_kind": "method",
+      "target": "IToken::transfer",
+      "target_file": "contracts/interfaces/IToken.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/interfaces/IToken.sol",
+      "target_kind": "interface",
+      "target": "IToken",
+      "target_file": "contracts/interfaces/IToken.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/interfaces/IToken.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/interfaces/IToken.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/interfaces/IToken.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/interfaces/IToken.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/interfaces/IToken.sol",
+      "line": 2
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/lib/SafeMath.sol",
+      "target_kind": "function",
+      "target": "add",
+      "target_file": "contracts/lib/SafeMath.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/lib/SafeMath.sol",
+      "target_kind": "function",
+      "target": "mul",
+      "target_file": "contracts/lib/SafeMath.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "contracts/lib/SafeMath.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/lib/SafeMath.sol",
+      "line": null
+    },
+    {
+      "file": "contracts/lib/SafeMath.sol",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "contracts/lib/SafeMath.sol",
+      "target_kind": "import",
+      "target": "pragma solidity ^0.8.0;",
+      "target_file": "contracts/lib/SafeMath.sol",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

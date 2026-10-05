@@ -1,0 +1,545 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "cuda",
+  "files": [
+    "include/vec_math.cuh",
+    "kernels/main.cu",
+    "kernels/saxpy.cu"
+  ],
+  "symbols": [
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "file",
+      "name": "vec_math.cuh",
+      "qualified_name": "include/vec_math.cuh",
+      "start_line": 1,
+      "end_line": 27
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "constant",
+      "name": "VEC_MATH_CUH",
+      "qualified_name": "VEC_MATH_CUH",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "import",
+      "name": "cuda_runtime.h",
+      "qualified_name": "cuda_runtime.h",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "constant",
+      "name": "BLOCK_SIZE",
+      "qualified_name": "BLOCK_SIZE",
+      "start_line": 6,
+      "end_line": 7
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "constant",
+      "name": "USE_FAST_MATH",
+      "qualified_name": "USE_FAST_MATH",
+      "start_line": 7,
+      "end_line": 8
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "struct",
+      "name": "float3_t",
+      "qualified_name": "float3_t",
+      "start_line": 9,
+      "end_line": 13
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "enum",
+      "name": "MemKind",
+      "qualified_name": "MemKind",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "enum_member",
+      "name": "MEM_HOST",
+      "qualified_name": "MemKind::MEM_HOST",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "enum_member",
+      "name": "MEM_DEVICE",
+      "qualified_name": "MemKind::MEM_DEVICE",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "function",
+      "name": "dot3",
+      "qualified_name": "dot3",
+      "start_line": 20,
+      "end_line": 22
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "file",
+      "name": "main.cu",
+      "qualified_name": "kernels/main.cu",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "import",
+      "name": "cstdlib",
+      "qualified_name": "cstdlib",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "import",
+      "name": "../include/vec_math.cuh",
+      "qualified_name": "../include/vec_math.cuh",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "function",
+      "name": "fillKernel",
+      "qualified_name": "fillKernel",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 12,
+      "end_line": 23
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "file",
+      "name": "saxpy.cu",
+      "qualified_name": "kernels/saxpy.cu",
+      "start_line": 1,
+      "end_line": 40
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "import",
+      "name": "cstdio",
+      "qualified_name": "cstdio",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "import",
+      "name": "cuda_runtime.h",
+      "qualified_name": "cuda_runtime.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "import",
+      "name": "../include/vec_math.cuh",
+      "qualified_name": "../include/vec_math.cuh",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "variable",
+      "name": "g_hits",
+      "qualified_name": "g_hits",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "function",
+      "name": "clampf",
+      "qualified_name": "clampf",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "function",
+      "name": "saxpyKernel",
+      "qualified_name": "saxpyKernel",
+      "start_line": 12,
+      "end_line": 18
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "function",
+      "name": "normKernel",
+      "qualified_name": "normKernel",
+      "start_line": 20,
+      "end_line": 26
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "function",
+      "name": "checkError",
+      "qualified_name": "checkError",
+      "start_line": 28,
+      "end_line": 32
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "function",
+      "name": "launchSaxpy",
+      "qualified_name": "launchSaxpy",
+      "start_line": 34,
+      "end_line": 39
+    }
+  ],
+  "edges": [
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "MemKind",
+      "target_kind": "enum_member",
+      "target": "MemKind::MEM_DEVICE",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "MemKind",
+      "target_kind": "enum_member",
+      "target": "MemKind::MEM_HOST",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "constant",
+      "target": "BLOCK_SIZE",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "enum",
+      "target": "MemKind",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "constant",
+      "target": "USE_FAST_MATH",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "constant",
+      "target": "VEC_MATH_CUH",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "import",
+      "target": "cuda_runtime.h",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "function",
+      "target": "dot3",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "struct",
+      "target": "float3_t",
+      "target_file": "include/vec_math.cuh",
+      "line": null
+    },
+    {
+      "file": "include/vec_math.cuh",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "include/vec_math.cuh",
+      "target_kind": "import",
+      "target": "cuda_runtime.h",
+      "target_file": "include/vec_math.cuh",
+      "line": 4
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/main.cu",
+      "target_kind": "import",
+      "target": "../include/vec_math.cuh",
+      "target_file": "kernels/main.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/main.cu",
+      "target_kind": "import",
+      "target": "cstdlib",
+      "target_file": "kernels/main.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/main.cu",
+      "target_kind": "function",
+      "target": "fillKernel",
+      "target_file": "kernels/main.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/main.cu",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "kernels/main.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "kernels/main.cu",
+      "target_kind": "import",
+      "target": "cstdlib",
+      "target_file": "kernels/main.cu",
+      "line": 1
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "kernels/main.cu",
+      "target_kind": "file",
+      "target": "include/vec_math.cuh",
+      "target_file": "include/vec_math.cuh",
+      "line": 2
+    },
+    {
+      "file": "kernels/main.cu",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "launchSaxpy",
+      "target_file": "kernels/saxpy.cu",
+      "line": 19
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "import",
+      "target": "../include/vec_math.cuh",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "function",
+      "target": "checkError",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "function",
+      "target": "clampf",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "import",
+      "target": "cstdio",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "import",
+      "target": "cuda_runtime.h",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "variable",
+      "target": "g_hits",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "function",
+      "target": "launchSaxpy",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "function",
+      "target": "normKernel",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "function",
+      "target": "saxpyKernel",
+      "target_file": "kernels/saxpy.cu",
+      "line": null
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "import",
+      "target": "cstdio",
+      "target_file": "kernels/saxpy.cu",
+      "line": 1
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "import",
+      "target": "cuda_runtime.h",
+      "target_file": "kernels/saxpy.cu",
+      "line": 2
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "kernels/saxpy.cu",
+      "target_kind": "file",
+      "target": "include/vec_math.cuh",
+      "target_file": "include/vec_math.cuh",
+      "line": 3
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "saxpyKernel",
+      "target_kind": "function",
+      "target": "clampf",
+      "target_file": "kernels/saxpy.cu",
+      "line": 15
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "normKernel",
+      "target_kind": "function",
+      "target": "dot3",
+      "target_file": "include/vec_math.cuh",
+      "line": 23
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "launchSaxpy",
+      "target_kind": "function",
+      "target": "saxpyKernel",
+      "target_file": "kernels/saxpy.cu",
+      "line": 36
+    },
+    {
+      "file": "kernels/saxpy.cu",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "launchSaxpy",
+      "target_kind": "function",
+      "target": "checkError",
+      "target_file": "kernels/saxpy.cu",
+      "line": 37
+    }
+  ],
+  "unresolved": []
+}

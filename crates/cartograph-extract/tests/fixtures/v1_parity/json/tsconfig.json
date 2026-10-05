@@ -1,0 +1,7 @@
+{
+  // JSONC: comments and trailing commas are tolerated by tsc
+  "compilerOptions": {
+    "target": "ES2022",
+    "paths": { "@cfg/*": ["config/*"], },
+  },
+}

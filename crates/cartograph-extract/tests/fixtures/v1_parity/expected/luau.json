@@ -1,0 +1,579 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "luau",
+  "files": [
+    "src/Main.luau",
+    "src/shared/Inventory.luau",
+    "src/shared/Types.luau"
+  ],
+  "symbols": [
+    {
+      "file": "src/Main.luau",
+      "kind": "file",
+      "name": "Main.luau",
+      "qualified_name": "src/Main.luau",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "variable",
+      "name": "Inventory",
+      "qualified_name": "Inventory",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "import",
+      "name": "shared/Inventory",
+      "qualified_name": "shared/Inventory",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "variable",
+      "name": "Types",
+      "qualified_name": "Types",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "import",
+      "name": "shared/Types",
+      "qualified_name": "shared/Types",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "function",
+      "name": "start",
+      "qualified_name": "start",
+      "start_line": 4,
+      "end_line": 11
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "file",
+      "name": "Inventory.luau",
+      "qualified_name": "src/shared/Inventory.luau",
+      "start_line": 1,
+      "end_line": 46
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "variable",
+      "name": "Types",
+      "qualified_name": "Types",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "variable",
+      "name": "Signal",
+      "qualified_name": "Signal",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "import",
+      "name": "Signal",
+      "qualified_name": "Signal",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "type_alias",
+      "name": "Item",
+      "qualified_name": "Item",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "variable",
+      "name": "Inventory",
+      "qualified_name": "Inventory",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "variable",
+      "name": "MAX_SLOTS",
+      "qualified_name": "MAX_SLOTS",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "variable",
+      "name": "number",
+      "qualified_name": "number",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "function",
+      "name": "onChange",
+      "qualified_name": "onChange",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "variable",
+      "name": "count",
+      "qualified_name": "count",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "function",
+      "name": "Inventory.new",
+      "qualified_name": "Inventory.new",
+      "start_line": 13,
+      "end_line": 18
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "method",
+      "name": "Inventory:add",
+      "qualified_name": "Inventory:add",
+      "start_line": 20,
+      "end_line": 27
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "method",
+      "name": "Inventory:changed",
+      "qualified_name": "Inventory:changed",
+      "start_line": 29,
+      "end_line": 31
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "function",
+      "name": "format",
+      "qualified_name": "format",
+      "start_line": 33,
+      "end_line": 35
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "function",
+      "name": "notify",
+      "qualified_name": "notify",
+      "start_line": 37,
+      "end_line": 39
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "function",
+      "name": "render",
+      "qualified_name": "render",
+      "start_line": 41,
+      "end_line": 43
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "file",
+      "name": "Types.luau",
+      "qualified_name": "src/shared/Types.luau",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "type_alias",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 2,
+      "end_line": 5
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "type_alias",
+      "name": "Callback",
+      "qualified_name": "Callback",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "type_alias",
+      "name": "Priv",
+      "qualified_name": "Priv",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "variable",
+      "name": "Types",
+      "qualified_name": "Types",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "function",
+      "name": "Types.isUser",
+      "qualified_name": "Types.isUser",
+      "start_line": 13,
+      "end_line": 15
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/Main.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Main.luau",
+      "target_kind": "variable",
+      "target": "Inventory",
+      "target_file": "src/Main.luau",
+      "line": null
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Main.luau",
+      "target_kind": "variable",
+      "target": "Types",
+      "target_file": "src/Main.luau",
+      "line": null
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Main.luau",
+      "target_kind": "import",
+      "target": "shared/Inventory",
+      "target_file": "src/Main.luau",
+      "line": null
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Main.luau",
+      "target_kind": "import",
+      "target": "shared/Types",
+      "target_file": "src/Main.luau",
+      "line": null
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Main.luau",
+      "target_kind": "function",
+      "target": "start",
+      "target_file": "src/Main.luau",
+      "line": null
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "start",
+      "target_kind": "function",
+      "target": "Inventory.new",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 5
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "start",
+      "target_kind": "function",
+      "target": "notify",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 7
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "start",
+      "target_kind": "function",
+      "target": "Types.isUser",
+      "target_file": "src/shared/Types.luau",
+      "line": 8
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "start",
+      "target_kind": "function",
+      "target": "render",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 9
+    },
+    {
+      "file": "src/Main.luau",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/Main.luau",
+      "target_kind": "function",
+      "target": "start",
+      "target_file": "src/Main.luau",
+      "line": 13
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "variable",
+      "target": "Inventory",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "function",
+      "target": "Inventory.new",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "method",
+      "target": "Inventory:add",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "method",
+      "target": "Inventory:changed",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "type_alias",
+      "target": "Item",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "variable",
+      "target": "MAX_SLOTS",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "import",
+      "target": "Signal",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "variable",
+      "target": "Signal",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "variable",
+      "target": "Types",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "variable",
+      "target": "count",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "function",
+      "target": "format",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "function",
+      "target": "notify",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "variable",
+      "target": "number",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "function",
+      "target": "onChange",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "function",
+      "target": "render",
+      "target_file": "src/shared/Inventory.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "onChange",
+      "target_kind": "function",
+      "target": "notify",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 11
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/shared/Inventory.luau",
+      "target_kind": "function",
+      "target": "notify",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 11
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Inventory:changed",
+      "target_kind": "function",
+      "target": "notify",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 30
+    },
+    {
+      "file": "src/shared/Inventory.luau",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "notify",
+      "target_kind": "function",
+      "target": "format",
+      "target_file": "src/shared/Inventory.luau",
+      "line": 38
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Types.luau",
+      "target_kind": "type_alias",
+      "target": "Callback",
+      "target_file": "src/shared/Types.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Types.luau",
+      "target_kind": "type_alias",
+      "target": "Priv",
+      "target_file": "src/shared/Types.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Types.luau",
+      "target_kind": "variable",
+      "target": "Types",
+      "target_file": "src/shared/Types.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Types.luau",
+      "target_kind": "function",
+      "target": "Types.isUser",
+      "target_file": "src/shared/Types.luau",
+      "line": null
+    },
+    {
+      "file": "src/shared/Types.luau",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/Types.luau",
+      "target_kind": "type_alias",
+      "target": "User",
+      "target_file": "src/shared/Types.luau",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

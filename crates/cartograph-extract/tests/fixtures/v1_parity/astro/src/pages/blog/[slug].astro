@@ -1,0 +1,12 @@
+---
+import Card from '../../components/Card.astro';
+import { getPosts } from '../../utils/date';
+
+export async function getStaticPaths() {
+  const posts = await getPosts();
+  return posts.map((post) => ({ params: { slug: post.title }, props: { post } }));
+}
+
+const { post } = Astro.props;
+---
+<Card post={post} featured />

@@ -1,0 +1,33 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type Query {
+  me: User
+  node(id: ID!): Node
+  search(text: String!, filter: PostFilter): [SearchResult!]!
+  posts: [Post!]!
+}
+
+type Mutation {
+  createPost(input: CreatePostInput!): Post!
+  deletePost(id: ID!): Boolean!
+}
+
+type Subscription {
+  postAdded: Post!
+}
+
+query CurrentUser {
+  me {
+    id
+    name
+  }
+}
+
+fragment PostFields on Post {
+  id
+  title
+}

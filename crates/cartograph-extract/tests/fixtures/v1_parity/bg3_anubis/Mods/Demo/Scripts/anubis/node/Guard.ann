@@ -1,0 +1,34 @@
+game.states.Guard = State {
+  function ()
+    local playerApproachTrigger = Entity("S_EventTrigger_0687d319-0436-4091-8389-15f28536a8e8")
+    nodes.GuardAction = Selector {
+      function(nodes)
+        return FindRandomSelectable(nodes)
+      end,
+      Valid = function()
+        return nearbyPlayer ~= nil
+      end
+    }
+    nodes.GuardAction.Cower = Action {
+      function ()
+        DebugText(me, "RaiseAlarm")
+        Sleep(6.0)
+      end
+    }
+    nodes.Wander = Proxy {
+      game.states.GuardWander,
+      params = {
+        anchor = [[S_WanderArea_a1017cd3-cbde-44f1-b2d9-00572a2dc9c3]]
+      },
+      OnLeave = function()
+        tired = true
+      end
+    }
+    events.EnteredTrigger = function(e)
+      if e.Trigger == playerApproachTrigger then
+        SetEntityEvent(me, "RaiseAlarm")
+        RaiseGuardAlarm(me)
+      end
+    end
+  end
+}

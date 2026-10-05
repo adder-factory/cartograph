@@ -1,0 +1,3235 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "kotlin",
+  "files": [
+    "android/src/main/java/com/acme/views/FooViewManager.kt",
+    "android/src/main/java/com/acme/views/SettingsModule.kt",
+    "build.gradle.kts",
+    "js/FooNativeComponent.ts",
+    "js/settings.ts",
+    "package.json",
+    "src/main/java/com/acme/app/service/JHelper.java",
+    "src/main/kotlin/com/acme/app/a/Engine.kt",
+    "src/main/kotlin/com/acme/app/b/Engine.kt",
+    "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+    "src/main/kotlin/com/acme/app/model/User.kt",
+    "src/main/kotlin/com/acme/app/service/UserService.kt",
+    "src/main/kotlin/com/acme/app/web/UserController.kt",
+    "src/main/resources/application.properties",
+    "src/main/resources/mapper/UserMapper.xml"
+  ],
+  "symbols": [
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "file",
+      "name": "FooViewManager.kt",
+      "qualified_name": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "import",
+      "name": "android.view.View",
+      "qualified_name": "android.view.View",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "import",
+      "name": "com.facebook.react.uimanager.SimpleViewManager",
+      "qualified_name": "com.facebook.react.uimanager.SimpleViewManager",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "import",
+      "name": "com.facebook.react.uimanager.annotations.ReactProp",
+      "qualified_name": "com.facebook.react.uimanager.annotations.ReactProp",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "class",
+      "name": "FooViewManager",
+      "qualified_name": "FooViewManager",
+      "start_line": 7,
+      "end_line": 15
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "component",
+      "name": "Foo",
+      "qualified_name": "android/src/main/java/com/acme/views/FooViewManager.kt::Foo",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "method",
+      "name": "getName",
+      "qualified_name": "FooViewManager::getName",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "property",
+      "name": "color",
+      "qualified_name": "android/src/main/java/com/acme/views/FooViewManager.kt::Foo.color",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "method",
+      "name": "setColor",
+      "qualified_name": "FooViewManager::setColor",
+      "start_line": 10,
+      "end_line": 11
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "property",
+      "name": "enabled",
+      "qualified_name": "android/src/main/java/com/acme/views/FooViewManager.kt::Foo.enabled",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "method",
+      "name": "setEnabled",
+      "qualified_name": "FooViewManager::setEnabled",
+      "start_line": 13,
+      "end_line": 14
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "file",
+      "name": "SettingsModule.kt",
+      "qualified_name": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "start_line": 1,
+      "end_line": 20
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "import",
+      "name": "expo.modules.kotlin.modules.Module",
+      "qualified_name": "expo.modules.kotlin.modules.Module",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "import",
+      "name": "expo.modules.kotlin.modules.ModuleDefinition",
+      "qualified_name": "expo.modules.kotlin.modules.ModuleDefinition",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "class",
+      "name": "SettingsHelper",
+      "qualified_name": "SettingsHelper",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "SettingsHelper::run",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "class",
+      "name": "SettingsModule",
+      "qualified_name": "SettingsModule",
+      "start_line": 10,
+      "end_line": 19
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "definition",
+      "qualified_name": "SettingsModule::definition",
+      "start_line": 11,
+      "end_line": 18
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "PI",
+      "qualified_name": "ExpoSettings::PI",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "getTheme",
+      "qualified_name": "ExpoSettings::getTheme",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "setTheme",
+      "qualified_name": "ExpoSettings::setTheme",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "spaced",
+      "qualified_name": "ExpoSettings::spaced",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "method",
+      "name": "version",
+      "qualified_name": "ExpoSettings::version",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "build.gradle.kts",
+      "kind": "file",
+      "name": "build.gradle.kts",
+      "qualified_name": "build.gradle.kts",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "file",
+      "name": "FooNativeComponent.ts",
+      "qualified_name": "js/FooNativeComponent.ts",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "interface",
+      "name": "NativeProps",
+      "qualified_name": "NativeProps",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "property",
+      "name": "color",
+      "qualified_name": "js/FooNativeComponent.ts::NativeProps.color",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "property",
+      "name": "enabled",
+      "qualified_name": "js/FooNativeComponent.ts::NativeProps.enabled",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "component",
+      "name": "Foo",
+      "qualified_name": "js/FooNativeComponent.ts::Foo",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "file",
+      "name": "settings.ts",
+      "qualified_name": "js/settings.ts",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "import",
+      "name": "expo-modules-core",
+      "qualified_name": "expo-modules-core",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "constant",
+      "name": "ExpoSettings",
+      "qualified_name": "ExpoSettings",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "import",
+      "name": "ExpoSettings",
+      "qualified_name": "ExpoSettings::ExpoSettings",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "function",
+      "name": "applyTheme",
+      "qualified_name": "applyTheme",
+      "start_line": 5,
+      "end_line": 9
+    },
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "file",
+      "name": "JHelper.java",
+      "qualified_name": "src/main/java/com/acme/app/service/JHelper.java",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "class",
+      "name": "JHelper",
+      "qualified_name": "JHelper",
+      "start_line": 3,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "method",
+      "name": "go",
+      "qualified_name": "JHelper::go",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "method",
+      "name": "tag",
+      "qualified_name": "JHelper::tag",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "kind": "file",
+      "name": "Engine.kt",
+      "qualified_name": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "kind": "class",
+      "name": "Engine",
+      "qualified_name": "Engine",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "Engine::run",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "kind": "file",
+      "name": "Engine.kt",
+      "qualified_name": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "kind": "class",
+      "name": "Engine",
+      "qualified_name": "Engine",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "Engine::run",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "file",
+      "name": "UserMapper.kt",
+      "qualified_name": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.User",
+      "qualified_name": "com.acme.app.model.User",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "import",
+      "name": "org.apache.ibatis.annotations.Mapper",
+      "qualified_name": "org.apache.ibatis.annotations.Mapper",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "import",
+      "name": "org.apache.ibatis.annotations.Param",
+      "qualified_name": "org.apache.ibatis.annotations.Param",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "interface",
+      "name": "UserMapper",
+      "qualified_name": "UserMapper",
+      "start_line": 7,
+      "end_line": 12
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "UserMapper::find",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserMapper::find::id",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "method",
+      "name": "rename",
+      "qualified_name": "UserMapper::rename",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserMapper::rename::id",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "parameter",
+      "name": "name",
+      "qualified_name": "UserMapper::rename::name",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "file",
+      "name": "User.kt",
+      "qualified_name": "src/main/kotlin/com/acme/app/model/User.kt",
+      "start_line": 1,
+      "end_line": 76
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "import",
+      "name": "java.time.Instant",
+      "qualified_name": "java.time.Instant",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_alias",
+      "name": "UserId",
+      "qualified_name": "UserId",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "constant",
+      "name": "MAX_USERS",
+      "qualified_name": "MAX_USERS",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "constant",
+      "name": "defaultRole",
+      "qualified_name": "defaultRole",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "variable",
+      "name": "userCounter",
+      "qualified_name": "userCounter",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 11,
+      "end_line": 16
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "enum_member",
+      "name": "ADMIN",
+      "qualified_name": "Role::ADMIN",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "enum_member",
+      "name": "USER",
+      "qualified_name": "Role::USER",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "label",
+      "qualified_name": "Role::label",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "interface",
+      "name": "Named",
+      "qualified_name": "Named",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "displayName",
+      "qualified_name": "Named::displayName",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "interface",
+      "name": "Auditable",
+      "qualified_name": "Auditable",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "Auditable::audit",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "interface",
+      "name": "Validator",
+      "qualified_name": "Validator",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "validate",
+      "qualified_name": "Validator::validate",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "class",
+      "name": "Entity",
+      "qualified_name": "Entity",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "Entity::id",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 32,
+      "end_line": 49
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "User::id",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "User::name",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "User::role",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "User::createdAt",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "email",
+      "qualified_name": "User::email",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "displayName",
+      "qualified_name": "User::displayName",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "User::audit",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "rename",
+      "qualified_name": "User::rename",
+      "start_line": 41,
+      "end_line": 44
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "User::create",
+      "start_line": 47,
+      "end_line": 47
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "class",
+      "name": "Registry",
+      "qualified_name": "Registry",
+      "start_line": 51,
+      "end_line": 58
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "users",
+      "qualified_name": "Registry::users",
+      "start_line": 52,
+      "end_line": 52
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "register",
+      "qualified_name": "Registry::register",
+      "start_line": 54,
+      "end_line": 57
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "shout",
+      "qualified_name": "String::shout",
+      "start_line": 60,
+      "end_line": 60
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "class",
+      "name": "UserBuilder",
+      "qualified_name": "UserBuilder",
+      "start_line": 62,
+      "end_line": 71
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "UserBuilder::id",
+      "start_line": 63,
+      "end_line": 63
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "withId",
+      "qualified_name": "UserBuilder::withId",
+      "start_line": 65,
+      "end_line": 68
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "UserBuilder::build",
+      "start_line": 70,
+      "end_line": 70
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "class",
+      "name": "Committer",
+      "qualified_name": "Committer",
+      "start_line": 73,
+      "end_line": 75
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "field",
+      "name": "user",
+      "qualified_name": "Committer::user",
+      "start_line": 73,
+      "end_line": 73
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "method",
+      "name": "commit",
+      "qualified_name": "Committer::commit",
+      "start_line": 74,
+      "end_line": 74
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "file",
+      "name": "UserService.kt",
+      "qualified_name": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "start_line": 1,
+      "end_line": 50
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "com.acme.app.b.Engine",
+      "qualified_name": "com.acme.app.b.Engine",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.User",
+      "qualified_name": "com.acme.app.model.User",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.UserBuilder",
+      "qualified_name": "com.acme.app.model.UserBuilder",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.Registry",
+      "qualified_name": "com.acme.app.model.Registry",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.shout",
+      "qualified_name": "com.acme.app.model.shout",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.Validator",
+      "qualified_name": "com.acme.app.model.Validator",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "org.springframework.stereotype.Service",
+      "qualified_name": "org.springframework.stereotype.Service",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "org.springframework.transaction.annotation.Transactional",
+      "qualified_name": "org.springframework.transaction.annotation.Transactional",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "import",
+      "name": "java.util",
+      "qualified_name": "java.util",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "class",
+      "name": "UserService",
+      "qualified_name": "UserService",
+      "start_line": 13,
+      "end_line": 45
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "field",
+      "name": "engine",
+      "qualified_name": "UserService::engine",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "field",
+      "name": "validator",
+      "qualified_name": "UserService::validator",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "field",
+      "name": "cache",
+      "qualified_name": "UserService::cache",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "UserService::load",
+      "start_line": 18,
+      "end_line": 29
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "UserService::build",
+      "start_line": 31,
+      "end_line": 34
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "method",
+      "name": "external",
+      "qualified_name": "UserService::external",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "UserService::helper",
+      "start_line": 38,
+      "end_line": 40
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "method",
+      "name": "track",
+      "qualified_name": "UserService::track",
+      "start_line": 42,
+      "end_line": 44
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "class",
+      "name": "KTagger",
+      "qualified_name": "KTagger",
+      "start_line": 47,
+      "end_line": 49
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "method",
+      "name": "tag",
+      "qualified_name": "KTagger::tag",
+      "start_line": 48,
+      "end_line": 48
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "file",
+      "name": "UserController.kt",
+      "qualified_name": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "start_line": 1,
+      "end_line": 26
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "com.acme.app.model.User",
+      "qualified_name": "com.acme.app.model.User",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "com.acme.app.service.UserService",
+      "qualified_name": "com.acme.app.service.UserService",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "org.springframework.beans.factory.annotation.Value",
+      "qualified_name": "org.springframework.beans.factory.annotation.Value",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "org.springframework.web.bind.annotation.GetMapping",
+      "qualified_name": "org.springframework.web.bind.annotation.GetMapping",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "org.springframework.web.bind.annotation.PathVariable",
+      "qualified_name": "org.springframework.web.bind.annotation.PathVariable",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "org.springframework.web.bind.annotation.PostMapping",
+      "qualified_name": "org.springframework.web.bind.annotation.PostMapping",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "org.springframework.web.bind.annotation.RequestMapping",
+      "qualified_name": "org.springframework.web.bind.annotation.RequestMapping",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "import",
+      "name": "org.springframework.web.bind.annotation.RestController",
+      "qualified_name": "org.springframework.web.bind.annotation.RestController",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "class",
+      "name": "UserController",
+      "qualified_name": "UserController",
+      "start_line": 12,
+      "end_line": 25
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "route",
+      "name": "BASE /users",
+      "qualified_name": "src/main/kotlin/com/acme/app/web/UserController.kt::BASE:/users",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "field",
+      "name": "userService",
+      "qualified_name": "UserController::userService",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "field",
+      "name": "greeting",
+      "qualified_name": "UserController::greeting",
+      "start_line": 15,
+      "end_line": 16
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "route",
+      "name": "GET /{id}",
+      "qualified_name": "src/main/kotlin/com/acme/app/web/UserController.kt::GET:/{id}",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "UserController::show",
+      "start_line": 18,
+      "end_line": 19
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserController::show::id",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "route",
+      "name": "POST /build",
+      "qualified_name": "src/main/kotlin/com/acme/app/web/UserController.kt::POST:/build",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "UserController::build",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "UserController::build::id",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "constant",
+      "name": "app.greeting",
+      "qualified_name": "app.greeting",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "file",
+      "name": "application.properties",
+      "qualified_name": "src/main/resources/application.properties",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "file",
+      "name": "UserMapper.xml",
+      "qualified_name": "src/main/resources/mapper/UserMapper.xml",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "UserMapper::find",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "method",
+      "name": "rename",
+      "qualified_name": "UserMapper::rename",
+      "start_line": 4,
+      "end_line": 4
+    }
+  ],
+  "edges": [
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooViewManager",
+      "target_kind": "method",
+      "target": "FooViewManager::getName",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooViewManager",
+      "target_kind": "method",
+      "target": "FooViewManager::setColor",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooViewManager",
+      "target_kind": "method",
+      "target": "FooViewManager::setEnabled",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "class",
+      "target": "FooViewManager",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "import",
+      "target": "android.view.View",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "import",
+      "target": "com.facebook.react.uimanager.SimpleViewManager",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "import",
+      "target": "com.facebook.react.uimanager.annotations.ReactProp",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt::Foo",
+      "target_kind": "class",
+      "target": "FooViewManager",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "import",
+      "target": "android.view.View",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": 3
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "import",
+      "target": "com.facebook.react.uimanager.SimpleViewManager",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": 4
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "target_kind": "import",
+      "target": "com.facebook.react.uimanager.annotations.ReactProp",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": 5
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "SettingsHelper",
+      "target_kind": "method",
+      "target": "SettingsHelper::run",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "SettingsModule",
+      "target_kind": "method",
+      "target": "SettingsModule::definition",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "target_kind": "class",
+      "target": "SettingsHelper",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "target_kind": "class",
+      "target": "SettingsModule",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "target_kind": "import",
+      "target": "expo.modules.kotlin.modules.Module",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "target_kind": "import",
+      "target": "expo.modules.kotlin.modules.ModuleDefinition",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "target_kind": "import",
+      "target": "expo.modules.kotlin.modules.Module",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": 3
+    },
+    {
+      "file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "target_kind": "import",
+      "target": "expo.modules.kotlin.modules.ModuleDefinition",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": 4
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "interface",
+      "target": "NativeProps",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": null
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": null
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": null
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "js/FooNativeComponent.ts::Foo",
+      "target_kind": "class",
+      "target": "FooViewManager",
+      "target_file": "android/src/main/java/com/acme/views/FooViewManager.kt",
+      "line": null
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": 1
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": 1
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": 2
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "NativeProps",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": 4
+    },
+    {
+      "file": "js/FooNativeComponent.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "js/FooNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/FooNativeComponent.ts",
+      "line": 9
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "ExpoSettings",
+      "target_kind": "import",
+      "target": "ExpoSettings::ExpoSettings",
+      "target_file": "js/settings.ts",
+      "line": null
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/settings.ts",
+      "target_kind": "constant",
+      "target": "ExpoSettings",
+      "target_file": "js/settings.ts",
+      "line": null
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/settings.ts",
+      "target_kind": "function",
+      "target": "applyTheme",
+      "target_file": "js/settings.ts",
+      "line": null
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/settings.ts",
+      "target_kind": "import",
+      "target": "expo-modules-core",
+      "target_file": "js/settings.ts",
+      "line": null
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "js/settings.ts",
+      "target_kind": "import",
+      "target": "expo-modules-core",
+      "target_file": "js/settings.ts",
+      "line": 1
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "js/settings.ts",
+      "target_kind": "import",
+      "target": "expo-modules-core",
+      "target_file": "js/settings.ts",
+      "line": 1
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "ExpoSettings",
+      "target_kind": "import",
+      "target": "expo-modules-core",
+      "target_file": "js/settings.ts",
+      "line": 3
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "ExpoSettings",
+      "target_kind": "constant",
+      "target": "ExpoSettings",
+      "target_file": "js/settings.ts",
+      "line": 3
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "applyTheme",
+      "target_kind": "method",
+      "target": "ExpoSettings::getTheme",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": 6
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "applyTheme",
+      "target_kind": "method",
+      "target": "ExpoSettings::spaced",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": 7
+    },
+    {
+      "file": "js/settings.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "applyTheme",
+      "target_kind": "method",
+      "target": "ExpoSettings::setTheme",
+      "target_file": "android/src/main/java/com/acme/views/SettingsModule.kt",
+      "line": 8
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "JHelper",
+      "target_kind": "method",
+      "target": "JHelper::go",
+      "target_file": "src/main/java/com/acme/app/service/JHelper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "JHelper",
+      "target_kind": "method",
+      "target": "JHelper::tag",
+      "target_file": "src/main/java/com/acme/app/service/JHelper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/app/service/JHelper.java",
+      "target_kind": "class",
+      "target": "JHelper",
+      "target_file": "src/main/java/com/acme/app/service/JHelper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/app/service/JHelper.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "JHelper::tag",
+      "target_kind": "class",
+      "target": "KTagger",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 7
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Engine",
+      "target_kind": "method",
+      "target": "Engine::run",
+      "target_file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "target_kind": "class",
+      "target": "Engine",
+      "target_file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Engine",
+      "target_kind": "method",
+      "target": "Engine::run",
+      "target_file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "target_kind": "class",
+      "target": "Engine",
+      "target_file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "method",
+      "target": "UserMapper::find",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::find::id",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "method",
+      "target": "UserMapper::rename",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::rename::id",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "UserMapper",
+      "target_kind": "parameter",
+      "target": "UserMapper::rename::name",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::find",
+      "target_kind": "parameter",
+      "target": "UserMapper::find::id",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::rename",
+      "target_kind": "parameter",
+      "target": "UserMapper::rename::id",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserMapper::rename",
+      "target_kind": "parameter",
+      "target": "UserMapper::rename::name",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "interface",
+      "target": "UserMapper",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.User",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Mapper",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::find",
+      "target_kind": "method",
+      "target": "UserMapper::find",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::rename",
+      "target_kind": "method",
+      "target": "UserMapper::rename",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.User",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Mapper",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserMapper::find",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Auditable",
+      "target_kind": "method",
+      "target": "Auditable::audit",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::commit",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "field",
+      "target": "Committer::user",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Entity",
+      "target_kind": "field",
+      "target": "Entity::id",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Named",
+      "target_kind": "field",
+      "target": "Named::displayName",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Registry",
+      "target_kind": "method",
+      "target": "Registry::register",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Registry",
+      "target_kind": "field",
+      "target": "Registry::users",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::ADMIN",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::USER",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "method",
+      "target": "Role::label",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::audit",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::createdAt",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::displayName",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::email",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::id",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::name",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::rename",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::role",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserBuilder",
+      "target_kind": "method",
+      "target": "UserBuilder::build",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserBuilder",
+      "target_kind": "field",
+      "target": "UserBuilder::id",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserBuilder",
+      "target_kind": "method",
+      "target": "UserBuilder::withId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Validator",
+      "target_kind": "method",
+      "target": "Validator::validate",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "interface",
+      "target": "Auditable",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "class",
+      "target": "Entity",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "constant",
+      "target": "MAX_USERS",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "interface",
+      "target": "Named",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "class",
+      "target": "Registry",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "method",
+      "target": "String::shout",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "class",
+      "target": "UserBuilder",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "interface",
+      "target": "Validator",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "constant",
+      "target": "defaultRole",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "import",
+      "target": "java.time.Instant",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "variable",
+      "target": "userCounter",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/model/User.kt",
+      "target_kind": "import",
+      "target": "java.time.Instant",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "Auditable",
+      "target_kind": "interface",
+      "target": "Named",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 22
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Validator::validate",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 27
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Entity::id",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 30
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "Entity",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Auditable",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User::id",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User::role",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "User::rename",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 41
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::create",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 47
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "User::create",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 47
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "User::create",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 47
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Registry::register",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 54
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserBuilder::id",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 63
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserBuilder::withId",
+      "target_kind": "class",
+      "target": "UserBuilder",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 65
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserBuilder::withId",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 65
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserBuilder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 70
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserBuilder::build",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 70
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserBuilder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 70
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "Committer::user",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 73
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Committer::commit",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 74
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "KTagger",
+      "target_kind": "method",
+      "target": "KTagger::tag",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::build",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::cache",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::engine",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::external",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::helper",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::load",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::track",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::validator",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "class",
+      "target": "KTagger",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.b.Engine",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.Registry",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.User",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.UserBuilder",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.Validator",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.shout",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "java.util",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "org.springframework.stereotype.Service",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "org.springframework.transaction.annotation.Transactional",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.b.Engine",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.User",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.UserBuilder",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.Registry",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 6
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.shout",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 7
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.Validator",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 8
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "org.springframework.stereotype.Service",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "org.springframework.transaction.annotation.Transactional",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 10
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "target_kind": "import",
+      "target": "java.util",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 11
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserService::engine",
+      "target_kind": "class",
+      "target": "Engine",
+      "target_file": "src/main/kotlin/com/acme/app/a/Engine.kt",
+      "line": 14
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserService::cache",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 16
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 19
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 20
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "Validator::validate",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 21
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "String::shout",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 22
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "Registry::register",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 24
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "Engine::run",
+      "target_file": "src/main/kotlin/com/acme/app/b/Engine.kt",
+      "line": 25
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "UserService::helper",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 26
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "UserService::track",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 27
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::build",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 31
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::build",
+      "target_kind": "class",
+      "target": "UserBuilder",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 32
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::build",
+      "target_kind": "method",
+      "target": "UserBuilder::withId",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 33
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::external",
+      "target_kind": "method",
+      "target": "JHelper::go",
+      "target_file": "src/main/java/com/acme/app/service/JHelper.java",
+      "line": 36
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::helper",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 38
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::helper",
+      "target_kind": "field",
+      "target": "Entity::id",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 39
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::track",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 42
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::track",
+      "target_kind": "method",
+      "target": "User::rename",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 43
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::track",
+      "target_kind": "field",
+      "target": "User::name",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 43
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::build",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "parameter",
+      "target": "UserController::build::id",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "field",
+      "target": "UserController::greeting",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::show",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "parameter",
+      "target": "UserController::show::id",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "field",
+      "target": "UserController::userService",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserController::build",
+      "target_kind": "parameter",
+      "target": "UserController::build::id",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserController::show",
+      "target_kind": "parameter",
+      "target": "UserController::show::id",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "class",
+      "target": "UserController",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.User",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.service.UserService",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.beans.factory.annotation.Value",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.GetMapping",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.PathVariable",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.PostMapping",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.RequestMapping",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.RestController",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": null
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.model.User",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 3
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "com.acme.app.service.UserService",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 4
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.beans.factory.annotation.Value",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 5
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.GetMapping",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 6
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.PathVariable",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 7
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.PostMapping",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 8
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.RequestMapping",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 9
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation.RestController",
+      "target_file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "line": 10
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserController::userService",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 14
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::show",
+      "target_kind": "method",
+      "target": "UserService::load",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 19
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserController::show",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 19
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserController::build",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/main/kotlin/com/acme/app/model/User.kt",
+      "line": 22
+    },
+    {
+      "file": "src/main/kotlin/com/acme/app/web/UserController.kt",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserController::build",
+      "target_kind": "method",
+      "target": "UserService::build",
+      "target_file": "src/main/kotlin/com/acme/app/service/UserService.kt",
+      "line": 23
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/application.properties",
+      "target_kind": "constant",
+      "target": "app.greeting",
+      "target_file": "src/main/resources/application.properties",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::find",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/UserMapper.xml",
+      "target_kind": "method",
+      "target": "UserMapper::rename",
+      "target_file": "src/main/resources/mapper/UserMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::find",
+      "target_kind": "parameter",
+      "target": "UserMapper::find::id",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": 3
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::rename",
+      "target_kind": "parameter",
+      "target": "UserMapper::rename::id",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": 4
+    },
+    {
+      "file": "src/main/resources/mapper/UserMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "UserMapper::rename",
+      "target_kind": "parameter",
+      "target": "UserMapper::rename::name",
+      "target_file": "src/main/kotlin/com/acme/app/mapper/UserMapper.kt",
+      "line": 4
+    }
+  ],
+  "unresolved": []
+}

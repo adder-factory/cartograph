@@ -1,0 +1,638 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "clojure",
+  "files": [
+    "build.bb",
+    "resources/config.edn",
+    "src/demo/core.clj",
+    "src/demo/shared.cljc",
+    "src/demo/util.clj",
+    "src/demo/web/handler.cljs"
+  ],
+  "symbols": [
+    {
+      "file": "build.bb",
+      "kind": "file",
+      "name": "build.bb",
+      "qualified_name": "build.bb",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "build.bb",
+      "kind": "import",
+      "name": "babashka.fs",
+      "qualified_name": "babashka.fs",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "build.bb",
+      "kind": "function",
+      "name": "clean",
+      "qualified_name": "clean",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "resources/config.edn",
+      "kind": "file",
+      "name": "config.edn",
+      "qualified_name": "resources/config.edn",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "file",
+      "name": "core.clj",
+      "qualified_name": "src/demo/core.clj",
+      "start_line": 1,
+      "end_line": 37
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "import",
+      "name": "clojure.string",
+      "qualified_name": "clojure.string",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "import",
+      "name": "demo.util",
+      "qualified_name": "demo.util",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "import",
+      "name": "demo.web.handler",
+      "qualified_name": "demo.web.handler",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "import",
+      "name": "clojure.",
+      "qualified_name": "clojure.",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "import",
+      "name": "set",
+      "qualified_name": "set",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "constant",
+      "name": "default-name",
+      "qualified_name": "default-name",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "constant",
+      "name": "max-retries",
+      "qualified_name": "max-retries",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "constant",
+      "name": "secret-key",
+      "qualified_name": "secret-key",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "greet",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "function",
+      "name": "hidden",
+      "qualified_name": "hidden",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "function",
+      "name": "also-hidden",
+      "qualified_name": "also-hidden",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "function",
+      "name": "multi-arity",
+      "qualified_name": "multi-arity",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "function",
+      "name": "with-log",
+      "qualified_name": "with-log",
+      "start_line": 27,
+      "end_line": 28
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "run",
+      "start_line": 30,
+      "end_line": 36
+    },
+    {
+      "file": "src/demo/shared.cljc",
+      "kind": "file",
+      "name": "shared.cljc",
+      "qualified_name": "src/demo/shared.cljc",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/demo/shared.cljc",
+      "kind": "constant",
+      "name": "config",
+      "qualified_name": "config",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/demo/shared.cljc",
+      "kind": "function",
+      "name": "port",
+      "qualified_name": "port",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "file",
+      "name": "util.clj",
+      "qualified_name": "src/demo/util.clj",
+      "start_line": 1,
+      "end_line": 23
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 3,
+      "end_line": 6
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "function",
+      "name": "ready?",
+      "qualified_name": "ready?",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "function",
+      "name": "swap-state!",
+      "qualified_name": "swap-state!",
+      "start_line": 10,
+      "end_line": 11
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "file",
+      "name": "handler.cljs",
+      "qualified_name": "src/demo/web/handler.cljs",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "import",
+      "name": "demo.util",
+      "qualified_name": "demo.util",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "function",
+      "name": "handle",
+      "qualified_name": "handle",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "function",
+      "name": "render-page",
+      "qualified_name": "render-page",
+      "start_line": 8,
+      "end_line": 9
+    }
+  ],
+  "edges": [
+    {
+      "file": "build.bb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "build.bb",
+      "target_kind": "import",
+      "target": "babashka.fs",
+      "target_file": "build.bb",
+      "line": null
+    },
+    {
+      "file": "build.bb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "build.bb",
+      "target_kind": "function",
+      "target": "clean",
+      "target_file": "build.bb",
+      "line": null
+    },
+    {
+      "file": "build.bb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "build.bb",
+      "target_kind": "import",
+      "target": "babashka.fs",
+      "target_file": "build.bb",
+      "line": 2
+    },
+    {
+      "file": "build.bb",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "build.bb",
+      "target_kind": "function",
+      "target": "clean",
+      "target_file": "build.bb",
+      "line": 6
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "function",
+      "target": "also-hidden",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "clojure.",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "clojure.string",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "constant",
+      "target": "default-name",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "demo.util",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "demo.web.handler",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "function",
+      "target": "hidden",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "constant",
+      "target": "max-retries",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "function",
+      "target": "multi-arity",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "constant",
+      "target": "secret-key",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "set",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "function",
+      "target": "with-log",
+      "target_file": "src/demo/core.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "clojure.string",
+      "target_file": "src/demo/core.clj",
+      "line": 2
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "demo.util",
+      "target_file": "src/demo/core.clj",
+      "line": 3
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "demo.web.handler",
+      "target_file": "src/demo/core.clj",
+      "line": 4
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "clojure.",
+      "target_file": "src/demo/core.clj",
+      "line": 5
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/demo/core.clj",
+      "target_kind": "import",
+      "target": "set",
+      "target_file": "src/demo/core.clj",
+      "line": 5
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "greet",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "src/demo/util.clj",
+      "line": 17
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "multi-arity",
+      "target_kind": "function",
+      "target": "multi-arity",
+      "target_file": "src/demo/core.clj",
+      "line": 24
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "hidden",
+      "target_file": "src/demo/core.clj",
+      "line": 32
+    },
+    {
+      "file": "src/demo/core.clj",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/demo/core.clj",
+      "line": 33
+    },
+    {
+      "file": "src/demo/shared.cljc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/shared.cljc",
+      "target_kind": "constant",
+      "target": "config",
+      "target_file": "src/demo/shared.cljc",
+      "line": null
+    },
+    {
+      "file": "src/demo/shared.cljc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/shared.cljc",
+      "target_kind": "function",
+      "target": "port",
+      "target_file": "src/demo/shared.cljc",
+      "line": null
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/util.clj",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "src/demo/util.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/util.clj",
+      "target_kind": "function",
+      "target": "ready?",
+      "target_file": "src/demo/util.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/util.clj",
+      "target_kind": "function",
+      "target": "swap-state!",
+      "target_file": "src/demo/util.clj",
+      "line": null
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "helper",
+      "target_kind": "import",
+      "target": "clojure.",
+      "target_file": "src/demo/core.clj",
+      "line": 6
+    },
+    {
+      "file": "src/demo/util.clj",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "ready?",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "src/demo/util.clj",
+      "line": 8
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/web/handler.cljs",
+      "target_kind": "import",
+      "target": "demo.util",
+      "target_file": "src/demo/web/handler.cljs",
+      "line": null
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/web/handler.cljs",
+      "target_kind": "function",
+      "target": "handle",
+      "target_file": "src/demo/web/handler.cljs",
+      "line": null
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/demo/web/handler.cljs",
+      "target_kind": "function",
+      "target": "render-page",
+      "target_file": "src/demo/web/handler.cljs",
+      "line": null
+    },
+    {
+      "file": "src/demo/web/handler.cljs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/demo/web/handler.cljs",
+      "target_kind": "import",
+      "target": "demo.util",
+      "target_file": "src/demo/web/handler.cljs",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

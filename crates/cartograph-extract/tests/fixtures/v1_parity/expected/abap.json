@@ -1,0 +1,291 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "abap",
+  "files": [
+    "src/zcl_greeter.clas.abap",
+    "src/zcl_logger.clas.abap",
+    "src/zcl_polite_greeter.clas.abap",
+    "src/zdemo_report.prog.abap",
+    "src/zif_greeter.intf.abap"
+  ],
+  "symbols": [
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "file",
+      "name": "zcl_greeter.clas.abap",
+      "qualified_name": "src/zcl_greeter.clas.abap",
+      "start_line": 1,
+      "end_line": 35
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "class",
+      "name": "zcl_greeter",
+      "qualified_name": "zcl_greeter",
+      "start_line": 12,
+      "end_line": 34
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "method",
+      "name": "constructor",
+      "qualified_name": "zcl_greeter::constructor",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "zcl_greeter::greet",
+      "start_line": 17,
+      "end_line": 21
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "zcl_greeter::create",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "method",
+      "name": "zif_greeter",
+      "qualified_name": "zcl_greeter::zif_greeter",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "method",
+      "name": "zif_greeter",
+      "qualified_name": "zcl_greeter::zif_greeter",
+      "start_line": 31,
+      "end_line": 33
+    },
+    {
+      "file": "src/zcl_logger.clas.abap",
+      "kind": "file",
+      "name": "zcl_logger.clas.abap",
+      "qualified_name": "src/zcl_logger.clas.abap",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "src/zcl_logger.clas.abap",
+      "kind": "class",
+      "name": "zcl_logger",
+      "qualified_name": "zcl_logger",
+      "start_line": 6,
+      "end_line": 10
+    },
+    {
+      "file": "src/zcl_logger.clas.abap",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "zcl_logger::log",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/zcl_polite_greeter.clas.abap",
+      "kind": "file",
+      "name": "zcl_polite_greeter.clas.abap",
+      "qualified_name": "src/zcl_polite_greeter.clas.abap",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "src/zcl_polite_greeter.clas.abap",
+      "kind": "class",
+      "name": "zcl_polite_greeter",
+      "qualified_name": "zcl_polite_greeter",
+      "start_line": 6,
+      "end_line": 11
+    },
+    {
+      "file": "src/zcl_polite_greeter.clas.abap",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "zcl_polite_greeter::greet",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "src/zdemo_report.prog.abap",
+      "kind": "file",
+      "name": "zdemo_report.prog.abap",
+      "qualified_name": "src/zdemo_report.prog.abap",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "src/zdemo_report.prog.abap",
+      "kind": "class",
+      "name": "lcl_app",
+      "qualified_name": "lcl_app",
+      "start_line": 8,
+      "end_line": 14
+    },
+    {
+      "file": "src/zdemo_report.prog.abap",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "lcl_app::run",
+      "start_line": 9,
+      "end_line": 13
+    },
+    {
+      "file": "src/zif_greeter.intf.abap",
+      "kind": "file",
+      "name": "zif_greeter.intf.abap",
+      "qualified_name": "src/zif_greeter.intf.abap",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "src/zif_greeter.intf.abap",
+      "kind": "interface",
+      "name": "zif_greeter",
+      "qualified_name": "zif_greeter",
+      "start_line": 1,
+      "end_line": 4
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/zcl_greeter.clas.abap",
+      "target_kind": "class",
+      "target": "zcl_greeter",
+      "target_file": "src/zcl_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_greeter",
+      "target_kind": "method",
+      "target": "zcl_greeter::constructor",
+      "target_file": "src/zcl_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_greeter",
+      "target_kind": "method",
+      "target": "zcl_greeter::create",
+      "target_file": "src/zcl_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_greeter",
+      "target_kind": "method",
+      "target": "zcl_greeter::greet",
+      "target_file": "src/zcl_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_greeter",
+      "target_kind": "method",
+      "target": "zcl_greeter::zif_greeter",
+      "target_file": "src/zcl_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_greeter",
+      "target_kind": "method",
+      "target": "zcl_greeter::zif_greeter",
+      "target_file": "src/zcl_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_logger.clas.abap",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/zcl_logger.clas.abap",
+      "target_kind": "class",
+      "target": "zcl_logger",
+      "target_file": "src/zcl_logger.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_logger.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_logger",
+      "target_kind": "method",
+      "target": "zcl_logger::log",
+      "target_file": "src/zcl_logger.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_polite_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/zcl_polite_greeter.clas.abap",
+      "target_kind": "class",
+      "target": "zcl_polite_greeter",
+      "target_file": "src/zcl_polite_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zcl_polite_greeter.clas.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "zcl_polite_greeter",
+      "target_kind": "method",
+      "target": "zcl_polite_greeter::greet",
+      "target_file": "src/zcl_polite_greeter.clas.abap",
+      "line": null
+    },
+    {
+      "file": "src/zdemo_report.prog.abap",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "lcl_app",
+      "target_kind": "method",
+      "target": "lcl_app::run",
+      "target_file": "src/zdemo_report.prog.abap",
+      "line": null
+    },
+    {
+      "file": "src/zdemo_report.prog.abap",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/zdemo_report.prog.abap",
+      "target_kind": "class",
+      "target": "lcl_app",
+      "target_file": "src/zdemo_report.prog.abap",
+      "line": null
+    },
+    {
+      "file": "src/zif_greeter.intf.abap",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/zif_greeter.intf.abap",
+      "target_kind": "interface",
+      "target": "zif_greeter",
+      "target_file": "src/zif_greeter.intf.abap",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

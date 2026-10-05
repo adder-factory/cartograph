@@ -1,0 +1,1117 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "tsx",
+  "files": [
+    "app/dashboard/page.tsx",
+    "package.json",
+    "pages/index.tsx",
+    "pages/index/detail.tsx",
+    "pages/user-[id].tsx",
+    "src/components/Button.tsx",
+    "src/components/icons.tsx"
+  ],
+  "symbols": [
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "file",
+      "name": "page.tsx",
+      "qualified_name": "app/dashboard/page.tsx",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "import",
+      "name": "../../src/components/icons",
+      "qualified_name": "../../src/components/icons",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "constant",
+      "name": "metadata",
+      "qualified_name": "metadata",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "route",
+      "name": "/dashboard",
+      "qualified_name": "app/dashboard/page.tsx::route:/dashboard",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "component",
+      "name": "DashboardPage",
+      "qualified_name": "DashboardPage",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "function",
+      "name": "fetchStats",
+      "qualified_name": "fetchStats",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "file",
+      "name": "index.tsx",
+      "qualified_name": "pages/index.tsx",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "import",
+      "name": "../src/components/Button",
+      "qualified_name": "../src/components/Button",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "function",
+      "name": "getServerSideProps",
+      "qualified_name": "getServerSideProps",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "route",
+      "name": "/",
+      "qualified_name": "pages/index.tsx::route:/",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "component",
+      "name": "HomePage",
+      "qualified_name": "HomePage",
+      "start_line": 7,
+      "end_line": 14
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "file",
+      "name": "detail.tsx",
+      "qualified_name": "pages/index/detail.tsx",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "import",
+      "name": "../../src/components/Button",
+      "qualified_name": "../../src/components/Button",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "route",
+      "name": "/index/detail",
+      "qualified_name": "pages/index/detail.tsx::route:/index/detail",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "component",
+      "name": "Detail",
+      "qualified_name": "Detail",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "file",
+      "name": "user-[id].tsx",
+      "qualified_name": "pages/user-[id].tsx",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "import",
+      "name": "../src/components/Button",
+      "qualified_name": "../src/components/Button",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "type_alias",
+      "name": "Params",
+      "qualified_name": "Params",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "component",
+      "name": "UserPage",
+      "qualified_name": "UserPage",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "route",
+      "name": "/user-:id",
+      "qualified_name": "pages/user-[id].tsx::route:/user-:id",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "file",
+      "name": "Button.tsx",
+      "qualified_name": "src/components/Button.tsx",
+      "start_line": 1,
+      "end_line": 60
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "import",
+      "name": "react",
+      "qualified_name": "react",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "import",
+      "name": "react",
+      "qualified_name": "react",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "import",
+      "name": "./icons",
+      "qualified_name": "./icons",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "interface",
+      "name": "ButtonProps",
+      "qualified_name": "ButtonProps",
+      "start_line": 5,
+      "end_line": 9
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "type_alias",
+      "name": "Variant",
+      "qualified_name": "Variant",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "constant",
+      "name": "ThemeContext",
+      "qualified_name": "ThemeContext",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "function",
+      "name": "useToggle",
+      "qualified_name": "useToggle",
+      "start_line": 15,
+      "end_line": 19
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "function",
+      "name": "toggle",
+      "qualified_name": "useToggle::toggle",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "component",
+      "name": "Button",
+      "qualified_name": "Button",
+      "start_line": 21,
+      "end_line": 31
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "component",
+      "name": "Label",
+      "qualified_name": "Label",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "function",
+      "name": "formatLabel",
+      "qualified_name": "formatLabel",
+      "start_line": 35,
+      "end_line": 37
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "component",
+      "name": "IconButton",
+      "qualified_name": "IconButton",
+      "start_line": 39,
+      "end_line": 41
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "class",
+      "name": "Counter",
+      "qualified_name": "Counter",
+      "start_line": 43,
+      "end_line": 54
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field",
+      "name": "state",
+      "qualified_name": "Counter::state",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field",
+      "name": "step",
+      "qualified_name": "Counter::step",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "method",
+      "name": "increment",
+      "qualified_name": "Counter::increment",
+      "start_line": 47,
+      "end_line": 49
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "Counter::render",
+      "start_line": 51,
+      "end_line": 53
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "enum",
+      "name": "Size",
+      "qualified_name": "Size",
+      "start_line": 56,
+      "end_line": 59
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "enum_member",
+      "name": "Small",
+      "qualified_name": "Size::Small",
+      "start_line": 57,
+      "end_line": 57
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "enum_member",
+      "name": "Large",
+      "qualified_name": "Size::Large",
+      "start_line": 58,
+      "end_line": 58
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "file",
+      "name": "icons.tsx",
+      "qualified_name": "src/components/icons.tsx",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "interface",
+      "name": "IconProps",
+      "qualified_name": "IconProps",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "component",
+      "name": "Star",
+      "qualified_name": "Star",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "component",
+      "name": "Heart",
+      "qualified_name": "Heart",
+      "start_line": 9,
+      "end_line": 9
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/dashboard/page.tsx",
+      "target_kind": "import",
+      "target": "../../src/components/icons",
+      "target_file": "app/dashboard/page.tsx",
+      "line": null
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/dashboard/page.tsx",
+      "target_kind": "component",
+      "target": "DashboardPage",
+      "target_file": "app/dashboard/page.tsx",
+      "line": null
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/dashboard/page.tsx",
+      "target_kind": "function",
+      "target": "fetchStats",
+      "target_file": "app/dashboard/page.tsx",
+      "line": null
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/dashboard/page.tsx",
+      "target_kind": "constant",
+      "target": "metadata",
+      "target_file": "app/dashboard/page.tsx",
+      "line": null
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/dashboard/page.tsx",
+      "target_kind": "import",
+      "target": "../../src/components/icons",
+      "target_file": "app/dashboard/page.tsx",
+      "line": 1
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "app/dashboard/page.tsx",
+      "target_kind": "component",
+      "target": "Star",
+      "target_file": "src/components/icons.tsx",
+      "line": 1
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "DashboardPage",
+      "target_kind": "function",
+      "target": "fetchStats",
+      "target_file": "app/dashboard/page.tsx",
+      "line": 6
+    },
+    {
+      "file": "app/dashboard/page.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "DashboardPage",
+      "target_kind": "component",
+      "target": "Star",
+      "target_file": "src/components/icons.tsx",
+      "line": 7
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/index.tsx",
+      "target_kind": "import",
+      "target": "../src/components/Button",
+      "target_file": "pages/index.tsx",
+      "line": null
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/index.tsx",
+      "target_kind": "component",
+      "target": "HomePage",
+      "target_file": "pages/index.tsx",
+      "line": null
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/index.tsx",
+      "target_kind": "function",
+      "target": "getServerSideProps",
+      "target_file": "pages/index.tsx",
+      "line": null
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "pages/index.tsx",
+      "target_kind": "import",
+      "target": "../src/components/Button",
+      "target_file": "pages/index.tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "pages/index.tsx",
+      "target_kind": "component",
+      "target": "Button",
+      "target_file": "src/components/Button.tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "pages/index.tsx",
+      "target_kind": "constant",
+      "target": "ThemeContext",
+      "target_file": "src/components/Button.tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "HomePage",
+      "target_kind": "constant",
+      "target": "ThemeContext",
+      "target_file": "src/components/Button.tsx",
+      "line": 9
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "HomePage",
+      "target_kind": "component",
+      "target": "Button",
+      "target_file": "src/components/Button.tsx",
+      "line": 10
+    },
+    {
+      "file": "pages/index.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "HomePage",
+      "target_kind": "component",
+      "target": "IconButton",
+      "target_file": "src/components/Button.tsx",
+      "line": 11
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/index/detail.tsx",
+      "target_kind": "import",
+      "target": "../../src/components/Button",
+      "target_file": "pages/index/detail.tsx",
+      "line": null
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/index/detail.tsx",
+      "target_kind": "component",
+      "target": "Detail",
+      "target_file": "pages/index/detail.tsx",
+      "line": null
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "pages/index/detail.tsx",
+      "target_kind": "import",
+      "target": "../../src/components/Button",
+      "target_file": "pages/index/detail.tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "pages/index/detail.tsx",
+      "target_kind": "class",
+      "target": "Counter",
+      "target_file": "src/components/Button.tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/index/detail.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "Detail",
+      "target_kind": "class",
+      "target": "Counter",
+      "target_file": "src/components/Button.tsx",
+      "line": 4
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/user-[id].tsx",
+      "target_kind": "import",
+      "target": "../src/components/Button",
+      "target_file": "pages/user-[id].tsx",
+      "line": null
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/user-[id].tsx",
+      "target_kind": "type_alias",
+      "target": "Params",
+      "target_file": "pages/user-[id].tsx",
+      "line": null
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "pages/user-[id].tsx",
+      "target_kind": "component",
+      "target": "UserPage",
+      "target_file": "pages/user-[id].tsx",
+      "line": null
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "pages/user-[id].tsx",
+      "target_kind": "import",
+      "target": "../src/components/Button",
+      "target_file": "pages/user-[id].tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "pages/user-[id].tsx",
+      "target_kind": "component",
+      "target": "Label",
+      "target_file": "src/components/Button.tsx",
+      "line": 1
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "UserPage",
+      "target_kind": "component",
+      "target": "Label",
+      "target_file": "src/components/Button.tsx",
+      "line": 5
+    },
+    {
+      "file": "pages/user-[id].tsx",
+      "kind": "type_of",
+      "source_kind": "component",
+      "source": "UserPage",
+      "target_kind": "type_alias",
+      "target": "Params",
+      "target_file": "pages/user-[id].tsx",
+      "line": 5
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Counter",
+      "target_kind": "method",
+      "target": "Counter::increment",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Counter",
+      "target_kind": "method",
+      "target": "Counter::render",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Counter",
+      "target_kind": "field",
+      "target": "Counter::state",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Counter",
+      "target_kind": "field",
+      "target": "Counter::step",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Size",
+      "target_kind": "enum_member",
+      "target": "Size::Large",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Size",
+      "target_kind": "enum_member",
+      "target": "Size::Small",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "./icons",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "component",
+      "target": "Button",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "interface",
+      "target": "ButtonProps",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "class",
+      "target": "Counter",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "component",
+      "target": "IconButton",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "component",
+      "target": "Label",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "enum",
+      "target": "Size",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "constant",
+      "target": "ThemeContext",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "type_alias",
+      "target": "Variant",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "function",
+      "target": "formatLabel",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "function",
+      "target": "useToggle",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "useToggle",
+      "target_kind": "function",
+      "target": "useToggle::toggle",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "useToggle",
+      "target_kind": "function",
+      "target": "useToggle",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "constant",
+      "target": "ThemeContext",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "function",
+      "target": "useToggle::toggle",
+      "target_file": "src/components/Button.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Button.tsx",
+      "line": 1
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Button.tsx",
+      "line": 1
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Button.tsx",
+      "line": 2
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Button.tsx",
+      "target_kind": "import",
+      "target": "./icons",
+      "target_file": "src/components/Button.tsx",
+      "line": 3
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "ThemeContext",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Button.tsx",
+      "line": 13
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "type_of",
+      "source_kind": "constant",
+      "source": "ThemeContext",
+      "target_kind": "type_alias",
+      "target": "Variant",
+      "target_file": "src/components/Button.tsx",
+      "line": 13
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "Button",
+      "target_kind": "function",
+      "target": "useToggle",
+      "target_file": "src/components/Button.tsx",
+      "line": 23
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field_access",
+      "source_kind": "component",
+      "source": "Button",
+      "target_kind": "component",
+      "target": "Star",
+      "target_file": "src/components/icons.tsx",
+      "line": 26
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "Button",
+      "target_kind": "import",
+      "target": "./icons",
+      "target_file": "src/components/Button.tsx",
+      "line": 26
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "Button",
+      "target_kind": "component",
+      "target": "Label",
+      "target_file": "src/components/Button.tsx",
+      "line": 27
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "Label",
+      "target_kind": "function",
+      "target": "formatLabel",
+      "target_file": "src/components/Button.tsx",
+      "line": 33
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "IconButton",
+      "target_kind": "component",
+      "target": "Button",
+      "target_file": "src/components/Button.tsx",
+      "line": 40
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Counter::increment",
+      "target_kind": "field",
+      "target": "Counter::state",
+      "target_file": "src/components/Button.tsx",
+      "line": 48
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Counter::increment",
+      "target_kind": "field",
+      "target": "Counter::step",
+      "target_file": "src/components/Button.tsx",
+      "line": 48
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Counter::render",
+      "target_kind": "method",
+      "target": "Counter::increment",
+      "target_file": "src/components/Button.tsx",
+      "line": 52
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Counter::render",
+      "target_kind": "field",
+      "target": "Counter::state",
+      "target_file": "src/components/Button.tsx",
+      "line": 52
+    },
+    {
+      "file": "src/components/Button.tsx",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "Counter::render",
+      "target_kind": "component",
+      "target": "Button",
+      "target_file": "src/components/Button.tsx",
+      "line": 52
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/icons.tsx",
+      "target_kind": "component",
+      "target": "Heart",
+      "target_file": "src/components/icons.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/icons.tsx",
+      "target_kind": "interface",
+      "target": "IconProps",
+      "target_file": "src/components/icons.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/icons.tsx",
+      "target_kind": "component",
+      "target": "Star",
+      "target_file": "src/components/icons.tsx",
+      "line": null
+    },
+    {
+      "file": "src/components/icons.tsx",
+      "kind": "type_of",
+      "source_kind": "component",
+      "source": "Heart",
+      "target_kind": "interface",
+      "target": "IconProps",
+      "target_file": "src/components/icons.tsx",
+      "line": 9
+    }
+  ],
+  "unresolved": []
+}

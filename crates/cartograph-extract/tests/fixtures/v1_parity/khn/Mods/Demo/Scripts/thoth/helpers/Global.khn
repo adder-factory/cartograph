@@ -1,0 +1,22 @@
+function Blooded(entity)
+  return HasActiveStatus(entity, "LOW_HITPOINTS")
+end
+
+function IsWounded(entity)
+  return Blooded(entity) or HasHPPercentageLessThan(entity, 50)
+end
+
+local THRESHOLD = 25
+local Helpers = {}
+
+function Helpers.CanHeal(entity)
+  return IsWounded(entity) and not IsDead(entity)
+end
+
+function Helpers:Describe(entity)
+  return tostring(entity)
+end
+
+Check = function(entity)
+  return Helpers.CanHeal(entity)
+end

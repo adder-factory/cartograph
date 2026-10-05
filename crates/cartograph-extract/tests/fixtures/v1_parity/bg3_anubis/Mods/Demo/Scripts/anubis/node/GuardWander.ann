@@ -1,0 +1,30 @@
+game.states.GuardWander = State {
+  function ()
+    nodes = Action {
+      function ()
+        local target = FindWanderTarget(me)
+        MoveTo(target)
+      end,
+      CanEnter = function()
+        return not tired
+      end,
+      OnEnter = function()
+        PlayAnimation(me, "Stretch")
+      end,
+      OnFinished = function()
+        Sleep(1.0)
+      end
+    }
+    events.Alarm = function(e)
+      RaiseGuardAlarm(me)
+    end
+  end
+}
+
+function RaiseGuardAlarm(entity)
+  SetEntityEvent(entity, "RaiseAlarm")
+end
+
+function FindWanderTarget(entity)
+  return GetPosition(entity)
+end

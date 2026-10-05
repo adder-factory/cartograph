@@ -1,0 +1,2133 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "objc",
+  "files": [
+    "ios/Bridge/Player.swift",
+    "ios/Bridge/PlayerClient.m",
+    "ios/Fabric/BarComponentView.mm",
+    "ios/Fabric/FooComponentView.mm",
+    "ios/Fabric/FooViewManager.m",
+    "ios/Models/Constants.h",
+    "ios/Models/Worker.h",
+    "ios/Models/Worker.m",
+    "ios/RN/RNThing.m",
+    "package.json",
+    "src/BarNativeComponent.ts",
+    "src/NativeRNThing.ts",
+    "src/native.js"
+  ],
+  "symbols": [
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "file",
+      "name": "Player.swift",
+      "qualified_name": "ios/Bridge/Player.swift",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "import",
+      "name": "Foundation",
+      "qualified_name": "Foundation",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "class",
+      "name": "Player",
+      "qualified_name": "Player",
+      "start_line": 3,
+      "end_line": 11
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "method",
+      "name": "play",
+      "qualified_name": "Player::play",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "method",
+      "name": "prepare",
+      "qualified_name": "Player::prepare",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "method",
+      "name": "download",
+      "qualified_name": "Player::download",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "class",
+      "name": "Library",
+      "qualified_name": "Library",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "method",
+      "name": "playForArtist",
+      "qualified_name": "Library::playForArtist",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "method",
+      "name": "hidden",
+      "qualified_name": "Library::hidden",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "function",
+      "name": "useObjc",
+      "qualified_name": "useObjc",
+      "start_line": 18,
+      "end_line": 21
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "file",
+      "name": "PlayerClient.m",
+      "qualified_name": "ios/Bridge/PlayerClient.m",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "import",
+      "name": "Worker.h",
+      "qualified_name": "Worker.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "class",
+      "name": "PlayerClient",
+      "qualified_name": "PlayerClient",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "method",
+      "name": "start:",
+      "qualified_name": "PlayerClient::start:",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "file",
+      "name": "BarComponentView.mm",
+      "qualified_name": "ios/Fabric/BarComponentView.mm",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "import",
+      "name": "React/RCTViewComponentView.h",
+      "qualified_name": "React/RCTViewComponentView.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "class",
+      "name": "BarComponentView",
+      "qualified_name": "BarComponentView",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "method",
+      "name": "updateTint",
+      "qualified_name": "BarComponentView::updateTint",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "file",
+      "name": "FooComponentView.mm",
+      "qualified_name": "ios/Fabric/FooComponentView.mm",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "import",
+      "name": "FooComponentView.h",
+      "qualified_name": "FooComponentView.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "class",
+      "name": "FooComponentView",
+      "qualified_name": "FooComponentView",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "method",
+      "name": "initWithFrame:",
+      "qualified_name": "FooComponentView::initWithFrame:",
+      "start_line": 7,
+      "end_line": 13
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "method",
+      "name": "setup",
+      "qualified_name": "FooComponentView::setup",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "file",
+      "name": "FooViewManager.m",
+      "qualified_name": "ios/Fabric/FooViewManager.m",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "import",
+      "name": "React/RCTViewManager.h",
+      "qualified_name": "React/RCTViewManager.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "class",
+      "name": "FooHelper",
+      "qualified_name": "FooHelper",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "class",
+      "name": "FooViewManager",
+      "qualified_name": "FooViewManager",
+      "start_line": 8,
+      "end_line": 9
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "component",
+      "name": "Foo",
+      "qualified_name": "ios/Fabric/FooViewManager.m::Foo",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "property",
+      "name": "color",
+      "qualified_name": "ios/Fabric/FooViewManager.m::Foo.color",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "property",
+      "name": "radius",
+      "qualified_name": "ios/Fabric/FooViewManager.m::Foo.radius",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "property",
+      "name": "label",
+      "qualified_name": "ios/Fabric/FooViewManager.m::Foo.label",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "method",
+      "name": "view",
+      "qualified_name": "FooViewManager::view",
+      "start_line": 19,
+      "end_line": 22
+    },
+    {
+      "file": "ios/Models/Constants.h",
+      "kind": "constant",
+      "name": "WORKER_MAX",
+      "qualified_name": "WORKER_MAX",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Models/Constants.h",
+      "kind": "file",
+      "name": "Constants.h",
+      "qualified_name": "ios/Models/Constants.h",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "ios/Models/Constants.h",
+      "kind": "constant",
+      "name": "WORKER_NAME",
+      "qualified_name": "WORKER_NAME",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "file",
+      "name": "Worker.h",
+      "qualified_name": "ios/Models/Worker.h",
+      "start_line": 1,
+      "end_line": 34
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "import",
+      "name": "Foundation/Foundation.h",
+      "qualified_name": "Foundation/Foundation.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "import",
+      "name": "Constants.h",
+      "qualified_name": "Constants.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "struct",
+      "name": "WorkerPoint",
+      "qualified_name": "WorkerPoint",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "enum",
+      "name": "WorkerState",
+      "qualified_name": "WorkerState",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "enum_member",
+      "name": "WorkerStateIdle",
+      "qualified_name": "WorkerState::WorkerStateIdle",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "enum_member",
+      "name": "WorkerStateBusy",
+      "qualified_name": "WorkerState::WorkerStateBusy",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "protocol",
+      "name": "WorkerDelegate",
+      "qualified_name": "WorkerDelegate",
+      "start_line": 14,
+      "end_line": 18
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "class",
+      "name": "Worker",
+      "qualified_name": "Worker",
+      "start_line": 20,
+      "end_line": 29
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "property",
+      "name": "name",
+      "qualified_name": "Worker::name",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "property",
+      "name": "items",
+      "qualified_name": "Worker::items",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "property",
+      "name": "delegate",
+      "qualified_name": "Worker::delegate",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "property",
+      "name": "state",
+      "qualified_name": "Worker::state",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "class",
+      "name": "MyMap",
+      "qualified_name": "MyMap",
+      "start_line": 31,
+      "end_line": 33
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "file",
+      "name": "Worker.m",
+      "qualified_name": "ios/Models/Worker.m",
+      "start_line": 1,
+      "end_line": 52
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "import",
+      "name": "Worker.h",
+      "qualified_name": "Worker.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "import",
+      "name": "UIKit/UIKit.h",
+      "qualified_name": "UIKit/UIKit.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "function",
+      "name": "helperFunction",
+      "qualified_name": "helperFunction",
+      "start_line": 6,
+      "end_line": 10
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "class",
+      "name": "Worker",
+      "qualified_name": "Worker",
+      "start_line": 12,
+      "end_line": 46
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "shared",
+      "qualified_name": "Worker::shared",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "Worker::greet",
+      "start_line": 18,
+      "end_line": 21
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "doWork",
+      "qualified_name": "Worker::doWork",
+      "start_line": 23,
+      "end_line": 26
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "doThing:with:",
+      "qualified_name": "Worker::doThing:with:",
+      "start_line": 28,
+      "end_line": 31
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "other:",
+      "qualified_name": "Worker::other:",
+      "start_line": 33,
+      "end_line": 37
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "copyWithZone:",
+      "qualified_name": "Worker::copyWithZone:",
+      "start_line": 39,
+      "end_line": 41
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "workerDidFinish:",
+      "qualified_name": "Worker::workerDidFinish:",
+      "start_line": 43,
+      "end_line": 44
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "class",
+      "name": "MyMap",
+      "qualified_name": "MyMap",
+      "start_line": 48,
+      "end_line": 51
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "method",
+      "name": "setObject:forKey:",
+      "qualified_name": "MyMap::setObject:forKey:",
+      "start_line": 49,
+      "end_line": 50
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "file",
+      "name": "RNThing.m",
+      "qualified_name": "ios/RN/RNThing.m",
+      "start_line": 1,
+      "end_line": 64
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "import",
+      "name": "React/RCTBridgeModule.h",
+      "qualified_name": "React/RCTBridgeModule.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "import",
+      "name": "React/RCTEventEmitter.h",
+      "qualified_name": "React/RCTEventEmitter.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "class",
+      "name": "RNThing",
+      "qualified_name": "RNThing",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "doSomething",
+      "qualified_name": "RNThing::doSomething",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "doSomething:resolver:",
+      "qualified_name": "RNThing::doSomething:resolver:",
+      "start_line": 11,
+      "end_line": 15
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "plainMethod:with:",
+      "qualified_name": "RNThing::plainMethod:with:",
+      "start_line": 17,
+      "end_line": 20
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "RNThing::helper",
+      "start_line": 22,
+      "end_line": 25
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "getThing",
+      "qualified_name": "RNThing::getThing",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "getThingWithResolver:",
+      "qualified_name": "RNThing::getThingWithResolver:",
+      "start_line": 27,
+      "end_line": 30
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "syncName",
+      "qualified_name": "RNThing::syncName",
+      "start_line": 32,
+      "end_line": 35
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "syncName",
+      "qualified_name": "RNThing::syncName",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "getMapValue",
+      "qualified_name": "RNThing::getMapValue",
+      "start_line": 37,
+      "end_line": 40
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "spacedRun",
+      "qualified_name": "RNThing::spacedRun",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "addListener:",
+      "qualified_name": "RNThing::addListener:",
+      "start_line": 47,
+      "end_line": 49
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "supportedEvents",
+      "qualified_name": "RNThing::supportedEvents",
+      "start_line": 51,
+      "end_line": 54
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "class",
+      "name": "RCTGeolocation",
+      "qualified_name": "RCTGeolocation",
+      "start_line": 58,
+      "end_line": 63
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "getCurrentPosition",
+      "qualified_name": "RNThing::getCurrentPosition",
+      "start_line": 59,
+      "end_line": 59
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "method",
+      "name": "getCurrentPosition:",
+      "qualified_name": "RCTGeolocation::getCurrentPosition:",
+      "start_line": 59,
+      "end_line": 62
+    },
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "file",
+      "name": "BarNativeComponent.ts",
+      "qualified_name": "src/BarNativeComponent.ts",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "import",
+      "name": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "qualified_name": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "interface",
+      "name": "NativeProps",
+      "qualified_name": "NativeProps",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "property",
+      "name": "tint",
+      "qualified_name": "src/BarNativeComponent.ts::NativeProps.tint",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "property",
+      "name": "size",
+      "qualified_name": "src/BarNativeComponent.ts::NativeProps.size",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "property",
+      "name": "onPress",
+      "qualified_name": "src/BarNativeComponent.ts::NativeProps.onPress",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "component",
+      "name": "Bar",
+      "qualified_name": "src/BarNativeComponent.ts::Bar",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "file",
+      "name": "NativeRNThing.ts",
+      "qualified_name": "src/NativeRNThing.ts",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "interface",
+      "name": "Spec",
+      "qualified_name": "Spec",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "src/native.js",
+      "kind": "file",
+      "name": "native.js",
+      "qualified_name": "src/native.js",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "src/native.js",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/native.js",
+      "kind": "import",
+      "name": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "qualified_name": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/native.js",
+      "kind": "constant",
+      "name": "FooView",
+      "qualified_name": "FooView",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/native.js",
+      "kind": "function",
+      "name": "loadThing",
+      "qualified_name": "loadThing",
+      "start_line": 8,
+      "end_line": 16
+    },
+    {
+      "file": "src/native.js",
+      "kind": "function",
+      "name": "onThingChanged",
+      "qualified_name": "onThingChanged",
+      "start_line": 18,
+      "end_line": 20
+    }
+  ],
+  "edges": [
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Library",
+      "target_kind": "method",
+      "target": "Library::hidden",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Library",
+      "target_kind": "method",
+      "target": "Library::playForArtist",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Player",
+      "target_kind": "method",
+      "target": "Player::download",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Player",
+      "target_kind": "method",
+      "target": "Player::play",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Player",
+      "target_kind": "method",
+      "target": "Player::prepare",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Bridge/Player.swift",
+      "target_kind": "import",
+      "target": "Foundation",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Bridge/Player.swift",
+      "target_kind": "class",
+      "target": "Library",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Bridge/Player.swift",
+      "target_kind": "class",
+      "target": "Player",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Bridge/Player.swift",
+      "target_kind": "function",
+      "target": "useObjc",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Bridge/Player.swift",
+      "target_kind": "import",
+      "target": "Foundation",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": 1
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Player::play",
+      "target_kind": "method",
+      "target": "Player::prepare",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": 5
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "useObjc",
+      "target_kind": "class",
+      "target": "Worker",
+      "target_file": "ios/Models/Worker.m",
+      "line": 18
+    },
+    {
+      "file": "ios/Bridge/Player.swift",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "useObjc",
+      "target_kind": "method",
+      "target": "Worker::other:",
+      "target_file": "ios/Models/Worker.m",
+      "line": 20
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PlayerClient",
+      "target_kind": "method",
+      "target": "PlayerClient::start:",
+      "target_file": "ios/Bridge/PlayerClient.m",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Bridge/PlayerClient.m",
+      "target_kind": "class",
+      "target": "PlayerClient",
+      "target_file": "ios/Bridge/PlayerClient.m",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Bridge/PlayerClient.m",
+      "target_kind": "import",
+      "target": "Worker.h",
+      "target_file": "ios/Bridge/PlayerClient.m",
+      "line": null
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Bridge/PlayerClient.m",
+      "target_kind": "import",
+      "target": "Worker.h",
+      "target_file": "ios/Bridge/PlayerClient.m",
+      "line": 1
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "PlayerClient::start:",
+      "target_kind": "method",
+      "target": "Player::play",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": 8
+    },
+    {
+      "file": "ios/Bridge/PlayerClient.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "PlayerClient::start:",
+      "target_kind": "method",
+      "target": "Player::download",
+      "target_file": "ios/Bridge/Player.swift",
+      "line": 9
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BarComponentView",
+      "target_kind": "method",
+      "target": "BarComponentView::updateTint",
+      "target_file": "ios/Fabric/BarComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/BarComponentView.mm",
+      "target_kind": "class",
+      "target": "BarComponentView",
+      "target_file": "ios/Fabric/BarComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/BarComponentView.mm",
+      "target_kind": "import",
+      "target": "React/RCTViewComponentView.h",
+      "target_file": "ios/Fabric/BarComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/BarComponentView.mm",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Fabric/BarComponentView.mm",
+      "target_kind": "import",
+      "target": "React/RCTViewComponentView.h",
+      "target_file": "ios/Fabric/BarComponentView.mm",
+      "line": 1
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooComponentView",
+      "target_kind": "method",
+      "target": "FooComponentView::initWithFrame:",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooComponentView",
+      "target_kind": "method",
+      "target": "FooComponentView::setup",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooComponentView.mm",
+      "target_kind": "class",
+      "target": "FooComponentView",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooComponentView.mm",
+      "target_kind": "import",
+      "target": "FooComponentView.h",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooComponentView.mm",
+      "target_kind": "import",
+      "target": "FooComponentView.h",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": 1
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "FooComponentView::initWithFrame:",
+      "target_kind": "method",
+      "target": "FooComponentView::initWithFrame:",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": 9
+    },
+    {
+      "file": "ios/Fabric/FooComponentView.mm",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "FooComponentView::initWithFrame:",
+      "target_kind": "method",
+      "target": "FooComponentView::setup",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": 10
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooViewManager",
+      "target_kind": "method",
+      "target": "FooViewManager::view",
+      "target_file": "ios/Fabric/FooViewManager.m",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooViewManager.m",
+      "target_kind": "class",
+      "target": "FooHelper",
+      "target_file": "ios/Fabric/FooViewManager.m",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooViewManager.m",
+      "target_kind": "class",
+      "target": "FooViewManager",
+      "target_file": "ios/Fabric/FooViewManager.m",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooViewManager.m",
+      "target_kind": "import",
+      "target": "React/RCTViewManager.h",
+      "target_file": "ios/Fabric/FooViewManager.m",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "ios/Fabric/FooViewManager.m::Foo",
+      "target_kind": "class",
+      "target": "FooComponentView",
+      "target_file": "ios/Fabric/FooComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "ios/Fabric/FooViewManager.m::Foo",
+      "target_kind": "class",
+      "target": "FooViewManager",
+      "target_file": "ios/Fabric/FooViewManager.m",
+      "line": null
+    },
+    {
+      "file": "ios/Fabric/FooViewManager.m",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Fabric/FooViewManager.m",
+      "target_kind": "import",
+      "target": "React/RCTViewManager.h",
+      "target_file": "ios/Fabric/FooViewManager.m",
+      "line": 1
+    },
+    {
+      "file": "ios/Models/Constants.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Constants.h",
+      "target_kind": "constant",
+      "target": "WORKER_MAX",
+      "target_file": "ios/Models/Constants.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Constants.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Constants.h",
+      "target_kind": "constant",
+      "target": "WORKER_NAME",
+      "target_file": "ios/Models/Constants.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "property",
+      "target": "Worker::delegate",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "property",
+      "target": "Worker::items",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "property",
+      "target": "Worker::name",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "property",
+      "target": "Worker::state",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "WorkerState",
+      "target_kind": "enum_member",
+      "target": "WorkerState::WorkerStateBusy",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "WorkerState",
+      "target_kind": "enum_member",
+      "target": "WorkerState::WorkerStateIdle",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "import",
+      "target": "Constants.h",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "import",
+      "target": "Foundation/Foundation.h",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "class",
+      "target": "MyMap",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "class",
+      "target": "Worker",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "protocol",
+      "target": "WorkerDelegate",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "struct",
+      "target": "WorkerPoint",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "enum",
+      "target": "WorkerState",
+      "target_file": "ios/Models/Worker.h",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "import",
+      "target": "Foundation/Foundation.h",
+      "target_file": "ios/Models/Worker.h",
+      "line": 1
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.h",
+      "target_kind": "import",
+      "target": "Constants.h",
+      "target_file": "ios/Models/Worker.h",
+      "line": 2
+    },
+    {
+      "file": "ios/Models/Worker.h",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "protocol",
+      "target": "WorkerDelegate",
+      "target_file": "ios/Models/Worker.h",
+      "line": 20
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "MyMap",
+      "target_kind": "method",
+      "target": "MyMap::setObject:forKey:",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::copyWithZone:",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::doThing:with:",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::doWork",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::greet",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::other:",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::shared",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::workerDidFinish:",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "class",
+      "target": "MyMap",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "import",
+      "target": "UIKit/UIKit.h",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "class",
+      "target": "Worker",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "import",
+      "target": "Worker.h",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "function",
+      "target": "helperFunction",
+      "target_file": "ios/Models/Worker.m",
+      "line": null
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "import",
+      "target": "Worker.h",
+      "target_file": "ios/Models/Worker.m",
+      "line": 1
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/Models/Worker.m",
+      "target_kind": "import",
+      "target": "UIKit/UIKit.h",
+      "target_file": "ios/Models/Worker.m",
+      "line": 2
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "helperFunction",
+      "target_kind": "method",
+      "target": "Worker::shared",
+      "target_file": "ios/Models/Worker.m",
+      "line": 7
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "helperFunction",
+      "target_kind": "method",
+      "target": "Worker::greet",
+      "target_file": "ios/Models/Worker.m",
+      "line": 8
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Worker::greet",
+      "target_kind": "method",
+      "target": "Worker::doWork",
+      "target_file": "ios/Models/Worker.m",
+      "line": 20
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Worker::doWork",
+      "target_kind": "method",
+      "target": "Worker::doThing:with:",
+      "target_file": "ios/Models/Worker.m",
+      "line": 24
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Worker::doWork",
+      "target_kind": "method",
+      "target": "Worker::other:",
+      "target_file": "ios/Models/Worker.m",
+      "line": 25
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Worker::other:",
+      "target_kind": "function",
+      "target": "helperFunction",
+      "target_file": "ios/Models/Worker.m",
+      "line": 34
+    },
+    {
+      "file": "ios/Models/Worker.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Worker::copyWithZone:",
+      "target_kind": "method",
+      "target": "Worker::shared",
+      "target_file": "ios/Models/Worker.m",
+      "line": 40
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "RNThing::helper",
+      "target_kind": "function",
+      "target": "onThingChanged",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RCTGeolocation",
+      "target_kind": "method",
+      "target": "RCTGeolocation::getCurrentPosition:",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::addListener:",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::doSomething:resolver:",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::getMapValue",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::getThingWithResolver:",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::helper",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::plainMethod:with:",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::supportedEvents",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "RNThing",
+      "target_kind": "method",
+      "target": "RNThing::syncName",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/RN/RNThing.m",
+      "target_kind": "class",
+      "target": "RCTGeolocation",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/RN/RNThing.m",
+      "target_kind": "class",
+      "target": "RNThing",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/RN/RNThing.m",
+      "target_kind": "import",
+      "target": "React/RCTBridgeModule.h",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "ios/RN/RNThing.m",
+      "target_kind": "import",
+      "target": "React/RCTEventEmitter.h",
+      "target_file": "ios/RN/RNThing.m",
+      "line": null
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/RN/RNThing.m",
+      "target_kind": "import",
+      "target": "React/RCTBridgeModule.h",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 1
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "ios/RN/RNThing.m",
+      "target_kind": "import",
+      "target": "React/RCTEventEmitter.h",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 2
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "RNThing::doSomething:resolver:",
+      "target_kind": "method",
+      "target": "RNThing::helper",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 13
+    },
+    {
+      "file": "ios/RN/RNThing.m",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "RNThing::plainMethod:with:",
+      "target_kind": "method",
+      "target": "RNThing::helper",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 19
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "interface",
+      "target": "NativeProps",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": null
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": null
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": null
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/BarNativeComponent.ts::Bar",
+      "target_kind": "class",
+      "target": "BarComponentView",
+      "target_file": "ios/Fabric/BarComponentView.mm",
+      "line": null
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": 1
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": 1
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": 2
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "NativeProps",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": 4
+    },
+    {
+      "file": "src/BarNativeComponent.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/BarNativeComponent.ts",
+      "target_kind": "import",
+      "target": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "target_file": "src/BarNativeComponent.ts",
+      "line": 10
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/NativeRNThing.ts",
+      "target_kind": "interface",
+      "target": "Spec",
+      "target_file": "src/NativeRNThing.ts",
+      "line": null
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/NativeRNThing.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/NativeRNThing.ts",
+      "line": null
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/NativeRNThing.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/NativeRNThing.ts",
+      "line": null
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/NativeRNThing.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/NativeRNThing.ts",
+      "line": 1
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/NativeRNThing.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/NativeRNThing.ts",
+      "line": 1
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/NativeRNThing.ts",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/NativeRNThing.ts",
+      "line": 2
+    },
+    {
+      "file": "src/NativeRNThing.ts",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "Spec",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/NativeRNThing.ts",
+      "line": 4
+    },
+    {
+      "file": "src/native.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "constant",
+      "target": "FooView",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "function",
+      "target": "loadThing",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "function",
+      "target": "onThingChanged",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "import",
+      "target": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "function",
+      "target": "loadThing",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "function",
+      "target": "onThingChanged",
+      "target_file": "src/native.js",
+      "line": null
+    },
+    {
+      "file": "src/native.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/native.js",
+      "line": 1
+    },
+    {
+      "file": "src/native.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/native.js",
+      "line": 1
+    },
+    {
+      "file": "src/native.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/native.js",
+      "line": 1
+    },
+    {
+      "file": "src/native.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/native.js",
+      "target_kind": "import",
+      "target": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "target_file": "src/native.js",
+      "line": 2
+    },
+    {
+      "file": "src/native.js",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "FooView",
+      "target_kind": "import",
+      "target": "react-native/Libraries/Utilities/codegenNativeComponent",
+      "target_file": "src/native.js",
+      "line": 6
+    },
+    {
+      "file": "src/native.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "method",
+      "target": "RNThing::doSomething",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 9
+    },
+    {
+      "file": "src/native.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "method",
+      "target": "RNThing::getThing",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 10
+    },
+    {
+      "file": "src/native.js",
+      "kind": "field_access",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "class",
+      "target": "RNThing",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 10
+    },
+    {
+      "file": "src/native.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "method",
+      "target": "RNThing::spacedRun",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 11
+    },
+    {
+      "file": "src/native.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "method",
+      "target": "RNThing::getCurrentPosition",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 12
+    },
+    {
+      "file": "src/native.js",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "src/native.js",
+      "line": 13
+    },
+    {
+      "file": "src/native.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "loadThing",
+      "target_kind": "method",
+      "target": "RNThing::syncName",
+      "target_file": "ios/RN/RNThing.m",
+      "line": 15
+    }
+  ],
+  "unresolved": []
+}

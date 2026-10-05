@@ -1,0 +1,5 @@
+new entry "Target_Passive"
+type "PassiveData"
+data "DisplayName" "h1a2b3c4dg5e6fg4a7bg8c9dge0f1a2b3c4d5"
+data "Boosts" "Advantage(AttackRoll)"
+data "StatsFunctors" "ApplyStatus(SELF,Target_Status,100,1)"

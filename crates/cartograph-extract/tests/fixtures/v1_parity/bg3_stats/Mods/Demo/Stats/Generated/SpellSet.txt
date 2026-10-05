@@ -1,0 +1,2 @@
+new spellset "Demo_SpellSet"
+add spells "Target_Spell;Target_Spell_Upcast"

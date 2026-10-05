@@ -1,0 +1,11 @@
+new entry "Target_Spell"
+type "SpellData"
+data "SpellType" "Target"
+data "SpellProperties" "ApplyStatus(Target_Status,100,2)"
+data "TargetConditions" "Character() and not Dead()"
+data "UseCosts" "ActionPoint:1;SpellSlotsGroup:1:1:1"
+
+new entry "Target_Spell_Upcast"
+type "SpellData"
+using "Target_Spell"
+data "RootSpellID" "Target_Spell"

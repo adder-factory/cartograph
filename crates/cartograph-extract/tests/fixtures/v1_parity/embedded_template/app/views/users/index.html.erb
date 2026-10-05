@@ -1,0 +1,9 @@
+<h1>Users</h1>
+<%# list every user %>
+<% @users.each do |user| %>
+  <%= render partial: "users/user", locals: { user: user } %>
+  <%= link_to user.name, user_path(user) %>
+<% end %>
+<%- if @users.empty? -%>
+  <p>No users.</p>
+<%- end -%>

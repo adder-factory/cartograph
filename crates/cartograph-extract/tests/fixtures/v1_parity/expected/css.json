@@ -1,0 +1,122 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "css",
+  "files": [
+    "src/Button.module.css",
+    "src/button.js",
+    "styles/base.css",
+    "styles/theme.css"
+  ],
+  "symbols": [
+    {
+      "file": "src/Button.module.css",
+      "kind": "file",
+      "name": "Button.module.css",
+      "qualified_name": "src/Button.module.css",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "src/button.js",
+      "kind": "file",
+      "name": "button.js",
+      "qualified_name": "src/button.js",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "src/button.js",
+      "kind": "import",
+      "name": "../styles/base.css",
+      "qualified_name": "../styles/base.css",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/button.js",
+      "kind": "import",
+      "name": "./Button.module.css",
+      "qualified_name": "./Button.module.css",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/button.js",
+      "kind": "function",
+      "name": "buttonClass",
+      "qualified_name": "buttonClass",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "styles/base.css",
+      "kind": "file",
+      "name": "base.css",
+      "qualified_name": "styles/base.css",
+      "start_line": 1,
+      "end_line": 49
+    },
+    {
+      "file": "styles/theme.css",
+      "kind": "file",
+      "name": "theme.css",
+      "qualified_name": "styles/theme.css",
+      "start_line": 1,
+      "end_line": 13
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/button.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/button.js",
+      "target_kind": "import",
+      "target": "../styles/base.css",
+      "target_file": "src/button.js",
+      "line": null
+    },
+    {
+      "file": "src/button.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/button.js",
+      "target_kind": "import",
+      "target": "./Button.module.css",
+      "target_file": "src/button.js",
+      "line": null
+    },
+    {
+      "file": "src/button.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/button.js",
+      "target_kind": "function",
+      "target": "buttonClass",
+      "target_file": "src/button.js",
+      "line": null
+    },
+    {
+      "file": "src/button.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/button.js",
+      "target_kind": "file",
+      "target": "styles/base.css",
+      "target_file": "styles/base.css",
+      "line": 1
+    },
+    {
+      "file": "src/button.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/button.js",
+      "target_kind": "file",
+      "target": "src/Button.module.css",
+      "target_file": "src/Button.module.css",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

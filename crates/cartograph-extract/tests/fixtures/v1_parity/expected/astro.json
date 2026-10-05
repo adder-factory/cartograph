@@ -1,0 +1,908 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "astro",
+  "files": [
+    "package.json",
+    "src/components/Card.astro",
+    "src/layouts/Layout.astro",
+    "src/pages/blog/[slug].astro",
+    "src/pages/index.astro",
+    "src/utils/date.ts"
+  ],
+  "symbols": [
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "component",
+      "name": "Card",
+      "qualified_name": "src/components/Card.astro::Card",
+      "start_line": 1,
+      "end_line": 48
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "file",
+      "name": "Card.astro",
+      "qualified_name": "src/components/Card.astro",
+      "start_line": 2,
+      "end_line": 25
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "import",
+      "name": "../layouts/Layout.astro",
+      "qualified_name": "../layouts/Layout.astro",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "import",
+      "name": "../utils/date",
+      "qualified_name": "../utils/date",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "import",
+      "name": "./PostCard.astro",
+      "qualified_name": "./PostCard.astro",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "interface",
+      "name": "Props",
+      "qualified_name": "Props",
+      "start_line": 6,
+      "end_line": 9
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "constant",
+      "name": "posts",
+      "qualified_name": "posts",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "constant",
+      "name": "MAX",
+      "qualified_name": "MAX",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "function",
+      "name": "shout",
+      "qualified_name": "shout",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "class",
+      "name": "Highlighter",
+      "qualified_name": "Highlighter",
+      "start_line": 19,
+      "end_line": 23
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "method",
+      "name": "mark",
+      "qualified_name": "Highlighter::mark",
+      "start_line": 20,
+      "end_line": 22
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "constant",
+      "name": "highlighter",
+      "qualified_name": "highlighter",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "src/layouts/Layout.astro",
+      "kind": "component",
+      "name": "Layout",
+      "qualified_name": "src/layouts/Layout.astro::Layout",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/layouts/Layout.astro",
+      "kind": "file",
+      "name": "Layout.astro",
+      "qualified_name": "src/layouts/Layout.astro",
+      "start_line": 2,
+      "end_line": 5
+    },
+    {
+      "file": "src/layouts/Layout.astro",
+      "kind": "interface",
+      "name": "Props",
+      "qualified_name": "Props",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "component",
+      "name": "[slug]",
+      "qualified_name": "src/pages/blog/[slug].astro::[slug]",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "file",
+      "name": "[slug].astro",
+      "qualified_name": "src/pages/blog/[slug].astro",
+      "start_line": 2,
+      "end_line": 10
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "import",
+      "name": "../../components/Card.astro",
+      "qualified_name": "../../components/Card.astro",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "import",
+      "name": "../../utils/date",
+      "qualified_name": "../../utils/date",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "function",
+      "name": "getStaticPaths",
+      "qualified_name": "getStaticPaths",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "component",
+      "name": "index",
+      "qualified_name": "src/pages/index.astro::index",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "file",
+      "name": "index.astro",
+      "qualified_name": "src/pages/index.astro",
+      "start_line": 2,
+      "end_line": 6
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "import",
+      "name": "../layouts/Layout.astro",
+      "qualified_name": "../layouts/Layout.astro",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "constant",
+      "name": "title",
+      "qualified_name": "title",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "greet",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "file",
+      "name": "date.ts",
+      "qualified_name": "src/utils/date.ts",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "interface",
+      "name": "Post",
+      "qualified_name": "Post",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "function",
+      "name": "formatDate",
+      "qualified_name": "formatDate",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "function",
+      "name": "getPosts",
+      "qualified_name": "getPosts",
+      "start_line": 10,
+      "end_line": 12
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Highlighter",
+      "target_kind": "method",
+      "target": "Highlighter::mark",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "import",
+      "target": "../layouts/Layout.astro",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "import",
+      "target": "../utils/date",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "import",
+      "target": "./PostCard.astro",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "class",
+      "target": "Highlighter",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "constant",
+      "target": "MAX",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "constant",
+      "target": "highlighter",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "constant",
+      "target": "posts",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "import",
+      "target": "../layouts/Layout.astro",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "import",
+      "target": "../utils/date",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "import",
+      "target": "./PostCard.astro",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "class",
+      "target": "Highlighter",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "method",
+      "target": "Highlighter::mark",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "constant",
+      "target": "MAX",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "constant",
+      "target": "highlighter",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "constant",
+      "target": "posts",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "file",
+      "target": "src/components/Card.astro",
+      "target_file": "src/components/Card.astro",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "file",
+      "target": "src/layouts/Layout.astro",
+      "target_file": "src/layouts/Layout.astro",
+      "line": 2
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "import",
+      "target": "../utils/date",
+      "target_file": "src/components/Card.astro",
+      "line": 3
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "interface",
+      "target": "Post",
+      "target_file": "src/utils/date.ts",
+      "line": 3
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "function",
+      "target": "formatDate",
+      "target_file": "src/utils/date.ts",
+      "line": 3
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "function",
+      "target": "getPosts",
+      "target_file": "src/utils/date.ts",
+      "line": 3
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Card.astro",
+      "target_kind": "import",
+      "target": "./PostCard.astro",
+      "target_file": "src/components/Card.astro",
+      "line": 4
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "posts",
+      "target_kind": "function",
+      "target": "getPosts",
+      "target_file": "src/utils/date.ts",
+      "line": 12
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "instantiates",
+      "source_kind": "constant",
+      "source": "highlighter",
+      "target_kind": "class",
+      "target": "Highlighter",
+      "target_file": "src/components/Card.astro",
+      "line": 25
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "component",
+      "target": "src/layouts/Layout.astro::Layout",
+      "target_file": "src/layouts/Layout.astro",
+      "line": 27
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/components/Card.astro",
+      "line": 29
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "function",
+      "target": "formatDate",
+      "target_file": "src/utils/date.ts",
+      "line": 30
+    },
+    {
+      "file": "src/components/Card.astro",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "src/components/Card.astro::Card",
+      "target_kind": "method",
+      "target": "Highlighter::mark",
+      "target_file": "src/components/Card.astro",
+      "line": 31
+    },
+    {
+      "file": "src/layouts/Layout.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/layouts/Layout.astro",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "src/layouts/Layout.astro",
+      "line": null
+    },
+    {
+      "file": "src/layouts/Layout.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/layouts/Layout.astro::Layout",
+      "target_kind": "interface",
+      "target": "Props",
+      "target_file": "src/layouts/Layout.astro",
+      "line": null
+    },
+    {
+      "file": "src/layouts/Layout.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/layouts/Layout.astro::Layout",
+      "target_kind": "file",
+      "target": "src/layouts/Layout.astro",
+      "target_file": "src/layouts/Layout.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/pages/blog/[slug].astro",
+      "target_kind": "import",
+      "target": "../../components/Card.astro",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/pages/blog/[slug].astro",
+      "target_kind": "import",
+      "target": "../../utils/date",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/pages/blog/[slug].astro",
+      "target_kind": "function",
+      "target": "getStaticPaths",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/blog/[slug].astro::[slug]",
+      "target_kind": "import",
+      "target": "../../components/Card.astro",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/blog/[slug].astro::[slug]",
+      "target_kind": "import",
+      "target": "../../utils/date",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/blog/[slug].astro::[slug]",
+      "target_kind": "function",
+      "target": "getStaticPaths",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/blog/[slug].astro::[slug]",
+      "target_kind": "file",
+      "target": "src/pages/blog/[slug].astro",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "getStaticPaths",
+      "target_kind": "function",
+      "target": "getStaticPaths",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/pages/blog/[slug].astro",
+      "target_kind": "file",
+      "target": "src/components/Card.astro",
+      "target_file": "src/components/Card.astro",
+      "line": 2
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/pages/blog/[slug].astro",
+      "target_kind": "import",
+      "target": "../../utils/date",
+      "target_file": "src/pages/blog/[slug].astro",
+      "line": 3
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/pages/blog/[slug].astro",
+      "target_kind": "function",
+      "target": "getPosts",
+      "target_file": "src/utils/date.ts",
+      "line": 3
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "getStaticPaths",
+      "target_kind": "function",
+      "target": "getPosts",
+      "target_file": "src/utils/date.ts",
+      "line": 6
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "field_access",
+      "source_kind": "function",
+      "source": "getStaticPaths",
+      "target_kind": "constant",
+      "target": "title",
+      "target_file": "src/pages/index.astro",
+      "line": 7
+    },
+    {
+      "file": "src/pages/blog/[slug].astro",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/pages/blog/[slug].astro::[slug]",
+      "target_kind": "component",
+      "target": "src/components/Card.astro::Card",
+      "target_file": "src/components/Card.astro",
+      "line": 12
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/pages/index.astro",
+      "target_kind": "import",
+      "target": "../layouts/Layout.astro",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/pages/index.astro",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/pages/index.astro",
+      "target_kind": "constant",
+      "target": "title",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/index.astro::index",
+      "target_kind": "import",
+      "target": "../layouts/Layout.astro",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/index.astro::index",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/index.astro::index",
+      "target_kind": "file",
+      "target": "src/pages/index.astro",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/pages/index.astro::index",
+      "target_kind": "constant",
+      "target": "title",
+      "target_file": "src/pages/index.astro",
+      "line": null
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/pages/index.astro",
+      "target_kind": "file",
+      "target": "src/layouts/Layout.astro",
+      "target_file": "src/layouts/Layout.astro",
+      "line": 2
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "src/pages/index.astro::index",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/pages/index.astro",
+      "line": 8
+    },
+    {
+      "file": "src/pages/index.astro",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/pages/index.astro::index",
+      "target_kind": "component",
+      "target": "src/layouts/Layout.astro::Layout",
+      "target_file": "src/layouts/Layout.astro",
+      "line": 8
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/utils/date.ts",
+      "target_kind": "interface",
+      "target": "Post",
+      "target_file": "src/utils/date.ts",
+      "line": null
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/utils/date.ts",
+      "target_kind": "function",
+      "target": "formatDate",
+      "target_file": "src/utils/date.ts",
+      "line": null
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/utils/date.ts",
+      "target_kind": "function",
+      "target": "getPosts",
+      "target_file": "src/utils/date.ts",
+      "line": null
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "getPosts",
+      "target_kind": "interface",
+      "target": "Post",
+      "target_file": "src/utils/date.ts",
+      "line": 10
+    },
+    {
+      "file": "src/utils/date.ts",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "getPosts",
+      "target_kind": "interface",
+      "target": "Post",
+      "target_file": "src/utils/date.ts",
+      "line": 10
+    }
+  ],
+  "unresolved": []
+}

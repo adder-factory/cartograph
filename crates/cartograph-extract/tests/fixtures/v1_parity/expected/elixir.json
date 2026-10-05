@@ -1,0 +1,545 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "elixir",
+  "files": [
+    "lib/shop/cart.ex",
+    "lib/shop/pricing.ex",
+    "test/cart_test.exs"
+  ],
+  "symbols": [
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "file",
+      "name": "cart.ex",
+      "qualified_name": "lib/shop/cart.ex",
+      "start_line": 1,
+      "end_line": 43
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "module",
+      "name": "Shop.Cart",
+      "qualified_name": "Shop.Cart",
+      "start_line": 1,
+      "end_line": 42
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "struct",
+      "name": "Shop.Cart",
+      "qualified_name": "Shop.Cart",
+      "start_line": 1,
+      "end_line": 42
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "new",
+      "qualified_name": "Shop.Cart.new",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "add",
+      "qualified_name": "Shop.Cart.add",
+      "start_line": 13,
+      "end_line": 19
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "total",
+      "qualified_name": "Shop.Cart.total",
+      "start_line": 21,
+      "end_line": 26
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "apply_discount",
+      "qualified_name": "Shop.Cart.apply_discount",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "apply_discount",
+      "qualified_name": "Shop.Cart.apply_discount",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "empty?",
+      "qualified_name": "Shop.Cart.empty?",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "debug",
+      "qualified_name": "Shop.Cart.debug",
+      "start_line": 33,
+      "end_line": 37
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "format",
+      "qualified_name": "Shop.Cart.format",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "function",
+      "name": "is_positive",
+      "qualified_name": "Shop.Cart.is_positive",
+      "start_line": 41,
+      "end_line": 41
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "file",
+      "name": "pricing.ex",
+      "qualified_name": "lib/shop/pricing.ex",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "module",
+      "name": "Shop.Pricing",
+      "qualified_name": "Shop.Pricing",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "function",
+      "name": "price",
+      "qualified_name": "Shop.Pricing.price",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "function",
+      "name": "format",
+      "qualified_name": "Shop.Pricing.format",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "function",
+      "name": "tax",
+      "qualified_name": "Shop.Pricing.tax",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "function",
+      "name": "round_cents",
+      "qualified_name": "Shop.Pricing.round_cents",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "module",
+      "name": "Shop.Priceable",
+      "qualified_name": "Shop.Priceable",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "function",
+      "name": "price_of",
+      "qualified_name": "Shop.Priceable.price_of",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "function",
+      "name": "price_of",
+      "qualified_name": "price_of",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "module",
+      "name": "Shop.Errors.InvalidItem",
+      "qualified_name": "Shop.Errors.InvalidItem",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "file",
+      "name": "cart_test.exs",
+      "qualified_name": "test/cart_test.exs",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "module",
+      "name": "Shop.CartTest",
+      "qualified_name": "Shop.CartTest",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "Shop.CartTest.helper",
+      "start_line": 12,
+      "end_line": 12
+    }
+  ],
+  "edges": [
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.add",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.apply_discount",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.apply_discount",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.debug",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.empty?",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.format",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.is_positive",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.new",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Cart",
+      "target_kind": "function",
+      "target": "Shop.Cart.total",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shop/cart.ex",
+      "target_kind": "module",
+      "target": "Shop.Cart",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shop/cart.ex",
+      "target_kind": "struct",
+      "target": "Shop.Cart",
+      "target_file": "lib/shop/cart.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shop.Cart.total",
+      "target_kind": "function",
+      "target": "Shop.Pricing.price",
+      "target_file": "lib/shop/pricing.ex",
+      "line": 23
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shop.Cart.total",
+      "target_kind": "function",
+      "target": "Shop.Cart.apply_discount",
+      "target_file": "lib/shop/cart.ex",
+      "line": 25
+    },
+    {
+      "file": "lib/shop/cart.ex",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shop.Cart.debug",
+      "target_kind": "function",
+      "target": "Shop.Cart.debug",
+      "target_file": "lib/shop/cart.ex",
+      "line": 35
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Priceable",
+      "target_kind": "function",
+      "target": "Shop.Priceable.price_of",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Pricing",
+      "target_kind": "function",
+      "target": "Shop.Pricing.format",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Pricing",
+      "target_kind": "function",
+      "target": "Shop.Pricing.price",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Pricing",
+      "target_kind": "function",
+      "target": "Shop.Pricing.round_cents",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.Pricing",
+      "target_kind": "function",
+      "target": "Shop.Pricing.tax",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shop/pricing.ex",
+      "target_kind": "module",
+      "target": "Shop.Errors.InvalidItem",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shop/pricing.ex",
+      "target_kind": "module",
+      "target": "Shop.Priceable",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shop/pricing.ex",
+      "target_kind": "module",
+      "target": "Shop.Pricing",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shop/pricing.ex",
+      "target_kind": "function",
+      "target": "price_of",
+      "target_file": "lib/shop/pricing.ex",
+      "line": null
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shop.Pricing.tax",
+      "target_kind": "function",
+      "target": "Shop.Pricing.round_cents",
+      "target_file": "lib/shop/pricing.ex",
+      "line": 8
+    },
+    {
+      "file": "lib/shop/pricing.ex",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "price_of",
+      "target_kind": "function",
+      "target": "Shop.Pricing.price",
+      "target_file": "lib/shop/pricing.ex",
+      "line": 18
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Shop.CartTest",
+      "target_kind": "function",
+      "target": "Shop.CartTest.helper",
+      "target_file": "test/cart_test.exs",
+      "line": null
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "test/cart_test.exs",
+      "target_kind": "module",
+      "target": "Shop.CartTest",
+      "target_file": "test/cart_test.exs",
+      "line": null
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Shop.CartTest",
+      "target_kind": "function",
+      "target": "Shop.Cart.new",
+      "target_file": "lib/shop/cart.ex",
+      "line": 6
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Shop.CartTest",
+      "target_kind": "function",
+      "target": "Shop.Cart.add",
+      "target_file": "lib/shop/cart.ex",
+      "line": 7
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Shop.CartTest",
+      "target_kind": "function",
+      "target": "Shop.Cart.total",
+      "target_file": "lib/shop/cart.ex",
+      "line": 8
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Shop.CartTest",
+      "target_kind": "function",
+      "target": "Shop.CartTest.helper",
+      "target_file": "test/cart_test.exs",
+      "line": 9
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shop.CartTest.helper",
+      "target_kind": "function",
+      "target": "Shop.Cart.total",
+      "target_file": "lib/shop/cart.ex",
+      "line": 12
+    },
+    {
+      "file": "test/cart_test.exs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Shop.CartTest.helper",
+      "target_kind": "function",
+      "target": "Shop.Pricing.tax",
+      "target_file": "lib/shop/pricing.ex",
+      "line": 12
+    }
+  ],
+  "unresolved": []
+}

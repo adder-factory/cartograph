@@ -1,0 +1,686 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "aura",
+  "files": [
+    "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+    "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+    "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+    "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+    "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js",
+    "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+    "force-app/main/default/aura/Panel/Panel.cmp",
+    "force-app/main/default/aura/Selectable/Selectable.intf",
+    "force-app/main/default/aura/Shop/Shop.app",
+    "force-app/main/default/aura/accountCard/accountCard.cmp",
+    "force-app/main/default/aura/accountCard/accountCardController.js",
+    "force-app/main/default/classes/OpportunityController.cls",
+    "force-app/main/default/classes/OtherController.cls",
+    "sfdx-project.json"
+  ],
+  "symbols": [
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "component",
+      "name": "ChildCard",
+      "qualified_name": "force-app/main/default/aura/ChildCard/ChildCard.cmp::ChildCard",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "file",
+      "name": "ChildCard.cmp",
+      "qualified_name": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "field",
+      "name": "record",
+      "qualified_name": "force-app/main/default/aura/ChildCard/ChildCard.cmp::record",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "field",
+      "name": "tags",
+      "qualified_name": "force-app/main/default/aura/ChildCard/ChildCard.cmp::tags",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "component",
+      "name": "OpportunityList",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "file",
+      "name": "OpportunityList.cmp",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "field",
+      "name": "rows",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::rows",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "field",
+      "name": "accounts",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::accounts",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "field",
+      "name": "selected",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::selected",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "kind": "file",
+      "name": "OpportunityList.design",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "kind": "resource",
+      "name": "OpportunityList",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityList.design::OpportunityList",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "file",
+      "name": "OpportunityListController.js",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "method",
+      "name": "doInit",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::doInit",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "method",
+      "name": "handleSave",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::handleSave",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "method",
+      "name": "reload",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::reload",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js",
+      "kind": "file",
+      "name": "OpportunityListHelper.js",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js",
+      "kind": "method",
+      "name": "loadAccounts",
+      "qualified_name": "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js::loadAccounts",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "kind": "file",
+      "name": "OrderEvent.evt",
+      "qualified_name": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "kind": "resource",
+      "name": "OrderEvent",
+      "qualified_name": "force-app/main/default/aura/OrderEvent/OrderEvent.evt::OrderEvent",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "kind": "field",
+      "name": "orderId",
+      "qualified_name": "force-app/main/default/aura/OrderEvent/OrderEvent.evt::orderId",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/Panel/Panel.cmp",
+      "kind": "component",
+      "name": "Panel",
+      "qualified_name": "force-app/main/default/aura/Panel/Panel.cmp::Panel",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "force-app/main/default/aura/Panel/Panel.cmp",
+      "kind": "file",
+      "name": "Panel.cmp",
+      "qualified_name": "force-app/main/default/aura/Panel/Panel.cmp",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "kind": "file",
+      "name": "Selectable.intf",
+      "qualified_name": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "kind": "resource",
+      "name": "Selectable",
+      "qualified_name": "force-app/main/default/aura/Selectable/Selectable.intf::Selectable",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "kind": "field",
+      "name": "isSelected",
+      "qualified_name": "force-app/main/default/aura/Selectable/Selectable.intf::isSelected",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/Shop/Shop.app",
+      "kind": "component",
+      "name": "Shop",
+      "qualified_name": "force-app/main/default/aura/Shop/Shop.app::Shop",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/Shop/Shop.app",
+      "kind": "file",
+      "name": "Shop.app",
+      "qualified_name": "force-app/main/default/aura/Shop/Shop.app",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "kind": "component",
+      "name": "accountCard",
+      "qualified_name": "force-app/main/default/aura/accountCard/accountCard.cmp::accountCard",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "kind": "file",
+      "name": "accountCard.cmp",
+      "qualified_name": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCardController.js",
+      "kind": "file",
+      "name": "accountCardController.js",
+      "qualified_name": "force-app/main/default/aura/accountCard/accountCardController.js",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCardController.js",
+      "kind": "method",
+      "name": "init",
+      "qualified_name": "force-app/main/default/aura/accountCard/accountCardController.js::init",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "class",
+      "name": "OpportunityController",
+      "qualified_name": "OpportunityController",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "file",
+      "name": "OpportunityController.cls",
+      "qualified_name": "force-app/main/default/classes/OpportunityController.cls",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "method",
+      "name": "fetch",
+      "qualified_name": "OpportunityController::fetch",
+      "start_line": 2,
+      "end_line": 5
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "method",
+      "name": "fetch",
+      "qualified_name": "OpportunityController::fetch",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "OpportunityController::save",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "force-app/main/default/classes/OtherController.cls",
+      "kind": "class",
+      "name": "OtherController",
+      "qualified_name": "OtherController",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/classes/OtherController.cls",
+      "kind": "file",
+      "name": "OtherController.cls",
+      "qualified_name": "force-app/main/default/classes/OtherController.cls",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "force-app/main/default/classes/OtherController.cls",
+      "kind": "method",
+      "name": "fetch",
+      "qualified_name": "OtherController::fetch",
+      "start_line": 2,
+      "end_line": 5
+    },
+    {
+      "file": "sfdx-project.json",
+      "kind": "file",
+      "name": "sfdx-project.json",
+      "qualified_name": "sfdx-project.json",
+      "start_line": 1,
+      "end_line": 2
+    }
+  ],
+  "edges": [
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "target_kind": "component",
+      "target": "force-app/main/default/aura/ChildCard/ChildCard.cmp::ChildCard",
+      "target_file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/ChildCard/ChildCard.cmp::ChildCard",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/ChildCard/ChildCard.cmp::record",
+      "target_file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/ChildCard/ChildCard.cmp::ChildCard",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/ChildCard/ChildCard.cmp::tags",
+      "target_file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "target_kind": "component",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::accounts",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::rows",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::selected",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "class",
+      "target": "OpportunityController",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "method",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::doInit",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "line": 5
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "method",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::handleSave",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "line": 8
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "method",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::reload",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "line": 9
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.cmp::OpportunityList",
+      "target_kind": "component",
+      "target": "force-app/main/default/aura/ChildCard/ChildCard.cmp::ChildCard",
+      "target_file": "force-app/main/default/aura/ChildCard/ChildCard.cmp",
+      "line": 11
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "target_kind": "resource",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityList.design::OpportunityList",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "target_kind": "method",
+      "target": "OpportunityController::fetch",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "target_kind": "method",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js::loadAccounts",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityListHelper.js",
+      "line": 8
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "target_kind": "method",
+      "target": "OpportunityController::save",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": 11
+    },
+    {
+      "file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "target_kind": "method",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityListController.js::doInit",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityListController.js",
+      "line": 15
+    },
+    {
+      "file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "target_kind": "resource",
+      "target": "force-app/main/default/aura/OrderEvent/OrderEvent.evt::OrderEvent",
+      "target_file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "kind": "contains",
+      "source_kind": "resource",
+      "source": "force-app/main/default/aura/OrderEvent/OrderEvent.evt::OrderEvent",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/OrderEvent/OrderEvent.evt::orderId",
+      "target_file": "force-app/main/default/aura/OrderEvent/OrderEvent.evt",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/Panel/Panel.cmp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/Panel/Panel.cmp",
+      "target_kind": "component",
+      "target": "force-app/main/default/aura/Panel/Panel.cmp::Panel",
+      "target_file": "force-app/main/default/aura/Panel/Panel.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "target_kind": "resource",
+      "target": "force-app/main/default/aura/Selectable/Selectable.intf::Selectable",
+      "target_file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "kind": "contains",
+      "source_kind": "resource",
+      "source": "force-app/main/default/aura/Selectable/Selectable.intf::Selectable",
+      "target_kind": "field",
+      "target": "force-app/main/default/aura/Selectable/Selectable.intf::isSelected",
+      "target_file": "force-app/main/default/aura/Selectable/Selectable.intf",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/Shop/Shop.app",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/Shop/Shop.app",
+      "target_kind": "component",
+      "target": "force-app/main/default/aura/Shop/Shop.app::Shop",
+      "target_file": "force-app/main/default/aura/Shop/Shop.app",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/Shop/Shop.app",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/Shop/Shop.app::Shop",
+      "target_kind": "resource",
+      "target": "force-app/main/default/aura/OpportunityList/OpportunityList.design::OpportunityList",
+      "target_file": "force-app/main/default/aura/OpportunityList/OpportunityList.design",
+      "line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "target_kind": "component",
+      "target": "force-app/main/default/aura/accountCard/accountCard.cmp::accountCard",
+      "target_file": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/accountCard/accountCard.cmp::accountCard",
+      "target_kind": "class",
+      "target": "OtherController",
+      "target_file": "force-app/main/default/classes/OtherController.cls",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCard.cmp",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "force-app/main/default/aura/accountCard/accountCard.cmp::accountCard",
+      "target_kind": "method",
+      "target": "force-app/main/default/aura/accountCard/accountCardController.js::init",
+      "target_file": "force-app/main/default/aura/accountCard/accountCardController.js",
+      "line": 2
+    },
+    {
+      "file": "force-app/main/default/aura/accountCard/accountCardController.js",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "force-app/main/default/aura/accountCard/accountCardController.js",
+      "target_kind": "method",
+      "target": "OtherController::fetch",
+      "target_file": "force-app/main/default/classes/OtherController.cls",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OpportunityController",
+      "target_kind": "method",
+      "target": "OpportunityController::fetch",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OpportunityController",
+      "target_kind": "method",
+      "target": "OpportunityController::fetch",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OpportunityController",
+      "target_kind": "method",
+      "target": "OpportunityController::save",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/OpportunityController.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/OpportunityController.cls",
+      "target_kind": "class",
+      "target": "OpportunityController",
+      "target_file": "force-app/main/default/classes/OpportunityController.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/OtherController.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OtherController",
+      "target_kind": "method",
+      "target": "OtherController::fetch",
+      "target_file": "force-app/main/default/classes/OtherController.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/OtherController.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/OtherController.cls",
+      "target_kind": "class",
+      "target": "OtherController",
+      "target_file": "force-app/main/default/classes/OtherController.cls",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

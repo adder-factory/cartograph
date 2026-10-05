@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "mybatis-3-mapper.dtd">
+<mapper namespace="com.acme.shop.mapper.OrderMapper">
+  <resultMap id="OrderResult" type="com.acme.shop.model.Order">
+    <id property="id" column="order_id"/>
+  </resultMap>
+  <sql id="orderColumns">order_id, status</sql>
+  <select id="findOrder" resultMap="OrderResult">
+    SELECT <include refid="orderColumns"/> FROM orders WHERE order_id = #{orderId,jdbcType=VARCHAR}
+  </select>
+  <delete id="deleteOrder">
+    DELETE FROM orders WHERE order_id = #{orderId}
+  </delete>
+</mapper>

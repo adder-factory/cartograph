@@ -1,0 +1,4 @@
+SELECT * FROM users;
+INSERT INTO orders (id) VALUES (1);
+UPDATE users SET email = 'someone@example.invalid';
+DELETE FROM order_items WHERE id = 1;

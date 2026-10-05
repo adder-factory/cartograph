@@ -1,0 +1,972 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "jsx",
+  "files": [
+    "package.json",
+    "src/components/Card.jsx",
+    "src/components/Panel.jsx",
+    "src/widgets/widgets.jsx"
+  ],
+  "symbols": [
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "file",
+      "name": "Card.jsx",
+      "qualified_name": "src/components/Card.jsx",
+      "start_line": 1,
+      "end_line": 51
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "import",
+      "name": "react",
+      "qualified_name": "react",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "import",
+      "name": "prop-types",
+      "qualified_name": "prop-types",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "import",
+      "name": "../widgets/widgets.jsx",
+      "qualified_name": "../widgets/widgets.jsx",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "import",
+      "name": "../widgets/widgets.jsx",
+      "qualified_name": "../widgets/widgets.jsx",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "constant",
+      "name": "SettingsContext",
+      "qualified_name": "SettingsContext",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "function",
+      "name": "useFetch",
+      "qualified_name": "useFetch",
+      "start_line": 8,
+      "end_line": 14
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "function",
+      "name": "fetchJson",
+      "qualified_name": "fetchJson",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "component",
+      "name": "Card",
+      "qualified_name": "Card",
+      "start_line": 20,
+      "end_line": 30
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "component",
+      "name": "CardList",
+      "qualified_name": "CardList",
+      "start_line": 36,
+      "end_line": 42
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "component",
+      "name": "Dashboard",
+      "qualified_name": "Dashboard",
+      "start_line": 44,
+      "end_line": 50
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "file",
+      "name": "Panel.jsx",
+      "qualified_name": "src/components/Panel.jsx",
+      "start_line": 1,
+      "end_line": 43
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "import",
+      "name": "react",
+      "qualified_name": "react",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "import",
+      "name": "./Card.jsx",
+      "qualified_name": "./Card.jsx",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "import",
+      "name": "../widgets/widgets.jsx",
+      "qualified_name": "../widgets/widgets.jsx",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "class",
+      "name": "Panel",
+      "qualified_name": "Panel",
+      "start_line": 5,
+      "end_line": 22
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "Panel::<anonymous>",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "Panel::<anonymous>",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "Panel::<anonymous>",
+      "start_line": 11,
+      "end_line": 13
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "method",
+      "name": "measure",
+      "qualified_name": "Panel::measure",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "Panel::render",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "class",
+      "name": "FancyPanel",
+      "qualified_name": "FancyPanel",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "class",
+      "name": "LegacyWidget",
+      "qualified_name": "LegacyWidget",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "class",
+      "name": "MixedWidget",
+      "qualified_name": "MixedWidget",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "function",
+      "name": "logToggle",
+      "qualified_name": "logToggle",
+      "start_line": 30,
+      "end_line": 32
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "function",
+      "name": "debounce",
+      "qualified_name": "debounce",
+      "start_line": 34,
+      "end_line": 36
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "class",
+      "name": "PanelHost",
+      "qualified_name": "PanelHost",
+      "start_line": 38,
+      "end_line": 42
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "PanelHost::render",
+      "start_line": 39,
+      "end_line": 41
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "file",
+      "name": "widgets.jsx",
+      "qualified_name": "src/widgets/widgets.jsx",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "component",
+      "name": "Header",
+      "qualified_name": "Header",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "component",
+      "name": "Badge",
+      "qualified_name": "Badge",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "function",
+      "name": "formatTitle",
+      "qualified_name": "formatTitle",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "class",
+      "name": "Base",
+      "qualified_name": "Base",
+      "start_line": 11,
+      "end_line": 15
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "Base::render",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "constant",
+      "name": "Mixin",
+      "qualified_name": "Mixin",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "constant",
+      "name": "ROUTE_TABLE",
+      "qualified_name": "ROUTE_TABLE",
+      "start_line": 21,
+      "end_line": 24
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "../widgets/widgets.jsx",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "../widgets/widgets.jsx",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "component",
+      "target": "Card",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "component",
+      "target": "CardList",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "component",
+      "target": "Dashboard",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "constant",
+      "target": "SettingsContext",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "function",
+      "target": "fetchJson",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "prop-types",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "function",
+      "target": "useFetch",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "constant",
+      "target": "SettingsContext",
+      "target_file": "src/components/Card.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Card.jsx",
+      "line": 1
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Card.jsx",
+      "line": 1
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "import",
+      "target": "prop-types",
+      "target_file": "src/components/Card.jsx",
+      "line": 2
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "file",
+      "target": "src/widgets/widgets.jsx",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 3
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "component",
+      "target": "Badge",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 4
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Card.jsx",
+      "target_kind": "function",
+      "target": "formatTitle",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 4
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "SettingsContext",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Card.jsx",
+      "line": 6
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "useFetch",
+      "target_kind": "function",
+      "target": "fetchJson",
+      "target_file": "src/components/Card.jsx",
+      "line": 11
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "Card",
+      "target_kind": "function",
+      "target": "useFetch",
+      "target_file": "src/components/Card.jsx",
+      "line": 22
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "calls",
+      "source_kind": "component",
+      "source": "Card",
+      "target_kind": "function",
+      "target": "formatTitle",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 25
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "field_access",
+      "source_kind": "component",
+      "source": "Card",
+      "target_kind": "component",
+      "target": "Header",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 25
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "Card",
+      "target_kind": "component",
+      "target": "Badge",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 26
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "CardList",
+      "target_kind": "component",
+      "target": "Card",
+      "target_file": "src/components/Card.jsx",
+      "line": 39
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "Dashboard",
+      "target_kind": "constant",
+      "target": "SettingsContext",
+      "target_file": "src/components/Card.jsx",
+      "line": 46
+    },
+    {
+      "file": "src/components/Card.jsx",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "Dashboard",
+      "target_kind": "component",
+      "target": "CardList",
+      "target_file": "src/components/Card.jsx",
+      "line": 47
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Panel",
+      "target_kind": "method",
+      "target": "Panel::<anonymous>",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Panel",
+      "target_kind": "method",
+      "target": "Panel::<anonymous>",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Panel",
+      "target_kind": "method",
+      "target": "Panel::<anonymous>",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Panel",
+      "target_kind": "method",
+      "target": "Panel::measure",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Panel",
+      "target_kind": "method",
+      "target": "Panel::render",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PanelHost",
+      "target_kind": "method",
+      "target": "PanelHost::render",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "import",
+      "target": "../widgets/widgets.jsx",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "import",
+      "target": "./Card.jsx",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "class",
+      "target": "FancyPanel",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "class",
+      "target": "LegacyWidget",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "class",
+      "target": "MixedWidget",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "class",
+      "target": "Panel",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "class",
+      "target": "PanelHost",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "function",
+      "target": "debounce",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "function",
+      "target": "logToggle",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Panel.jsx",
+      "line": null
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Panel.jsx",
+      "line": 1
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Panel.jsx",
+      "line": 1
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "file",
+      "target": "src/components/Card.jsx",
+      "target_file": "src/components/Card.jsx",
+      "line": 2
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "component",
+      "target": "Card",
+      "target_file": "src/components/Card.jsx",
+      "line": 2
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "file",
+      "target": "src/widgets/widgets.jsx",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 3
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/components/Panel.jsx",
+      "target_kind": "constant",
+      "target": "Mixin",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 3
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "Panel",
+      "target_kind": "import",
+      "target": "react",
+      "target_file": "src/components/Panel.jsx",
+      "line": 5
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Panel::<anonymous>",
+      "target_kind": "function",
+      "target": "logToggle",
+      "target_file": "src/components/Panel.jsx",
+      "line": 9
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Panel::<anonymous>",
+      "target_kind": "method",
+      "target": "Panel::measure",
+      "target_file": "src/components/Panel.jsx",
+      "line": 12
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "Panel::render",
+      "target_kind": "component",
+      "target": "Card",
+      "target_file": "src/components/Card.jsx",
+      "line": 20
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "FancyPanel",
+      "target_kind": "class",
+      "target": "Panel",
+      "target_file": "src/components/Panel.jsx",
+      "line": 24
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "LegacyWidget",
+      "target_kind": "function",
+      "target": "formatTitle",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 26
+    },
+    {
+      "file": "src/components/Panel.jsx",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "PanelHost::render",
+      "target_kind": "class",
+      "target": "Panel",
+      "target_file": "src/components/Panel.jsx",
+      "line": 40
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Base",
+      "target_kind": "method",
+      "target": "Base::render",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "component",
+      "target": "Badge",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "component",
+      "target": "Header",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "constant",
+      "target": "Mixin",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "constant",
+      "target": "ROUTE_TABLE",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "function",
+      "target": "formatTitle",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "component",
+      "target": "Badge",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/widgets/widgets.jsx",
+      "target_kind": "component",
+      "target": "Header",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": null
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "ROUTE_TABLE",
+      "target_kind": "component",
+      "target": "Header",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 22
+    },
+    {
+      "file": "src/widgets/widgets.jsx",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "ROUTE_TABLE",
+      "target_kind": "component",
+      "target": "Badge",
+      "target_file": "src/widgets/widgets.jsx",
+      "line": 23
+    }
+  ],
+  "unresolved": []
+}

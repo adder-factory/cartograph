@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<save>
+  <region id="Rulesets">
+    <node id="root">
+      <children>
+        <node id="Ruleset">
+          <attribute id="RuleName" type="LSString" value="Demo_Ruleset" />
+          <attribute id="ParentGuid" type="guid" value="22222222-2222-2222-2222-222222222222" />
+          <attribute id="Description" type="TranslatedString" handle="h0000aaaabbbbcccc" version="1" />
+        </node>
+        <node id="Selector">
+          <attribute id="SelectorId" type="FixedString" value="Demo_Selector" />
+          <attribute id="SpellList" type="guid" value="44444444-4444-4444-4444-444444444444" />
+        </node>
+      </children>
+    </node>
+  </region>
+</save>
