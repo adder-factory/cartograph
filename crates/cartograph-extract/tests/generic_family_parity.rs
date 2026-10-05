@@ -36,7 +36,12 @@ fn anonymous_function_values_are_not_named_after_parameters_or_bodies() {
     // KHN runs on the Lua family: as in v1, an assigned function value is named by
     // its binding (`cb`, `t.f`), never by its first parameter, and a returned
     // anonymous function is not named at all.
-    assert_eq!(callable_names(&khn), ["cb", "named", "t.f"], "{:?}", khn.symbols);
+    assert_eq!(
+        callable_names(&khn),
+        ["cb", "named", "t.f"],
+        "{:?}",
+        khn.symbols
+    );
     assert!(
         !khn.symbols
             .iter()

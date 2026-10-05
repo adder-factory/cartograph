@@ -18,15 +18,15 @@ use crate::{
 };
 
 mod ada_family;
-mod arkts_family;
 mod apex_family;
+mod arkts_family;
 mod c_family;
 mod dart_family;
 mod declarations;
 mod dynamic_dispatch;
 mod embedded_sql;
-mod fsharp_family;
 mod family_support;
+mod fsharp_family;
 mod generic_family;
 mod graphql_family;
 mod hcl_family;
@@ -38,9 +38,9 @@ mod managed_family;
 mod module_system;
 mod nix_family;
 mod numerical;
+mod objc_family;
 mod optional_facts;
 mod pascal_family;
-mod objc_family;
 mod php_family;
 mod polyglot;
 mod prisma_family;

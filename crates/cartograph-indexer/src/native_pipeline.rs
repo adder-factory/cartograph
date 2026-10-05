@@ -16353,9 +16353,9 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    mod polyglot_parity;
     mod pascal_units;
     mod php_namespaces;
+    mod polyglot_parity;
     mod rust_receivers;
     mod script_modules;
 

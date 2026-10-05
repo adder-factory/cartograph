@@ -27,6 +27,7 @@ use self::names::{
 };
 use super::{
     ExtractionBuilder, PendingSymbol,
+    specifier_safety::specifier_may_carry_credential,
     syntax::{descendants, named_children, span_for},
     with_root_scope,
 };
@@ -405,7 +406,8 @@ fn emit_import_symbol(
     Ok(())
 }
 
-/// Emit a file import for an include/require whose target is a literal.
+/// Emit a file import for an include/require whose target is a literal that
+/// carries no credential.
 fn capture_include(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
@@ -417,13 +419,18 @@ fn capture_include(
     let Some(path) = static_string_literal(source, literal) else {
         return Ok(());
     };
-    let signature = import_signature(source, node);
+    // A remote include can embed credentials; such a target leaves no fact.
+    if specifier_may_carry_credential(path) {
+        return Ok(());
+    }
+    // The include statement is a string literal, so the Import keeps only its
+    // path as the name and retains no statement text.
     emit_import_symbol(
         builder,
         ImportSymbol {
             node,
             name: path,
-            signature: signature.as_deref(),
+            signature: None,
         },
     )?;
     let span = span_for(literal)?;
