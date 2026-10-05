@@ -26,6 +26,12 @@ pub enum ExtractionStrategy {
     ShaderFamily,
     /// Ada and VHDL declarations, case-insensitive references, and compilation imports.
     AdaFamily,
+    /// Dart declarations with sibling bodies, URI imports, heritage, and selector calls.
+    DartFamily,
+    /// F# namespaces, modules, `open` imports, typed definitions, and application calls.
+    FSharpFamily,
+    /// `ArkTS` on the TypeScript walker plus structs, fields, and decorators.
+    ArkTsFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -48,6 +54,9 @@ impl ExtractionStrategy {
                 | Self::JvmDynamicFamily
                 | Self::ShaderFamily
                 | Self::AdaFamily
+                | Self::DartFamily
+                | Self::FSharpFamily
+                | Self::ArkTsFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -133,6 +142,9 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         | SourceLanguage::Slang => Some(ExtractionStrategy::CFamily),
         SourceLanguage::Wesl | SourceLanguage::Wgsl => Some(ExtractionStrategy::ShaderFamily),
         SourceLanguage::Ada | SourceLanguage::Vhdl => Some(ExtractionStrategy::AdaFamily),
+        SourceLanguage::Dart => Some(ExtractionStrategy::DartFamily),
+        SourceLanguage::FSharp => Some(ExtractionStrategy::FSharpFamily),
+        SourceLanguage::ArkTs => Some(ExtractionStrategy::ArkTsFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -149,12 +161,9 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
     match language {
         SourceLanguage::Abap
         | SourceLanguage::Apex
-        | SourceLanguage::ArkTs
         | SourceLanguage::Astro
         | SourceLanguage::Clojure
         | SourceLanguage::CommonLisp
-        | SourceLanguage::Dart
-        | SourceLanguage::FSharp
         | SourceLanguage::GraphQl
         | SourceLanguage::Hcl
         | SourceLanguage::Html

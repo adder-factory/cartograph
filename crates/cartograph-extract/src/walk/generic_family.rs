@@ -14,13 +14,9 @@ pub(super) fn visit_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
-    if node.parent().is_none()
-        && node.kind() == "program"
-        && matches!(
-            builder.context.snapshot.language(),
-            SourceLanguage::Dart | SourceLanguage::Php | SourceLanguage::R | SourceLanguage::Ruby
-        )
-    {
+    // A parentless `program` node is the grammar's compilation unit (ABAP,
+    // PHP, R, Ruby), never a declaration that owns the rest of the file.
+    if node.parent().is_none() && node.kind() == "program" {
         builder.visit_named_children(node, depth)?;
         return Ok(true);
     }

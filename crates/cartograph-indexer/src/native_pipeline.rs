@@ -15876,9 +15876,9 @@ mod tests {
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "f77a991e7c6b2e8df0794af6be859648fd1e084e0511f1fbf675acb363eb3f6f";
+        "ee3f5cc023d1c121cbbec7e3d6074d0721e97d0a0cf524faf52d0c5e693501d6";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 220, 213, 64, 220);
+        (28, 230, 226, 78, 230);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
         "461cec8cccf24f4374a440ca7c8884d547b82653a89427859197af63ff968573";

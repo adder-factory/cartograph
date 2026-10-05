@@ -2363,6 +2363,9 @@ fn is_export_scope_boundary(kind: &str) -> bool {
             | "method_signature"
             | "class_declaration"
             | "class_body"
+            // ArkTS-only kinds; the TypeScript grammars never produce them.
+            | "struct_declaration"
+            | "struct_body"
     )
 }
 
@@ -2380,6 +2383,11 @@ pub(super) fn visibility(node: Node<'_>, source: &str) -> Option<Visibility> {
 
 pub(super) fn has_child_kind(node: Node<'_>, kind: &str) -> bool {
     children(node).any(|child| child.kind() == kind)
+}
+
+/// The first named child of `node` whose kind is `kind`.
+pub(super) fn named_child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    named_children(node).find(|child| child.kind() == kind)
 }
 
 pub(super) fn reference_type_node(node: Node<'_>) -> Option<Node<'_>> {

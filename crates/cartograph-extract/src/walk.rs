@@ -18,10 +18,13 @@ use crate::{
 };
 
 mod ada_family;
+mod arkts_family;
 mod c_family;
+mod dart_family;
 mod declarations;
 mod dynamic_dispatch;
 mod embedded_sql;
+mod fsharp_family;
 mod generic_family;
 mod graphql_family;
 mod jvm_dynamic_family;
@@ -510,6 +513,102 @@ impl<'tree> PendingSymbol<'tree> {
             visibility: None,
         }
     }
+
+    /// An unexported declaration spanning `node`, with no body, signature,
+    /// modifiers, or visibility; callers override the fields they know.
+    fn plain(kind: SymbolKind, name: String, node: Node<'tree>) -> Self {
+        Self {
+            kind,
+            name,
+            span_node: node,
+            structural_node: node,
+            doc_anchor: node,
+            body_node: None,
+            declaration_only: false,
+            signature: None,
+            export: SymbolExportFlags::default(),
+            async_symbol: false,
+            static_member: false,
+            visibility: None,
+        }
+    }
+}
+
+/// One declaration node, the node that names it, and the symbol kind it declares.
+#[derive(Clone, Copy)]
+struct NamedDeclaration<'tree> {
+    node: Node<'tree>,
+    name: Node<'tree>,
+    kind: SymbolKind,
+}
+
+impl<'tree> NamedDeclaration<'tree> {
+    /// Bundle a declaration with its name node and kind.
+    const fn new(node: Node<'tree>, name: Node<'tree>, kind: SymbolKind) -> Self {
+        Self { node, name, kind }
+    }
+}
+
+/// An emitted symbol whose syntactic children are visited as its members.
+struct SymbolScope {
+    id: SymbolId,
+    kind: SymbolKind,
+    name: String,
+}
+
+/// Visit `visit` with `scope` as the innermost owner and qualifier, restoring
+/// the enclosing scope even when the visit fails.
+fn in_symbol_scope<'source, 'cancel>(
+    builder: &mut ExtractionBuilder<'source, 'cancel>,
+    scope: SymbolScope,
+    visit: impl FnOnce(&mut ExtractionBuilder<'source, 'cancel>) -> Result<(), ExtractError>,
+) -> Result<(), ExtractError> {
+    builder.owners.push(scope.id);
+    builder.native_owner_kinds.push(scope.kind);
+    builder.qualifiers.push(scope.name);
+    let result = visit(builder);
+    builder.qualifiers.pop();
+    builder.native_owner_kinds.pop();
+    builder.owners.pop();
+    result
+}
+
+/// Sibling nodes that together form one logical declaration.
+#[derive(Clone, Copy)]
+struct NodeRange<'tree> {
+    first: Node<'tree>,
+    last: Node<'tree>,
+}
+
+/// Widen the just-emitted symbol `id` to cover `range`, for grammars that keep
+/// one logical declaration in sibling nodes (a signature beside its body).
+fn widen_symbol_span(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    id: &SymbolId,
+    range: NodeRange<'_>,
+) -> Result<(), ExtractError> {
+    let start = span_for(range.first)?;
+    let end = span_for(range.last)?;
+    let span = cartograph_domain::SourceSpan::new(
+        cartograph_domain::SourcePosition::new(
+            start.start_byte(),
+            start.start_line(),
+            start.start_column(),
+        )
+        .map_err(|_| ExtractError::InvalidSpan)?,
+        cartograph_domain::SourcePosition::new(end.end_byte(), end.end_line(), end.end_column())
+            .map_err(|_| ExtractError::InvalidSpan)?,
+    )
+    .map_err(|_| ExtractError::InvalidSpan)?;
+    if let Some(symbol) = builder
+        .facts
+        .symbols
+        .last_mut()
+        .filter(|symbol| &symbol.id == id)
+    {
+        symbol.span = span;
+    }
+    Ok(())
 }
 
 fn current_owner_kind_in(builder: &ExtractionBuilder<'_, '_>, allowed: &[SymbolKind]) -> bool {
@@ -682,6 +781,9 @@ pub(super) struct PendingReference<'tree> {
 #[derive(Clone, Copy)]
 enum ExtractionFamily {
     Ada,
+    Dart,
+    FSharp,
+    ArkTs,
     Shader,
     Shell,
     C,
@@ -721,12 +823,9 @@ const JVM_DYNAMIC_LANGUAGES: &[SourceLanguage] = &[
 const GENERIC_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Abap,
     SourceLanguage::Apex,
-    SourceLanguage::ArkTs,
     SourceLanguage::Astro,
     SourceLanguage::Clojure,
     SourceLanguage::CommonLisp,
-    SourceLanguage::Dart,
-    SourceLanguage::FSharp,
     SourceLanguage::Hcl,
     SourceLanguage::Html,
     SourceLanguage::Khn,
@@ -774,6 +873,20 @@ const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice
             visit_declaration: ada_family::visit_declaration,
             visit_usage: |builder, node, depth| {
                 ada_family::capture_usage(builder, node)?;
+                builder.visit_named_children(node, depth)
+            },
+        },
+        ExtractionFamily::Dart => FamilySlice {
+            visit_declaration: dart_family::visit_declaration,
+            visit_usage: |builder, node, depth| {
+                dart_family::capture_usage(builder, node)?;
+                builder.visit_named_children(node, depth)
+            },
+        },
+        ExtractionFamily::FSharp => FamilySlice {
+            visit_declaration: fsharp_family::visit_declaration,
+            visit_usage: |builder, node, depth| {
+                fsharp_family::capture_usage(builder, node)?;
                 builder.visit_named_children(node, depth)
             },
         },
@@ -850,6 +963,10 @@ const fn family_slice_declarative(family: ExtractionFamily) -> Option<FamilySlic
             visit_declaration: visit_javascript_declaration,
             visit_usage: visit_javascript_usage,
         },
+        ExtractionFamily::ArkTs => FamilySlice {
+            visit_declaration: arkts_family::visit_declaration,
+            visit_usage: visit_javascript_usage,
+        },
         _ => return None,
     };
     Some(slice)
@@ -886,6 +1003,9 @@ fn extraction_family(language: SourceLanguage) -> ExtractionFamily {
         ExtractionFamily::JavaScript
     } else {
         match language {
+            SourceLanguage::Dart => ExtractionFamily::Dart,
+            SourceLanguage::FSharp => ExtractionFamily::FSharp,
+            SourceLanguage::ArkTs => ExtractionFamily::ArkTs,
             SourceLanguage::GraphQl => ExtractionFamily::GraphQl,
             SourceLanguage::Wesl | SourceLanguage::Wgsl => ExtractionFamily::Shader,
             SourceLanguage::Prisma => ExtractionFamily::Prisma,

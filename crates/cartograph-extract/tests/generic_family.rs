@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 mod dependency_ownership;
 
-use cartograph_domain::SourceLanguage;
+use cartograph_domain::{SourceLanguage, SymbolKind};
 use cartograph_extract::{
     NativeExtractor, NativeGrammar, SourceLimits, SourceSnapshot, native_extraction_reservation,
     native_output_limit,
@@ -277,6 +277,65 @@ fn generic_family_cancellation_is_fail_closed() {
             .extract_with_cancellation(&snapshot, || true)
             .is_err()
     );
+}
+
+#[test]
+fn abap_classes_and_interfaces_are_top_level_not_swallowed_by_the_program_root() {
+    let extracted = extract_generic(
+        "src/zcl_greeter.clas.abap",
+        "CLASS zcl_greeter DEFINITION PUBLIC.\n  PUBLIC SECTION.\n    METHODS greet IMPORTING iv_name TYPE string.\nENDCLASS.\nCLASS zcl_greeter IMPLEMENTATION.\n  METHOD greet.\n    WRITE iv_name.\n  ENDMETHOD.\nENDCLASS.\n",
+    );
+    let class = generic_symbol(&extracted, SymbolKind::Class, "zcl_greeter");
+    assert_eq!(class.qualified_name, "zcl_greeter");
+    let method = generic_symbol(&extracted, SymbolKind::Method, "greet");
+    assert_eq!(method.qualified_name, "zcl_greeter::greet");
+    assert!(
+        extracted.containments.iter().any(|containment| {
+            containment.parent == class.id && containment.child == method.id
+        })
+    );
+
+    let interface = extract_generic(
+        "src/zif_greeter.intf.abap",
+        "INTERFACE zif_greeter PUBLIC.\n  METHODS greet.\nENDINTERFACE.\nCLASS lcl_impl DEFINITION.\n  PUBLIC SECTION.\nENDCLASS.\n",
+    );
+    let declared = generic_symbol(&interface, SymbolKind::Interface, "zif_greeter");
+    assert_eq!(declared.qualified_name, "zif_greeter");
+    let local_class = generic_symbol(&interface, SymbolKind::Class, "lcl_impl");
+    assert_eq!(local_class.qualified_name, "lcl_impl");
+
+    for extracted in [&extracted, &interface] {
+        assert!(
+            extracted
+                .symbols
+                .iter()
+                .all(|symbol| symbol.kind != SymbolKind::Module),
+            "a compilation-unit root must never become a module: {:?}",
+            extracted.symbols
+        );
+    }
+}
+
+fn extract_generic(path: &str, source: &str) -> cartograph_extract::ExtractedFile {
+    let snapshot = SourceSnapshot::from_bytes(path, source.as_bytes(), limits())
+        .unwrap_or_else(|error| panic!("{path} snapshot failed: {error}"));
+    let mut extractor = NativeExtractor::new(snapshot.language())
+        .unwrap_or_else(|error| panic!("{path} extractor failed: {error}"));
+    extractor
+        .extract(&snapshot)
+        .unwrap_or_else(|error| panic!("{path} extraction failed: {error}"))
+}
+
+fn generic_symbol<'file>(
+    extracted: &'file cartograph_extract::ExtractedFile,
+    kind: SymbolKind,
+    name: &str,
+) -> &'file cartograph_extract::ExtractedSymbol {
+    extracted
+        .symbols
+        .iter()
+        .find(|symbol| symbol.kind == kind && symbol.name == name)
+        .unwrap_or_else(|| panic!("missing {kind:?} {name}: {:?}", extracted.symbols))
 }
 
 #[test]

@@ -358,13 +358,7 @@ fn capture_javascript_dispatch(
     capture: InvocationCapture<'_>,
 ) -> Result<bool, ExtractError> {
     if capture.shape.invocation != InvocationKind::Call
-        || !matches!(
-            capture.shape.language,
-            SourceLanguage::TypeScript
-                | SourceLanguage::Tsx
-                | SourceLanguage::JavaScript
-                | SourceLanguage::Jsx
-        )
+        || !javascript_call_syntax(capture.shape.language)
     {
         return Ok(false);
     }
@@ -466,14 +460,7 @@ fn invocation_reference_nodes<'tree>(
         language,
         invocation,
     } = shape;
-    let javascript = matches!(
-        language,
-        SourceLanguage::TypeScript
-            | SourceLanguage::Tsx
-            | SourceLanguage::JavaScript
-            | SourceLanguage::Jsx
-    );
-    match (invocation, javascript) {
+    match (invocation, javascript_call_syntax(language)) {
         (InvocationKind::Call, true) => {
             normalized_javascript_call_target(target, 0).map(|name| (name, name))
         }
@@ -483,6 +470,19 @@ fn invocation_reference_nodes<'tree>(
         }
         (InvocationKind::Construction, false) => Some((target, expression)),
     }
+}
+
+/// Languages whose calls use JavaScript call and member-expression syntax,
+/// including `ArkTS`, whose grammar keeps TypeScript's expression node kinds.
+const fn javascript_call_syntax(language: SourceLanguage) -> bool {
+    matches!(
+        language,
+        SourceLanguage::TypeScript
+            | SourceLanguage::Tsx
+            | SourceLanguage::JavaScript
+            | SourceLanguage::Jsx
+            | SourceLanguage::ArkTs
+    )
 }
 
 fn anonymous_call_target(language: SourceLanguage, target: Node<'_>, depth: usize) -> bool {

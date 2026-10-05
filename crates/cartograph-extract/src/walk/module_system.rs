@@ -926,6 +926,8 @@ fn is_top_level_assignment(node: Node<'_>) -> bool {
         .is_some_and(|parent| parent.kind() == "program")
 }
 
+/// Languages with ECMAScript module syntax; `ArkTS` keeps TypeScript's
+/// `import`/`export` grammar, so its export clauses mark declarations too.
 fn is_javascript_family(language: SourceLanguage) -> bool {
     matches!(
         language,
@@ -933,6 +935,7 @@ fn is_javascript_family(language: SourceLanguage) -> bool {
             | SourceLanguage::Tsx
             | SourceLanguage::JavaScript
             | SourceLanguage::Jsx
+            | SourceLanguage::ArkTs
     )
 }
 
