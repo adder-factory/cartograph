@@ -1,4 +1,5 @@
 mod scip_spill;
+mod script_modules;
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -11901,6 +11902,15 @@ where
     {
         return Ok(Some(resolution));
     }
+    if request.kind == ReferenceKind::Imports
+        && request.owner.is_none()
+        && script_modules::binds_loads_exactly(request.language)
+        && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
+            index, request, cancelled,
+        )?)
+    {
+        return Ok(Some(resolution));
+    }
     if request.owner.is_none()
         && request.kind == ReferenceKind::References
         && let Some(resolution) = import_reference_resolution(resolve_import(
@@ -13652,6 +13662,11 @@ fn resolve_module_file<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> Option<&'a FileId> {
+    match script_modules::resolve_script_module(modules, request) {
+        ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
+        ModuleResolutionAttempt::Rejected => return None,
+        ModuleResolutionAttempt::NotMatched => {}
+    }
     match resolve_compilation_unit_module(modules, request) {
         ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
         ModuleResolutionAttempt::Rejected => return None,
@@ -15792,6 +15807,7 @@ fn usize_to_u64(value: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     mod rust_receivers;
+    mod script_modules;
 
     use std::assert_matches;
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};

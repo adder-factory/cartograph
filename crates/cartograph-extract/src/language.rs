@@ -40,6 +40,14 @@ pub enum ExtractionStrategy {
     ReScriptFamily,
     /// Solidity contract members, modifiers, enum values, state variables, and pragmas.
     SolidityFamily,
+    /// Ruby modules, classes, accessors, constants, visibility sections, and load imports.
+    RubyFamily,
+    /// Lua, Luau, and KHN tables, colon methods, local lists, and `require` imports.
+    LuaFamily,
+    /// R assignment-named functions, constants, and package/source imports.
+    RFamily,
+    /// Nix attribute bindings, inherits, applications, and path imports.
+    NixFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -69,6 +77,10 @@ impl ExtractionStrategy {
                 | Self::LeanFamily
                 | Self::ReScriptFamily
                 | Self::SolidityFamily
+                | Self::RubyFamily
+                | Self::LuaFamily
+                | Self::RFamily
+                | Self::NixFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -163,6 +175,12 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         SourceLanguage::Lean => Some(ExtractionStrategy::LeanFamily),
         SourceLanguage::ReScript => Some(ExtractionStrategy::ReScriptFamily),
         SourceLanguage::Solidity => Some(ExtractionStrategy::SolidityFamily),
+        SourceLanguage::Ruby => Some(ExtractionStrategy::RubyFamily),
+        SourceLanguage::Lua | SourceLanguage::Luau | SourceLanguage::Khn => {
+            Some(ExtractionStrategy::LuaFamily)
+        }
+        SourceLanguage::R => Some(ExtractionStrategy::RFamily),
+        SourceLanguage::Nix => Some(ExtractionStrategy::NixFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -183,16 +201,10 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
         | SourceLanguage::GraphQl
         | SourceLanguage::Hcl
         | SourceLanguage::Html
-        | SourceLanguage::Khn
-        | SourceLanguage::Lua
-        | SourceLanguage::Luau
-        | SourceLanguage::Nix
         | SourceLanguage::ObjectiveC
         | SourceLanguage::Pascal
         | SourceLanguage::Php
         | SourceLanguage::Prisma
-        | SourceLanguage::R
-        | SourceLanguage::Ruby
         | SourceLanguage::Sql
         | SourceLanguage::Swift
         | SourceLanguage::VbNet
