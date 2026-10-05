@@ -37,9 +37,9 @@ const EXPECTED_CORPUS_FINGERPRINT: &str =
 // JavaScript/TypeScript parity facts (class fields, def-use, decorators, constant reads,
 // binding tables, body type consumers), callback-binding shadowing of value references, and
 // module value targets no longer hidden by member or other-scope namesakes change the facts;
-// corpus bytes and ranking stay fixed.
+// V21 changes the digest domain; corpus bytes, row counts, and ranking stay fixed.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "2a85014ca982031de76b44590975c6f206d7bce1b0c15326e87a185c63a346ce";
+    "dcfeb0f67458ad639e77e9b97207c71094b1a7b99a9d67fcdba9a0730d418185";
 const EXPECTED_BM25_DOCUMENT_IDS: [&str; 5] = [
     "5471dbfc-3ba3-87dd-8861-1ce1dd51ed32",
     "78f1eb97-24b2-8a80-ad44-6dd679456592",
