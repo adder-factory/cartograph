@@ -37,9 +37,10 @@ const EXPECTED_CORPUS_FINGERPRINT: &str =
 // JavaScript/TypeScript parity facts (class fields, def-use, decorators, constant reads,
 // binding tables, body type consumers), callback-binding shadowing of value references, and
 // module value targets no longer hidden by member or other-scope namesakes change the facts;
-// V21 changes the digest domain; corpus bytes, row counts, and ranking stay fixed.
+// the final per-file parity fixes add five resolved references and their edges; V21 changes
+// the digest domain; corpus bytes and ranking stay fixed.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "dcfeb0f67458ad639e77e9b97207c71094b1a7b99a9d67fcdba9a0730d418185";
+    "5447ea43e88843d77221ac150286252ba936d96ca4e0bd36acd5a67d845070c2";
 const EXPECTED_BM25_DOCUMENT_IDS: [&str; 5] = [
     "5471dbfc-3ba3-87dd-8861-1ce1dd51ed32",
     "78f1eb97-24b2-8a80-ad44-6dd679456592",
@@ -57,8 +58,8 @@ const EXPECTED_TAGS_BM25_DOCUMENT_IDS: [&str; 6] = [
 ];
 const EXPECTED_FILES: i64 = 34;
 const EXPECTED_SYMBOLS: i64 = 6_362;
-const EXPECTED_EDGES: i64 = 11_206;
-const EXPECTED_REFERENCES: i64 = 21_282;
+const EXPECTED_EDGES: i64 = 11_211;
+const EXPECTED_REFERENCES: i64 = 21_287;
 const EXPECTED_NUMERICAL_SITES: i64 = 0;
 const EXPECTED_DOCUMENTS: i64 = 6_362;
 const EXPECTED_EDGE_KINDS: [&str; 11] = [
@@ -75,11 +76,11 @@ const EXPECTED_EDGE_KINDS: [&str; 11] = [
     "type_of",
 ];
 const EXPECTED_SOURCE_BYTES: u64 = 1_052_564;
-const EXPECTED_RESOLVED_REFERENCES: u64 = 7_815;
+const EXPECTED_RESOLVED_REFERENCES: u64 = 7_820;
 const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_479;
-const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_841_585;
-const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 116_872_923;
-const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_525_902;
+const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_846_449;
+const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 116_898_121;
+const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_538_684;
 const CORPUS_QUERY: &str = "detectSecretsHandling";
 const TAGS_CORPUS_QUERY: &str = "tagscanary";
 const LIVE_SECRET_SENTINEL: &str = "sk_live_secret";
