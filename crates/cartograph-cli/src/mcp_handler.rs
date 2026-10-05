@@ -1146,6 +1146,32 @@ struct GraphCursorContext<'input> {
     since: Option<&'input str>,
 }
 
+/// Neighbour count (`k`, else the graph limit capped) and `minScore` of a similarity request.
+fn parse_similar_bounds(
+    arguments: &Map<String, Value>,
+    graph_limit: u16,
+) -> Result<(u16, f64), ToolError> {
+    let semantic_limit = if arguments.contains_key("k") {
+        optional_integer(
+            arguments,
+            "k",
+            NumericBounds::new(1, GRAPH_SIMILAR_DEFAULT_LIMIT, GRAPH_SIMILAR_MAXIMUM_LIMIT),
+        )?
+    } else {
+        graph_limit.min(GRAPH_SIMILAR_MAXIMUM_LIMIT)
+    };
+    let minimum_score = optional_number(
+        arguments,
+        "minScore",
+        NumericBounds::new(
+            GRAPH_MINIMUM_SCORE,
+            GRAPH_SIMILAR_DEFAULT_SCORE,
+            GRAPH_MAXIMUM_SCORE,
+        ),
+    )?;
+    Ok((semantic_limit, minimum_score))
+}
+
 struct SimilarGraphExecution<'input> {
     cursor: GraphCursorContext<'input>,
     roots: Vec<SymbolId>,
@@ -1506,6 +1532,15 @@ enum SessionCollectionKind {
     Macros,
 }
 
+/// One step of a running macro plus the call state it inherits.
+struct MacroStepRun<'run> {
+    index: usize,
+    step: &'run McpMacroStep,
+    positional: &'run [Value],
+    context: &'run ToolCallContext,
+    macro_stack: &'run [String],
+}
+
 struct SessionMacroExecution<'context, 'input> {
     session: SessionExecution<'context, 'input>,
     cancellation: ProjectCancellation,
@@ -1845,6 +1880,52 @@ struct CoverageExecution<'input> {
     requested_symbol: Option<&'input str>,
     allow_stale: bool,
     source: Option<&'input str>,
+}
+
+impl<'input> CoverageExecution<'input> {
+    /// Validates the arguments shared by every `coverage` mode and selects the mode.
+    fn parse(
+        arguments: &'input Map<String, Value>,
+        cancellation: ProjectCancellation,
+    ) -> Result<(CoverageMode, Self), ToolError> {
+        reject_unknown(
+            arguments,
+            &[
+                "mode",
+                "via",
+                "reportPath",
+                "clear",
+                "symbol",
+                "minCentrality",
+                "maxPct",
+                "kinds",
+                "source",
+                "limit",
+                "pathFilter",
+                "includeTests",
+                "allowStale",
+            ],
+        )?;
+        let requested_symbol =
+            optional_bounded_text(arguments, "symbol", CONTEXT_ANCHOR_MAXIMUM_BYTES)?;
+        let default_mode = if requested_symbol.is_some() {
+            "symbol"
+        } else {
+            "ranked"
+        };
+        let mode = CoverageMode::parse(optional_text(arguments, "mode")?.unwrap_or(default_mode))?;
+        validate_coverage_via(optional_text(arguments, "via")?.unwrap_or("auto"))?;
+        let allow_stale = optional_bool(arguments, "allowStale")?.unwrap_or(false);
+        let source = optional_bounded_text(arguments, "source", COVERAGE_SOURCE_MAXIMUM_BYTES)?;
+        let execution = Self {
+            arguments,
+            cancellation,
+            requested_symbol,
+            allow_stale,
+            source,
+        };
+        Ok((mode, execution))
+    }
 }
 
 struct CoverageSymbolRequest<'context, 'input> {
@@ -4524,25 +4605,49 @@ impl CoreTools<'_> {
     }
 }
 
+/// Every dispatchable MCP tool name and the dispatcher family that owns it.
+const DISPATCH_GROUP_TOOLS: &[(&str, DispatchGroup)] = &[
+    (ASK_TOOL, DispatchGroup::Context),
+    (BLAME_TOOL, DispatchGroup::Context),
+    (CHANGED_SINCE_TOOL, DispatchGroup::Context),
+    (STATUS_TOOL, DispatchGroup::Context),
+    (CONTEXT_TOOL, DispatchGroup::Context),
+    (COMPARE_TO_REF_TOOL, DispatchGroup::Context),
+    (DIGEST_TOOL, DispatchGroup::Context),
+    (EXPLORE_TOOL, DispatchGroup::Context),
+    (FIND_TOOL, DispatchGroup::Context),
+    (NODE_TOOL, DispatchGroup::Context),
+    (FILES_TOOL, DispatchGroup::Evidence),
+    (ENTRY_POINTS_TOOL, DispatchGroup::Evidence),
+    (AT_RANGE_TOOL, DispatchGroup::Evidence),
+    (GRAPH_TOOL, DispatchGroup::Evidence),
+    (AFFECTED_TOOL, DispatchGroup::Evidence),
+    (BIOMARKERS_TOOL, DispatchGroup::Evidence),
+    (NUMERICAL_TOOL, DispatchGroup::Evidence),
+    (COVERAGE_TOOL, DispatchGroup::Evidence),
+    (DEAD_CODE_TOOL, DispatchGroup::Evidence),
+    (DEPS_TOOL, DispatchGroup::Evidence),
+    (HOTSPOTS_TOOL, DispatchGroup::Evidence),
+    (HOST_TOOL, DispatchGroup::Workflow),
+    (HISTORY_TOOL, DispatchGroup::Workflow),
+    (IMPORTS_TOOL, DispatchGroup::Workflow),
+    (NOTE_TOOL, DispatchGroup::Workflow),
+    (PROPOSE_RENAME_TOOL, DispatchGroup::Workflow),
+    (ROLE_TOOL, DispatchGroup::Workflow),
+    (SESSION_TOOL, DispatchGroup::Workflow),
+    (SUMMARIES_TOOL, DispatchGroup::Workflow),
+    (SQL_TOOL, DispatchGroup::Workflow),
+    (TESTS_FOR_TOOL, DispatchGroup::Workflow),
+    (TRACE_TO_CULPRITS_TOOL, DispatchGroup::Operations),
+    (VERIFY_TOOL, DispatchGroup::Operations),
+    (REVIEW_TOOL, DispatchGroup::Operations),
+    (PLAYBOOK_TOOL, DispatchGroup::Operations),
+    (ADMIN_TOOL, DispatchGroup::Operations),
+];
+
 fn dispatch_group(name: &str) -> Result<DispatchGroup, ToolError> {
-    match name {
-        ASK_TOOL | BLAME_TOOL | CHANGED_SINCE_TOOL | STATUS_TOOL | CONTEXT_TOOL
-        | COMPARE_TO_REF_TOOL | DIGEST_TOOL | EXPLORE_TOOL | FIND_TOOL | NODE_TOOL => {
-            Ok(DispatchGroup::Context)
-        }
-        FILES_TOOL | ENTRY_POINTS_TOOL | AT_RANGE_TOOL | GRAPH_TOOL | AFFECTED_TOOL
-        | BIOMARKERS_TOOL | NUMERICAL_TOOL | COVERAGE_TOOL | DEAD_CODE_TOOL | DEPS_TOOL
-        | HOTSPOTS_TOOL => Ok(DispatchGroup::Evidence),
-        HOST_TOOL | HISTORY_TOOL | IMPORTS_TOOL | NOTE_TOOL | PROPOSE_RENAME_TOOL | ROLE_TOOL
-        | SESSION_TOOL | SUMMARIES_TOOL | SQL_TOOL | TESTS_FOR_TOOL => Ok(DispatchGroup::Workflow),
-        TRACE_TO_CULPRITS_TOOL | VERIFY_TOOL | REVIEW_TOOL | PLAYBOOK_TOOL | ADMIN_TOOL => {
-            Ok(DispatchGroup::Operations)
-        }
-        _ => Err(safe_error(
-            ToolErrorCode::NotFound,
-            "Cartograph tool is not available",
-        )),
-    }
+    parse_named_variant(name, DISPATCH_GROUP_TOOLS)
+        .map_err(|_| safe_error(ToolErrorCode::NotFound, "Cartograph tool is not available"))
 }
 
 async fn dispatch_context_tools(
@@ -7072,6 +7177,41 @@ impl FindSourceTools<'_> {
     }
 }
 
+struct FileDependencyInput {
+    path: NormalizedPath,
+    direction: FileDependencyDirection,
+    limit: u16,
+}
+
+/// Validated scope of one `files` surface request.
+struct FileSurfaceScope<'input> {
+    limit: u16,
+    directory_text: Option<&'input str>,
+    directory_path: Option<NormalizedPath>,
+}
+
+fn parse_file_surface_scope(
+    arguments: &Map<String, Value>,
+    format: FilesFormat,
+) -> Result<FileSurfaceScope<'_>, ToolError> {
+    reject_file_surface_fields(arguments, format)?;
+    let limit = optional_integer(
+        arguments,
+        "limit",
+        NumericBounds::new(1, FILES_DEFAULT_LIMIT, FILES_MAXIMUM_LIMIT),
+    )?;
+    let directory_text = file_surface_directory(arguments, format)?;
+    let directory_path = directory_text
+        .map(NormalizedPath::parse)
+        .transpose()
+        .map_err(|_| invalid_arguments())?;
+    Ok(FileSurfaceScope {
+        limit,
+        directory_text,
+        directory_path,
+    })
+}
+
 impl FilesTools<'_> {
     async fn files(
         &self,
@@ -7214,12 +7354,13 @@ impl FilesTools<'_> {
         files_result(execution.freshness, &evidence, execution.low_tokens)
     }
 
-    async fn files_dependencies(
+    /// Validated file, direction and limit of one `files` dependency request.
+    fn file_dependency_input(
         &self,
-        execution: FilesExecution<'_, '_>,
-    ) -> Result<ToolResult, ToolError> {
+        arguments: &Map<String, Value>,
+    ) -> Result<FileDependencyInput, ToolError> {
         reject_present(
-            execution.arguments,
+            arguments,
             &[
                 "dir",
                 "pattern",
@@ -7238,18 +7379,33 @@ impl FilesTools<'_> {
         let path = self
             .runtime
             .normalized_project_path(required_bounded_text(
-                execution.arguments,
+                arguments,
                 "file",
                 CONTEXT_ANCHOR_MAXIMUM_BYTES,
             )?)
             .map_err(|error| project_error(&error))?;
-        let direction =
-            parse_file_dependency_direction(optional_text(execution.arguments, "direction")?)?;
+        let direction = parse_file_dependency_direction(optional_text(arguments, "direction")?)?;
         let limit = optional_integer(
-            execution.arguments,
+            arguments,
             "limit",
             NumericBounds::new(1, FILE_DEPENDENCY_DEFAULT_LIMIT, FILES_MAXIMUM_LIMIT),
         )?;
+        Ok(FileDependencyInput {
+            path,
+            direction,
+            limit,
+        })
+    }
+
+    async fn files_dependencies(
+        &self,
+        execution: FilesExecution<'_, '_>,
+    ) -> Result<ToolResult, ToolError> {
+        let FileDependencyInput {
+            path,
+            direction,
+            limit,
+        } = self.file_dependency_input(execution.arguments)?;
         let exact = self
             .retrieval
             .exact_path(
@@ -7356,17 +7512,11 @@ impl FilesTools<'_> {
         execution: FilesExecution<'_, '_>,
         format: FilesFormat,
     ) -> Result<ToolResult, ToolError> {
-        reject_file_surface_fields(execution.arguments, format)?;
-        let limit = optional_integer(
-            execution.arguments,
-            "limit",
-            NumericBounds::new(1, FILES_DEFAULT_LIMIT, FILES_MAXIMUM_LIMIT),
-        )?;
-        let directory_text = file_surface_directory(execution.arguments, format)?;
-        let directory_path = directory_text
-            .map(NormalizedPath::parse)
-            .transpose()
-            .map_err(|_| invalid_arguments())?;
+        let FileSurfaceScope {
+            limit,
+            directory_text,
+            directory_path,
+        } = parse_file_surface_scope(execution.arguments, format)?;
         if format == FilesFormat::Module && directory_path.is_none() {
             let summaries = self
                 .runtime
@@ -7669,24 +7819,7 @@ impl GraphTools<'_> {
                 "fields",
             ],
         )?;
-        let semantic_limit = if arguments.contains_key("k") {
-            optional_integer(
-                arguments,
-                "k",
-                NumericBounds::new(1, GRAPH_SIMILAR_DEFAULT_LIMIT, GRAPH_SIMILAR_MAXIMUM_LIMIT),
-            )?
-        } else {
-            execution.limit.min(GRAPH_SIMILAR_MAXIMUM_LIMIT)
-        };
-        let minimum_score = optional_number(
-            arguments,
-            "minScore",
-            NumericBounds::new(
-                GRAPH_MINIMUM_SCORE,
-                GRAPH_SIMILAR_DEFAULT_SCORE,
-                GRAPH_MAXIMUM_SCORE,
-            ),
-        )?;
+        let (semantic_limit, minimum_score) = parse_similar_bounds(arguments, execution.limit)?;
         let same_language = optional_bool(arguments, "sameLanguage")?.unwrap_or(false);
         let mut request = SimilarRequest::new(
             execution.cursor.project_id.clone(),
@@ -7929,6 +8062,29 @@ impl GraphTools<'_> {
             .map(|symbol| symbol.symbol_id().clone())
     }
 
+    /// Current-generation symbol role artifacts keyed by symbol scope key.
+    async fn current_symbol_roles(
+        &self,
+        project_id: &ProjectId,
+    ) -> Result<BTreeMap<String, String>, ToolError> {
+        Ok(self
+            .runtime
+            .database()
+            .list_agent_artifacts(
+                project_id,
+                AgentArtifactQuery::new(500)
+                    .map_err(internal_error)?
+                    .with_kind(AgentArtifactKind::Role)
+                    .with_scope(AgentArtifactScope::Symbol)
+                    .current_generation_only(),
+            )
+            .await
+            .map_err(internal_error)?
+            .into_iter()
+            .map(|artifact| (artifact.scope_key().to_owned(), artifact.body().to_owned()))
+            .collect())
+    }
+
     async fn graph_projection(
         &self,
         project_id: &ProjectId,
@@ -7982,21 +8138,7 @@ impl GraphTools<'_> {
             BTreeMap::new()
         };
         let roles = if options.include_roles && !symbol_ids.is_empty() {
-            self.runtime
-                .database()
-                .list_agent_artifacts(
-                    project_id,
-                    AgentArtifactQuery::new(500)
-                        .map_err(internal_error)?
-                        .with_kind(AgentArtifactKind::Role)
-                        .with_scope(AgentArtifactScope::Symbol)
-                        .current_generation_only(),
-                )
-                .await
-                .map_err(internal_error)?
-                .into_iter()
-                .map(|artifact| (artifact.scope_key().to_owned(), artifact.body().to_owned()))
-                .collect::<BTreeMap<_, _>>()
+            self.current_symbol_roles(project_id).await?
         } else {
             BTreeMap::new()
         };
@@ -8227,6 +8369,33 @@ async fn add_note(
     json_result(&json!({"artifact": record, "symbol": symbol}))
 }
 
+/// Note artifact query for `note list`, optionally scoped to one resolved symbol.
+fn note_list_query<'query>(
+    arguments: &'query Map<String, Value>,
+    limit: u16,
+    symbol: Option<&'query CurrentSymbolRecord>,
+) -> Result<AgentArtifactQuery<'query>, ToolError> {
+    let mut query = AgentArtifactQuery::new(limit)
+        .map_err(internal_error)?
+        .with_kind(AgentArtifactKind::Note);
+    if let Some(symbol) = symbol {
+        query = query
+            .with_scope(AgentArtifactScope::Symbol)
+            .with_scope_key(symbol.symbol_id().as_str())
+            .map_err(internal_error)?;
+    }
+    if let Some(note_kind) = optional_text(arguments, "kind")? {
+        query = query.with_note_kind(note_kind).map_err(internal_error)?;
+    }
+    if let Some(since) = optional_finite_number(arguments, "since")? {
+        if since < 0.0 {
+            return Err(invalid_arguments());
+        }
+        query = query.since_unix_ms(since).map_err(internal_error)?;
+    }
+    Ok(query)
+}
+
 async fn list_notes(
     handler: &CartographMcpHandler,
     arguments: &Map<String, Value>,
@@ -8243,24 +8412,7 @@ async fn list_notes(
             Some(name) => Some(resolve_unique_symbol(handler, project_id, name).await?),
             None => None,
         };
-    let mut query = AgentArtifactQuery::new(limit)
-        .map_err(internal_error)?
-        .with_kind(AgentArtifactKind::Note);
-    if let Some(symbol) = resolved_symbol.as_ref() {
-        query = query
-            .with_scope(AgentArtifactScope::Symbol)
-            .with_scope_key(symbol.symbol_id().as_str())
-            .map_err(internal_error)?;
-    }
-    if let Some(note_kind) = optional_text(arguments, "kind")? {
-        query = query.with_note_kind(note_kind).map_err(internal_error)?;
-    }
-    if let Some(since) = optional_finite_number(arguments, "since")? {
-        if since < 0.0 {
-            return Err(invalid_arguments());
-        }
-        query = query.since_unix_ms(since).map_err(internal_error)?;
-    }
+    let query = note_list_query(arguments, limit, resolved_symbol.as_ref())?;
     json_result(
         &handler
             .runtime
@@ -8718,38 +8870,192 @@ async fn numerical_sites_result(
     fresh_json_result(execution.freshness, &output)
 }
 
+/// Mode, presentation and freshness options shared by every `biomarkers` mode.
+struct BiomarkerRequest {
+    mode: BiomarkerMode,
+    format: &'static str,
+    low_tokens: bool,
+    allow_stale: bool,
+}
+
+fn parse_biomarker_request(arguments: &Map<String, Value>) -> Result<BiomarkerRequest, ToolError> {
+    reject_unknown(
+        arguments,
+        &[
+            "mode",
+            "symbol",
+            "symbols",
+            "biomarker",
+            "minSeverity",
+            "minCentrality",
+            "minMetric",
+            "maxMetric",
+            "excludeFile",
+            "limit",
+            "format",
+            "lowTokens",
+            "allowStale",
+        ],
+    )?;
+    let mode = BiomarkerMode::parse(optional_text(arguments, "mode")?.unwrap_or("ranked"))?;
+    let format = match optional_text(arguments, "format")?.unwrap_or("markdown") {
+        "markdown" => "markdown",
+        "json" => "json",
+        _ => return Err(invalid_arguments()),
+    };
+    Ok(BiomarkerRequest {
+        mode,
+        format,
+        low_tokens: optional_bool(arguments, "lowTokens")?.unwrap_or(false),
+        allow_stale: optional_bool(arguments, "allowStale")?.unwrap_or(false),
+    })
+}
+
+/// Arguments of one `imports` audit that are validated before the project is opened.
+struct ImportsInput {
+    requested_source: ImportAuditSource,
+    target: Option<ImportAuditTarget>,
+    limit: u16,
+    allow_stale: bool,
+}
+
+impl ImportsInput {
+    fn parse(arguments: &Map<String, Value>) -> Result<Self, ToolError> {
+        reject_unknown(
+            arguments,
+            &[
+                "source",
+                "target",
+                "extMissing",
+                "dynamic",
+                "pathFilter",
+                "language",
+                "excludeFixtures",
+                "limit",
+                "lowTokens",
+                "allowStale",
+            ],
+        )?;
+        let requested_source = match optional_text(arguments, "source")?.unwrap_or("static") {
+            "static" => ImportAuditSource::Static,
+            "literal" => ImportAuditSource::Literal,
+            "all" => ImportAuditSource::All,
+            _ => return Err(invalid_arguments()),
+        };
+        let target = optional_text(arguments, "target")?
+            .map(|target| match target {
+                "file" => Ok(ImportAuditTarget::File),
+                "directory" => Ok(ImportAuditTarget::Directory),
+                "bare" => Ok(ImportAuditTarget::Bare),
+                "unresolvable" => Ok(ImportAuditTarget::Unresolvable),
+                _ => Err(invalid_arguments()),
+            })
+            .transpose()?;
+        let default_limit = if optional_bool(arguments, "lowTokens")?.unwrap_or(false) {
+            IMPORTS_LOW_TOKEN_LIMIT
+        } else {
+            IMPORTS_DEFAULT_LIMIT
+        };
+        let limit = optional_integer(
+            arguments,
+            "limit",
+            NumericBounds::new(1, default_limit, IMPORTS_MAXIMUM_LIMIT),
+        )?;
+        let allow_stale = optional_bool(arguments, "allowStale")?.unwrap_or(false);
+        Ok(Self {
+            requested_source,
+            target,
+            limit,
+            allow_stale,
+        })
+    }
+
+    /// Audit options for the effective source; the remaining filters are read here.
+    fn audit_options(
+        &self,
+        arguments: &Map<String, Value>,
+        source: ImportAuditSource,
+    ) -> Result<ImportAuditOptions, ToolError> {
+        Ok(ImportAuditOptions::new(usize::from(self.limit))
+            .map_err(import_audit_error)?
+            .with_source(source)
+            .with_target(self.target)
+            .with_extension_missing(optional_bool(arguments, "extMissing")?)
+            .with_dynamic(optional_bool(arguments, "dynamic")?)
+            .with_path_filter(optional_text(arguments, "pathFilter")?)
+            .map_err(import_audit_error)?
+            .with_language(optional_text(arguments, "language")?)
+            .map_err(import_audit_error)?
+            .with_exclude_fixtures(optional_bool(arguments, "excludeFixtures")?.unwrap_or(true)))
+    }
+}
+
+/// Which `role` request shape the arguments select, validated before any lookup.
+enum RoleSelection<'input> {
+    Filter(RoleFilterInput<'input>),
+    Symbols(Vec<String>),
+    Distribution,
+}
+
+fn reject_role_via_without_symbols(arguments: &Map<String, Value>) -> Result<(), ToolError> {
+    if arguments.contains_key("via") {
+        return Err(safe_error(
+            ToolErrorCode::InvalidArguments,
+            "via applies only when classifying symbol or symbols",
+        ));
+    }
+    Ok(())
+}
+
+fn parse_role_selection(arguments: &Map<String, Value>) -> Result<RoleSelection<'_>, ToolError> {
+    let role_filter = optional_text(arguments, "role")?;
+    let symbol_name = optional_bounded_text(arguments, "symbol", CONTEXT_ANCHOR_MAXIMUM_BYTES)?;
+    let symbol_names = optional_string_array(
+        arguments,
+        "symbols",
+        StringArrayBounds::new(20, CONTEXT_ANCHOR_MAXIMUM_BYTES),
+    )?;
+    if (symbol_name.is_some() && !symbol_names.is_empty())
+        || (role_filter.is_some() && (symbol_name.is_some() || !symbol_names.is_empty()))
+    {
+        return Err(invalid_arguments());
+    }
+    if let Some(role) = role_filter {
+        reject_role_via_without_symbols(arguments)?;
+        validate_role(role)?;
+        let limit = optional_integer(
+            arguments,
+            "limit",
+            NumericBounds::new(1, INSIGHT_DEFAULT_LIMIT, INSIGHT_MAXIMUM_LIMIT),
+        )?;
+        return Ok(RoleSelection::Filter(RoleFilterInput { role, limit }));
+    }
+    if symbol_name.is_some() || !symbol_names.is_empty() {
+        reject_present(arguments, &["limit"])?;
+        let requested = symbol_name
+            .into_iter()
+            .map(str::to_owned)
+            .chain(symbol_names)
+            .collect::<Vec<_>>();
+        return Ok(RoleSelection::Symbols(requested));
+    }
+    reject_role_via_without_symbols(arguments)?;
+    reject_present(arguments, &["limit"])?;
+    Ok(RoleSelection::Distribution)
+}
+
 impl InsightTools<'_> {
     async fn biomarkers(
         &self,
         arguments: Map<String, Value>,
         cancellation: ProjectCancellation,
     ) -> Result<ToolResult, ToolError> {
-        reject_unknown(
-            &arguments,
-            &[
-                "mode",
-                "symbol",
-                "symbols",
-                "biomarker",
-                "minSeverity",
-                "minCentrality",
-                "minMetric",
-                "maxMetric",
-                "excludeFile",
-                "limit",
-                "format",
-                "lowTokens",
-                "allowStale",
-            ],
-        )?;
-        let mode = BiomarkerMode::parse(optional_text(&arguments, "mode")?.unwrap_or("ranked"))?;
-        let format = match optional_text(&arguments, "format")?.unwrap_or("markdown") {
-            "markdown" => "markdown",
-            "json" => "json",
-            _ => return Err(invalid_arguments()),
-        };
-        let low_tokens = optional_bool(&arguments, "lowTokens")?.unwrap_or(false);
-        let allow_stale = optional_bool(&arguments, "allowStale")?.unwrap_or(false);
+        let BiomarkerRequest {
+            mode,
+            format,
+            low_tokens,
+            allow_stale,
+        } = parse_biomarker_request(&arguments)?;
         let layer_cancellation = cancellation.clone();
         let (project_id, freshness) =
             current_project_for_evidence(self, cancellation, allow_stale).await?;
@@ -8858,43 +9164,7 @@ impl InsightTools<'_> {
         arguments: Map<String, Value>,
         cancellation: ProjectCancellation,
     ) -> Result<ToolResult, ToolError> {
-        reject_unknown(
-            &arguments,
-            &[
-                "mode",
-                "via",
-                "reportPath",
-                "clear",
-                "symbol",
-                "minCentrality",
-                "maxPct",
-                "kinds",
-                "source",
-                "limit",
-                "pathFilter",
-                "includeTests",
-                "allowStale",
-            ],
-        )?;
-        let requested_symbol =
-            optional_bounded_text(&arguments, "symbol", CONTEXT_ANCHOR_MAXIMUM_BYTES)?;
-        let default_mode = if requested_symbol.is_some() {
-            "symbol"
-        } else {
-            "ranked"
-        };
-        let mode = CoverageMode::parse(optional_text(&arguments, "mode")?.unwrap_or(default_mode))?;
-        validate_coverage_via(optional_text(&arguments, "via")?.unwrap_or("auto"))?;
-        let allow_stale = optional_bool(&arguments, "allowStale")?.unwrap_or(false);
-        let source = optional_bounded_text(&arguments, "source", COVERAGE_SOURCE_MAXIMUM_BYTES)?;
-        let execution = CoverageExecution {
-            arguments: &arguments,
-            cancellation,
-            requested_symbol,
-            allow_stale,
-            source,
-        };
-
+        let (mode, execution) = CoverageExecution::parse(&arguments, cancellation)?;
         match mode {
             CoverageMode::Load => coverage_load(self, execution).await,
             CoverageMode::Refresh => coverage_refresh(self, execution).await,
@@ -9123,54 +9393,14 @@ impl InsightTools<'_> {
         arguments: Map<String, Value>,
         cancellation: ProjectCancellation,
     ) -> Result<ToolResult, ToolError> {
-        reject_unknown(
-            &arguments,
-            &[
-                "source",
-                "target",
-                "extMissing",
-                "dynamic",
-                "pathFilter",
-                "language",
-                "excludeFixtures",
-                "limit",
-                "lowTokens",
-                "allowStale",
-            ],
-        )?;
-        let requested_source = match optional_text(&arguments, "source")?.unwrap_or("static") {
-            "static" => ImportAuditSource::Static,
-            "literal" => ImportAuditSource::Literal,
-            "all" => ImportAuditSource::All,
-            _ => return Err(invalid_arguments()),
-        };
-        let target = optional_text(&arguments, "target")?
-            .map(|target| match target {
-                "file" => Ok(ImportAuditTarget::File),
-                "directory" => Ok(ImportAuditTarget::Directory),
-                "bare" => Ok(ImportAuditTarget::Bare),
-                "unresolvable" => Ok(ImportAuditTarget::Unresolvable),
-                _ => Err(invalid_arguments()),
-            })
-            .transpose()?;
-        let default_limit = if optional_bool(&arguments, "lowTokens")?.unwrap_or(false) {
-            IMPORTS_LOW_TOKEN_LIMIT
-        } else {
-            IMPORTS_DEFAULT_LIMIT
-        };
-        let limit = optional_integer(
-            &arguments,
-            "limit",
-            NumericBounds::new(1, default_limit, IMPORTS_MAXIMUM_LIMIT),
-        )?;
-        let allow_stale = optional_bool(&arguments, "allowStale")?.unwrap_or(false);
+        let input = ImportsInput::parse(&arguments)?;
         let (project_id, freshness) =
-            current_project_for_evidence(self, cancellation.clone(), allow_stale).await?;
+            current_project_for_evidence(self, cancellation.clone(), input.allow_stale).await?;
         let string_imports_enabled =
             load_project_source_settings(self.runtime.project_root_for_host_operations())
                 .map_err(project_llm_error)?
                 .enable_string_imports();
-        if requested_source == ImportAuditSource::Literal && !string_imports_enabled {
+        if input.requested_source == ImportAuditSource::Literal && !string_imports_enabled {
             return fresh_json_result(
                 freshness,
                 &json!({
@@ -9182,22 +9412,13 @@ impl InsightTools<'_> {
                 }),
             );
         }
-        let source = if requested_source == ImportAuditSource::All && !string_imports_enabled {
+        let source = if input.requested_source == ImportAuditSource::All && !string_imports_enabled
+        {
             ImportAuditSource::Static
         } else {
-            requested_source
+            input.requested_source
         };
-        let options = ImportAuditOptions::new(usize::from(limit))
-            .map_err(import_audit_error)?
-            .with_source(source)
-            .with_target(target)
-            .with_extension_missing(optional_bool(&arguments, "extMissing")?)
-            .with_dynamic(optional_bool(&arguments, "dynamic")?)
-            .with_path_filter(optional_text(&arguments, "pathFilter")?)
-            .map_err(import_audit_error)?
-            .with_language(optional_text(&arguments, "language")?)
-            .map_err(import_audit_error)?
-            .with_exclude_fixtures(optional_bool(&arguments, "excludeFixtures")?.unwrap_or(true));
+        let options = input.audit_options(&arguments, source)?;
         let report = self
             .runtime
             .audit_imports(ImportAuditRequest::new(project_id, options, cancellation))
@@ -9255,68 +9476,30 @@ impl InsightTools<'_> {
             project_id,
             freshness,
         };
-        let role_filter = optional_text(&arguments, "role")?;
-        let symbol_name =
-            optional_bounded_text(&arguments, "symbol", CONTEXT_ANCHOR_MAXIMUM_BYTES)?;
-        let symbol_names = optional_string_array(
-            &arguments,
-            "symbols",
-            StringArrayBounds::new(20, CONTEXT_ANCHOR_MAXIMUM_BYTES),
-        )?;
-        if (symbol_name.is_some() && !symbol_names.is_empty())
-            || (role_filter.is_some() && (symbol_name.is_some() || !symbol_names.is_empty()))
-        {
-            return Err(invalid_arguments());
-        }
-        if let Some(role) = role_filter {
-            if arguments.contains_key("via") {
-                return Err(safe_error(
-                    ToolErrorCode::InvalidArguments,
-                    "via applies only when classifying symbol or symbols",
-                ));
-            }
-            validate_role(role)?;
-            let limit = optional_integer(
-                &arguments,
-                "limit",
-                NumericBounds::new(1, INSIGHT_DEFAULT_LIMIT, INSIGHT_MAXIMUM_LIMIT),
-            )?;
-            return list_roles_by_filter(self, &context, RoleFilterInput { role, limit }).await;
-        }
-        if symbol_name.is_some() || !symbol_names.is_empty() {
-            reject_present(&arguments, &["limit"])?;
-            let requested = symbol_name
-                .into_iter()
-                .map(str::to_owned)
-                .chain(symbol_names)
-                .collect::<Vec<_>>();
-            return classify_requested_roles(
-                self,
-                &context,
-                RoleClassificationInput {
-                    requested,
-                    via,
-                    cancellation,
-                },
-            )
-            .await;
-        }
-        if arguments.contains_key("via") {
-            return Err(safe_error(
-                ToolErrorCode::InvalidArguments,
-                "via applies only when classifying symbol or symbols",
-            ));
-        }
-        reject_present(&arguments, &["limit"])?;
-        fresh_json_result(
-            context.freshness,
-            &self
-                .runtime
-                .database()
-                .agent_role_distribution(&context.project_id)
+        match parse_role_selection(&arguments)? {
+            RoleSelection::Filter(filter) => list_roles_by_filter(self, &context, filter).await,
+            RoleSelection::Symbols(requested) => {
+                classify_requested_roles(
+                    self,
+                    &context,
+                    RoleClassificationInput {
+                        requested,
+                        via,
+                        cancellation,
+                    },
+                )
                 .await
-                .map_err(internal_error)?,
-        )
+            }
+            RoleSelection::Distribution => fresh_json_result(
+                context.freshness,
+                &self
+                    .runtime
+                    .database()
+                    .agent_role_distribution(&context.project_id)
+                    .await
+                    .map_err(internal_error)?,
+            ),
+        }
     }
 
     /// Jev roles for symbols without a high-confidence structural role, when
@@ -9747,6 +9930,33 @@ impl SessionTools<'_> {
         )
     }
 
+    /// Runs one recorded macro step as a nested tool call and captures its bounded output.
+    async fn run_macro_step(&self, run: MacroStepRun<'_>) -> Result<MacroStepExecution, ToolError> {
+        let concrete = substitute_macro_arguments(run.step.args(), run.positional)?;
+        let step_started = Instant::now();
+        let result = Box::pin(CoreTools(self.0).execute_with_macro_stack(
+            ToolCall {
+                name: run.step.tool().to_owned(),
+                arguments: concrete.clone(),
+            },
+            run.context.clone(),
+            run.macro_stack.to_vec(),
+        ))
+        .await;
+        let duration_ms = u64::try_from(step_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let (success, output) = macro_step_output(result);
+        let (output, output_truncated) = bounded_utf8_text(&output, MACRO_STEP_OUTPUT_BYTES);
+        Ok(MacroStepExecution {
+            step: run.index.saturating_add(1),
+            tool: run.step.tool().to_owned(),
+            arguments: Value::Object(concrete),
+            success,
+            duration_ms,
+            output,
+            output_truncated,
+        })
+    }
+
     async fn session_macro_run(
         &self,
         execution: SessionMacroExecution<'_, '_>,
@@ -9788,32 +9998,19 @@ impl SessionTools<'_> {
                     "Macro execution was cancelled",
                 ));
             }
-            let concrete = substitute_macro_arguments(step.args(), &positional)?;
-            let step_started = Instant::now();
-            let result = Box::pin(CoreTools(self.0).execute_with_macro_stack(
-                ToolCall {
-                    name: step.tool().to_owned(),
-                    arguments: concrete.clone(),
-                },
-                context.clone(),
-                macro_stack.clone(),
-            ))
-            .await;
-            let duration_ms = u64::try_from(step_started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            let (success, output) = macro_step_output(result);
-            if success {
+            let execution = self
+                .run_macro_step(MacroStepRun {
+                    index,
+                    step,
+                    positional: &positional,
+                    context: &context,
+                    macro_stack: &macro_stack,
+                })
+                .await?;
+            if execution.success {
                 successful_steps = successful_steps.saturating_add(1);
             }
-            let (output, output_truncated) = bounded_utf8_text(&output, MACRO_STEP_OUTPUT_BYTES);
-            executions.push(MacroStepExecution {
-                step: index.saturating_add(1),
-                tool: step.tool().to_owned(),
-                arguments: Value::Object(concrete),
-                success,
-                duration_ms,
-                output,
-                output_truncated,
-            });
+            executions.push(execution);
         }
         self.runtime
             .database()
@@ -9959,17 +10156,17 @@ struct DiffReviewExecution<'input> {
     cancellation: ProjectCancellation,
 }
 
-async fn review_supplied_diff(
-    handler: &CartographMcpHandler,
-    execution: DiffReviewExecution<'_>,
-) -> Result<ToolResult, ToolError> {
+/// Bounded reviewer options of one supplied-diff review.
+fn parse_diff_review_options(
+    arguments: &Map<String, Value>,
+) -> Result<DiffReviewOptions, ToolError> {
     let max_changed_files = optional_integer(
-        execution.arguments,
+        arguments,
         "maxChangedFiles",
         NumericBounds::new(1, REVIEW_DEFAULT_FILES, REVIEW_MAXIMUM_FILES),
     )?;
     let incoming_limit = optional_integer(
-        execution.arguments,
+        arguments,
         "maxCallersPerSymbol",
         NumericBounds::new(
             0,
@@ -9978,7 +10175,7 @@ async fn review_supplied_diff(
         ),
     )?;
     let outgoing_limit = optional_integer(
-        execution.arguments,
+        arguments,
         "maxCalleesPerSymbol",
         NumericBounds::new(
             0,
@@ -9987,7 +10184,7 @@ async fn review_supplied_diff(
         ),
     )?;
     let cochanges = optional_integer(
-        execution.arguments,
+        arguments,
         "maxCoChangeWarnings",
         NumericBounds::new(
             0,
@@ -9996,12 +10193,12 @@ async fn review_supplied_diff(
         ),
     )?;
     let minimum_jaccard = optional_number(
-        execution.arguments,
+        arguments,
         "minCoChangeJaccard",
         NumericBounds::new(0.0, 0.4, 1.0),
     )?;
     let minimum_magnitude = optional_integer(
-        execution.arguments,
+        arguments,
         "minDiffMagnitude",
         NumericBounds::new(
             0,
@@ -10010,14 +10207,21 @@ async fn review_supplied_diff(
         ),
     )?;
     let minimum_jaccard = minimum_jaccard.to_f32().ok_or_else(invalid_arguments)?;
-    let options = DiffReviewOptions::default()
+    DiffReviewOptions::default()
         .with_max_changed_files(max_changed_files)
         .and_then(|options| options.with_callers_per_symbol(incoming_limit))
         .and_then(|options| options.with_callees_per_symbol(outgoing_limit))
         .and_then(|options| options.with_cochange_warnings_per_file(cochanges))
         .and_then(|options| options.with_minimum_cochange_jaccard(minimum_jaccard))
         .and_then(|options| options.with_minimum_diff_magnitude(minimum_magnitude))
-        .map_err(diff_review_error)?;
+        .map_err(diff_review_error)
+}
+
+async fn review_supplied_diff(
+    handler: &CartographMcpHandler,
+    execution: DiffReviewExecution<'_>,
+) -> Result<ToolResult, ToolError> {
+    let options = parse_diff_review_options(execution.arguments)?;
     let input = DiffReviewInput::new(execution.diff, options, execution.cancellation)
         .with_path_filter(execution.path_filter)
         .map_err(diff_review_error)?;
@@ -10111,6 +10315,37 @@ fn risk_lens_not_computed(limit: u16) -> Value {
 
 fn default_insight_timeout_millis() -> u64 {
     u64::try_from(DEFAULT_INSIGHT_TIMEOUT.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Stored-finding rows of the risk lens; records the lens state under `findings`.
+fn risk_finding_values(
+    lens: Result<RiskFindingLens, StorageError>,
+    top_n: u16,
+    lens_status: &mut Map<String, Value>,
+) -> Result<Vec<Value>, ToolError> {
+    match lens {
+        Ok(RiskFindingLens::Ready(findings)) => {
+            lens_status.insert(
+                "findings".to_owned(),
+                risk_lens_ready(top_n, findings.len()),
+            );
+            findings
+                .into_iter()
+                .map(|finding| serde_json::to_value(finding).map_err(internal_error))
+                .collect()
+        }
+        Ok(RiskFindingLens::NotComputed) => {
+            lens_status.insert("findings".to_owned(), risk_lens_not_computed(top_n));
+            Ok(Vec::new())
+        }
+        Err(error) => {
+            lens_status.insert(
+                "findings".to_owned(),
+                risk_storage_lens_failure("structural_findings", top_n, &error),
+            );
+            Ok(Vec::new())
+        }
+    }
 }
 
 fn risk_storage_lens_failure(stage: &'static str, limit: u16, error: &StorageError) -> Value {
@@ -11496,29 +11731,7 @@ impl SummaryReviewTools<'_> {
             self.runtime.analyze_layers(&project_id, layer_cancellation),
         );
         let mut lens_status = Map::new();
-        let mut findings = match findings {
-            Ok(RiskFindingLens::Ready(findings)) => {
-                lens_status.insert(
-                    "findings".to_owned(),
-                    risk_lens_ready(input.top_n, findings.len()),
-                );
-                findings
-                    .into_iter()
-                    .map(|finding| serde_json::to_value(finding).map_err(internal_error))
-                    .collect::<Result<Vec<_>, _>>()?
-            }
-            Ok(RiskFindingLens::NotComputed) => {
-                lens_status.insert("findings".to_owned(), risk_lens_not_computed(input.top_n));
-                Vec::new()
-            }
-            Err(error) => {
-                lens_status.insert(
-                    "findings".to_owned(),
-                    risk_storage_lens_failure("structural_findings", input.top_n, &error),
-                );
-                Vec::new()
-            }
-        };
+        let mut findings = risk_finding_values(findings, input.top_n, &mut lens_status)?;
         let RiskLayerFindingsOutput {
             findings: mut layer_findings,
             status: layer_status,
@@ -12428,10 +12641,17 @@ struct StorageMigrationPlan {
     dry_run: bool,
 }
 
-fn prepare_storage_migration(
-    handler: &CartographMcpHandler,
+/// Validated `storage-migrate` arguments, before the source project is inspected.
+struct StorageMigrationInput {
+    source_schema: cartograph_config::DatabaseSchema,
+    dry_run: bool,
+    maximum_rows: u64,
+    maximum_source_bytes: u64,
+}
+
+fn parse_storage_migration_input(
     arguments: &Map<String, Value>,
-) -> Result<StorageMigrationPlan, ToolError> {
+) -> Result<StorageMigrationInput, ToolError> {
     reject_admin_extras(
         arguments,
         &[
@@ -12469,6 +12689,24 @@ fn prepare_storage_migration(
             ADMIN_DEFAULT_IMPORT_SOURCE_BYTES,
         ),
     )?;
+    Ok(StorageMigrationInput {
+        source_schema,
+        dry_run,
+        maximum_rows,
+        maximum_source_bytes,
+    })
+}
+
+fn prepare_storage_migration(
+    handler: &CartographMcpHandler,
+    arguments: &Map<String, Value>,
+) -> Result<StorageMigrationPlan, ToolError> {
+    let StorageMigrationInput {
+        source_schema,
+        dry_run,
+        maximum_rows,
+        maximum_source_bytes,
+    } = parse_storage_migration_input(arguments)?;
     let identity =
         ProjectRuntime::inspect_source_identity(handler.runtime.project_root_for_host_operations())
             .map_err(|error| project_error(&error))?;
@@ -12569,57 +12807,117 @@ fn prepare_summarize_job(
     })
 }
 
+/// Age and deletion bounds of one cold derived-store prune.
+fn parse_store_prune_policy(
+    arguments: &Map<String, Value>,
+) -> Result<DerivedStorePrunePolicy, ToolError> {
+    reject_admin_extras(arguments, &["maxAgeDays", "maximumDeletions"])?;
+    let maximum_age_days = optional_finite_number(arguments, "maxAgeDays")?
+        .unwrap_or(DERIVED_STORE_DEFAULT_MAXIMUM_AGE_DAYS);
+    if maximum_age_days < 0.0 {
+        return Err(invalid_arguments());
+    }
+    let maximum_age_seconds = maximum_age_days * DERIVED_STORE_SECONDS_PER_DAY;
+    let maximum_age =
+        Duration::try_from_secs_f64(maximum_age_seconds).map_err(|_| invalid_arguments())?;
+    let maximum_deletions = optional_integer(
+        arguments,
+        "maximumDeletions",
+        NumericBounds::new(
+            1,
+            DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS,
+            DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS,
+        ),
+    )?;
+    DerivedStorePrunePolicy::new(maximum_age, maximum_deletions).map_err(internal_error)
+}
+
+/// Validated `index`/`sync` admin arguments and the index options they produce.
+struct AdminIndexRequest {
+    options: IndexOptions,
+    force: bool,
+    reparse_requested: bool,
+    clear_parse_cache_language: Option<String>,
+    workers: u16,
+    maximum_source_bytes: Option<usize>,
+    verbose: bool,
+}
+
+fn parse_admin_index_request(
+    action: AdminAction,
+    arguments: &Map<String, Value>,
+) -> Result<AdminIndexRequest, ToolError> {
+    reject_admin_extras(
+        arguments,
+        &[
+            "force",
+            "workers",
+            "clearParseCache",
+            "clearParseCacheLanguage",
+            "maxFileSize",
+            "profile",
+            "verbose",
+        ],
+    )?;
+    let force = optional_bool(arguments, "force")?.unwrap_or(false);
+    let clear_parse_cache = optional_bool(arguments, "clearParseCache")?.unwrap_or(false);
+    let clear_parse_cache_language =
+        optional_bounded_text(arguments, "clearParseCacheLanguage", 64)?
+            .map(|language| {
+                SourceLanguage::from_stable_str(&language.to_ascii_lowercase())
+                    .map(|language| language.as_str().to_owned())
+                    .ok_or_else(invalid_arguments)
+            })
+            .transpose()?;
+    let reparse_requested = clear_parse_cache || clear_parse_cache_language.is_some();
+    let workers = optional_integer(
+        arguments,
+        "workers",
+        NumericBounds::new(1, ADMIN_MAXIMUM_WORKERS, ADMIN_MAXIMUM_WORKERS),
+    )?;
+    let maximum_source_bytes = parse_admin_max_file_size(arguments)?;
+    let profile = optional_bool(arguments, "profile")?.unwrap_or(false);
+    let verbose = optional_bool(arguments, "verbose")?.unwrap_or(false);
+    let mut options = if action == AdminAction::Sync {
+        IndexOptions::reconciliation()
+    } else {
+        IndexOptions::default()
+    }
+    .with_force(force || reparse_requested)
+    .with_profile(profile)
+    .with_max_workers(workers)
+    .map_err(|_| invalid_arguments())?;
+    if let Some(maximum_source_bytes) = maximum_source_bytes {
+        options = options
+            .with_max_source_bytes(maximum_source_bytes)
+            .map_err(|error| project_error(&error))?;
+    }
+    Ok(AdminIndexRequest {
+        options,
+        force,
+        reparse_requested,
+        clear_parse_cache_language,
+        workers,
+        maximum_source_bytes,
+        verbose,
+    })
+}
+
 impl AdminLifecycleTools<'_> {
     async fn start_index_job(
         &self,
         action: AdminAction,
         arguments: &Map<String, Value>,
     ) -> Result<ToolResult, ToolError> {
-        reject_admin_extras(
-            arguments,
-            &[
-                "force",
-                "workers",
-                "clearParseCache",
-                "clearParseCacheLanguage",
-                "maxFileSize",
-                "profile",
-                "verbose",
-            ],
-        )?;
-        let force = optional_bool(arguments, "force")?.unwrap_or(false);
-        let clear_parse_cache = optional_bool(arguments, "clearParseCache")?.unwrap_or(false);
-        let clear_parse_cache_language =
-            optional_bounded_text(arguments, "clearParseCacheLanguage", 64)?
-                .map(|language| {
-                    SourceLanguage::from_stable_str(&language.to_ascii_lowercase())
-                        .map(|language| language.as_str().to_owned())
-                        .ok_or_else(invalid_arguments)
-                })
-                .transpose()?;
-        let reparse_requested = clear_parse_cache || clear_parse_cache_language.is_some();
-        let workers = optional_integer(
-            arguments,
-            "workers",
-            NumericBounds::new(1, ADMIN_MAXIMUM_WORKERS, ADMIN_MAXIMUM_WORKERS),
-        )?;
-        let maximum_source_bytes = parse_admin_max_file_size(arguments)?;
-        let profile = optional_bool(arguments, "profile")?.unwrap_or(false);
-        let verbose = optional_bool(arguments, "verbose")?.unwrap_or(false);
-        let mut options = if action == AdminAction::Sync {
-            IndexOptions::reconciliation()
-        } else {
-            IndexOptions::default()
-        }
-        .with_force(force || reparse_requested)
-        .with_profile(profile)
-        .with_max_workers(workers)
-        .map_err(|_| invalid_arguments())?;
-        if let Some(maximum_source_bytes) = maximum_source_bytes {
-            options = options
-                .with_max_source_bytes(maximum_source_bytes)
-                .map_err(|error| project_error(&error))?;
-        }
+        let AdminIndexRequest {
+            options,
+            force,
+            reparse_requested,
+            clear_parse_cache_language,
+            workers,
+            maximum_source_bytes,
+            verbose,
+        } = parse_admin_index_request(action, arguments)?;
         let enrichment = build_post_index_enrichment_plan(
             self.runtime.project_root_for_host_operations(),
             action == AdminAction::Index,
@@ -12882,26 +13180,7 @@ impl AdminLifecycleTools<'_> {
         action: AdminAction,
         arguments: &Map<String, Value>,
     ) -> Result<ToolResult, ToolError> {
-        reject_admin_extras(arguments, &["maxAgeDays", "maximumDeletions"])?;
-        let maximum_age_days = optional_finite_number(arguments, "maxAgeDays")?
-            .unwrap_or(DERIVED_STORE_DEFAULT_MAXIMUM_AGE_DAYS);
-        if maximum_age_days < 0.0 {
-            return Err(invalid_arguments());
-        }
-        let maximum_age_seconds = maximum_age_days * DERIVED_STORE_SECONDS_PER_DAY;
-        let maximum_age =
-            Duration::try_from_secs_f64(maximum_age_seconds).map_err(|_| invalid_arguments())?;
-        let maximum_deletions = optional_integer(
-            arguments,
-            "maximumDeletions",
-            NumericBounds::new(
-                1,
-                DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS,
-                DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS,
-            ),
-        )?;
-        let policy =
-            DerivedStorePrunePolicy::new(maximum_age, maximum_deletions).map_err(internal_error)?;
+        let policy = parse_store_prune_policy(arguments)?;
         let cancellation = ProjectCancellation::new();
         let operation_cancellation = cancellation.clone();
         let runtime = self.runtime.clone();
@@ -13133,10 +13412,13 @@ enum PreparedUninit {
     Job(UninitJobPlan),
 }
 
-async fn prepare_uninit(
-    handler: &CartographMcpHandler,
-    arguments: &Map<String, Value>,
-) -> Result<PreparedUninit, ToolError> {
+/// Confirmed `uninit` deletion bounds.
+struct UninitBounds {
+    maximum_rows: u64,
+    maximum_generations: u16,
+}
+
+fn parse_uninit_bounds(arguments: &Map<String, Value>) -> Result<UninitBounds, ToolError> {
     reject_admin_extras(
         arguments,
         &["path", "confirm", "maximumRows", "maximumDeletions"],
@@ -13161,6 +13443,20 @@ async fn prepare_uninit(
             u16::try_from(ADMIN_RETENTION_MAXIMUM_COUNT).map_err(|_| invalid_arguments())?,
         ),
     )?;
+    Ok(UninitBounds {
+        maximum_rows,
+        maximum_generations,
+    })
+}
+
+async fn prepare_uninit(
+    handler: &CartographMcpHandler,
+    arguments: &Map<String, Value>,
+) -> Result<PreparedUninit, ToolError> {
+    let UninitBounds {
+        maximum_rows,
+        maximum_generations,
+    } = parse_uninit_bounds(arguments)?;
     let (target_root, state_exists) = resolve_existing_admin_project_root(
         optional_bounded_text(arguments, "path", MAX_PROJECT_PATH_BYTES)?,
         handler.runtime.project_root_for_host_operations(),
@@ -16255,6 +16551,52 @@ fn status_inline_top_n(arguments: &Map<String, Value>, key: &str) -> Result<u16,
         .unwrap_or(0))
 }
 
+/// Source-context window of a `node` request: surrounding lines and byte budget.
+fn parse_node_source_options(
+    arguments: &Map<String, Value>,
+    live_source: bool,
+) -> Result<SourceContextOptions, ToolError> {
+    let context_lines = optional_integer(
+        arguments,
+        "contextLines",
+        NumericBounds::new(
+            0,
+            SOURCE_DEFAULT_CONTEXT_LINES,
+            SOURCE_MAXIMUM_CONTEXT_LINES,
+        ),
+    )?;
+    let maximum_bytes = optional_integer(
+        arguments,
+        "maxBytes",
+        NumericBounds::new(
+            SOURCE_MINIMUM_BYTES,
+            SOURCE_DEFAULT_BYTES,
+            SOURCE_MAXIMUM_BYTES,
+        ),
+    )?;
+    Ok(SourceContextOptions::new(context_lines, maximum_bytes)
+        .map_err(|_| invalid_arguments())?
+        .with_stale_live_source(live_source))
+}
+
+/// Optional `lineOffset`/`lineLimit` paging of a `node` request's code.
+fn parse_node_line_window(arguments: &Map<String, Value>) -> Result<(u32, Option<u16>), ToolError> {
+    let line_offset = optional_integer(
+        arguments,
+        "lineOffset",
+        NumericBounds::new(0_u32, 0_u32, RANGE_MAXIMUM_LINE),
+    )?;
+    let line_limit = optional_u64(arguments, "lineLimit")?
+        .map(|value| {
+            u16::try_from(value)
+                .ok()
+                .filter(|value| (1..=FILE_SOURCE_MAXIMUM_LINE_LIMIT).contains(value))
+                .ok_or_else(invalid_arguments)
+        })
+        .transpose()?;
+    Ok((line_offset, line_limit))
+}
+
 fn parse_node_arguments(arguments: &Map<String, Value>) -> Result<ParsedNode, ToolError> {
     let symbol_id = optional_bounded_text(arguments, "symbolId", NODE_SYMBOL_ID_MAXIMUM_BYTES)?;
     let symbol_name = optional_bounded_text(arguments, "symbol", CONTEXT_ANCHOR_MAXIMUM_BYTES)?;
@@ -16289,40 +16631,8 @@ fn parse_node_arguments(arguments: &Map<String, Value>) -> Result<ParsedNode, To
         "full" => "full",
         _ => return Err(invalid_arguments()),
     };
-    let context_lines = optional_integer(
-        arguments,
-        "contextLines",
-        NumericBounds::new(
-            0,
-            SOURCE_DEFAULT_CONTEXT_LINES,
-            SOURCE_MAXIMUM_CONTEXT_LINES,
-        ),
-    )?;
-    let maximum_bytes = optional_integer(
-        arguments,
-        "maxBytes",
-        NumericBounds::new(
-            SOURCE_MINIMUM_BYTES,
-            SOURCE_DEFAULT_BYTES,
-            SOURCE_MAXIMUM_BYTES,
-        ),
-    )?;
-    let source_options = SourceContextOptions::new(context_lines, maximum_bytes)
-        .map_err(|_| invalid_arguments())?
-        .with_stale_live_source(live_source);
-    let line_offset = optional_integer(
-        arguments,
-        "lineOffset",
-        NumericBounds::new(0_u32, 0_u32, RANGE_MAXIMUM_LINE),
-    )?;
-    let line_limit = optional_u64(arguments, "lineLimit")?
-        .map(|value| {
-            u16::try_from(value)
-                .ok()
-                .filter(|value| (1..=FILE_SOURCE_MAXIMUM_LINE_LIMIT).contains(value))
-                .ok_or_else(invalid_arguments)
-        })
-        .transpose()?;
+    let source_options = parse_node_source_options(arguments, live_source)?;
+    let (line_offset, line_limit) = parse_node_line_window(arguments)?;
     if !include_code && (arguments.contains_key("lineOffset") || line_limit.is_some()) {
         return Err(invalid_arguments());
     }
@@ -17577,37 +17887,68 @@ const fn history_fallback_reason(
     }
 }
 
-async fn tests_for_files(
-    handler: &CartographMcpHandler,
-    execution: TestsForExecution<'_>,
-    file_values: Vec<String>,
-) -> Result<ToolResult, ToolError> {
+/// Validated arguments of one file-mode `tests_for` request.
+struct FileTestsForInput<'input> {
+    depth: u8,
+    limit: u16,
+    max_nodes: u16,
+    filter: Option<&'input str>,
+    filter_regex: Option<String>,
+    paths: Vec<NormalizedPath>,
+    allow_stale: bool,
+}
+
+fn parse_file_tests_for_input<'input>(
+    arguments: &'input Map<String, Value>,
+    file_values: &[String],
+) -> Result<FileTestsForInput<'input>, ToolError> {
     let depth = optional_integer(
-        execution.arguments,
+        arguments,
         "depth",
         NumericBounds::new(1, TESTS_FOR_DEFAULT_DEPTH, TESTS_FOR_MAXIMUM_DEPTH),
     )?;
     let limit = optional_integer(
-        execution.arguments,
+        arguments,
         "limit",
         NumericBounds::new(1, TESTS_FOR_DEFAULT_LIMIT, TESTS_FOR_MAXIMUM_LIMIT),
     )?;
     let max_nodes = optional_integer(
-        execution.arguments,
+        arguments,
         "maxNodes",
         NumericBounds::new(1, AFFECTED_DEFAULT_NODES, GRAPH_MAXIMUM_NODES),
     )?;
-    let filter = optional_bounded_text(
-        execution.arguments,
-        "filter",
-        TESTS_FOR_MAXIMUM_FILTER_BYTES,
-    )?;
+    let filter = optional_bounded_text(arguments, "filter", TESTS_FOR_MAXIMUM_FILTER_BYTES)?;
     let filter_regex = filter.map(glob_to_safe_regex).transpose()?;
     let paths = file_values
         .iter()
         .map(|path| NormalizedPath::parse(path).map_err(|_| invalid_arguments()))
         .collect::<Result<Vec<_>, _>>()?;
-    let allow_stale = optional_bool(execution.arguments, "allowStale")?.unwrap_or(false);
+    let allow_stale = optional_bool(arguments, "allowStale")?.unwrap_or(false);
+    Ok(FileTestsForInput {
+        depth,
+        limit,
+        max_nodes,
+        filter,
+        filter_regex,
+        paths,
+        allow_stale,
+    })
+}
+
+async fn tests_for_files(
+    handler: &CartographMcpHandler,
+    execution: TestsForExecution<'_>,
+    file_values: Vec<String>,
+) -> Result<ToolResult, ToolError> {
+    let FileTestsForInput {
+        depth,
+        limit,
+        max_nodes,
+        filter,
+        filter_regex,
+        paths,
+        allow_stale,
+    } = parse_file_tests_for_input(execution.arguments, &file_values)?;
     let (project_id, freshness) =
         current_project_for_evidence(handler, execution.cancellation.clone(), allow_stale).await?;
     let impact = handler
@@ -17672,28 +18013,53 @@ async fn tests_for_files(
     )
 }
 
+/// Validated traversal bounds of one symbol-mode `tests_for` request.
+struct SymbolTestsForInput {
+    depth: u8,
+    max_nodes: u16,
+    limit: u16,
+    allow_stale: bool,
+}
+
+fn parse_symbol_tests_for_input(
+    arguments: &Map<String, Value>,
+) -> Result<SymbolTestsForInput, ToolError> {
+    reject_present(arguments, &["filter"])?;
+    let depth = optional_integer(
+        arguments,
+        "depth",
+        NumericBounds::new(1, AFFECTED_DEFAULT_DEPTH, GRAPH_MAXIMUM_DEPTH),
+    )?;
+    let max_nodes = optional_integer(
+        arguments,
+        "maxNodes",
+        NumericBounds::new(1, AFFECTED_DEFAULT_NODES, GRAPH_MAXIMUM_NODES),
+    )?;
+    let limit = optional_integer(
+        arguments,
+        "limit",
+        NumericBounds::new(1, AFFECTED_DEFAULT_LIMIT, TESTS_FOR_MAXIMUM_LIMIT),
+    )?;
+    let allow_stale = optional_bool(arguments, "allowStale")?.unwrap_or(false);
+    Ok(SymbolTestsForInput {
+        depth,
+        max_nodes,
+        limit,
+        allow_stale,
+    })
+}
+
 async fn tests_for_symbol(
     handler: &CartographMcpHandler,
     execution: TestsForExecution<'_>,
     symbol_name: &str,
 ) -> Result<ToolResult, ToolError> {
-    reject_present(execution.arguments, &["filter"])?;
-    let depth = optional_integer(
-        execution.arguments,
-        "depth",
-        NumericBounds::new(1, AFFECTED_DEFAULT_DEPTH, GRAPH_MAXIMUM_DEPTH),
-    )?;
-    let max_nodes = optional_integer(
-        execution.arguments,
-        "maxNodes",
-        NumericBounds::new(1, AFFECTED_DEFAULT_NODES, GRAPH_MAXIMUM_NODES),
-    )?;
-    let limit = optional_integer(
-        execution.arguments,
-        "limit",
-        NumericBounds::new(1, AFFECTED_DEFAULT_LIMIT, TESTS_FOR_MAXIMUM_LIMIT),
-    )?;
-    let allow_stale = optional_bool(execution.arguments, "allowStale")?.unwrap_or(false);
+    let SymbolTestsForInput {
+        depth,
+        max_nodes,
+        limit,
+        allow_stale,
+    } = parse_symbol_tests_for_input(execution.arguments)?;
     let (project_id, freshness) =
         current_project_for_evidence(handler, execution.cancellation.clone(), allow_stale).await?;
     let symbol = resolve_unique_symbol(handler, &project_id, symbol_name).await?;
@@ -17893,6 +18259,39 @@ fn biomarker_stats(execution: BiomarkerExecution<'_>) -> Result<ToolResult, Tool
     )
 }
 
+/// Stored and analyzer-layer findings attributed to one resolved symbol, ranked and capped.
+async fn symbol_biomarker_findings(
+    handler: &CartographMcpHandler,
+    execution: &BiomarkerExecution<'_>,
+    symbol_id: &SymbolId,
+) -> Result<Vec<Value>, ToolError> {
+    let query = StructuralFindingQuery::new(INSIGHT_MAXIMUM_LIMIT)
+        .map_err(internal_error)?
+        .with_minimum_severity(StructuralFindingSeverity::Info)
+        .with_symbol_ids(vec![symbol_id.clone()])
+        .map_err(internal_error)?;
+    let mut findings = handler
+        .runtime
+        .database()
+        .query_current_structural_findings(&execution.project_id, &query)
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|finding| serde_json::to_value(finding).map_err(internal_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    findings.extend(
+        execution
+            .layer_findings
+            .iter()
+            .filter(|finding| {
+                finding.get("symbolId").and_then(Value::as_str) == Some(symbol_id.as_str())
+            })
+            .cloned(),
+    );
+    sort_and_truncate_findings(&mut findings, INSIGHT_MAXIMUM_LIMIT);
+    Ok(findings)
+}
+
 async fn biomarker_symbols(
     handler: &CartographMcpHandler,
     execution: BiomarkerExecution<'_>,
@@ -17938,31 +18337,7 @@ async fn biomarker_symbols(
                 }
                 Err(error) => return Err(error),
             };
-        let query = StructuralFindingQuery::new(INSIGHT_MAXIMUM_LIMIT)
-            .map_err(internal_error)?
-            .with_minimum_severity(StructuralFindingSeverity::Info)
-            .with_symbol_ids(vec![symbol.symbol_id().clone()])
-            .map_err(internal_error)?;
-        let mut findings = handler
-            .runtime
-            .database()
-            .query_current_structural_findings(&execution.project_id, &query)
-            .await
-            .map_err(internal_error)?
-            .into_iter()
-            .map(|finding| serde_json::to_value(finding).map_err(internal_error))
-            .collect::<Result<Vec<_>, _>>()?;
-        findings.extend(
-            execution
-                .layer_findings
-                .iter()
-                .filter(|finding| {
-                    finding.get("symbolId").and_then(Value::as_str)
-                        == Some(symbol.symbol_id().as_str())
-                })
-                .cloned(),
-        );
-        sort_and_truncate_findings(&mut findings, INSIGHT_MAXIMUM_LIMIT);
+        let findings = symbol_biomarker_findings(handler, &execution, symbol.symbol_id()).await?;
         results.push(json!({
             "requested": requested_name,
             "matched": true,
@@ -17981,40 +18356,78 @@ async fn biomarker_symbols(
     )
 }
 
+/// Validated filters of one ranked `biomarkers` request.
+struct RankedBiomarkerFilters<'input> {
+    limit: u16,
+    filter: LayerFindingFilter<'input>,
+}
+
+impl<'input> RankedBiomarkerFilters<'input> {
+    fn parse(arguments: &'input Map<String, Value>) -> Result<Self, ToolError> {
+        reject_present(arguments, &["symbol", "symbols"])?;
+        let limit = optional_integer(
+            arguments,
+            "limit",
+            NumericBounds::new(1, BIOMARKER_DEFAULT_LIMIT, INSIGHT_MAXIMUM_LIMIT),
+        )?;
+        let minimum_severity =
+            parse_finding_severity(optional_text(arguments, "minSeverity")?.unwrap_or("warning"))?;
+        let minimum_centrality = optional_bounded_number(arguments, "minCentrality", 0.0..=1.0)?;
+        let minimum_metric = optional_finite_number(arguments, "minMetric")?;
+        let maximum_metric = optional_finite_number(arguments, "maxMetric")?;
+        let biomarker =
+            optional_bounded_text(arguments, "biomarker", BIOMARKER_NAME_MAXIMUM_BYTES)?;
+        if biomarker.is_some_and(|biomarker| !BIOMARKER_NAMES.contains(&biomarker)) {
+            return Err(invalid_arguments());
+        }
+        let excluded_path =
+            optional_bounded_text(arguments, "excludeFile", MAX_PROJECT_PATH_BYTES)?;
+        Ok(Self {
+            limit,
+            filter: LayerFindingFilter {
+                biomarker,
+                minimum_severity,
+                minimum_metric,
+                maximum_metric,
+                minimum_centrality,
+                excluded_path,
+            },
+        })
+    }
+
+    fn query(&self) -> Result<StructuralFindingQuery, ToolError> {
+        let filter = self.filter;
+        StructuralFindingQuery::new(self.limit)
+            .and_then(|query| query.with_finding(filter.biomarker))
+            .map(|query| query.with_minimum_severity(filter.minimum_severity))
+            .and_then(|query| {
+                query.with_metric_bounds(filter.minimum_metric, filter.maximum_metric)
+            })
+            .and_then(|query| query.with_minimum_centrality(filter.minimum_centrality))
+            .and_then(|query| query.with_excluded_path_prefix(filter.excluded_path))
+            .map_err(|_| invalid_arguments())
+    }
+
+    fn evidence(&self) -> Value {
+        let filter = self.filter;
+        json!({
+            "biomarker": filter.biomarker,
+            "minSeverity": finding_severity_name(filter.minimum_severity),
+            "minCentrality": filter.minimum_centrality,
+            "minMetric": filter.minimum_metric,
+            "maxMetric": filter.maximum_metric,
+            "excludeFile": filter.excluded_path,
+            "limit": self.limit,
+        })
+    }
+}
+
 async fn biomarker_ranked(
     handler: &CartographMcpHandler,
     execution: BiomarkerExecution<'_>,
 ) -> Result<ToolResult, ToolError> {
-    reject_present(execution.arguments, &["symbol", "symbols"])?;
-    let limit = optional_integer(
-        execution.arguments,
-        "limit",
-        NumericBounds::new(1, BIOMARKER_DEFAULT_LIMIT, INSIGHT_MAXIMUM_LIMIT),
-    )?;
-    let minimum_severity = parse_finding_severity(
-        optional_text(execution.arguments, "minSeverity")?.unwrap_or("warning"),
-    )?;
-    let minimum_centrality =
-        optional_bounded_number(execution.arguments, "minCentrality", 0.0..=1.0)?;
-    let minimum_metric = optional_finite_number(execution.arguments, "minMetric")?;
-    let maximum_metric = optional_finite_number(execution.arguments, "maxMetric")?;
-    let biomarker = optional_bounded_text(
-        execution.arguments,
-        "biomarker",
-        BIOMARKER_NAME_MAXIMUM_BYTES,
-    )?;
-    if biomarker.is_some_and(|biomarker| !BIOMARKER_NAMES.contains(&biomarker)) {
-        return Err(invalid_arguments());
-    }
-    let excluded_path =
-        optional_bounded_text(execution.arguments, "excludeFile", MAX_PROJECT_PATH_BYTES)?;
-    let query = StructuralFindingQuery::new(limit)
-        .and_then(|query| query.with_finding(biomarker))
-        .map(|query| query.with_minimum_severity(minimum_severity))
-        .and_then(|query| query.with_metric_bounds(minimum_metric, maximum_metric))
-        .and_then(|query| query.with_minimum_centrality(minimum_centrality))
-        .and_then(|query| query.with_excluded_path_prefix(excluded_path))
-        .map_err(|_| invalid_arguments())?;
+    let filters = RankedBiomarkerFilters::parse(execution.arguments)?;
+    let query = filters.query()?;
     let database = handler.runtime.database();
     let (findings, total) = tokio::join!(
         database.query_current_structural_findings(&execution.project_id, &query),
@@ -18025,39 +18438,21 @@ async fn biomarker_ranked(
         .into_iter()
         .map(|finding| serde_json::to_value(finding).map_err(internal_error))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut filtered_layers = filter_layer_findings(
-        execution.layer_findings,
-        LayerFindingFilter {
-            biomarker,
-            minimum_severity,
-            minimum_metric,
-            maximum_metric,
-            minimum_centrality,
-            excluded_path,
-        },
-    );
+    let mut filtered_layers = filter_layer_findings(execution.layer_findings, filters.filter);
     let total = total
         .map_err(internal_error)?
         .saturating_add(u64::try_from(filtered_layers.len()).unwrap_or(u64::MAX));
     findings.append(&mut filtered_layers);
-    sort_and_truncate_findings(&mut findings, limit);
+    sort_and_truncate_findings(&mut findings, filters.limit);
     let shown = u64::try_from(findings.len()).unwrap_or(u64::MAX);
     let evidence = json!({
         "mode": "ranked",
-        "filters": {
-            "biomarker": biomarker,
-            "minSeverity": finding_severity_name(minimum_severity),
-            "minCentrality": minimum_centrality,
-            "minMetric": minimum_metric,
-            "maxMetric": maximum_metric,
-            "excludeFile": excluded_path,
-            "limit": limit,
-        },
+        "filters": filters.evidence(),
         "shown": shown,
         "total": total,
         "notShown": total.saturating_sub(shown),
         "centralityMetric": "normalized-incoming-edge-site-degree",
-        "unscoredLayerFindingsExcludedByCentrality": minimum_centrality.is_some(),
+        "unscoredLayerFindingsExcludedByCentrality": filters.filter.minimum_centrality.is_some(),
         "findings": findings,
     });
     biomarker_result(
@@ -18346,36 +18741,69 @@ async fn coverage_structural(
     fresh_json_result(freshness, &coverage)
 }
 
+/// Validated filters of one symbol or ranked `coverage` request.
+struct CoverageQueryFilters<'input> {
+    limit: u16,
+    maximum_fraction: Option<f64>,
+    minimum_centrality: Option<f64>,
+    kinds: Vec<String>,
+    path_prefix: Option<&'input str>,
+    include_tests: bool,
+}
+
+impl<'input> CoverageQueryFilters<'input> {
+    fn parse(arguments: &'input Map<String, Value>, mode: CoverageMode) -> Result<Self, ToolError> {
+        reject_present(arguments, &["reportPath", "clear"])?;
+        let limit = if mode == CoverageMode::Symbol {
+            reject_present(
+                arguments,
+                &["minCentrality", "maxPct", "kinds", "limit", "pathFilter"],
+            )?;
+            1
+        } else {
+            optional_integer(
+                arguments,
+                "limit",
+                NumericBounds::new(1, COVERAGE_DEFAULT_LIMIT, COVERAGE_MAXIMUM_LIMIT),
+            )?
+        };
+        Ok(Self {
+            limit,
+            maximum_fraction: optional_bounded_number(arguments, "maxPct", 0.0..=1.0)?,
+            minimum_centrality: optional_bounded_number(arguments, "minCentrality", 0.0..=1.0)?,
+            kinds: optional_string_array(
+                arguments,
+                "kinds",
+                StringArrayBounds::new(COVERAGE_MAXIMUM_KINDS, COVERAGE_KIND_MAXIMUM_BYTES),
+            )?,
+            path_prefix: optional_bounded_text(arguments, "pathFilter", MAX_PROJECT_PATH_BYTES)?,
+            include_tests: optional_bool(arguments, "includeTests")?.unwrap_or(true),
+        })
+    }
+
+    fn into_query(
+        self,
+        source: Option<&str>,
+        symbol: Option<SymbolId>,
+    ) -> Result<SymbolCoverageQuery, ToolError> {
+        SymbolCoverageQuery::new(self.limit)
+            .and_then(|query| query.with_source(source))
+            .map(|query| query.with_include_tests(self.include_tests))
+            .and_then(|query| query.with_maximum_fraction(self.maximum_fraction))
+            .and_then(|query| query.with_minimum_centrality(self.minimum_centrality))
+            .and_then(|query| query.with_symbol_kinds(self.kinds))
+            .and_then(|query| query.with_path_prefix(self.path_prefix))
+            .map(|query| query.with_symbol(symbol))
+            .map_err(|_| invalid_arguments())
+    }
+}
+
 async fn coverage_query(
     handler: &CartographMcpHandler,
     mode: CoverageMode,
     execution: CoverageExecution<'_>,
 ) -> Result<ToolResult, ToolError> {
-    reject_present(execution.arguments, &["reportPath", "clear"])?;
-    let limit = if mode == CoverageMode::Symbol {
-        reject_present(
-            execution.arguments,
-            &["minCentrality", "maxPct", "kinds", "limit", "pathFilter"],
-        )?;
-        1
-    } else {
-        optional_integer(
-            execution.arguments,
-            "limit",
-            NumericBounds::new(1, COVERAGE_DEFAULT_LIMIT, COVERAGE_MAXIMUM_LIMIT),
-        )?
-    };
-    let maximum_fraction = optional_bounded_number(execution.arguments, "maxPct", 0.0..=1.0)?;
-    let minimum_centrality =
-        optional_bounded_number(execution.arguments, "minCentrality", 0.0..=1.0)?;
-    let kinds = optional_string_array(
-        execution.arguments,
-        "kinds",
-        StringArrayBounds::new(COVERAGE_MAXIMUM_KINDS, COVERAGE_KIND_MAXIMUM_BYTES),
-    )?;
-    let path_prefix =
-        optional_bounded_text(execution.arguments, "pathFilter", MAX_PROJECT_PATH_BYTES)?;
-    let include_tests = optional_bool(execution.arguments, "includeTests")?.unwrap_or(true);
+    let filters = CoverageQueryFilters::parse(execution.arguments, mode)?;
     let (project_id, freshness) =
         current_project_for_evidence(handler, execution.cancellation, execution.allow_stale)
             .await?;
@@ -18386,15 +18814,10 @@ async fn coverage_query(
         requested: execution.requested_symbol,
     })
     .await?;
-    let query = SymbolCoverageQuery::new(limit)
-        .and_then(|query| query.with_source(execution.source))
-        .map(|query| query.with_include_tests(include_tests))
-        .and_then(|query| query.with_maximum_fraction(maximum_fraction))
-        .and_then(|query| query.with_minimum_centrality(minimum_centrality))
-        .and_then(|query| query.with_symbol_kinds(kinds))
-        .and_then(|query| query.with_path_prefix(path_prefix))
-        .map(|query| query.with_symbol(symbol.as_ref().map(|value| value.symbol_id().clone())))
-        .map_err(|_| invalid_arguments())?;
+    let query = filters.into_query(
+        execution.source,
+        symbol.as_ref().map(|value| value.symbol_id().clone()),
+    )?;
     let coverage = handler
         .runtime
         .database()
@@ -25430,6 +25853,172 @@ mod tests {
     /// Where `scip-import` installs its artifact; the live import tests prove
     /// it, and the rollback failure message must name it.
     const TEST_SCIP_OVERLAY_PATH: &str = ".cartograph/scip/overlay.scip";
+
+    #[test]
+    fn dispatch_groups_cover_the_inventory_and_preserve_unknown_tool_errors() {
+        let definitions =
+            tool_definitions().unwrap_or_else(|error| panic!("tool definitions failed: {error}"));
+        let advertised = definitions
+            .iter()
+            .map(ToolDefinition::name)
+            .collect::<BTreeSet<_>>();
+        let routed = DISPATCH_GROUP_TOOLS
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(routed.len(), DISPATCH_GROUP_TOOLS.len(), "duplicate route");
+        assert_eq!(routed, advertised);
+        for (tool, group) in [
+            (NODE_TOOL, DispatchGroup::Context),
+            (FILES_TOOL, DispatchGroup::Evidence),
+            (HOTSPOTS_TOOL, DispatchGroup::Evidence),
+            (HOST_TOOL, DispatchGroup::Workflow),
+            (TESTS_FOR_TOOL, DispatchGroup::Workflow),
+            (TRACE_TO_CULPRITS_TOOL, DispatchGroup::Operations),
+        ] {
+            assert!(
+                matches!(dispatch_group(tool), Ok(found) if found == group),
+                "{tool}"
+            );
+        }
+        let error = dispatch_group("cartograph_missing")
+            .err()
+            .unwrap_or_else(|| panic!("unknown tool was routed"));
+        assert_eq!(error.code(), ToolErrorCode::NotFound);
+        assert_eq!(error.wire_message(), "Cartograph tool is not available");
+    }
+
+    #[test]
+    fn role_selection_preserves_explicit_via_rejection_and_deduplicated_symbol_order() {
+        for arguments in [
+            json!({"via": "rule", "limit": 0}),
+            json!({"role": "invalid", "via": "auto", "limit": 0}),
+        ] {
+            let call = policy_call(ROLE_TOOL, arguments);
+            let error = parse_role_selection(&call.arguments)
+                .err()
+                .unwrap_or_else(|| panic!("role request without symbols accepted via"));
+            assert_eq!(error.code(), ToolErrorCode::InvalidArguments);
+            assert_eq!(
+                error.wire_message(),
+                "via applies only when classifying symbol or symbols"
+            );
+        }
+        let call = policy_call(ROLE_TOOL, json!({"symbols": ["second", "first", "second"]}));
+        let selection = parse_role_selection(&call.arguments)
+            .unwrap_or_else(|error| panic!("symbol selection failed: {error}"));
+        let RoleSelection::Symbols(names) = selection else {
+            panic!("symbol selection used the wrong role mode");
+        };
+        assert_eq!(names, ["second", "first"]);
+        for arguments in [
+            json!({"symbol": "first", "symbols": ["second"]}),
+            json!({"role": "util", "symbol": "first"}),
+            json!({"symbol": "first", "limit": 1}),
+        ] {
+            let call = policy_call(ROLE_TOOL, arguments);
+            assert!(parse_role_selection(&call.arguments).is_err());
+        }
+    }
+
+    #[test]
+    fn destructive_admin_parsing_preserves_confirmation_precedence_and_dry_run() {
+        let call = policy_call(ADMIN_TOOL, json!({"maximumRows": 0}));
+        let error = parse_uninit_bounds(&call.arguments)
+            .err()
+            .unwrap_or_else(|| panic!("unconfirmed uninit was accepted"));
+        assert_eq!(error.code(), ToolErrorCode::InvalidArguments);
+        assert_eq!(error.wire_message(), "uninit requires confirm true");
+
+        let call = policy_call(
+            ADMIN_TOOL,
+            json!({"sourceSchema": "cartograph_v1", "dryRun": false, "maximumRows": 0}),
+        );
+        let error = parse_storage_migration_input(&call.arguments)
+            .err()
+            .unwrap_or_else(|| panic!("unconfirmed storage migration was accepted"));
+        assert_eq!(error.code(), ToolErrorCode::InvalidArguments);
+        assert_eq!(
+            error.wire_message(),
+            "storage-migrate requires confirm true when dryRun is false"
+        );
+
+        let call = policy_call(
+            ADMIN_TOOL,
+            json!({"sourceSchema": "cartograph_v1", "confirm": "unused during dry run"}),
+        );
+        let input = parse_storage_migration_input(&call.arguments)
+            .unwrap_or_else(|error| panic!("default migration dry run failed: {error}"));
+        assert!(input.dry_run);
+    }
+
+    #[test]
+    fn ranked_biomarker_filters_preserve_serialized_evidence_and_metric_validation() {
+        let call = policy_call(
+            BIOMARKERS_TOOL,
+            json!({
+                "biomarker": "high_fan_out", "minSeverity": "info", "limit": 7,
+                "minCentrality": 0.25, "minMetric": 25.0, "maxMetric": 80.0,
+                "excludeFile": "src/legacy/"
+            }),
+        );
+        let filters = RankedBiomarkerFilters::parse(&call.arguments)
+            .unwrap_or_else(|error| panic!("biomarker filters failed: {error}"));
+        assert_eq!(
+            serde_json::to_string(&filters.evidence())
+                .unwrap_or_else(|error| panic!("biomarker evidence serialization failed: {error}")),
+            r#"{"biomarker":"high_fan_out","excludeFile":"src/legacy/","limit":7,"maxMetric":80.0,"minCentrality":0.25,"minMetric":25.0,"minSeverity":"info"}"#
+        );
+        let call = policy_call(BIOMARKERS_TOOL, json!({"minMetric": 80, "maxMetric": 25}));
+        let filters = RankedBiomarkerFilters::parse(&call.arguments)
+            .unwrap_or_else(|error| panic!("finite metric parsing failed: {error}"));
+        assert!(filters.query().is_err());
+    }
+
+    #[test]
+    fn node_parsing_preserves_code_defaults_and_requires_code_for_explicit_paging() {
+        for (arguments, expected_code) in [
+            (json!({"symbol": "calculate"}), false),
+            (
+                json!({"symbolId": "01234567-89ab-cdef-0123-456789abcdef"}),
+                true,
+            ),
+            (
+                json!({"symbol": "calculate", "code": true, "lineOffset": 0}),
+                true,
+            ),
+        ] {
+            let call = policy_call(NODE_TOOL, arguments);
+            let parsed = parse_node_arguments(&call.arguments)
+                .unwrap_or_else(|error| panic!("node parsing failed: {error}"));
+            assert_eq!(parsed.source.include_code, expected_code);
+        }
+        for arguments in [
+            json!({"symbol": "calculate", "lineOffset": 0}),
+            json!({"symbol": "calculate", "code": false, "lineLimit": 1}),
+            json!({"symbol": "calculate", "code": true, "lineLimit": 0}),
+        ] {
+            let call = policy_call(NODE_TOOL, arguments);
+            assert!(parse_node_arguments(&call.arguments).is_err());
+        }
+    }
+
+    #[test]
+    fn risk_findings_preserve_the_pending_lens_json_and_other_lens_states() {
+        let mut status = Map::from_iter([("other".to_owned(), json!({"state": "ready"}))]);
+        let findings = risk_finding_values(Ok(RiskFindingLens::NotComputed), 7, &mut status)
+            .unwrap_or_else(|error| panic!("pending risk findings failed: {error}"));
+        assert_eq!(findings, [] as [Value; 0]);
+        assert_eq!(
+            status["findings"],
+            json!({
+                "state": "not_computed", "stage": "structural_findings", "limit": 7,
+                "returned": 0, "truncated": false, "currentGenerationFenced": true,
+                "nextAction": "Run cartograph admin biomarkers-refresh --no-dry-run --confirm"
+            })
+        );
+        assert_eq!(status["other"], json!({"state": "ready"}));
+    }
 
     #[test]
     fn optional_enrichment_failures_are_actionable_and_do_not_hide_graph_availability() {
