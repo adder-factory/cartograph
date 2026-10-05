@@ -1003,132 +1003,44 @@ struct FamilySlice {
     visit_usage: fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<(), ExtractError>,
 }
 
+/// The slice of a family whose usage pass records its own usage facts before
+/// visiting a node's children.
+macro_rules! usage_family_slice {
+    ($family:ident) => {
+        FamilySlice {
+            visit_declaration: $family::visit_declaration,
+            visit_usage: |builder, node, depth| {
+                $family::capture_usage(builder, node)?;
+                builder.visit_named_children(node, depth)
+            },
+        }
+    };
+}
+
 /// Structural family slices for the walker-driven language families.
 const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice> {
     let slice = match family {
-        ExtractionFamily::Ada => FamilySlice {
-            visit_declaration: ada_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                ada_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Dart => FamilySlice {
-            visit_declaration: dart_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                dart_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::FSharp => FamilySlice {
-            visit_declaration: fsharp_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                fsharp_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Ruby => FamilySlice {
-            visit_declaration: ruby_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                ruby_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Lua => FamilySlice {
-            visit_declaration: lua_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                lua_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::R => FamilySlice {
-            visit_declaration: r_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                r_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Nix => FamilySlice {
-            visit_declaration: nix_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                nix_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Apex => FamilySlice {
-            visit_declaration: apex_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                apex_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::VbNet => FamilySlice {
-            visit_declaration: vbnet_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                vbnet_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
+        ExtractionFamily::Ada => usage_family_slice!(ada_family),
+        ExtractionFamily::Dart => usage_family_slice!(dart_family),
+        ExtractionFamily::FSharp => usage_family_slice!(fsharp_family),
+        ExtractionFamily::Ruby => usage_family_slice!(ruby_family),
+        ExtractionFamily::Lua => usage_family_slice!(lua_family),
+        ExtractionFamily::R => usage_family_slice!(r_family),
+        ExtractionFamily::Nix => usage_family_slice!(nix_family),
+        ExtractionFamily::Apex => usage_family_slice!(apex_family),
+        ExtractionFamily::VbNet => usage_family_slice!(vbnet_family),
         ExtractionFamily::Pascal => FamilySlice {
             visit_declaration: pascal_family::visit_declaration,
             visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
         },
-        ExtractionFamily::Objc => FamilySlice {
-            visit_declaration: objc_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                objc_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Swift => FamilySlice {
-            visit_declaration: swift_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                swift_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Php => FamilySlice {
-            visit_declaration: php_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                php_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Shader => FamilySlice {
-            visit_declaration: shader_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                shader_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Shell => FamilySlice {
-            visit_declaration: shell_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                shell_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::C => FamilySlice {
-            visit_declaration: c_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                c_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Managed => FamilySlice {
-            visit_declaration: managed_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                managed_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::JvmDynamic => FamilySlice {
-            visit_declaration: jvm_dynamic_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                jvm_dynamic_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
+        ExtractionFamily::Objc => usage_family_slice!(objc_family),
+        ExtractionFamily::Swift => usage_family_slice!(swift_family),
+        ExtractionFamily::Php => usage_family_slice!(php_family),
+        ExtractionFamily::Shader => usage_family_slice!(shader_family),
+        ExtractionFamily::Shell => usage_family_slice!(shell_family),
+        ExtractionFamily::C => usage_family_slice!(c_family),
+        ExtractionFamily::Managed => usage_family_slice!(managed_family),
+        ExtractionFamily::JvmDynamic => usage_family_slice!(jvm_dynamic_family),
         _ => return None,
     };
     Some(slice)
@@ -1153,20 +1065,8 @@ const fn family_slice_declarative(family: ExtractionFamily) -> Option<FamilySlic
             visit_declaration: sql_family::visit_declaration,
             visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
         },
-        ExtractionFamily::Generic => FamilySlice {
-            visit_declaration: generic_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                generic_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Polyglot => FamilySlice {
-            visit_declaration: polyglot::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                polyglot::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
+        ExtractionFamily::Generic => usage_family_slice!(generic_family),
+        ExtractionFamily::Polyglot => usage_family_slice!(polyglot),
         ExtractionFamily::JavaScript => FamilySlice {
             visit_declaration: visit_javascript_declaration,
             visit_usage: visit_javascript_usage,
@@ -1195,20 +1095,8 @@ const fn family_slice_borrowed(family: ExtractionFamily) -> Option<FamilySlice> 
             visit_declaration: lean_family::visit_declaration,
             visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
         },
-        ExtractionFamily::ReScript => FamilySlice {
-            visit_declaration: rescript_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                rescript_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Solidity => FamilySlice {
-            visit_declaration: solidity_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                solidity_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
+        ExtractionFamily::ReScript => usage_family_slice!(rescript_family),
+        ExtractionFamily::Solidity => usage_family_slice!(solidity_family),
         _ => return None,
     };
     Some(slice)

@@ -16512,14 +16512,15 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V20 changes only these digest domains; the independently frozen projections stay fixed.
+    // V21 changes these digest domains. The generic-family projection grows because its
+    // v1 corpora now extract v1's facts through dedicated families; the others stay fixed.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "1d3beeb0f840efb17a84516daf7acbc1ecad71768b0ceff4db8bdbb1c8a43ebe";
+        "f4cf68d3b4cadf80163f963013e06ecc5ca0d86f792acaba67b2abf83c285a96";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "f4e534285c01c8faea1c885afb08c9f9253286577d631c92751a3a86af4e6819";
+        "b741b40e646a8178af013b292a88285eb4e007f397e887caefc622fffa8a9efd";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -16527,12 +16528,12 @@ mod tests {
     // (2 -> 9 symbols, the projection's +7) and its runtime calls (`SetLength`,
     // `Length`, `High`) stay unresolved as external references.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "ee3f5cc023d1c121cbbec7e3d6074d0721e97d0a0cf524faf52d0c5e693501d6";
+        "684133dd6a9325d5911eea61312c79ad3c757d6d4a7d7040a7fdf7a9cdff9c92";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 230, 226, 78, 230);
+        (28, 259, 281, 134, 259);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "49aa27281e2fa4be845bad26e601efc4e891d6bf179a03f9987e25fad98217f7";
+        "f163e4b694db4069c989cb4828889562976005480f3e9dd3e28cf7b42d6e5557";
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (13, 49, 44, 32, 49);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [
