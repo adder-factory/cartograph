@@ -75,11 +75,12 @@ struct RelationInput<'tree, 'reference> {
     kind: ReferenceKind,
 }
 
+/// One symbol scope pushed while its nested declarations and references are visited.
 #[derive(Clone, Copy)]
-struct OwnerScopeInput<'scope> {
-    owner: &'scope SymbolId,
-    kind: SymbolKind,
-    name: &'scope str,
+pub(super) struct OwnerScopeInput<'scope> {
+    pub(super) owner: &'scope SymbolId,
+    pub(super) kind: SymbolKind,
+    pub(super) name: &'scope str,
 }
 
 pub(super) fn visit_declaration(
@@ -735,7 +736,8 @@ fn emit_relation(
     })
 }
 
-fn with_owner<T>(
+/// Run `action` with `input` as the innermost owner, owner kind, and qualifier.
+pub(super) fn with_owner<T>(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: OwnerScopeInput<'_>,
     action: impl FnOnce(&mut ExtractionBuilder<'_, '_>) -> Result<T, ExtractError>,

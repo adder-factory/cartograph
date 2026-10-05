@@ -20346,6 +20346,119 @@ export function secondClone(value: number) {
         assert_eq!(import.resolution_provenance, UNRESOLVED_IMPORT_PROVENANCE);
     }
 
+    const BORROWED_LANGUAGE_FIXTURES: [(&str, &str); 7] = [
+        ("clj/demo/util.clj", "(ns demo.util)\n(defn helper [x] x)\n"),
+        (
+            "clj/demo/core.clj",
+            "(ns demo.core\n  (:require [demo.util :refer [helper]]))\n(defn- local [x] x)\n(defn greet [n] (local (helper n)))\n",
+        ),
+        (
+            "lisp/util.lisp",
+            "(defpackage :demo.util (:use :cl))\n(in-package :demo.util)\n(defun twice (x) x)\n",
+        ),
+        (
+            "lisp/core.lisp",
+            "(defpackage :demo.core (:use :cl) (:import-from :demo.util #:twice))\n(in-package :demo.core)\n(defun run (n) (twice n))\n",
+        ),
+        ("res/Utils.res", "let shout = (x) => x\n"),
+        (
+            "res/App.res",
+            "open Utils\nlet local = (x) => x\nlet run = () => local(shout(1))\n",
+        ),
+        (
+            "sol/Vault.sol",
+            "contract Vault {\n  function helper(uint a) private returns (uint) { return a; }\n  function deposit(uint a) public returns (uint) { return helper(a); }\n  function apply(function(uint) internal pure returns (uint) helper, uint a) internal pure returns (uint) { return helper(a); }\n}\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn borrowed_language_calls_resolve_through_lexical_and_project_rules() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create borrowed-language fixture: {error}"));
+        for (path, source) in BORROWED_LANGUAGE_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("borrowed-language fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        let parallel = build(directory.path(), PARALLEL_WORKERS).await;
+        assert_eq!(serial.facts().digest(), parallel.facts().digest());
+        let facts = ModuleResolverFacts {
+            facts: serial.facts(),
+        };
+        for (caller_path, caller, name, target_path, target, provenance) in [
+            (
+                "clj/demo/core.clj",
+                "greet",
+                "local",
+                "clj/demo/core.clj",
+                "local",
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            // Explicitly referred and imported names bind nothing, so they
+            // resolve through the project-wide rule like v1's by-name lookup.
+            (
+                "clj/demo/core.clj",
+                "greet",
+                "helper",
+                "clj/demo/util.clj",
+                "helper",
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                "lisp/core.lisp",
+                "run",
+                "twice",
+                "lisp/util.lisp",
+                "twice",
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                "res/App.res",
+                "run",
+                "local",
+                "res/App.res",
+                "local",
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                "res/App.res",
+                "run",
+                "shout",
+                "res/Utils.res",
+                "shout",
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                "sol/Vault.sol",
+                "Vault::deposit",
+                "helper",
+                "sol/Vault.sol",
+                "Vault::helper",
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+        ] {
+            let call = facts.reference(&facts.symbol(caller_path, caller), name);
+            assert_eq!(
+                call.target_symbol_id.as_ref(),
+                Some(&facts.symbol(target_path, target)),
+                "{caller_path}:{caller} -> {name}"
+            );
+            assert_eq!(call.resolution_provenance, provenance, "{caller}->{name}");
+        }
+        // A parameter that shadows a contract member stays unresolved instead
+        // of reaching the same-named member.
+        let shadowed = facts.reference(&facts.symbol("sol/Vault.sol", "Vault::apply"), "helper");
+        assert_eq!(shadowed.target_symbol_id, None, "Vault::apply -> helper");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn typescript_paths_without_base_url_resolve_from_the_config_directory() {
         let directory = tempdir()

@@ -638,7 +638,8 @@ impl ImportEmission<'_> {
     }
 }
 
-fn emit_import_reference(
+/// Emit a root-scope import symbol and its file-level `Imports` reference.
+pub(super) fn emit_import_reference(
     builder: &mut ExtractionBuilder<'_, '_>,
     target: Node<'_>,
     name: String,

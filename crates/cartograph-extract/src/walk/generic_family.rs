@@ -379,7 +379,6 @@ fn textual_declaration(
     let language = builder.context.snapshot.language();
     let text = builder.context.text(node).trim_start();
     let candidate = match language {
-        SourceLanguage::Clojure | SourceLanguage::CommonLisp => lisp_declaration(text),
         SourceLanguage::R if matches!(node.kind(), "left_assignment" | "binary_operator") => {
             r_declaration(text)
         }
@@ -401,20 +400,6 @@ fn textual_declaration(
     candidate
         .map(|(kind, name)| builder.context.copy_text(&name).map(|name| (kind, name)))
         .transpose()
-}
-
-fn lisp_declaration(text: &str) -> Option<(SymbolKind, String)> {
-    let text = text.strip_prefix('(')?.trim_start();
-    let (head, rest) = split_token(text)?;
-    let kind = match head.to_ascii_lowercase().as_str() {
-        "defn" | "defn-" | "defun" | "defmethod" | "defmacro" => SymbolKind::Function,
-        "defclass" | "deftype" | "defrecord" | "defstruct" => SymbolKind::Class,
-        "ns" | "defpackage" | "in-package" => SymbolKind::Module,
-        "def" | "defonce" | "defparameter" | "defvar" | "defconstant" => SymbolKind::Variable,
-        _ => return None,
-    };
-    let (name, _) = split_token(rest.trim_start())?;
-    normalize_name(name).map(|name| (kind, name))
 }
 
 fn r_declaration(text: &str) -> Option<(SymbolKind, String)> {
@@ -738,9 +723,7 @@ fn generic_exported(input: GenericExportInput<'_>) -> bool {
     top_level
         && matches!(
             language,
-            SourceLanguage::Clojure
-                | SourceLanguage::CommonLisp
-                | SourceLanguage::Dart
+            SourceLanguage::Dart
                 | SourceLanguage::GraphQl
                 | SourceLanguage::Hcl
                 | SourceLanguage::Html
@@ -834,15 +817,6 @@ fn should_skip_markup_symbol(language: SourceLanguage, kind: SymbolKind, name: &
         && kind == SymbolKind::Component
         && !name.contains('-')
         && !name.chars().next().is_some_and(char::is_uppercase)
-}
-
-fn split_token(value: &str) -> Option<(&str, &str)> {
-    let end = value
-        .find(|character: char| {
-            character.is_whitespace() || matches!(character, '(' | ')' | '[' | ']')
-        })
-        .unwrap_or(value.len());
-    (end != 0).then(|| (&value[..end], &value[end..]))
 }
 
 fn starts_keyword(value: &str, keyword: &str) -> bool {
