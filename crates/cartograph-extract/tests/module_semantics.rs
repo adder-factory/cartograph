@@ -30,7 +30,9 @@ type Loaded = import('./types.js').Widget;
         ("./target.js", "bar", "alias", ImportBindingKind::Named),
         ("./target.js", "*", "module", ImportBindingKind::Namespace),
         ("./target.js", "direct", "inline", ImportBindingKind::Named),
-        ("./types.js", "Widget", "Widget", ImportBindingKind::Named),
+        // An inline import type binds only its own site: its local name is
+        // no identifier, so it never captures another use of `Widget`.
+        ("./types.js", "Widget", "import()", ImportBindingKind::Named),
     ] {
         assert!(
             first.import_bindings.iter().any(|binding| {

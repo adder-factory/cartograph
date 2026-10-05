@@ -59,8 +59,11 @@ pub(super) fn visit_declaration(
         | "function_declaration"
         | "method_definition" => {
             let first_emitted = builder.facts.symbols.len();
+            let first_reference = builder.facts.references.len();
             visit_javascript_declaration(builder, node, depth)?;
-            if let Some(owner) = emitted_symbol_for(builder, first_emitted, node)? {
+            if let Some(owner) = emitted_symbol_for(builder, first_emitted, node)?
+                && !decorated_by_shared_walker(builder, first_reference, &owner)
+            {
                 capture_decorators(builder, node, &owner)?;
             }
         }
@@ -220,6 +223,21 @@ fn visit_field(
     in_symbol_scope(builder, scope, |builder| {
         builder.visit(value, depth.saturating_add(1))
     })
+}
+
+/// Whether the shared JavaScript walker already recorded decorators for
+/// `owner` while visiting it (references from `first_reference` on), so this
+/// family must not record them a second time.
+fn decorated_by_shared_walker(
+    builder: &ExtractionBuilder<'_, '_>,
+    first_reference: usize,
+    owner: &SymbolId,
+) -> bool {
+    builder.facts.references[first_reference..]
+        .iter()
+        .any(|reference| {
+            reference.kind == ReferenceKind::Decorates && reference.owner.as_ref() == Some(owner)
+        })
 }
 
 /// Record every decorator of `node` as a `Decorates` reference from `owner`:

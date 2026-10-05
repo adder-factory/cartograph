@@ -12110,6 +12110,35 @@ where
     {
         return Ok(Some(resolution));
     }
+    if matches!(request.kind, ReferenceKind::TypeOf | ReferenceKind::Returns)
+        && let Some(binding) = request
+            .import_bindings
+            .iter()
+            .find(|binding| binding.span == request.span)
+    {
+        // An inline import type (`import('./m').Name`) names its module at the
+        // reference site itself. It resolves only through that site's binding,
+        // never through a same-named local or binding elsewhere in the file.
+        let site = resolve_import(
+            index,
+            ImportResolutionRequest {
+                reference: request,
+                site: ImportReferenceSite::Declaration,
+            },
+            cancelled,
+        )?;
+        return Ok(Some(match site {
+            ImportResolution::Resolved(target) => ReferenceResolution::resolved(target),
+            ImportResolution::Unresolved | ImportResolution::NotBound
+                if import_binding_is_project_local(index, binding, request) =>
+            {
+                ReferenceResolution::unresolved(UNRESOLVED_IMPORT_PROVENANCE)
+            }
+            ImportResolution::Unresolved | ImportResolution::NotBound => {
+                ReferenceResolution::unresolved(EXTERNAL_REFERENCE_UNRESOLVED_PROVENANCE)
+            }
+        }));
+    }
     if request.kind == ReferenceKind::Exports
         && let Some(resolution) = import_reference_resolution(resolve_import(
             index,
@@ -12256,6 +12285,9 @@ where
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
+    }
+    if request.kind == ReferenceKind::DefUse {
+        return resolve_def_use(index, request, cancelled);
     }
     if let Some(resolution) = resolve_terraform_address(index, request, cancelled)? {
         return Ok(resolution);
@@ -12813,6 +12845,55 @@ where
         scope = index.parents.get(symbol_id);
     }
     Ok(None)
+}
+
+/// Resolve a def-use site to the local it reads: the unique same-file binding
+/// declared directly in the owning callable's scope.
+///
+/// A local is never bound through outer scopes, imports, or project names; a
+/// name declared more than once in the callable stays unresolved with its
+/// sites retained.
+fn resolve_def_use<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let Some(owner) = request.owner else {
+        return Ok(ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE));
+    };
+    let candidates = resolution_candidates_for_file(index, request.name, request.file_id);
+    let local = select_candidate(
+        candidates,
+        |candidate| {
+            &candidate.file_id == request.file_id
+                && candidate.parent_symbol_id.as_ref() == Some(owner)
+                && matches!(
+                    candidate.kind,
+                    SymbolKind::Variable
+                        | SymbolKind::Constant
+                        | SymbolKind::Function
+                        | SymbolKind::Component
+                )
+                && candidate
+                    .qualified_name
+                    .rsplit("::")
+                    .next()
+                    .is_some_and(|name| name == request.name)
+        },
+        cancelled,
+    )?;
+    Ok(match local {
+        Some(candidate) => ReferenceResolution::resolved(ResolvedTarget {
+            symbol_id: candidate.symbol_id.clone(),
+            kind: candidate.kind,
+            confidence: EXACT_LEXICAL_CONFIDENCE,
+            provenance: EXACT_LEXICAL_PROVENANCE,
+        }),
+        None => ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
+    })
 }
 
 fn rust_self_has_local_nominal<Cancel>(
@@ -16353,6 +16434,7 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod javascript_parity;
     mod pascal_units;
     mod php_namespaces;
     mod polyglot_parity;

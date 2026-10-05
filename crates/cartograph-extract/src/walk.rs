@@ -24,6 +24,7 @@ mod astro_family;
 mod c_family;
 mod dart_family;
 mod declarations;
+mod def_use;
 mod dynamic_dispatch;
 pub(crate) mod embedded_script;
 mod embedded_sql;
@@ -32,6 +33,13 @@ mod fsharp_family;
 mod generic_family;
 mod graphql_family;
 mod hcl_family;
+mod javascript_bindings;
+mod javascript_decorators;
+mod javascript_members;
+mod javascript_reads;
+mod javascript_scopes;
+mod javascript_state;
+mod javascript_types;
 mod jvm_dynamic_family;
 mod lean_family;
 mod lisp_family;
@@ -48,6 +56,7 @@ mod polyglot;
 mod prisma_family;
 mod r_family;
 mod references;
+mod require_aliases;
 mod rescript_family;
 mod ruby_family;
 mod rust_macro;
@@ -60,6 +69,7 @@ mod specifier_safety;
 mod sql_family;
 mod swift_family;
 pub(crate) mod syntax;
+mod type_contracts;
 mod value_references;
 mod vbnet_family;
 
@@ -208,7 +218,8 @@ fn prepare_extraction(
     root: Node<'_>,
 ) -> Result<(), ExtractError> {
     module_system::collect_explicit_exports(builder, root)?;
-    shader_family::collect_wesl_imports(builder)
+    shader_family::collect_wesl_imports(builder)?;
+    type_contracts::collect_contract_generics(builder, root)
 }
 
 /// Enrichers that read the declarations the visit emitted.
@@ -220,7 +231,8 @@ fn enrich_visited(
     dynamic_dispatch::enrich(builder, root)?;
     schema::enrich(builder, root)?;
     embedded_sql::enrich(builder, root)?;
-    value_references::enrich(builder, root)
+    value_references::enrich(builder, root)?;
+    javascript_reads::enrich_binding_tables(builder, root)
 }
 
 fn collect_extraction_diagnostics(
@@ -425,6 +437,8 @@ struct ExtractionBuilder<'source, 'cancel> {
     commonjs_shadowing: module_system::CommonJsShadowing,
     /// Source-order walk state of the dynamic scripting families.
     script: script_support::ScriptState,
+    /// JavaScript-family state shared between the walk and its passes.
+    javascript: javascript_state::JavaScriptState<'source>,
     maximum_ast_depth: usize,
     /// Whether any synthesized name exceeded its canonical bound and had to be
     /// deterministically shortened for this file.
@@ -472,6 +486,7 @@ fn visit_container(
     builder.owners.push(id.clone());
     builder.qualifiers.push(name);
     references::capture_heritage(builder, node, &id)?;
+    javascript_decorators::capture_declaration_decorators(builder, node, &id)?;
     for child in named_children(node) {
         if child.kind() == body_kind {
             builder.visit(child, depth.saturating_add(1))?;
@@ -526,11 +541,13 @@ fn visit_callable(
     };
     let id = builder.emit_symbol(pending)?;
     references::capture_callable_types(builder, node, &id)?;
-    builder.owners.push(id);
+    javascript_decorators::capture_declaration_decorators(builder, node, &id)?;
+    builder.owners.push(id.clone());
     builder.qualifiers.push(name);
     emit_javascript_callable_parameters(builder, node)?;
     if let Some(body) = body {
         builder.visit(body, depth.saturating_add(1))?;
+        def_use::capture(builder, def_use::DefUseScope::new(body, &id))?;
     }
     builder.qualifiers.pop();
     builder.owners.pop();
@@ -1281,6 +1298,9 @@ fn visit_javascript_declaration(
         | "method_signature"
         | "abstract_method_signature" => visit_callable(builder, node, depth)?,
         "lexical_declaration" | "variable_declaration" => visit_bindings(builder, node, depth)?,
+        "public_field_definition" | "field_definition" => {
+            javascript_members::visit_class_field(builder, node, depth)?;
+        }
         "import_statement" => declarations::visit_import(builder, node)?,
         "export_statement" => declarations::visit_export(builder, node, depth)?,
         "type_alias_declaration" => declarations::visit_type_alias(builder, node, depth)?,
@@ -1298,9 +1318,12 @@ fn visit_javascript_usage(
     if !builder.embedded.usage_only {
         module_system::capture_commonjs_assignment(builder, node)?;
     }
+    javascript_reads::capture_constant_read(builder, node)?;
+    javascript_types::capture_type_consumers(builder, node)?;
     match node.kind() {
         "call_expression" => {
             if !module_system::capture_dynamic_import(builder, node)? {
+                module_system::capture_require_import(builder, node)?;
                 references::capture_invocation(builder, node, references::InvocationKind::Call)?;
             }
         }
@@ -1399,11 +1422,16 @@ fn visit_javascript_binding_value(
     if let Some(callable_node) = input.callable {
         emit_javascript_callable_parameters(builder, callable_node)?;
     }
-    let visit_node = input
+    let callable_body = input
         .callable
-        .and_then(|callable_node| callable_node.child_by_field_name("body"))
-        .unwrap_or(input.value);
-    builder.visit(visit_node, input.depth.saturating_add(1))?;
+        .and_then(|callable_node| callable_node.child_by_field_name("body"));
+    builder.visit(
+        callable_body.unwrap_or(input.value),
+        input.depth.saturating_add(1),
+    )?;
+    if let Some(body) = callable_body {
+        def_use::capture(builder, def_use::DefUseScope::new(body, input.id))?;
+    }
     builder.qualifiers.pop();
     builder.owners.pop();
     Ok(())
@@ -1459,6 +1487,10 @@ fn visit_javascript_binding(
         references::capture_callable_types(builder, symbol_node, &id)?;
     } else {
         references::capture_type_nodes(builder, input.declarator, &id)?;
+        builder.javascript.whole_type_owners.insert(id.clone());
+        if let Some(annotation) = input.declarator.child_by_field_name("type") {
+            module_system::capture_type_position_imports(builder, annotation, &id)?;
+        }
     }
     if let Some(value) = value {
         visit_javascript_binding_value(
@@ -1494,6 +1526,7 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             explicit_default_exports: BTreeSet::new(),
             commonjs_shadowing: module_system::CommonJsShadowing::default(),
             script: script_support::ScriptState::default(),
+            javascript: javascript_state::JavaScriptState::default(),
             maximum_ast_depth,
             shortened_canonical_names: false,
             optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),

@@ -891,9 +891,15 @@ fn dynamic_and_shadowed_module_syntax_does_not_invent_bindings() {
         "src/lazy.ts",
         "async function load() {\n  const direct = await import('optional-pkg' as any);\n  const template = await import(`template-pkg`);\n  return [direct, template];\n}\n",
     );
-    for package in ["optional-pkg", "template-pkg"] {
+    // A dynamic import is owned by the scope that performs it (v1 parity),
+    // here the `load` locals whose initializers await the module.
+    for (package, local) in [
+        ("optional-pkg", "load::direct"),
+        ("template-pkg", "load::template"),
+    ] {
+        let owner = symbol(&dynamic_import, local);
         assert!(dynamic_import.references.iter().any(|reference| {
-            reference.owner.is_none()
+            reference.owner.as_ref() == Some(&owner.id)
                 && reference.name == package
                 && reference.kind == ReferenceKind::Imports
         }));

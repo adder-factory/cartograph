@@ -6,7 +6,9 @@ use tree_sitter::Node;
 use crate::{
     ExtractError, ExtractedReference,
     walk::{
-        AstVisitBudget, ExtractionBuilder, SingleChildUnwrap, owner_for_node,
+        AstVisitBudget, ExtractionBuilder, SingleChildUnwrap,
+        javascript_scopes::{NearestBinding, read_binding},
+        owner_for_node,
         syntax::{named_children, span_for},
     },
 };
@@ -23,32 +25,163 @@ const VALUE_IDENTIFIER_UNWRAP: SingleChildUnwrap = SingleChildUnwrap::new(
     ],
 );
 
-struct UniqueTargets {
-    by_name: BTreeMap<String, Option<SymbolId>>,
+/// Deepest chain of enclosing symbols walked from a read to the top level;
+/// containment never nests deeper than the walker's own depth limit.
+const MAX_SCOPE_DEPTH: usize = crate::MAXIMUM_AST_DEPTH;
+
+/// The lexical bindings one scope declares under one name.
+enum ScopeBinding {
+    Unique(SymbolId),
+    Ambiguous,
 }
 
-impl UniqueTargets {
+/// Every lexical binding of the file, by name and by the scope (parent
+/// symbol, `None` at the top level) that declares it.
+struct LexicalTargets {
+    by_name: BTreeMap<String, BTreeMap<Option<SymbolId>, ScopeBinding>>,
+    parents: BTreeMap<SymbolId, SymbolId>,
+    /// The byte range each lexical binding is declared at.
+    spans: BTreeMap<SymbolId, (u64, u64)>,
+}
+
+impl LexicalTargets {
     fn from_builder(builder: &ExtractionBuilder<'_, '_>) -> Result<Self, ExtractError> {
-        let mut by_name = BTreeMap::new();
+        // An embedded component script's module scope is its file-level
+        // component: declarations it contains are top-level bindings, exactly
+        // as in a standalone file.
+        let module_owner = builder.embedded.module_owner(&builder.owners);
+        let parents = builder
+            .facts
+            .containments
+            .iter()
+            .filter(|containment| Some(&containment.parent) != module_owner.as_ref())
+            .map(|containment| (containment.child.clone(), containment.parent.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut by_name = BTreeMap::<String, BTreeMap<Option<SymbolId>, ScopeBinding>>::new();
+        let mut spans = BTreeMap::new();
         for symbol in &builder.facts.symbols {
-            if matches!(symbol.kind, SymbolKind::File | SymbolKind::Import) {
+            let scope = parents.get(&symbol.id).cloned();
+            if !names_a_lexical_binding(symbol.kind, scope.as_ref()) {
                 continue;
             }
-            if let Some(existing) = by_name.get_mut(&symbol.name) {
-                *existing = None;
-            } else {
-                let mut name = String::new();
-                name.try_reserve(symbol.name.len())
-                    .map_err(|_| ExtractError::OutputLimit)?;
-                name.push_str(&symbol.name);
-                by_name.insert(name, Some(symbol.id.clone()));
+            spans.insert(
+                symbol.id.clone(),
+                (symbol.span.start_byte(), symbol.span.end_byte()),
+            );
+            if let Some(scopes) = by_name.get_mut(&symbol.name) {
+                scopes
+                    .entry(scope)
+                    .and_modify(|binding| *binding = ScopeBinding::Ambiguous)
+                    .or_insert_with(|| ScopeBinding::Unique(symbol.id.clone()));
+                continue;
             }
+            let mut name = String::new();
+            name.try_reserve(symbol.name.len())
+                .map_err(|_| ExtractError::OutputLimit)?;
+            name.push_str(&symbol.name);
+            by_name.insert(
+                name,
+                BTreeMap::from([(scope, ScopeBinding::Unique(symbol.id.clone()))]),
+            );
         }
-        Ok(Self { by_name })
+        Ok(Self {
+            by_name,
+            parents,
+            spans,
+        })
     }
 
-    fn unique(&self, name: &str) -> Option<&SymbolId> {
-        self.by_name.get(name)?.as_ref()
+    /// The binding a bare read of `name` may name, before its scope is known.
+    ///
+    /// A name bound exactly once in the file names that binding. Otherwise
+    /// only a unique top-level binding can be a target — the resolver binds a
+    /// bare name to a same-named top-level declaration before it walks
+    /// enclosing scopes. Which of the two a read names is then settled by its
+    /// nearest enclosing binding (see `ValueScanner::admitted_target`). A
+    /// name bound only in several nested scopes
+    /// names nothing, which keeps parameter and local reads at one binding
+    /// per name, so the per-file value-reference cap stays a ceiling real
+    /// files do not reach.
+    fn candidate(&self, name: &str) -> Option<ValueTarget<'_>> {
+        let scopes = self.by_name.get(name)?;
+        if let (1, Some(ScopeBinding::Unique(id))) = (scopes.len(), scopes.values().next()) {
+            return Some(ValueTarget::Unique(id));
+        }
+        match scopes.get(&None) {
+            Some(ScopeBinding::Unique(id)) => Some(ValueTarget::TopLevel(id)),
+            _ => None,
+        }
+    }
+
+    /// Whether a binding is declared at the top level of the file.
+    fn is_top_level(&self, target: &SymbolId) -> bool {
+        !self.parents.contains_key(target)
+    }
+
+    /// Whether a binding is declared inside the scope that binds a read, so
+    /// the read names that declaration and not another one of the same name
+    /// (an outer local shadowed by a `using` resource, a block local read
+    /// outside its block).
+    fn declared_within(&self, target: &SymbolId, scope: Option<(usize, usize)>) -> bool {
+        let Some((start, end)) = scope else {
+            return false;
+        };
+        self.spans
+            .get(target)
+            .is_some_and(|(declared, declared_end)| {
+                u64::try_from(start).is_ok_and(|start| start <= *declared)
+                    && u64::try_from(end).is_ok_and(|end| *declared_end <= end)
+            })
+    }
+
+    /// Whether a binding is in scope for a read owned by `owner`: a top-level
+    /// binding always is, a nested one (a parameter, a local, a nested
+    /// function) only inside the scope that declares it. Another function's
+    /// parameter is never what a bare read names. An unknown or too deep
+    /// chain counts as out of scope.
+    fn visible_from(&self, target: &SymbolId, owner: Option<&SymbolId>) -> bool {
+        let Some(declaring) = self.parents.get(target) else {
+            return true;
+        };
+        let mut scope = owner;
+        for _ in 0..=MAX_SCOPE_DEPTH {
+            let Some(current) = scope else {
+                return false;
+            };
+            if current == declaring {
+                return true;
+            }
+            scope = self.parents.get(current);
+        }
+        false
+    }
+}
+
+/// What a bare read may name.
+#[derive(Clone, Copy)]
+enum ValueTarget<'targets> {
+    /// The only lexical binding of the name in the file.
+    Unique(&'targets SymbolId),
+    /// The unique top-level binding of a name nested scopes also bind.
+    TopLevel(&'targets SymbolId),
+}
+
+/// Whether the resolver can bind a bare name to this symbol, declared in
+/// `scope`. A member (method, field, property, enum member) of a containing
+/// declaration is reached only through a receiver, so it neither becomes a
+/// value target nor makes a module binding of the same name ambiguous — the
+/// rule the resolver's lexical scope walk applies to bare names. An
+/// uncontained member, such as an inline object-literal method
+/// (`register({ handler() {} })`), has its bare name as its qualified name,
+/// and the resolver's exact-name lookup binds a same-named read to it, so it
+/// stays a top-level binding here.
+fn names_a_lexical_binding(kind: SymbolKind, scope: Option<&SymbolId>) -> bool {
+    match kind {
+        SymbolKind::File | SymbolKind::Import => false,
+        SymbolKind::Method | SymbolKind::Property | SymbolKind::Field | SymbolKind::EnumMember => {
+            scope.is_none()
+        }
+        _ => true,
     }
 }
 
@@ -100,13 +233,15 @@ pub(super) fn enrich(
     ) {
         return Ok(());
     }
-    let targets = UniqueTargets::from_builder(builder)?;
+    let targets = LexicalTargets::from_builder(builder)?;
     if targets.by_name.is_empty() {
         return Ok(());
     }
+    let existing = super::javascript_reads::existing_reference_spans(builder);
     ValueScanner {
         builder,
         targets: &targets,
+        existing: &existing,
         budget: ScanBudget::default(),
     }
     .scan(root, 0)
@@ -114,7 +249,10 @@ pub(super) fn enrich(
 
 struct ValueScanner<'builder, 'source, 'cancel, 'targets> {
     builder: &'builder mut ExtractionBuilder<'source, 'cancel>,
-    targets: &'targets UniqueTargets,
+    targets: &'targets LexicalTargets,
+    /// Spans the walker already recorded as reads (constant reads), which this
+    /// pass must not record a second time.
+    existing: &'targets BTreeSet<(u64, u64)>,
     budget: ScanBudget,
 }
 
@@ -176,11 +314,22 @@ impl ValueScanner<'_, '_, '_, '_> {
         if !value_identifier(node) {
             return Ok(());
         }
-        let name = self.builder.context.owned_text(node)?;
-        let Some(target) = self.targets.unique(&name) else {
+        let targets = self.targets;
+        let Some(candidate) = targets.candidate(self.builder.context.text(node)) else {
             return Ok(());
         };
-        let owner = owner_for_node(self.builder, node);
+        let name = self.builder.context.owned_text(node)?;
+        let span = span_for(node)?;
+        // A value already recorded at this site is not recorded twice.
+        if self
+            .existing
+            .contains(&(span.start_byte(), span.end_byte()))
+        {
+            return Ok(());
+        }
+        let Some((target, owner)) = self.admitted_target(node, candidate)? else {
+            return Ok(());
+        };
         if owner.as_ref() == Some(target) || !self.budget.admit(owner.as_ref(), target, node)? {
             return Ok(());
         }
@@ -189,8 +338,50 @@ impl ValueScanner<'_, '_, '_, '_> {
             name,
             resolution_name: None,
             kind: ReferenceKind::References,
-            span: span_for(node)?,
+            span,
         })
+    }
+}
+
+impl<'targets> ValueScanner<'_, '_, '_, 'targets> {
+    /// The symbol a read names and the read's owner, settled by the read's
+    /// nearest enclosing binding. A read no function scope rebinds names a
+    /// top-level symbol (a module-level block's declarations are top-level
+    /// symbols too); a read of a parameter or function local names a nested
+    /// symbol, and only one declared in the scope that binds the read. A callback,
+    /// `catch`, loop, or expression-name binding has no symbol of its own
+    /// (`items.map(save => run(save))`), so such a read names nothing; a
+    /// local bound by `require` or `import()` names its declarator's symbol
+    /// when it has one.
+    fn admitted_target(
+        &mut self,
+        node: Node<'_>,
+        candidate: ValueTarget<'targets>,
+    ) -> Result<Option<(&'targets SymbolId, Option<SymbolId>)>, ExtractError> {
+        let targets = self.targets;
+        let (ValueTarget::Unique(target) | ValueTarget::TopLevel(target)) = candidate;
+        let top_level = targets.is_top_level(target);
+        let binding = read_binding(self.builder, node)?;
+        let admissible = match binding.nearest {
+            NearestBinding::Module => top_level,
+            NearestBinding::ModuleBlock => {
+                top_level && targets.declared_within(target, binding.scope)
+            }
+            NearestBinding::Represented | NearestBinding::Local => {
+                !top_level && targets.declared_within(target, binding.scope)
+            }
+            // A `require`/`import()` declarator that has its own symbol.
+            NearestBinding::Imported => targets.declared_within(target, binding.scope),
+            NearestBinding::Anonymous | NearestBinding::Unknown => false,
+        };
+        if !admissible {
+            return Ok(None);
+        }
+        let owner = owner_for_node(self.builder, node);
+        if !top_level && !targets.visible_from(target, owner.as_ref()) {
+            return Ok(None);
+        }
+        Ok(Some((target, owner)))
     }
 }
 

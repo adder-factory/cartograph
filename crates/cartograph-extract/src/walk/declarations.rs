@@ -6,6 +6,7 @@ use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
 use super::{
     ExtractionBuilder, PendingReference, PendingSymbol, module_system, references,
     syntax::{descendants, export_flags, named_children, span_for, visibility},
+    type_contracts,
 };
 
 const MAX_TYPE_ALIAS_SIGNATURE_BYTES: usize = 64 * 1024;
@@ -259,9 +260,10 @@ pub(super) fn visit_type_alias(
         <= MAX_TYPE_ALIAS_SIGNATURE_BYTES)
         .then(|| builder.context.owned_text(node))
         .transpose()?;
+    let name = builder.context.owned_text(name_node)?;
     let pending = PendingSymbol {
         kind: SymbolKind::TypeAlias,
-        name: builder.context.owned_text(name_node)?,
+        name: name.clone(),
         span_node: node,
         structural_node: node,
         doc_anchor: node,
@@ -274,8 +276,23 @@ pub(super) fn visit_type_alias(
         visibility: visibility(node, builder.context.source()),
     };
     let id = builder.emit_symbol(pending)?;
+    let alias_exported = builder
+        .facts
+        .symbols
+        .last()
+        .is_some_and(|symbol| symbol.export.exported);
     if let Some(value) = node.child_by_field_name("value") {
         references::capture_type_nodes(builder, value, &id)?;
+        builder.javascript.whole_type_owners.insert(id.clone());
+        type_contracts::emit_contract_properties(
+            builder,
+            value,
+            type_contracts::ContractAlias::new(
+                &id,
+                &name,
+                crate::SymbolExportFlags::named(alias_exported),
+            ),
+        )?;
         builder.owners.push(id);
         builder.visit(value, depth.saturating_add(1))?;
         builder.owners.pop();

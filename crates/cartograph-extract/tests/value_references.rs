@@ -62,9 +62,12 @@ export function wire(pretty: boolean) {
 
 #[test]
 fn member_values_strings_and_ambiguous_same_file_names_do_not_invent_value_edges() {
+    // `duplicated` names two top-level bindings, so the read in `wire`
+    // cannot choose one. Neither a class member namesake nor another scope's
+    // local would make it ambiguous: the nearest enclosing scope decides.
     let source = r"
 function duplicated() {}
-class Other { duplicated() {} }
+var duplicated = 1;
 function uniqueHandler() {}
 function wire() {
   configure(obj.uniqueHandler);
