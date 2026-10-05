@@ -29,9 +29,48 @@ implementation is divided into:
 
 | Family | Languages |
 | --- | --- |
-| Grammar-backed structural walkers | JavaScript/TypeScript, Rust/Python/Go, query-tag, C-family, shell, managed, JVM-dynamic, shader, Ada/VHDL, and conservative grammar-backed structural walkers |
+| Grammar-backed structural walkers | JavaScript/TypeScript, Rust/Python/Go, query-tag, C-family, shell, managed (Java/C#), JVM-dynamic, shader, and Ada/VHDL walkers |
+| Dedicated v1-parity families | PHP, Pascal/Delphi, Objective-C, Swift, Dart, F#, ArkTS, Ruby, Lua/Luau/KHN, R, Nix, Clojure/Common Lisp, Lean, ReScript, Solidity, VB.NET, Apex, and HCL/Terraform |
+| Astro family (Astro grammar + embedded JavaScript-family walker) | Astro components: frontmatter and template expressions |
+| Conservative grammar-backed structural walker | ABAP, GraphQL, HTML, Prisma, SQL, and YAML (GraphQL, Prisma, and SQL have schema-aware slices) |
 | Parser-only structural file documents | CSS, embedded templates, JSDoc, JSON/Jupyter, and regex sources |
-| Bounded custom scanners | Aura, BG3 Anubis/resources/stats, Liquid, Osiris, properties, Svelte, TOML, VB6, Visualforce, Vue, MyBatis XML, and the [researched game-scripting inventory](GAME-SCRIPTING-LANGUAGES.md) |
+| Custom host + embedded JavaScript-family walker | Svelte and Vue: the host scans markup; `<script>` blocks and template expressions run through the JavaScript/TypeScript walker |
+| Bounded custom scanners | Aura, BG3 Anubis/resources/stats, Liquid, Osiris, properties, TOML, VB6, Visualforce, MyBatis XML, Delphi `.dfm`/`.fmx` form files (inside the Pascal mode), and the [researched game-scripting inventory](GAME-SCRIPTING-LANGUAGES.md) |
+
+The strategy for every mode is listed in the
+[coverage report](../LANGUAGE-COVERAGE-REPORT.md#strategy-families), and what
+each dedicated family extracts is in the
+[support matrix](../SUPPORT-MATRIX.md#language-family-details). The per-file
+facts of all 73 v1 modes are checked against v1.1.33's own output by the
+[v1 parity oracle](../LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle).
+
+### Embedded component scripts
+
+Astro frontmatter, Vue and Svelte `<script>` blocks, and template expressions
+are extracted by the same walker as standalone scripts, not by a line scanner.
+One embedded-script mechanism
+(`crates/cartograph-extract/src/walk/embedded_script.rs`) parses each region
+with the native JavaScript/TypeScript grammar restricted to its exact byte
+range through tree-sitter included ranges over the full host bytes:
+
+- every node already carries host byte offsets and host line/column positions,
+  so no span is remapped after the fact;
+- the regions are walked by the ordinary JavaScript-family walker over a
+  dialect view of the host snapshot, sharing the host's symbol ordinals and
+  per-file output budget;
+- script programs run the complete walker pipeline, and declarations keep
+  module-scope qualified names while the file-level component is their graph
+  parent and the owner of top-level references;
+- template expressions run only the usage traversal: they declare nothing,
+  their references belong to the component, names they bind for themselves are
+  never resolved against the script, and their cost is proportional to the
+  expressions alone.
+
+The Astro family keeps scanning markup nested inside an expression with the
+Astro grammar; the Vue/Svelte host scans markup with a lexically aware
+template scanner that stays linear in the file size: its structured scan and
+its plain fallback each get a byte budget proportional to the source, and a
+template that exhausts the structured budget is reported as partial.
 
 ### GPU and shader sources
 
@@ -96,10 +135,14 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V20 fences Rust turbofish calls (`f::<T>(..)`,
-`a::f::<T>(..)`, `x.f::<T>(..)`), which name and resolve their function rather
-than keeping the type arguments, inside macro arguments too, forcing an
-unchanged V19 project to publish new facts.
+contract. Contract V21 fences the v1 language-parity extraction: the dedicated
+families for PHP, Pascal/Delphi, Objective-C, Swift, Dart, F#, ArkTS, Ruby,
+Lua/Luau/KHN, R, Nix, Clojure, Common Lisp, Lean, ReScript, Solidity, VB.NET,
+Apex, and HCL; Astro, Vue, and Svelte scripts through the JavaScript/TypeScript
+walker; and the TypeScript/JavaScript, Python, Go, Rust, JVM, and .NET parity
+facts. A generation published by an older binary no longer matches what this
+binary builds, so an unchanged V20 project reports stale once and publishes new
+facts.
 
 After an upgrade from an older contract, unchanged source remains stale until a
 normal index publishes current-contract facts. This contract check stays
@@ -107,10 +150,11 @@ separate from the source-manifest digest so v1 import still compares exact
 checkout bytes rather than a binary-specific identity.
 
 <details>
-<summary>Details: generation-digest contract history (V5–V20)</summary>
+<summary>Details: generation-digest contract history (V5–V21)</summary>
 
 | Contract | What it fences |
 | --- | --- |
+| V21 | v1 language parity: dedicated extraction families replace the generic walker for 22 v1 modes, Astro/Vue/Svelte scripts run through the JavaScript/TypeScript walker, and the TypeScript/JavaScript, Python, Go, Rust, JVM, and .NET walkers restore v1's per-file facts; forces an unchanged V20 project to publish new facts |
 | V20 | Rust turbofish calls (`f::<T>(..)`, `a::f::<T>(..)`, `x.f::<T>(..)`), which name and resolve their function rather than keeping the type arguments, inside macro arguments too; forces an unchanged V19 project to publish new facts |
 | V19 | Rust references inside macro arguments (calls, paths, receiver calls, nested invocations, and std format-string captures); forces an unchanged V18 project to publish new facts |
 | V18 | The CUDA 0.21.2 grammar and updated Unicode identifier semantics; forces an unchanged V17 project to publish new facts |
@@ -146,6 +190,17 @@ Increase the bound only for authored source that legitimately needs deeper
 syntax. Generated outputs should normally be excluded through project ignore
 rules or `.cartograph/config.json` rather than forcing the whole corpus to
 accept their depth.
+
+Optional enrichment facts never make a file unextractable. The Rust, Python,
+and Go parity facts (package bindings, struct fields and embedding, literal
+instantiations, constant reads, declared-type uses, supertraits, attributes and
+decorators, module variables) can multiply the output of dense generated code.
+When a pass that recorded any of them exceeds the file's output limit (32 times
+source bytes plus a fixed allowance, shared with framework and test-name
+enrichment), the file is extracted again without them. It keeps exactly the
+facts the extractor produced before those facts existed and carries the
+non-degrading `optional_facts_omitted` diagnostic, added only when it fits too;
+such a file is not reported as degraded.
 
 <details>
 <summary>Details: file-local failures, recoverable partial files, and fatal errors</summary>
@@ -298,6 +353,28 @@ Implemented language-level behavior includes:
   `x.f::<T>(..)` record the function they call (`f`, `a::f`, or `x.f`) rather
   than keeping the type arguments, in direct code and inside macro arguments,
   where the turbofish type arguments publish nothing;
+- PHP compile-time names: statically named class, function, member, and
+  `new` references carry an exact lookup (namespace, `use` aliases, class
+  context) that binds only to the declaration with that qualified name and
+  symbol space, comparing names as PHP does (constants case-sensitive,
+  everything else ASCII case-insensitive), and never falls back to a short
+  name;
+- Pascal scope: calls a file can bind by Pascal's own rules (nested routines,
+  implicit `Self`, in-file types, the file's unit-level routines) resolve
+  within the file, `uses` units resolve by declared unit name, and
+  runtime-library names never bind to a same-named project declaration;
+- Swift and Objective-C: a wildcard import of an external module
+  (`import Foundation`, `#import <UIKit/UIKit.h>`) never vetoes project
+  resolution; an Objective-C keyword send resolves to the one class declaring
+  its full selector, and an unqualified Swift call looks among the enclosing
+  type's methods first;
+- HCL/Terraform addresses (`var.x`, `module.x`, `data.TYPE.NAME`), which
+  resolve by exact qualified name;
+- JavaScript/TypeScript bare value reads of a nested function, class, or
+  component: when another symbol of the file shares the nested declaration's
+  qualified name (an embedded script's file component, for example), the read
+  resolves only by walking its owner's enclosing scopes outward, never by that
+  qualified name, imports, or project names;
 - component/template, Salesforce markup, MyBatis, VB6, properties, Liquid, and
   BG3/Osiris domain semantics;
 - bounded npm/Composer/Cargo package and workspace manifest facts, including
@@ -453,6 +530,9 @@ path alone is not proof of impact.
 Unit/golden tests cover path admission, UTF-8 chunk boundaries, size/cancellation,
 grammar mismatch, malformed syntax, IDs, spans, declarations, references,
 resolution ambiguity, search documents, test routing, and digest stability.
+The per-language [v1 parity oracle](../LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle)
+requires every fact v1.1.33 extracted from each v1 mode's fixture corpus to
+have a per-file v2 counterpart or a ledgered divergence.
 
 The Rust-owned live corpus then proves discovery through PostgreSQL publication
 and ParadeDB search at 1, 2, 4, 8, and 16 workers. Every run must retain:

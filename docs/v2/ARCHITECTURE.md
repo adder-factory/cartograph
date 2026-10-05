@@ -143,7 +143,7 @@ The managed image supplies PostgreSQL 18.6, `pg_search` 0.26.0, and pgvector
 
 ### Migration ledger
 
-The append-only migration ledger currently owns forty-seven versions, recorded
+The append-only migration ledger currently owns forty-eight versions, recorded
 in `schema_migrations`. Each migration attempt is one atomic transaction that
 bounds its own lock waits:
 
@@ -158,10 +158,11 @@ See [troubleshooting](../TROUBLESHOOTING.md#schema-migration-reports-schema_busy
 for recovery.
 
 <details>
-<summary>Details: migrations 23–47</summary>
+<summary>Details: migrations 23–48</summary>
 
 | Migration | Digest admitted | Change |
 | --- | --- | --- |
+| 48 | V21 | Dedicated v1-parity extraction families and v1 per-file facts across languages |
 | 47 | V20 | Rust turbofish calls that name their function |
 | 46 | V19 | Rust references inside macro arguments |
 | 45 | — | Records each ready generation's exact fact counts and source bytes, so status and freshness stop counting fact tables, and keys Git churn/co-change refreshes by their inputs (`history_refreshes`) so an unchanged HEAD reuses stored history |
@@ -279,6 +280,30 @@ live PostgreSQL/ParadeDB COPY, publication, and BM25 evidence. Unknown discovery
 remains fail-closed. Framework and cross-language resolver parity is tracked as
 a distinct release gate rather than being inferred from language admission.
 
+Each mode has exactly one extraction strategy, registered in
+`crates/cartograph-extract/src/language.rs`:
+
+- grammar-backed dedicated families: JavaScript/TypeScript, Rust/Python/Go,
+  C-family, shader, Ada/VHDL, shell, managed (Java/C#), JVM-dynamic, and the
+  v1-parity families for PHP, Pascal/Delphi, Objective-C, Swift, Dart, F#,
+  ArkTS, Astro, Ruby, Lua/Luau/KHN, R, Nix, Clojure/Common Lisp, Lean,
+  ReScript, Solidity, VB.NET, Apex, and HCL/Terraform;
+- tags queries (Elixir, Haskell, Julia, OCaml, Verilog), the conservative
+  generic walker (ABAP, GraphQL, HTML, Prisma, SQL, YAML), and parser-only
+  documents;
+- bounded custom scanners, including the Vue and Svelte hosts, whose script
+  regions run through the JavaScript/TypeScript walker over exact host
+  positions.
+
+The [coverage report](../LANGUAGE-COVERAGE-REPORT.md#strategy-families) lists
+every mode's strategy. Its per-language
+[v1 parity oracle](../LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle) requires
+every per-file fact v1.1.33 extracted from each v1 mode's fixture corpus to
+have a v2 counterpart or a ledgered divergence, so extraction depth cannot
+silently fall below v1. The V21 generation-digest contract (migration 48)
+fences these families, so generations from older binaries report stale once
+and republish.
+
 For each admitted file:
 
 ```text
@@ -299,7 +324,7 @@ not prove. It never stores the source expression or literal. Static heuristic
 evidence is not relabeled as a runtime observation or formal proof;
 `cartograph_numerical`, status, and numerical review report observation and
 formal adapters as `not_configured`. Generations recorded under an older digest
-contract (anything before the current V20) remain explicitly stale until an
+contract (anything before the current V21) remain explicitly stale until an
 ordinary index republishes them; for generations older than V7, which predate
 numerical sites, that republication is also what publishes numerical evidence.
 
@@ -437,7 +462,7 @@ batch-local validation uses the same field contract, global conflicts and edge
 multiplicity are reduced under database constraints, and each canonical
 partition group proves its file/symbol/span cross-relations before its raw
 evidence is removed. The durable completed phase makes a redundant final
-generation-wide relation scan unnecessary. The V20 digest is streamed as exact
+generation-wide relation scan unnecessary. The V21 digest is streamed as exact
 canonical row bytes in the memory reducer's table/key order. Centrality uses
 the same pre-dedup calls/reference graph and is patched onto fenced raw symbols
 before sealing. Exact batch replay and the canonical cursor make an interrupted

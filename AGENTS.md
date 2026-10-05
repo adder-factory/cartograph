@@ -476,6 +476,18 @@ cargo test --locked --workspace --all-features
 cargo deny --all-features check
 ```
 
+`cargo test` includes the per-language v1 parity oracle
+(`crates/cartograph-extract/tests/v1_parity_oracle.rs`). A change that drops a
+fact v1.1.33 extracted from a v1 mode's fixture corpus must fix it or record it
+in `crates/cartograph-extract/tests/fixtures/v1_parity/divergences.json` as
+`pending` (with its gap id and wave) or `intentional` (with a reason); stale
+ledger entries fail too. The fixture oracles are regenerated only by
+`scripts/capture-v1-parity-oracle.sh`, which is maintainer-only: it needs the
+v1.1.33 darwin-arm64 release binary, verified against that release's
+`SHA256SUMS`, and runs it with an isolated `HOME`. The v2 product, its tests,
+and CI never run that binary. See
+[the coverage report](docs/LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle).
+
 These gates use the exact stable toolchain in `rust-toolchain.toml`. Do not use
 nightly-only tools or diagnostic overrides to clear them. A separate scheduled
 latest-stable canary detects future compiler and Clippy changes without making

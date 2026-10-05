@@ -15,6 +15,8 @@ adding a language, resolver, framework fact, or cross-language bridge.
 
 **On this page:** [Choose a mechanism](#choose-the-smallest-correct-mechanism) ·
 [Native language checklist](#native-language-checklist) ·
+[Dedicated families](#dedicated-extraction-families) ·
+[v1 parity oracle](#8-v1-parity-oracle) ·
 [Framework facts and bridges](#framework-facts-and-bridges) ·
 [Silent-failure traps](#silent-failure-traps) ·
 [Required gates](#required-gates)
@@ -24,6 +26,8 @@ adding a language, resolver, framework fact, or cross-language bridge.
 | Graph gap | Mechanism |
 | --- | --- |
 | Syntax/declarations/references from a new grammar | Native language slice |
+| An existing language that the generic walker covers too thinly | Dedicated extraction family (see [Dedicated extraction families](#dedicated-extraction-families)) |
+| Script regions embedded in a host file (component frontmatter, `<script>` blocks, template expressions) | Embedded-script regions walked by an existing family (`walk/embedded_script.rs`) |
 | Another extension using identical syntax/semantics | Existing language slice plus extension mapping |
 | Import/package/receiver resolution inside one language | Deterministic language resolver |
 | Literal route, command, resource, or component declaration | Framework fact extraction after explicit detection |
@@ -63,7 +67,9 @@ Work through these steps in order. Each links to the detailed rules below.
    `fallback_strategy`). See [§3](#3-grammar-registration).
 6. **Walker or scanner.** Extend `crates/cartograph-extract/src/walk.rs` and
    `walk/`, or add a bounded scanner in `crates/cartograph-extract/src/custom.rs`
-   / `custom/`. See [§4](#4-declarations-and-references).
+   / `custom/`. A language that needs its own walker gets a
+   [dedicated extraction family](#dedicated-extraction-families). See
+   [§4](#4-declarations-and-references).
 7. **Resolution.** Add deterministic module/name rules in
    `crates/cartograph-indexer/src/native_pipeline.rs`.
    See [§5](#5-resolution).
@@ -71,10 +77,17 @@ Work through these steps in order. Each links to the detailed rules below.
 9. **Import and freshness.** Update importer preflight in
    `crates/cartograph-db/src/v1_import.rs` and the live cutover tests.
    See [§7](#7-import-and-freshness-boundary).
-10. **Documentation.** Update [`SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md), the
+10. **v1 parity.** For a v1.1.33 mode, keep the v1 parity oracle green: fix
+    every v1 fact the change drops, or ledger it as `pending` (with its gap id
+    and wave) or `intentional` (with a reason). See
+    [§8](#8-v1-parity-oracle).
+11. **Generation contract.** When the change alters the facts an existing
+    language publishes, add a new generation-digest contract and its
+    migration. See [§9](#9-generation-digest-contract).
+12. **Documentation.** Update [`SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md), the
     [coverage report](LANGUAGE-COVERAGE-REPORT.md), and `ACKNOWLEDGEMENTS.md`
     when a grammar is added.
-11. **Gates.** Run the [required gates](#required-gates).
+13. **Gates.** Run the [required gates](#required-gates).
 
 ### 1. Stable language identity
 
@@ -179,6 +192,51 @@ and never label static syntax as observed or formally proven behavior.
 
 </details>
 
+A grammar-backed mode can also hand specific files to a bounded scanner:
+`custom::scans_snapshot` in `custom.rs` routes Delphi `.dfm` / `.fmx` form
+files, which belong to the Pascal mode, to `custom/pascal_form.rs`.
+
+### Dedicated extraction families
+
+When the generic structural walker covers a language too thinly, give it a
+dedicated family rather than adding language branches to `generic_family.rs`.
+`AdaFamily` (Ada and VHDL) is the precedent, and the v1-parity families (PHP,
+Pascal, Objective-C, Swift, Dart, F#, ArkTS, Ruby, Lua, R, Nix, Lisp, Lean,
+ReScript, Solidity, VB.NET, Apex, HCL, Astro) follow it:
+
+1. **Strategy.** Add an `ExtractionStrategy` variant in
+   `crates/cartograph-extract/src/language.rs`, list it in `is_executable`, and
+   map the language to it in `grammar_strategy` (removing it from
+   `fallback_strategy`).
+2. **Walker family.** In `crates/cartograph-extract/src/walk.rs`, add an
+   `ExtractionFamily` variant, map the language to it (a language list such as
+   `ADA_LANGUAGES` checked in `extraction_family`, or an arm in
+   `single_language_family`), and remove the language from
+   `GENERIC_LANGUAGES`.
+3. **Family slice.** Register the family's entry points in one of the
+   `family_slice_*` lookups. A module that exposes
+   `visit_declaration(builder, node, depth) -> Result<bool, ExtractError>` and
+   `capture_usage(builder, node) -> Result<(), ExtractError>` uses the
+   `usage_family_slice!(module)` macro, whose usage pass records the module's
+   own usage facts before visiting the node's children. A family whose usage
+   pass only visits children (Pascal, HCL, Lisp, Lean, Astro) writes its
+   `FamilySlice` by hand.
+4. **Module.** Implement the family in `walk/<language>_family.rs` (or a
+   directory module for larger families). Reuse the shared helpers:
+   `walk/family_support.rs` for declaration emission (Lisp, Lean, ReScript,
+   Solidity) and `walk/script_support.rs` for load-style imports (Ruby, Lua,
+   R, Nix). Per-walk family state belongs in one builder slot (the scripting
+   families share `ScriptState`), not in globals.
+5. **Tests.** Add a focused suite under `crates/cartograph-extract/tests/`
+   (for example `ada_family.rs`), keep the [v1 parity oracle](#8-v1-parity-oracle)
+   green for a v1 mode, and update any frozen indexer digest the new facts
+   move.
+
+A family that only adds constructs to an existing walker can delegate to it:
+Apex runs the managed (Java) family, Objective-C delegates its C subset to the
+C family, ArkTS runs the JavaScript-family walker, and Solidity extends the
+generic walker.
+
 ### 5. Resolution
 
 Resolution must be deterministic and module-aware. Prefer exact module/path and
@@ -209,6 +267,48 @@ include in its complete source revision. Update importer preflight and live
 cutover tests when expanding support. Otherwise an imported generation could
 appear fresh while unsupported files change or disappear on the next index.
 
+### 8. v1 parity oracle
+
+Every v1.1.33 mode has a fixture corpus and the facts the real v1.1.33 binary
+extracted from it, and `crates/cartograph-extract/tests/v1_parity_oracle.rs`
+(part of `cargo test`) requires each of those facts to have a per-file v2
+counterpart. A change to a v1 mode's extraction must keep it green:
+
+- **Fix** a v1 fact the change drops whenever v2 should reproduce it.
+- **Or ledger it** in `tests/fixtures/v1_parity/divergences.json` with
+  `status` `pending` (and its audit `gap` id and `wave`) or `intentional`
+  (with a `reason` explaining why v2 deliberately differs).
+- **Remove stale entries.** A ledger entry whose fact now matches fails the
+  test, so a fix deletes its entries in the same change.
+
+```sh
+cargo test --locked -p cartograph-extract --test v1_parity_oracle
+```
+
+When a corpus changes, regenerate its oracle document with the maintainer-only
+`scripts/capture-v1-parity-oracle.sh`, which needs the verified v1.1.33
+release binary; never hand-edit `expected/<mode>.json`. The full rules,
+failure modes, and regeneration loop are in the
+[coverage report](LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle).
+
+### 9. Generation-digest contract
+
+Generation freshness includes the native generation-digest contract, so a
+change to the facts an existing language publishes needs a new contract;
+otherwise an unchanged checkout keeps reporting fresh with the old facts. The
+V21 contract (migration 48) is the latest example:
+
+- add the `GenerationDigestVersion` variant and move `CURRENT` in
+  `crates/cartograph-domain/src/lib.rs`;
+- add its digest domain in `crates/cartograph-db/src/ingest/digest.rs`;
+- add a migration in `crates/cartograph-db/src/migrations.rs` that widens
+  `index_generations_digest_version_check`, with its pinned checksum;
+- update the frozen digests in `crates/cartograph-indexer/src/native_pipeline.rs`
+  and the live fixtures that pin the schema version;
+- record the contract in the
+  [native extraction contract history](v2/EXTRACTION.md#complete-source-revision)
+  and the [migration ledger](v2/ARCHITECTURE.md#migration-ledger).
+
 ## Framework facts and bridges
 
 Framework extraction runs only after an explicit, deterministic detection
@@ -235,6 +335,9 @@ A cross-language bridge consumes existing facts from both languages. It must:
 | --- | --- |
 | Extension mapped but grammar selection missing | Discovery succeeds and parse fails for every file. |
 | Grammar selected but walker dispatch missing | Files look successfully empty. |
+| Dedicated strategy registered, but the language left in `GENERIC_LANGUAGES` in `walk.rs` | The generic walker keeps running and the new family never executes. |
+| Extraction output changed without a new generation-digest contract | Unchanged checkouts keep reporting fresh with the previous facts. |
+| v1 fact dropped, or a fixed gap left in the parity ledger | `v1_parity_oracle` fails with an unledgered or stale fact. |
 | Non-game language registered in neither `grammar_strategy` nor `fallback_strategy` | Building its `LanguageSpec` panics with `game scripting registry drifted`. |
 | Declarations added without search documents | Exact graph exists but BM25 cannot find it. |
 | Resolver uses global name-only matching | Private same-name symbols acquire false edges. |
@@ -252,6 +355,9 @@ cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked -p cartograph-domain -p cartograph-extract -p cartograph-indexer
 ```
+
+The `cartograph-extract` tests include the
+[v1 parity oracle](#8-v1-parity-oracle).
 
 Then run the live native-corpus supervisor and 1/2/4/8/16-worker benchmark from
 `.github/workflows/v2-rust.yml`. The locked corpus must retain identical logical

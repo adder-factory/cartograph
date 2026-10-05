@@ -410,7 +410,11 @@ modes use bounded Rust structural scanners.
 Every admitted mode must prove deterministic facts, cancellation, literal
 safety, parallel-worker identity, and live PostgreSQL/ParadeDB publication.
 Unknown extensions are excluded rather than represented as a misleading empty
-graph.
+graph. For each of the 73 v1 modes, a per-language
+[v1 parity oracle](docs/LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle) checks
+v2's extraction against the facts the real v1.1.33 binary extracted from the
+same fixture corpus and fails on any fact that has neither a v2 counterpart nor
+a pending or intentional ledger entry.
 
 [Language support matrix](docs/SUPPORT-MATRIX.md) ·
 [Game scripting coverage](docs/v2/GAME-SCRIPTING-LANGUAGES.md) ·
