@@ -1,4 +1,5 @@
 mod pascal_resolution;
+mod php_resolution;
 mod scip_spill;
 mod script_modules;
 
@@ -38,7 +39,7 @@ use cartograph_extract::{
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
     EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ImportBindingKind, MAXIMUM_AST_DEPTH,
-    MINIMUM_AST_DEPTH, NativeExtractor, RUST_MACRO_RESOLUTION_PREFIX,
+    MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
     RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
     SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
     TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
@@ -5226,6 +5227,7 @@ struct ResolutionIndex {
     re_exports: Vec<ProjectReExport>,
     rust_named_re_exports: Vec<RustNamedReExport>,
     test_files: Vec<TestFileEvidence>,
+    php: php_resolution::PhpResolutionIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -10376,6 +10378,14 @@ where
             index_project_export(&mut index.exports, symbol, budget)?;
         }
     }
+    php_resolution::index_file(
+        php_resolution::PhpFileIndexInput {
+            index: &mut index.php,
+            file,
+            budget,
+        },
+        cancelled,
+    )?;
     index_project_reexports(index, file, budget)
 }
 
@@ -10818,6 +10828,7 @@ struct ReferenceLookup<'reference> {
     rust_macro_name: Option<&'reference str>,
     type_query_value_name: Option<&'reference str>,
     embedded_sql: Option<EmbeddedSqlLookup<'reference>>,
+    php_exact: Option<php_resolution::PhpExactLookup<'reference>>,
     lookup_name: &'reference str,
 }
 
@@ -10833,11 +10844,15 @@ impl<'reference> ReferenceLookup<'reference> {
         let type_query_value_name =
             resolution_name.and_then(|name| name.strip_prefix(TYPE_QUERY_VALUE_RESOLUTION_PREFIX));
         let embedded_sql = embedded_sql_lookup(resolution_name);
+        let php_exact = resolution_name
+            .and_then(|name| name.strip_prefix(PHP_EXACT_RESOLUTION_PREFIX))
+            .and_then(php_resolution::PhpExactLookup::parse);
         let lookup_name = rust_self_receiver_name
             .or(dynamic_dispatch_name)
             .or(rust_macro_name)
             .or(type_query_value_name)
             .or_else(|| embedded_sql.as_ref().map(|lookup| lookup.table))
+            .or_else(|| php_exact.map(php_resolution::PhpExactLookup::key))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
         Self {
             dynamic_dispatch_name,
@@ -10845,6 +10860,7 @@ impl<'reference> ReferenceLookup<'reference> {
             rust_macro_name,
             type_query_value_name,
             embedded_sql,
+            php_exact,
             lookup_name,
         }
     }
@@ -11041,13 +11057,22 @@ impl ResolutionOutput<'_> {
             rust_macro_name,
             type_query_value_name,
             embedded_sql,
+            php_exact,
             lookup_name,
         } = lookup;
-        let import_bindings = import_binding_scratch.select(context.import_bindings, lookup_name);
         let mut resolution = if rust_macro_name.is_some() {
             ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
         } else if let Some(lookup) = embedded_sql {
             resolve_embedded_sql(self.index, lookup, cancelled)?
+        } else if let Some(lookup) = php_exact {
+            php_resolution::resolve_exact(
+                self.index,
+                php_resolution::PhpExactRequest {
+                    file_id: &context.identity.file_id,
+                    lookup,
+                },
+                cancelled,
+            )?
         } else {
             resolve_reference_or_source_name(
                 self.index,
@@ -11056,7 +11081,8 @@ impl ResolutionOutput<'_> {
                         file_id: &context.identity.file_id,
                         file_path: &context.identity.path,
                         language: &context.identity.language,
-                        import_bindings,
+                        import_bindings: import_binding_scratch
+                            .select(context.import_bindings, lookup_name),
                         owner: reference.owner.as_ref(),
                         name: lookup_name,
                         dispatch: if rust_self_receiver_name.is_some() {
@@ -13410,6 +13436,17 @@ where
         ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
         ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
     };
+    if reference.language == SourceLanguage::Php.as_str() {
+        return php_resolution::resolve_use_binding(
+            php_resolution::PhpUseBinding {
+                index,
+                reference,
+                binding,
+                site,
+            },
+            cancelled,
+        );
+    }
     if imported_name.is_empty() {
         return Ok(ImportResolution::Unresolved);
     }
@@ -16318,6 +16355,7 @@ fn usize_to_u64(value: usize) -> u64 {
 mod tests {
     mod polyglot_parity;
     mod pascal_units;
+    mod php_namespaces;
     mod rust_receivers;
     mod script_modules;
 
@@ -19601,7 +19639,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let controller = capability_symbol(
             &forward,
             "app/Http/Controllers/OrderController.php",
-            "OrderController",
+            "App\\Http\\Controllers::OrderController",
         );
         let index =
             CapabilitySymbolQuery::new(&forward, "app/Http/Controllers/OrderController.php")

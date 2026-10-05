@@ -45,6 +45,26 @@ pub const TYPE_QUERY_VALUE_RESOLUTION_PREFIX: &str = "cartograph.type-query-valu
 #[doc(hidden)]
 pub const EMBEDDED_SQL_RESOLUTION_PREFIX: &str = "cartograph.embedded-sql::";
 
+/// Internal lookup marker for a PHP name the extractor resolved at compile time.
+///
+/// The suffix is `<intent>::<key>`: the intent (`class`, `function`, `function-fallback`,
+/// `member`, or `constant`) names the PHP symbol space (`adapted-class` is `class` for a trait
+/// used with an `as`/`insteadof` adaptation block), and the key is the exact candidate
+/// qualified name (`App\Models::User::find`). The persisted reference keeps the
+/// source-visible name; the indexer resolves the key by exact qualified name only and never
+/// falls back to short-name matching. `function-fallback` additionally tries the global
+/// function when no namespaced function of that name exists, as PHP does at runtime.
+/// `dispatch-class` and `dispatch-member` name the declaration in the statically known class
+/// of `static::` or `$this->`, which runtime dispatch can replace; `returned-member` keys
+/// `Class::factory::member` name a factory method and the member called on the object it
+/// returns, followed only through the factory's declared return type (`own-returned-member`
+/// when the call is inside the factory's own class, so a non-public factory is accessible);
+/// and `abstain` marks a
+/// static name whose target cannot be determined exactly. Class, function, and method names
+/// match ignoring ASCII case, as in PHP; constant names match exactly.
+#[doc(hidden)]
+pub const PHP_EXACT_RESOLUTION_PREFIX: &str = "cartograph.php-exact::";
+
 /// Complete storage-independent output for one native source-file extraction.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedFile {

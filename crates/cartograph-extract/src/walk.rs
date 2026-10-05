@@ -41,6 +41,7 @@ mod numerical;
 mod optional_facts;
 mod pascal_family;
 mod objc_family;
+mod php_family;
 mod polyglot;
 mod prisma_family;
 mod r_family;
@@ -400,6 +401,8 @@ struct ExtractionBuilder<'source, 'cancel> {
     optional_facts: OptionalFactGate,
     /// Per-file lookup state of the polyglot walk.
     polyglot: polyglot::PolyglotIndex,
+    /// PHP compile-time name-resolution state (namespace, `use` aliases, class context).
+    php: php_family::PhpScope,
 }
 
 fn visit_container(
@@ -877,6 +880,7 @@ enum ExtractionFamily {
     Pascal,
     Objc,
     Swift,
+    Php,
     Shader,
     Shell,
     C,
@@ -923,7 +927,6 @@ const GENERIC_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Abap,
     SourceLanguage::Astro,
     SourceLanguage::Html,
-    SourceLanguage::Php,
     SourceLanguage::Yaml,
 ];
 const POLYGLOT_LANGUAGES: &[SourceLanguage] = &[
@@ -1029,6 +1032,13 @@ const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice
             visit_declaration: swift_family::visit_declaration,
             visit_usage: |builder, node, depth| {
                 swift_family::capture_usage(builder, node)?;
+                builder.visit_named_children(node, depth)
+            },
+        },
+        ExtractionFamily::Php => FamilySlice {
+            visit_declaration: php_family::visit_declaration,
+            visit_usage: |builder, node, depth| {
+                php_family::capture_usage(builder, node)?;
                 builder.visit_named_children(node, depth)
             },
         },
@@ -1196,6 +1206,7 @@ fn extraction_family(language: SourceLanguage) -> ExtractionFamily {
             SourceLanguage::ObjectiveC => ExtractionFamily::Objc,
             SourceLanguage::Swift => ExtractionFamily::Swift,
             SourceLanguage::Wesl | SourceLanguage::Wgsl => ExtractionFamily::Shader,
+            SourceLanguage::Php => ExtractionFamily::Php,
             SourceLanguage::Prisma => ExtractionFamily::Prisma,
             SourceLanguage::Ruby => ExtractionFamily::Ruby,
             SourceLanguage::R => ExtractionFamily::R,
@@ -1440,6 +1451,7 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             shortened_canonical_names: false,
             optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),
             polyglot: polyglot::PolyglotIndex::default(),
+            php: php_family::PhpScope::default(),
         })
     }
 

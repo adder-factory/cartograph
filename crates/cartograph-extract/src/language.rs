@@ -60,6 +60,9 @@ pub enum ExtractionStrategy {
     ObjcFamily,
     /// Swift type kinds, members, visibility, and parameter/return type references.
     SwiftFamily,
+    /// PHP declarations, namespace `use` imports, literal includes, and
+    /// compile-time-resolved class, member, and static call references.
+    PhpFamily,
     /// Grammar-backed conservative structural extraction for the remaining v1 language modes.
     GenericStructural,
     /// Bounded native scanners for custom, mixed-markup, and domain-specific v1 modes.
@@ -99,6 +102,7 @@ impl ExtractionStrategy {
                 | Self::PascalFamily
                 | Self::ObjcFamily
                 | Self::SwiftFamily
+                | Self::PhpFamily
                 | Self::GenericStructural
                 | Self::CustomStructural
         )
@@ -205,6 +209,7 @@ const fn grammar_strategy(language: SourceLanguage) -> Option<ExtractionStrategy
         SourceLanguage::Pascal => Some(ExtractionStrategy::PascalFamily),
         SourceLanguage::ObjectiveC => Some(ExtractionStrategy::ObjcFamily),
         SourceLanguage::Swift => Some(ExtractionStrategy::SwiftFamily),
+        SourceLanguage::Php => Some(ExtractionStrategy::PhpFamily),
         SourceLanguage::Bash
         | SourceLanguage::Fish
         | SourceLanguage::PowerShell
@@ -223,7 +228,6 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
         | SourceLanguage::Astro
         | SourceLanguage::GraphQl
         | SourceLanguage::Html
-        | SourceLanguage::Php
         | SourceLanguage::Prisma
         | SourceLanguage::Sql
         | SourceLanguage::Yaml => ExtractionStrategy::GenericStructural,
@@ -290,6 +294,7 @@ mod tests {
             SourceLanguage::Groovy,
             SourceLanguage::VbNet,
             SourceLanguage::Apex,
+            SourceLanguage::Php,
         ] {
             assert!(
                 LanguageSpec::for_language(language)
