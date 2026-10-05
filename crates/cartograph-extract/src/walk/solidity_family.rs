@@ -1,11 +1,12 @@
 //! Solidity contract-member extraction.
 //!
 //! Contracts, interfaces, structs, enums, events, inheritance, calls, and
-//! import references stay with the generic structural walker. This family adds
-//! what the generic walker cannot see: functions and modifiers as contract
-//! methods with visibility and literal-free signatures, special callables,
-//! enum values, struct members and state variables as fields, and pragma and
-//! import declarations.
+//! imports (their `Imports` references, bindings, and credential-screened
+//! `Import` declarations) stay with the generic structural walker. This family
+//! adds what the generic walker cannot see: functions and modifiers as contract
+//! methods with visibility and literal-free signatures, special callables, enum
+//! values, struct members and state variables as fields, and pragma
+//! declarations.
 
 use cartograph_domain::{ReferenceKind, SymbolId, SymbolKind, Visibility};
 use tree_sitter::Node;
@@ -20,7 +21,7 @@ use super::{
         literal_free_signature, register_scope_key, source_text, visit_in_scope,
     },
     generic_family,
-    syntax::{children, descendants, named_children, span_for, unquote},
+    syntax::{children, descendants, named_children, span_for},
 };
 
 /// Owner kinds whose callables are methods rather than free functions.
@@ -58,10 +59,6 @@ pub(super) fn visit_declaration(
         "enum_value" => visit_enum_value(builder, node)?,
         "struct_member" | "state_variable_declaration" => visit_field(builder, node, depth)?,
         "pragma_directive" => visit_pragma(builder, node)?,
-        "import_directive" => {
-            visit_import(builder, node)?;
-            false
-        }
         _ => false,
     };
     if handled {
@@ -528,20 +525,4 @@ fn visit_pragma(
         emit_import_symbol(builder, node, name)?;
     }
     Ok(true)
-}
-
-/// Record the imported path as an import declaration; the generic walker then
-/// emits the `Imports` reference and its binding.
-fn visit_import(
-    builder: &mut ExtractionBuilder<'_, '_>,
-    node: Node<'_>,
-) -> Result<(), ExtractError> {
-    let Some(source) = node.child_by_field_name("source") else {
-        return Ok(());
-    };
-    if let Some(path) = bounded_name(unquote(builder.context.text(source))) {
-        let path = builder.context.copy_text(path)?;
-        emit_import_symbol(builder, source, path)?;
-    }
-    Ok(())
 }
