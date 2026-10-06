@@ -16720,6 +16720,7 @@ mod tests {
     mod polyglot_parity;
     mod rust_receivers;
     mod script_modules;
+    mod v1_resolution_oracle;
 
     use std::assert_matches;
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};

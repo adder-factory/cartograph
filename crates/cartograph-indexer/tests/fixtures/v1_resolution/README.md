@@ -1,0 +1,157 @@
+# Frozen v1 resolved-target oracle
+
+This is the index-time counterpart of
+`cartograph-extract/tests/v1_parity_oracle.rs`. The test module is
+`cartograph-indexer/src/native_pipeline/tests/v1_resolution_oracle.rs`, registered
+inside `native_pipeline::tests` so it can use the production private resolver and
+canonical reduction boundary. There is no shipped test API, database, legacy
+binary invocation, network operation or new source corpus.
+
+The input is all 73 immutable v1.1.33 corpora and captures under
+`cartograph-extract/tests/fixtures/v1_parity/`. A length-framed BLAKE3 seal fixes
+all corpus paths, source bytes and capture bytes. Provenance, membership, the
+8,231 original records, and 1,730 non-containment resolution records are checked.
+Six repeated edges share dispositions, leaving 1,724 distinct selectors.
+
+## Exact evidence
+
+A unique frozen owner and target declaration supply exact kind, fully qualified
+name and declaration start. Target file is always part of identity. File roots
+use their exact relative path at line 1. A captured occurrence line is mandatory
+when present. Native evidence is an actual canonical graph edge; its recorded
+sites must come from references with the same resolved source, target and edge
+kind. The production `Inherits` to graph-kind conversion is retained when
+projecting reference sites. Unresolved reference names never carry a target.
+
+Native keys retain both endpoint end lines for explicit canonical pins. Identity
+omits only those end lines and still requires uniquely readable declarations.
+Native key collisions are retained; no nearest name, suffix, proximity or runtime
+alignment inference participates in matching. Diagnostic suggestions are limited
+to three same-file pins. Alignments are literal conjunctive pins with evidence;
+corrected v1 misresolutions are intentional exclusions with source evidence.
+
+The oracle owns its alignment/ledger/reason tables. Existing extraction S/R pins
+were inspected to establish declaration and owner correspondences when authoring
+these rows; the test never reads extraction policy to guess a resolved target.
+In particular, MyBatis extraction scope exclusions are checked as real resolved
+relationships here. All six captured `tests` edges match exact targets.
+
+`alignments.jsonl` and `divergences.jsonl` each store one typed `Row` per line.
+An alignment has `status: aligned`, canonical `pins`, and a reason `id`.
+A divergence is `pending` with wave 2/3 and a gap ID, or `intentional` with a
+reason ID. `reasons.jsonl` stores each explanation once. Existing Wave 2 IDs come
+from `wave2-tracks.json`; newly named resolution gaps and Wave 3 extraction or
+representation gaps are documented in the reason table.
+
+Hygiene rejects absent captured selectors, duplicate dispositions, empty or
+undefined evidence, unused reasons, wrong waves, empty/duplicate/overlapping
+pins, ambiguous pins, and redundant policy rows after an exact identity succeeds.
+Frozen ambiguous endpoints require their specific ambiguity reason and cannot
+be aligned. `gate_cases.jsonl` exercises these rules through the same gate.
+
+## Running and updating
+
+```sh
+cargo test --locked -p cartograph-indexer --lib v1_resolution_oracle -- --nocapture
+# Read-only inventory of frozen selectors, resolved graph pins and native facts:
+cargo test --locked -p cartograph-indexer --lib v1_resolution_oracle::resolution_inventory -- --ignored --nocapture
+```
+
+A resolver fix makes a corresponding pending/aligned row fail as stale when exact
+identity succeeds. Remove that row and any now-unused reason. For a genuine shape
+difference, inspect source, captured declarations, reference sites and the real
+native resolved edge, then record complete canonical pins. Do not change captures
+or the corpus seal, widen matching, or convert a corrected target into parity.
+
+## Measurement at base `e820b5ea` for the v2.1.41 Wave 2 work
+
+| Disposition | Distinct facts |
+| --- | ---: |
+| Matched exactly | 517 |
+| Aligned by exact pins | 243 |
+| Pending Wave 2 | 655 |
+| Pending Wave 3 | 178 |
+| Intentional | 131 |
+| Total | 1,724 |
+
+Intentional facts include 57 captures without a unique target declaration and one
+without a unique owner. A passing oracle means every fact is accounted for; 833
+facts remain pending. It does not assert complete resolution parity.
+
+Mutation testing samples one carried edge per corpus/kind/disposition, preferring
+cross-file cases. It deletes or retargets the real native `EdgeInput`, reprojects
+the graph and requires a failure for that specific original fact using the same
+committed policy. At this base all **422/422** mutants failed (100% kill rate):
+211 sampled edges, including 104 cross-file and 79 aligned edges. The 33 small
+gate cases additionally cover target-file/name substitutions, wrong kinds/owners,
+missing sites, readable collisions, conjunctive pins and ledger hygiene.
+
+The pending inventory below lists every gap, sorted by fact count and gap ID.
+
+| Gap ID | Wave | Pending facts |
+| --- | ---: | ---: |
+| `external-import-node-fallback` | 2 | 254 |
+| `project-import-node-target-representation` | 3 | 93 |
+| `instance-receiver-member-resolution` | 2 | 48 |
+| `intra-class-receiver-calls` | 2 | 45 |
+| `jvm-wildcard-import-blocks-fallback` | 2 | 36 |
+| `unqualified-project-call-target-resolution` | 2 | 33 |
+| `static-qualified-member-calls` | 2 | 28 |
+| `native-qualified-type-target-resolution` | 2 | 25 |
+| `jvm-explicit-import-resolution` | 2 | 24 |
+| `file-path-references` | 2 | 23 |
+| `drupal-service-target-identity` | 3 | 14 |
+| `module-qualified-call-target-resolution` | 2 | 14 |
+| `rust-workspace-path-target-resolution` | 2 | 14 |
+| `self-def-use-graph-edges` | 3 | 14 |
+| `graphql-extension-target-identity` | 2 | 12 |
+| `python-absolute-imports` | 2 | 10 |
+| `ts-default-public-methods-invisible` | 2 | 10 |
+| `go-package-qualified-target-resolution` | 2 | 9 |
+| `receiver-field-target-resolution` | 2 | 9 |
+| `inherited-receiver-member-resolution` | 2 | 7 |
+| `aura-client-action-target-resolution` | 3 | 6 |
+| `drupal-tag-consumer-direction-and-hooks` | 3 | 6 |
+| `php-qualified-member-resolution` | 2 | 6 |
+| `play-route-handler-resolution` | 2 | 6 |
+| `enum-member-qualified-target-resolution` | 2 | 5 |
+| `native-bridge-physical-target-identity` | 3 | 5 |
+| `dart-imported-constructor-target-resolution` | 2 | 4 |
+| `fabric-native-impl-class-bridge` | 3 | 4 |
+| `mybatis-configuration-class-target-resolution` | 3 | 4 |
+| `tsconfig-extends` | 2 | 4 |
+| `angular-routes-all-objects` | 3 | 3 |
+| `cargo-crate-root-fallbacks` | 2 | 3 |
+| `drupal-routing-handler-keys-and-methods` | 3 | 3 |
+| `php-controller-class-fallback` | 2 | 3 |
+| `python-package-init-resolution` | 2 | 3 |
+| `salesforce-controller-context-normalization` | 2 | 3 |
+| `symfony-yaml-route-files-and-defaults` | 3 | 3 |
+| `aura-client-actions-and-server-action-strings` | 3 | 2 |
+| `codeigniter-route-handler-target-resolution` | 2 | 2 |
+| `component-import-target-identity` | 3 | 2 |
+| `drupal-yaml-handler-forms` | 3 | 2 |
+| `flutter-route-handler-target-identity` | 3 | 2 |
+| `js-framework-name-transform-resolution` | 2 | 2 |
+| `js-workspace-package-imports` | 2 | 2 |
+| `jvm-kotlin-java-cross-language` | 2 | 2 |
+| `lwc-bundle-component-and-template-refs` | 3 | 2 |
+| `lwc-salesforce-apex-imports` | 2 | 2 |
+| `spring-property-injection-target-resolution` | 3 | 2 |
+| `swift-objc-bridge-alias-targets` | 3 | 2 |
+| `codeigniter-loads-and-inferred-resources` | 3 | 1 |
+| `commonjs-callable-import-ownership` | 3 | 1 |
+| `declaration-definition-resolution-preference` | 2 | 1 |
+| `drupal-services-class-refs-resolution` | 3 | 1 |
+| `fabric-view-manager-scan-forms` | 3 | 1 |
+| `flutter-builder-and-map-parsing` | 3 | 1 |
+| `multi-route-per-statement-collapse` | 3 | 1 |
+| `mybatis-template-target-resolution` | 3 | 1 |
+| `python-module-private-members` | 2 | 1 |
+| `qualified-name-suffix-match` | 2 | 1 |
+| `recursive-self-call-edges` | 2 | 1 |
+| `rescript-interface-implementation-target-resolution` | 2 | 1 |
+| `rn-event-channel-gaps` | 3 | 1 |
+| `rn-native-module-scan-forms` | 3 | 1 |
+| `self-resource-reference-edges` | 2 | 1 |
+| `vue-svelte-directory-index-module` | 2 | 1 |
