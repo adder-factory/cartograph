@@ -9,10 +9,14 @@ mod javascript_framework_resolution;
 mod javascript_member_resolution;
 mod javascript_modules;
 mod javascript_packages;
+mod jvm_nested_resolution;
+mod jvm_resolution;
+mod nominal_scope_resolution;
 mod pascal_resolution;
 mod php_resolution;
 mod play_resolution;
 mod python_resolution;
+mod qualified_member_resolution;
 mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
@@ -50,16 +54,17 @@ use cartograph_domain::{
 };
 use cartograph_extract::{
     CloneTokenCount, CloneTokenProfile, Containment, DEFAULT_MAXIMUM_AST_DEPTH,
-    DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
-    EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedCallScopeSite, ExtractedFile,
-    ExtractedImportBinding, ExtractedNumericalSite, ExtractedReference, ImportBindingKind,
-    JavascriptMemberCallContext, JavascriptMemberReceiver, LEXICAL_SCOPE_RESOLUTION_PREFIX,
-    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
-    PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
-    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
-    SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
-    TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
-    native_extractor_contract_digest, native_read_reservation, substitute_module_alias,
+    DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DeclarationSyntax, DiagnosticCode, DiscoveredSource,
+    DiscoveryLimits, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedCallScopeSite,
+    ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite, ExtractedReference,
+    ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
+    LEXICAL_SCOPE_RESOLUTION_PREFIX, MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor,
+    PHP_EXACT_RESOLUTION_PREFIX, PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX,
+    RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
+    SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
+    SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
+    native_extraction_reservation, native_extractor_contract_digest, native_read_reservation,
+    substitute_module_alias,
 };
 use cartograph_scip::{
     ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
@@ -4790,6 +4795,8 @@ struct NativeFileFacts {
     references: Vec<ExtractedReference>,
     call_scope_sites: Vec<ExtractedCallScopeSite>,
     javascript_member_calls: Vec<JavascriptMemberCallContext>,
+    resolution_abstentions: Vec<SourceSpan>,
+    local_type_scopes: Vec<(SourceSpan, SourceSpan)>,
     numerical_sites: Vec<ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
     has_inline_tests: bool,
@@ -4812,6 +4819,8 @@ impl NativeFileFacts {
             references,
             call_scope_sites,
             javascript_member_calls,
+            resolution_abstentions,
+            local_type_scopes,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4841,6 +4850,8 @@ impl NativeFileFacts {
             references,
             call_scope_sites,
             javascript_member_calls,
+            resolution_abstentions,
+            local_type_scopes,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4859,6 +4870,8 @@ impl NativeFileFacts {
                 &self.call_scope_sites,
             ))
             .saturating_add(vector_capacity_bytes(&self.javascript_member_calls))
+            .saturating_add(vector_capacity_bytes(&self.resolution_abstentions))
+            .saturating_add(vector_capacity_bytes(&self.local_type_scopes))
             .saturating_add(vector_capacity_bytes(&self.numerical_sites))
             .saturating_add(vector_capacity_bytes(&self.import_bindings))
             .saturating_add(usize_to_u64(self.test_search_text.capacity()));
@@ -4992,6 +5005,7 @@ fn normalize_native_symbol(
         implementation,
         export,
         execution,
+        declaration_syntax,
         visibility,
         structural_digest,
         clone_shape_digest,
@@ -5029,6 +5043,7 @@ fn normalize_native_symbol(
         implementation,
         export,
         execution,
+        declaration_syntax,
         visibility,
         clone_shape_digest,
         clone_token_profile,
@@ -5056,6 +5071,7 @@ struct NativeSymbolFacts {
     implementation: SymbolImplementationFlags,
     export: SymbolExportFlags,
     execution: SymbolExecutionFlags,
+    declaration_syntax: DeclarationSyntax,
     visibility: Option<Visibility>,
     clone_shape_digest: ContentDigest,
     clone_token_profile: Option<CloneTokenProfile>,
@@ -5130,6 +5146,9 @@ struct ResolutionCandidate {
     export: SymbolExportFlags,
     top_level: bool,
     augmentation: bool,
+    static_member: bool,
+    declaration_syntax: DeclarationSyntax,
+    declaration_span: (u64, u64),
 }
 
 #[derive(Clone)]
@@ -5273,6 +5292,8 @@ struct ResolutionIndex {
     salesforce: salesforce_resolution::SalesforceIndex,
     framework_methods: framework_methods::MethodIndex,
     generic: generic_resolution::GenericResolutionIndex,
+    jvm: jvm_resolution::JvmResolutionIndex,
+    types: qualified_member_resolution::TypeIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -9846,7 +9867,7 @@ where
     }
     order.sort_unstable();
     index.candidate_order = order;
-    Ok(())
+    jvm_resolution::prepare_wildcards(&mut ResolutionIndexTarget { index, budget }, cancelled)
 }
 
 fn ordered_resolution_candidates(
@@ -10368,6 +10389,7 @@ where
         if symbol.input.symbol_kind == "import" {
             continue;
         }
+        qualified_member_resolution::index_type(&mut index.types, symbol, budget)?;
         let parent_symbol_id = index.parents.get(&symbol.input.symbol_id).cloned();
         index_compilation_unit(
             &mut index.modules,
@@ -10379,18 +10401,15 @@ where
             budget,
         )?;
         let visibility = javascript_member_resolution::candidate_visibility(index, symbol);
-        push_symbol_candidates(
-            &mut index.candidates,
-            ResolutionCandidateInsertion {
-                key: &symbol.name,
-                symbol,
-                parent_symbol_id: parent_symbol_id.as_ref(),
-                file_ordinal,
-                language: &file.file.language,
-                visibility,
-            },
-            budget,
-        )?;
+        let insertion = ResolutionCandidateInsertion {
+            key: &symbol.name,
+            symbol,
+            parent_symbol_id: parent_symbol_id.as_ref(),
+            file_ordinal,
+            language: &file.file.language,
+            visibility,
+        };
+        push_symbol_candidates(&mut index.candidates, insertion, budget)?;
         framework_methods::index_method(
             &mut index.framework_methods,
             framework_methods::MethodInput {
@@ -10400,18 +10419,7 @@ where
             },
             budget,
         )?;
-        generic_resolution::index_symbol(
-            &mut index.generic,
-            ResolutionCandidateInsertion {
-                key: &symbol.name,
-                symbol,
-                parent_symbol_id: parent_symbol_id.as_ref(),
-                file_ordinal,
-                language: &file.file.language,
-                visibility,
-            },
-            budget,
-        )?;
+        generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
         if symbol.export.default_export {
             push_default_export(
                 &mut index.default_exports,
@@ -10437,12 +10445,18 @@ where
         },
         cancelled,
     )?;
+    qualified_member_resolution::index_ancestors(index, file, cancelled)?;
     php_resolution::index_file(
         php_resolution::PhpFileIndexInput {
             index: &mut index.php,
             file,
             budget,
         },
+        cancelled,
+    )?;
+    jvm_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
         cancelled,
     )?;
     index_project_reexports(index, file, budget)
@@ -10460,10 +10474,12 @@ fn push_symbol_candidates(
     let qualified_name = insertion.symbol.input.qualified_name.as_str();
     let alias = framework_resolution_alias(insertion.symbol, insertion.language)
         .filter(|alias| *alias != name && *alias != qualified_name);
+    let jvm_alias = jvm_resolution::candidate_alias(insertion)?;
     let keys = [
         Some(name),
         (qualified_name != name).then_some(qualified_name),
         alias,
+        jvm_alias.as_deref(),
     ];
     for key in keys.into_iter().flatten() {
         push_candidate(
@@ -11037,6 +11053,14 @@ where
         reference,
         import_binding_scratch,
     } = query;
+    if jvm_resolution::reference_abstains(index, (&context.identity.file_id, reference.span))
+        || reference
+            .resolution_name
+            .as_deref()
+            .is_some_and(jvm_resolution::syntax_abstention)
+    {
+        return Ok(ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE));
+    }
     let lookup = ReferenceLookup::classify(reference);
     let binding_name =
         javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
@@ -11077,9 +11101,11 @@ where
                     file_id: &context.identity.file_id,
                     file_path: &context.identity.path,
                     language: &context.identity.language,
-                    import_bindings: import_binding_scratch
-                        .select(context.import_bindings, binding_name)
-                        .with_fallback_blocked(lookup.python_import_fenced),
+                    import_bindings: jvm_resolution::select_import_bindings(
+                        (context, &lookup, reference.kind, binding_name),
+                        import_binding_scratch,
+                    )
+                    .with_fallback_blocked(lookup.python_import_fenced),
                     owner: reference.owner.as_ref(),
                     name: lookup.lookup_name,
                     dispatch: lookup.dispatch(),
@@ -11137,6 +11163,8 @@ impl ResolutionOutput<'_> {
             references,
             call_scope_sites: _,
             javascript_member_calls: _,
+            resolution_abstentions: _,
+            local_type_scopes: _,
             numerical_sites,
             import_bindings,
             has_inline_tests: _,
@@ -11307,7 +11335,11 @@ impl ResolutionOutput<'_> {
             && (source_symbol_id != target.symbol_id || recursive_call_target(&reference, target))
             && (target.provenance != generic_resolution::CURRENT_CLASS_PROVENANCE
                 || context.current_receivers.lookup(&reference).is_none())
-            && let Some(edge_kind) = reference_edge_kind(reference.kind, target.kind)
+            && let Some(edge_kind) = reference_edge_kind(
+                reference.kind,
+                target.kind,
+                self.index.types.kind(&source_symbol_id),
+            )
         {
             self.facts.edges.push(EdgeInput {
                 source_symbol_id,
@@ -11819,6 +11851,9 @@ fn push_candidate(
         export: symbol.export,
         top_level: symbol.input.qualified_name == symbol.name,
         augmentation: symbol.augmentation,
+        static_member: symbol.execution.static_member,
+        declaration_syntax: symbol.declaration_syntax,
+        declaration_span: (symbol.input.start_byte, symbol.input.end_byte),
     });
     append_candidate_project_index(bucket, language, reservation)?;
     append_candidate_file_range(bucket, file_ordinal, reservation)
@@ -12050,6 +12085,9 @@ fn push_default_export(
         export: symbol.export,
         top_level: symbol.input.qualified_name == symbol.name,
         augmentation: symbol.augmentation,
+        static_member: symbol.execution.static_member,
+        declaration_syntax: symbol.declaration_syntax,
+        declaration_span: (symbol.input.start_byte, symbol.input.end_byte),
     });
     Ok(())
 }
@@ -12514,6 +12552,12 @@ where
         return Ok(resolution);
     }
     if let Some(resolution) = resolve_terraform_address(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = qualified_member_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = jvm_resolution::resolve_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
@@ -16513,6 +16557,7 @@ fn c_include_family_name(language: &str) -> bool {
 
 fn resolution_languages_compatible(source: &str, target: &str) -> bool {
     source == target
+        || (jvm_resolution::language(source) && jvm_resolution::language(target))
         || (javascript_family_name(source) && javascript_family_name(target))
         || (matches!(source, "svelte" | "vue" | "astro" | "html") && javascript_family_name(target))
         || (javascript_family_name(source) && matches!(target, "svelte" | "vue" | "astro"))
@@ -16612,13 +16657,13 @@ const REFERENCE_EDGE_KINDS: &[(ReferenceKind, EdgeKind)] = &[
     (ReferenceKind::DefUse, EdgeKind::DefUse),
 ];
 
-fn reference_edge_kind(kind: ReferenceKind, target_kind: SymbolKind) -> Option<EdgeKind> {
+fn reference_edge_kind(
+    kind: ReferenceKind,
+    target_kind: SymbolKind,
+    source_kind: Option<SymbolKind>,
+) -> Option<EdgeKind> {
     if kind == ReferenceKind::Inherits {
-        match target_kind {
-            SymbolKind::Interface | SymbolKind::Trait => Some(EdgeKind::Implements),
-            SymbolKind::Class | SymbolKind::Struct => Some(EdgeKind::Extends),
-            _ => None,
-        }
+        qualified_member_resolution::inheritance_edge_kind(target_kind, source_kind)
     } else {
         REFERENCE_EDGE_KINDS
             .iter()
@@ -16870,6 +16915,7 @@ mod tests {
     mod javascript_members;
     mod javascript_modules;
     mod javascript_parity;
+    mod jvm_resolution;
     mod pascal_units;
     mod php_namespaces;
     mod polyglot_parity;
@@ -23742,6 +23788,9 @@ export function secondClone(value: number) {
                     export: SymbolExportFlags::named(true),
                     top_level: true,
                     augmentation: false,
+                    static_member: false,
+                    declaration_syntax: DeclarationSyntax::Other,
+                    declaration_span: (0, 0),
                 }
             })
             .collect::<Vec<_>>();

@@ -44,10 +44,12 @@ mod javascript_scopes;
 mod javascript_state;
 mod javascript_types;
 mod jvm_dynamic_family;
+mod jvm_type_lookup;
 mod lean_family;
 mod lisp_family;
 mod lua_family;
 mod managed_family;
+mod managed_value_lookup;
 mod module_system;
 mod nix_family;
 mod numerical;
@@ -309,6 +311,8 @@ fn finish_extraction(
         references: builder.facts.references,
         call_scope_sites: builder.facts.call_scope_sites,
         javascript_member_calls: builder.facts.javascript_member_calls,
+        resolution_abstentions: builder.facts.resolution_abstentions,
+        local_type_scopes: builder.facts.local_type_scopes,
         numerical_sites: builder.facts.numerical_sites,
         import_bindings: builder.facts.import_bindings,
         has_inline_tests,
@@ -626,6 +630,8 @@ struct ExtractionFacts {
     references: Vec<ExtractedReference>,
     call_scope_sites: Vec<crate::ExtractedCallScopeSite>,
     javascript_member_calls: Vec<crate::JavascriptMemberCallContext>,
+    resolution_abstentions: Vec<cartograph_domain::SourceSpan>,
+    local_type_scopes: Vec<(cartograph_domain::SourceSpan, cartograph_domain::SourceSpan)>,
     numerical_sites: Vec<crate::ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
 }
@@ -1611,6 +1617,10 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
                 async_symbol: pending.async_symbol,
                 static_member: pending.static_member,
             },
+            declaration_syntax: jvm_type_lookup::declaration_syntax((
+                self.context.snapshot.language(),
+                pending.structural_node,
+            )),
             visibility: pending.visibility,
             structural_digest,
             clone_shape_digest,

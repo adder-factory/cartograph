@@ -154,6 +154,42 @@ fn native_bridge_homonyms_cannot_capture_shadowed_import_receivers() {
 }
 
 #[test]
+fn named_import_member_ownership_preserves_receiver_and_complete_path_evidence() {
+    for path in ["src/use.js", "src/use.jsx", "src/use.ts", "src/use.tsx"] {
+        let facts = generation(&[
+            (
+                "src/cache.js",
+                "export class Child { static set() {} } export class Cache { static child = Child; static set() {} }",
+            ),
+            (
+                path,
+                "import { Cache as Builder } from './cache'; export function direct() { Builder.set(); } export function shadowed(Builder) { Builder.set(); } export function chained() { Builder.child.set(); } export function missing() { Builder.missing(); }",
+            ),
+        ]);
+        let owner = capability_symbol(&facts, path, "direct");
+        let target = capability_symbol(&facts, "src/cache.js", "Cache::set");
+        let reference =
+            CapabilityReferenceQuery::new(&facts, owner).named("Builder.set", ReferenceKind::Calls);
+        assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
+        assert_eq!(reference.resolution_provenance, IMPORT_BINDING_PROVENANCE);
+        for (owner, name) in [
+            ("shadowed", "Builder.set"),
+            ("chained", "Builder.child.set"),
+            ("missing", "Builder.missing"),
+        ] {
+            let owner = capability_symbol(&facts, path, owner);
+            let reference =
+                CapabilityReferenceQuery::new(&facts, owner).named(name, ReferenceKind::Calls);
+            assert_eq!(reference.target_symbol_id, None, "{path}: {reference:?}");
+            assert_eq!(
+                reference.resolution_provenance,
+                DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE
+            );
+        }
+    }
+}
+
+#[test]
 fn native_bridge_homonyms_keep_exact_namespace_import_targets() {
     let facts = generation(&[
         EXPO_COLLISION_MODULE,
