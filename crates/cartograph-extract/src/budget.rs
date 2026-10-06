@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use cartograph_domain::SourceSpan;
+
 use crate::{
     Containment, ExtractError, ExtractedCallScopeSite, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
@@ -202,6 +204,16 @@ impl ExtractedFile {
                     .try_fold(bytes, |total, call| {
                         total.checked_add(javascript_call_context_string_bytes(call))
                     })
+            })
+            .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<SourceSpan>(
+                    self.resolution_abstentions.capacity(),
+                ))
+            })
+            .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<(SourceSpan, SourceSpan)>(
+                    self.local_type_scopes.capacity(),
+                ))
             })
             .and_then(|bytes| {
                 bytes.checked_add(vector_bytes::<ExtractedNumericalSite>(

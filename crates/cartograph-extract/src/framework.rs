@@ -587,6 +587,7 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             implementation: SymbolImplementationFlags::default(),
             export: SymbolExportFlags::named(true),
             execution: SymbolExecutionFlags::default(),
+            declaration_syntax: crate::DeclarationSyntax::Other,
             visibility: Some(Visibility::Public),
             clone_shape_digest: structural_digest.clone(),
             structural_digest,

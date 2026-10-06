@@ -121,6 +121,14 @@ pub struct ExtractedFile {
     /// Scope or constructor evidence for JavaScript member calls, keyed by terminal token end.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub javascript_member_calls: Vec<JavascriptMemberCallContext>,
+    /// Syntax-proven value shadows or object declarations that forbid a
+    /// nominal receiver or constructor interpretation at the recorded span.
+    /// Kept separate so source-visible reference lookup identities remain stable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolution_abstentions: Vec<SourceSpan>,
+    /// Java local type declarations paired with their exact enclosing block.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_type_scopes: Vec<(SourceSpan, SourceSpan)>,
     /// Source-ordered, privacy-safe static numerical evidence sites.
     pub numerical_sites: Vec<ExtractedNumericalSite>,
     /// Source-ordered ES module bindings used by project-wide resolution.
@@ -204,6 +212,16 @@ pub struct ExtractedNumericalSite {
     pub unknowns: String,
 }
 
+/// Syntax facts that disambiguate declarations with the same symbol kind and name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeclarationSyntax {
+    /// No declaration-specific syntax is needed for resolution.
+    #[default]
+    Other,
+    /// A Kotlin primary or secondary constructor, rather than a same-named function.
+    KotlinConstructor,
+}
+
 /// One normalized declaration emitted by a native language extractor.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedSymbol {
@@ -236,6 +254,9 @@ pub struct ExtractedSymbol {
     /// Async and static execution modifiers.
     #[serde(flatten)]
     pub execution: SymbolExecutionFlags,
+    /// Syntax-proven declaration category used for resolution.
+    #[serde(default)]
+    pub declaration_syntax: DeclarationSyntax,
     /// Explicit declaration visibility.
     pub visibility: Option<Visibility>,
     /// Whitespace/comment-independent concrete-syntax digest.

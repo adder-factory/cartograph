@@ -156,6 +156,7 @@ fn visit_kotlin_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
+    super::jvm_type_lookup::guard_kotlin_declaration(builder, node)?;
     match node.kind() {
         "package_header" => visit_persistent_namespace(builder, node, None)?,
         "import_header" => visit_kotlin_import(builder, node)?,
@@ -2512,7 +2513,7 @@ fn push_named_reference(
     builder: &mut ExtractionBuilder<'_, '_>,
     pending: PendingReference<'_>,
 ) -> Result<(), ExtractError> {
-    references::push_reference(builder, pending)
+    super::jvm_type_lookup::push_reference(builder, pending)
 }
 
 fn safe_reference_text(

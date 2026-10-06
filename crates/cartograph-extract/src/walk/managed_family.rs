@@ -69,6 +69,7 @@ pub(super) fn visit_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
+    super::jvm_type_lookup::record_java_local_type(builder, node)?;
     match node.kind() {
         "package_declaration" | "file_scoped_namespace_declaration" => {
             visit_persistent_namespace(builder, node)?;
@@ -1453,7 +1454,7 @@ fn capture_call(
     let Some(name) = target else {
         return Ok(());
     };
-    references::push_reference(
+    super::jvm_type_lookup::push_reference(
         builder,
         PendingReference {
             owner: builder.owners.last().cloned(),
@@ -1596,5 +1597,5 @@ fn push_named_reference(
     builder: &mut ExtractionBuilder<'_, '_>,
     reference: PendingReference<'_>,
 ) -> Result<(), ExtractError> {
-    references::push_reference(builder, reference)
+    super::jvm_type_lookup::push_reference(builder, reference)
 }
