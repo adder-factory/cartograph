@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 #[doc(hidden)]
 pub const DYNAMIC_DISPATCH_RESOLUTION_PREFIX: &str = "cartograph.dynamic-dispatch::";
 
+/// A Python use whose file-wide bindings block import fallback, preserving lexical lookup.
+pub const PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX: &str = "cartograph.python-unbound-import::";
+
 /// Internal marker for a Rust macro invocation whose declaration would require expansion.
 ///
 /// The persisted reference keeps the source-visible macro name. The indexer removes this marker

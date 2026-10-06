@@ -1,5 +1,6 @@
 mod pascal_resolution;
 mod php_resolution;
+mod python_resolution;
 mod scip_spill;
 mod script_modules;
 
@@ -40,11 +41,11 @@ use cartograph_extract::{
     EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ImportBindingKind, LEXICAL_SCOPE_RESOLUTION_PREFIX,
     MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
-    RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
-    SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
-    SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
-    native_extraction_reservation, native_extractor_contract_digest, native_read_reservation,
-    substitute_module_alias,
+    PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
+    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
+    SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
+    TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
+    native_extractor_contract_digest, native_read_reservation, substitute_module_alias,
 };
 use cartograph_scip::{
     ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
@@ -5197,6 +5198,7 @@ struct ModulePathIndex {
     files: FileResolutionContextMap,
     rust_packages: RustPackageMap,
     typescript_aliases: TypeScriptAliasIndex,
+    python_source_roots: python_resolution::SourceRootIndex,
 }
 
 #[derive(Default)]
@@ -9742,6 +9744,7 @@ fn finalize_resolution_candidate_order<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     let mut order = Vec::new();
     order
         .try_reserve_exact(index.candidates.len())
@@ -10852,6 +10855,7 @@ impl ImportBindingScratch {
         ImportBindingSelection {
             bindings: index.bindings,
             positions: &self.positions,
+            fallback_blocked: false,
         }
     }
 
@@ -10894,6 +10898,7 @@ fn import_binding_prefixes(reference_name: &str) -> impl Iterator<Item = &str> {
 struct ImportBindingSelection<'a> {
     bindings: &'a [ExtractedImportBinding],
     positions: &'a [usize],
+    fallback_blocked: bool,
 }
 
 impl<'a> ImportBindingSelection<'a> {
@@ -10901,7 +10906,13 @@ impl<'a> ImportBindingSelection<'a> {
         Self {
             bindings: &[],
             positions: &[],
+            fallback_blocked: false,
         }
+    }
+
+    const fn with_fallback_blocked(mut self, blocked: bool) -> Self {
+        self.fallback_blocked = blocked;
+        self
     }
 
     fn iter(self) -> impl Iterator<Item = &'a ExtractedImportBinding> {
@@ -10916,6 +10927,7 @@ impl<'a> ImportBindingSelection<'a> {
 /// A resolver prefix decides which lookup a reference gets, so the prefixes are
 /// stripped once here rather than being re-tested through the resolution path.
 struct ReferenceLookup<'reference> {
+    python_import_fenced: bool,
     dynamic_dispatch_name: Option<&'reference str>,
     rust_self_receiver_name: Option<&'reference str>,
     rust_macro_name: Option<&'reference str>,
@@ -10929,6 +10941,9 @@ struct ReferenceLookup<'reference> {
 impl<'reference> ReferenceLookup<'reference> {
     fn classify(reference: &'reference ExtractedReference) -> Self {
         let resolution_name = reference.resolution_name.as_deref();
+        let fenced_name = resolution_name
+            .and_then(|name| name.strip_prefix(PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX));
+        let resolution_name = fenced_name.or(resolution_name);
         let dynamic_dispatch_name =
             resolution_name.and_then(|name| name.strip_prefix(DYNAMIC_DISPATCH_RESOLUTION_PREFIX));
         let rust_self_receiver_name = resolution_name
@@ -10952,6 +10967,7 @@ impl<'reference> ReferenceLookup<'reference> {
             .or_else(|| php_exact.map(php_resolution::PhpExactLookup::key))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
         Self {
+            python_import_fenced: fenced_name.is_some(),
             dynamic_dispatch_name,
             rust_self_receiver_name,
             rust_macro_name,
@@ -11046,7 +11062,8 @@ where
                     file_path: &context.identity.path,
                     language: &context.identity.language,
                     import_bindings: import_binding_scratch
-                        .select(context.import_bindings, lookup.lookup_name),
+                        .select(context.import_bindings, lookup.lookup_name)
+                        .with_fallback_blocked(lookup.python_import_fenced),
                     owner: reference.owner.as_ref(),
                     name: lookup.lookup_name,
                     dispatch: lookup.dispatch(),
@@ -11550,6 +11567,8 @@ fn directory_module_stem<'a>(language: &str, stem: &'a str) -> Option<&'a str> {
         stem.strip_suffix("/mod")
     } else if javascript_family_name(language) {
         stem.strip_suffix("/index")
+    } else if language == SourceLanguage::Python.as_str() {
+        stem.strip_suffix("/__init__")
     } else {
         None
     };
@@ -12226,6 +12245,9 @@ fn resolve_declaration_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if request.import_bindings.fallback_blocked {
+        return Ok(None);
+    }
     if request.kind == ReferenceKind::Imports
         && request.owner.is_none()
         && let Some(resolution) =
@@ -12235,7 +12257,8 @@ where
     }
     if request.kind == ReferenceKind::Imports
         && request.owner.is_none()
-        && script_modules::binds_loads_exactly(request.language)
+        && (script_modules::binds_loads_exactly(request.language)
+            || request.language == SourceLanguage::Python.as_str())
         && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
             index, request, cancelled,
         )?)
@@ -12442,6 +12465,11 @@ where
     }
     if let Some(target) = resolve_lexical(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
+    }
+    if request.import_bindings.fallback_blocked {
+        return Ok(ReferenceResolution::unresolved(
+            UNRESOLVED_IMPORT_PROVENANCE,
+        ));
     }
     if rust_self_has_local_nominal(index, request, cancelled)? {
         return Ok(ReferenceResolution::unresolved(
@@ -13415,6 +13443,9 @@ where
     if request.kind != ReferenceKind::Imports {
         return Ok(ImportResolution::NotBound);
     }
+    if request.language == SourceLanguage::Python.as_str() {
+        return python_resolution::resolve_module_reference(index, request, cancelled);
+    }
     let mut bound = false;
     let mut matched = None;
     for binding in request.import_bindings.iter() {
@@ -13752,6 +13783,16 @@ where
                 reference,
                 binding,
                 site,
+            },
+            cancelled,
+        );
+    }
+    if reference.language == SourceLanguage::Python.as_str() {
+        return python_resolution::resolve_import(
+            python_resolution::ImportQuery {
+                index,
+                input,
+                binding,
             },
             cancelled,
         );
@@ -14367,6 +14408,11 @@ fn resolve_module_file<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> Option<&'a FileId> {
+    match python_resolution::resolve_module_file(modules, request) {
+        ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
+        ModuleResolutionAttempt::Rejected => return None,
+        ModuleResolutionAttempt::NotMatched => {}
+    }
     match script_modules::resolve_script_module(modules, request) {
         ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
         ModuleResolutionAttempt::Rejected => return None,
@@ -16718,6 +16764,7 @@ mod tests {
     mod pascal_units;
     mod php_namespaces;
     mod polyglot_parity;
+    mod python_imports;
     mod rust_receivers;
     mod script_modules;
     mod v1_resolution_oracle;

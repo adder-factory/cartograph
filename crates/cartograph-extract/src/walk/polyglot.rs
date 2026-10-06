@@ -16,12 +16,14 @@ mod go_named_types;
 mod go_reads;
 mod import_index;
 mod parameter_bindings;
+mod python_import_scopes;
 mod python_members;
 mod qualified_path;
 mod rust_attributes;
 mod rust_members;
 mod rust_reads;
 
+pub(super) use python_import_scopes::fence_import_uses as fence_python_import_uses;
 pub(super) use rust_reads::bound_by_enclosing_scope as rust_constant_bound_by_enclosing_scope;
 mod type_targets;
 

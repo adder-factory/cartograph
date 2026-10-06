@@ -279,6 +279,7 @@ fn finish_extraction(
 ) -> Result<ExtractedFile, ExtractError> {
     let snapshot = builder.context.snapshot;
     let output_limit = builder.context.budget.output_limit();
+    polyglot::fence_python_import_uses(&mut builder, input.root)?;
     let has_inline_tests = has_inline_tests(&mut builder, input.root)?;
     // An embedded script region that failed to parse, or a template
     // expression too deep to walk, leaves a diagnostic even when the host
