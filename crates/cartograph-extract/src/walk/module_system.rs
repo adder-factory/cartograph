@@ -14,6 +14,10 @@ use super::{
 
 /// `import()` takes a specifier and an optional import-attributes object.
 const MAX_DYNAMIC_IMPORT_ARGUMENTS: usize = 2;
+/// Parentheses, assertions, and awaits followed around one dynamic import.
+const MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH: usize = 8;
+/// Members of the promise returned by `import()`, before it is awaited.
+const DYNAMIC_IMPORT_PROMISE_METHODS: [&str; 3] = ["then", "catch", "finally"];
 /// Local name of the binding an inline import type creates. It is not a
 /// JavaScript identifier, so no ordinary reference name equals or extends it.
 const INLINE_IMPORT_TYPE_LOCAL_NAME: &str = "import()";
@@ -27,6 +31,12 @@ struct CommonJsRequire<'tree> {
     call: Node<'tree>,
     selected_member: Option<Node<'tree>>,
     module_specifier: String,
+}
+
+#[derive(Clone, Copy)]
+struct ImportDestructuringInput<'module> {
+    module_specifier: &'module str,
+    excluded_members: &'module [&'module str],
 }
 
 pub(super) struct ExportAlias<'tree> {
@@ -322,7 +332,7 @@ pub(super) fn capture_dynamic_import_binding(
     if !is_javascript_family(builder.context.snapshot.language()) {
         return Ok(());
     }
-    let Some((call, selected_member)) = dynamic_import_binding_shape(value) else {
+    let Some((call, selected_member)) = dynamic_import_binding_shape(builder, value) else {
         return Ok(());
     };
     let Some(source) = dynamic_import_source(builder, call) else {
@@ -349,9 +359,27 @@ pub(super) fn capture_dynamic_import_binding(
             })?;
         }
         "object_pattern" if selected_member.is_none() => {
-            capture_commonjs_destructuring(builder, name_node, &module_specifier)?;
+            capture_import_destructuring(
+                builder,
+                name_node,
+                ImportDestructuringInput {
+                    module_specifier: &module_specifier,
+                    excluded_members: if dynamic_import_is_awaited(call) {
+                        &[]
+                    } else {
+                        &DYNAMIC_IMPORT_PROMISE_METHODS
+                    },
+                },
+            )?;
+            // Static destructuring skips the initializer's ordinary walk, so
+            // retain the module load even when every selected name is excluded.
+            capture_dynamic_import(builder, call)?;
         }
-        _ => {}
+        _ => {
+            // Other patterns also skip their initializer walk once the value
+            // is classified as a static import. Keep its site-level facts.
+            capture_dynamic_import(builder, call)?;
+        }
     }
     Ok(())
 }
@@ -367,13 +395,16 @@ pub(super) fn is_static_module_binding_value(
         .and_then(commonjs_require_shape)
         .is_some_and(|(call, _)| commonjs_require_source(builder, call).is_some());
     commonjs
-        || dynamic_import_binding_shape(value)
+        || dynamic_import_binding_shape(builder, value)
             .is_some_and(|(call, _)| dynamic_import_source(builder, call).is_some())
 }
 
-fn dynamic_import_binding_shape(value: Option<Node<'_>>) -> Option<(Node<'_>, Option<Node<'_>>)> {
+fn dynamic_import_binding_shape<'tree>(
+    builder: &ExtractionBuilder<'_, '_>,
+    value: Option<Node<'tree>>,
+) -> Option<(Node<'tree>, Option<Node<'tree>>)> {
     let mut node = value?;
-    for _ in 0..8 {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
         match node.kind() {
             "await_expression"
             | "as_expression"
@@ -381,15 +412,14 @@ fn dynamic_import_binding_shape(value: Option<Node<'_>>) -> Option<(Node<'_>, Op
             | "type_assertion"
             | "parenthesized_expression"
             | "non_null_expression" => {
-                node = node
-                    .child_by_field_name("expression")
-                    .or_else(|| node.child_by_field_name("value"))
-                    .or_else(|| node.named_child(0))?;
+                node = expression_wrapper_value(node)?;
             }
             "member_expression" => {
                 let object = node.child_by_field_name("object")?;
                 let property = node.child_by_field_name("property")?;
-                return dynamic_import_source_node(object).map(|call| (call, Some(property)));
+                let call = unwrapped_dynamic_import_call(object)?;
+                let member = dynamic_import_selected_member(builder, call)?;
+                return (member == property).then_some((call, Some(member)));
             }
             "call_expression" => {
                 return dynamic_import_source_node(node).map(|call| (call, None));
@@ -400,9 +430,34 @@ fn dynamic_import_binding_shape(value: Option<Node<'_>>) -> Option<(Node<'_>, Op
     None
 }
 
+fn unwrapped_dynamic_import_call(mut node: Node<'_>) -> Option<Node<'_>> {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
+        match node.kind() {
+            "await_expression"
+            | "as_expression"
+            | "satisfies_expression"
+            | "type_assertion"
+            | "parenthesized_expression"
+            | "non_null_expression" => {
+                node = expression_wrapper_value(node)?;
+            }
+            _ => return dynamic_import_source_node(node),
+        }
+    }
+    None
+}
+
 fn dynamic_import_source_node(call: Node<'_>) -> Option<Node<'_>> {
     let function = call.child_by_field_name("function")?;
     (call.kind() == "call_expression" && function.kind() == "import").then_some(call)
+}
+
+fn expression_wrapper_value(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("expression")
+        .or_else(|| node.child_by_field_name("value"))
+        .or_else(|| {
+            named_children(node).find(|child| !child.is_extra() && child.kind() != "type_arguments")
+        })
 }
 
 fn parse_commonjs_require<'tree>(
@@ -545,7 +600,7 @@ fn capture_inline_import_type(
             node: call,
         },
     )?;
-    let Some(member) = dynamic_import_selected_member(call) else {
+    let Some(member) = dynamic_import_selected_member(builder, call) else {
         return Ok(());
     };
     let imported_name = builder.context.owned_unquoted_text(member)?;
@@ -610,7 +665,9 @@ pub(super) fn capture_dynamic_import(
             node: call,
         },
     )?;
-    if dynamic_import_selected_member(call).is_none() && react_lazy_default_import(builder, call) {
+    if dynamic_import_selected_member(builder, call).is_none()
+        && react_lazy_default_import(builder, call)
+    {
         let imported_name = "default".to_owned();
         builder.emit_import_binding(ExtractedImportBinding {
             kind: ImportBindingKind::Default,
@@ -620,7 +677,7 @@ pub(super) fn capture_dynamic_import(
             span: span_for(call)?,
         })?;
         emit_imported_name_reference(builder, imported_name, call)?;
-    } else if let Some(member) = dynamic_import_selected_member(call) {
+    } else if let Some(member) = dynamic_import_selected_member(builder, call) {
         let imported_name = builder.context.owned_unquoted_text(member)?;
         // A type-position member (`type T = import('./m').Name`) is an inline
         // import type: like the unwalked annotations, its binding is site-only.
@@ -698,23 +755,31 @@ fn dynamic_import_source<'tree>(
     let arguments = call.child_by_field_name("arguments")?;
     // `import(specifier, { with: { type: 'json' } })` carries import attributes
     // in an optional second argument; the specifier is always the first.
-    if !(1..=MAX_DYNAMIC_IMPORT_ARGUMENTS).contains(&arguments.named_child_count()) {
+    let mut values = named_children(arguments).filter(|child| !child.is_extra());
+    let value = values.next()?;
+    if values.take(MAX_DYNAMIC_IMPORT_ARGUMENTS).count() >= MAX_DYNAMIC_IMPORT_ARGUMENTS {
         return None;
     }
-    static_dynamic_import_source(arguments.named_child(0)?)
+    static_dynamic_import_source(value)
         .filter(|source| !builder.context.text(*source).trim().is_empty())
 }
 
-fn dynamic_import_selected_member(call: Node<'_>) -> Option<Node<'_>> {
+fn dynamic_import_selected_member<'tree>(
+    builder: &ExtractionBuilder<'_, '_>,
+    call: Node<'tree>,
+) -> Option<Node<'tree>> {
     let mut expression = call;
-    for _ in 0..8 {
+    let awaited = dynamic_import_is_awaited(call);
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
         let parent = expression.parent()?;
         if parent.kind() == "member_expression" && field_matches(parent, "object", expression) {
             return parent.child_by_field_name("property").filter(|property| {
                 matches!(
                     property.kind(),
                     "identifier" | "property_identifier" | "type_identifier"
-                )
+                ) && (awaited
+                    || is_inline_import_type(*property)
+                    || !DYNAMIC_IMPORT_PROMISE_METHODS.contains(&builder.context.text(*property)))
             });
         }
         if matches!(
@@ -734,11 +799,30 @@ fn dynamic_import_selected_member(call: Node<'_>) -> Option<Node<'_>> {
     None
 }
 
+/// An await outside a member access awaits that member, not the import promise.
+fn dynamic_import_is_awaited(mut expression: Node<'_>) -> bool {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
+        let Some(parent) = expression.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "await_expression" => return true,
+            "as_expression"
+            | "satisfies_expression"
+            | "type_assertion"
+            | "parenthesized_expression"
+            | "non_null_expression" => expression = parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// The static specifier of a module-loading call argument: a string or a
 /// template without substitutions, possibly wrapped in a cast or
 /// parentheses.
 pub(super) fn static_dynamic_import_source(mut node: Node<'_>) -> Option<Node<'_>> {
-    for _ in 0..8 {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
         match node.kind() {
             "string" => return Some(node),
             "template_string" => {
@@ -749,10 +833,7 @@ pub(super) fn static_dynamic_import_source(mut node: Node<'_>) -> Option<Node<'_
             | "type_assertion"
             | "parenthesized_expression"
             | "non_null_expression" => {
-                node = node
-                    .child_by_field_name("expression")
-                    .or_else(|| node.child_by_field_name("value"))
-                    .or_else(|| node.named_child(0))?;
+                node = expression_wrapper_value(node)?;
             }
             _ => return None,
         }
@@ -789,9 +870,14 @@ fn capture_commonjs_binding(
         "identifier" | "property_identifier" => {
             capture_commonjs_identifier_binding(builder, name_node, require)
         }
-        "object_pattern" if require.selected_member.is_none() => {
-            capture_commonjs_destructuring(builder, name_node, &require.module_specifier)
-        }
+        "object_pattern" if require.selected_member.is_none() => capture_import_destructuring(
+            builder,
+            name_node,
+            ImportDestructuringInput {
+                module_specifier: &require.module_specifier,
+                excluded_members: &[],
+            },
+        ),
         _ => Ok(()),
     }
 }
@@ -838,10 +924,10 @@ fn emit_commonjs_module_reference(
     )
 }
 
-fn capture_commonjs_destructuring(
+fn capture_import_destructuring(
     builder: &mut ExtractionBuilder<'_, '_>,
     pattern: Node<'_>,
-    module_specifier: &str,
+    input: ImportDestructuringInput<'_>,
 ) -> Result<(), ExtractError> {
     for child in named_children(pattern) {
         let (imported_node, local_node) = match child.kind() {
@@ -861,10 +947,13 @@ fn capture_commonjs_destructuring(
             _ => continue,
         };
         let imported_name = builder.context.owned_unquoted_text(imported_node)?;
+        if input.excluded_members.contains(&imported_name.as_str()) {
+            continue;
+        }
         let local_name = builder.context.owned_text(local_node)?;
         builder.emit_import_binding(ExtractedImportBinding {
             kind: ImportBindingKind::Named,
-            module_specifier: module_specifier.to_owned(),
+            module_specifier: input.module_specifier.to_owned(),
             imported_name: imported_name.clone(),
             local_name,
             span: span_for(imported_node)?,

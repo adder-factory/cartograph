@@ -131,7 +131,10 @@ impl NativeExtractor {
         if self.strategy == ExtractionStrategy::CustomStructural || custom::scans_snapshot(snapshot)
         {
             let extracted = custom::extract(snapshot, self.maximum_ast_depth, cancelled)?;
-            let extracted = framework::enrich(snapshot, extracted, cancelled)?;
+            let extracted = framework::enrich(
+                framework::FrameworkInput::new(snapshot, extracted),
+                cancelled,
+            )?;
             return test_names::enrich(snapshot, extracted);
         }
 
@@ -167,25 +170,40 @@ impl NativeExtractor {
                 },
                 cancelled,
             )?;
-            let extracted = framework::enrich(snapshot, extracted, cancelled)?;
+            let extracted = framework::enrich(
+                framework::FrameworkInput::new(snapshot, extracted).with_root(root),
+                cancelled,
+            )?;
             return test_names::enrich(snapshot, extracted);
         }
         let mut input = walk::WalkInput::new(root, parse_status, self.maximum_ast_depth);
         if let Some(syntax_source) = rewritten.as_deref() {
             input = input.with_syntax_source(syntax_source);
         }
-        walk::extract_with_optional_fact_fallback(snapshot, |optional_facts| {
-            walk::extract(
-                snapshot,
-                input.with_optional_facts(optional_facts),
-                &mut *cancelled,
-            )?
-            .then(|extracted| {
-                let extracted = framework::enrich(snapshot, extracted, &mut *cancelled)?;
-                test_names::enrich(snapshot, extracted)
-            })
-        })
+        enrich_walked_file(snapshot, (root, input), cancelled)
     }
+}
+
+/// Enrich the walked file with its native syntax root.
+fn enrich_walked_file<'source>(
+    snapshot: &'source SourceSnapshot,
+    (root, input): (tree_sitter::Node<'source>, walk::WalkInput<'source>),
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<ExtractedFile, ExtractError> {
+    walk::extract_with_optional_fact_fallback(snapshot, |optional_facts| {
+        walk::extract(
+            snapshot,
+            input.with_optional_facts(optional_facts),
+            &mut *cancelled,
+        )?
+        .then(|extracted| {
+            let extracted = framework::enrich(
+                framework::FrameworkInput::new(snapshot, extracted).with_root(root),
+                &mut *cancelled,
+            )?;
+            test_names::enrich(snapshot, extracted)
+        })
+    })
 }
 
 /// Span-preserving text the parser and walker read in place of the snapshot

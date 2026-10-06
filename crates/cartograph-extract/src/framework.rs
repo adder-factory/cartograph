@@ -1,4 +1,9 @@
+mod owner_index;
+
+use owner_index::{OWNER_INDEX_ENTRY_BYTES, SourceOwnerIndex};
+
 use std::collections::{BTreeMap, BTreeSet};
+use tree_sitter::Node;
 
 use cartograph_domain::{
     ContentDigest, ReferenceKind, SourceLanguage, SourcePosition, SourceSpan, SymbolId, SymbolKind,
@@ -17,6 +22,12 @@ use crate::{
 
 const FRAMEWORK_SYMBOL_DOMAIN: &str = "cartograph.v2.framework-symbol.2026-07-24";
 const FRAMEWORK_DIGEST_DOMAIN: &str = "cartograph.v2.framework-digest.2026-07-24";
+const LANDMARK_SITE_INDEX_ENTRY_BYTES: u64 = 128;
+const MAX_BRIDGE_SOURCE_PASSES: usize = 32;
+const REFERENCE_INDEX_ENTRY_BYTES: u64 = 16;
+const REFERENCE_REFINEMENT_ENTRY_BYTES: u64 = 64;
+const CANCELLATION_INTERVAL_FRAMEWORK_ITEMS: usize = 256;
+type ReferenceSite = (Option<SymbolId>, ReferenceKind, String, u64, u64);
 const MAX_ROUTE_BYTES: usize = 1_024;
 const MAX_SIGNAL_BYTES: usize = 4_096;
 const PYTHON_MULTILINE_DELIMITER_BYTES: usize = 3;
@@ -48,16 +59,40 @@ pub(crate) fn javascript_identifier_at(value: &str, start: usize) -> Option<(usi
     Some((end, &value[start..end]))
 }
 
-pub(crate) fn enrich(
-    snapshot: &SourceSnapshot,
+pub(crate) struct FrameworkInput<'source> {
+    snapshot: &'source SourceSnapshot,
     file: ExtractedFile,
+    root: Option<Node<'source>>,
+}
+
+impl<'source> FrameworkInput<'source> {
+    pub(crate) fn new(snapshot: &'source SourceSnapshot, file: ExtractedFile) -> Self {
+        Self {
+            snapshot,
+            file,
+            root: None,
+        }
+    }
+
+    pub(crate) fn with_root(mut self, root: Node<'source>) -> Self {
+        self.root = Some(root);
+        self
+    }
+}
+
+pub(crate) fn enrich(
+    input: FrameworkInput<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<ExtractedFile, ExtractError> {
     if cancelled() {
         return Err(ExtractError::Cancelled);
     }
-    let masked_source = mask_comments(snapshot.source(), snapshot.language(), cancelled)?;
-    let mut builder = FrameworkBuilder::new(snapshot, file, cancelled)?;
+    let masked_source = mask_comments(
+        input.snapshot.source(),
+        input.snapshot.language(),
+        cancelled,
+    )?;
+    let mut builder = FrameworkBuilder::new(input, cancelled)?;
     crate::framework_bun::scan(&mut builder, &masked_source)?;
     crate::framework_codeigniter::scan(&mut builder, &masked_source)?;
     crate::framework_drupal::scan(&mut builder, &masked_source)?;
@@ -76,13 +111,18 @@ pub(crate) fn enrich(
 
 pub(crate) struct FrameworkBuilder<'source, 'cancel> {
     snapshot: &'source SourceSnapshot,
+    root: Option<Node<'source>>,
     file: ExtractedFile,
     cancelled: &'cancel mut dyn FnMut() -> bool,
     budget: ExtractionBudget,
     lines: LineMap,
     original_symbols: usize,
+    original_ownership: Option<SourceOwnerIndex>,
+    bridge_work: usize,
+    landmark_sites: BTreeSet<(SymbolKind, String, usize, usize)>,
     symbol_keys: BTreeSet<(SymbolKind, String)>,
-    reference_keys: BTreeSet<(Option<SymbolId>, ReferenceKind, String, u64, u64)>,
+    reference_keys: BTreeMap<ReferenceSite, usize>,
+    reference_refinements: Vec<(usize, Option<String>)>,
     ordinals: BTreeMap<(SymbolKind, String), u64>,
     /// `@Value(...)` argument ranges and the declarations they decorate,
     /// sorted by start; recorded by the Spring scanner before config scanning.
@@ -291,14 +331,9 @@ struct ReservedLandmarkIdentity {
 }
 
 fn has_landmark(builder: &FrameworkBuilder<'_, '_>, input: &LandmarkInput<'_>) -> bool {
-    builder.file.symbols[builder.original_symbols..]
-        .iter()
-        .any(|symbol| {
-            symbol.kind == input.kind
-                && symbol.name == input.name
-                && symbol.span.start_byte() == u64::try_from(input.start).unwrap_or(u64::MAX)
-                && symbol.span.end_byte() == u64::try_from(input.end).unwrap_or(u64::MAX)
-        })
+    builder
+        .landmark_sites
+        .contains(&(input.kind, input.identity.clone(), input.start, input.end))
 }
 
 fn reserve_landmark_identity(
@@ -361,10 +396,14 @@ fn add_landmark_containment(
 
 impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
     fn new(
-        snapshot: &'source SourceSnapshot,
-        file: ExtractedFile,
+        input: FrameworkInput<'source>,
         cancelled: &'cancel mut dyn FnMut() -> bool,
     ) -> Result<Self, ExtractError> {
+        let FrameworkInput {
+            snapshot,
+            file,
+            root,
+        } = input;
         let mut budget = ExtractionBudget::new(snapshot)?;
         for symbol in &file.symbols {
             budget.reserve_fact(
@@ -404,33 +443,32 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             budget.reserve_fact(diagnostic_budget_bytes(), std::iter::empty())?;
         }
         let original_symbols = file.symbols.len();
+        let bridge_work = snapshot
+            .source()
+            .len()
+            .saturating_mul(MAX_BRIDGE_SOURCE_PASSES)
+            .saturating_add(original_symbols)
+            .saturating_add(file.references.len());
         let symbol_keys = file
             .symbols
             .iter()
             .map(|symbol| (symbol.kind, symbol.qualified_name.clone()))
             .collect();
-        let reference_keys = file
-            .references
-            .iter()
-            .map(|reference| {
-                (
-                    reference.owner.clone(),
-                    reference.kind,
-                    reference.name.clone(),
-                    reference.span.start_byte(),
-                    reference.span.end_byte(),
-                )
-            })
-            .collect();
+        let reference_keys = index_reference_sites(&file, cancelled)?;
         Ok(Self {
             snapshot,
+            root,
             file,
             cancelled,
             budget,
             lines: LineMap::new(snapshot.source())?,
             original_symbols,
+            original_ownership: None,
+            bridge_work,
+            landmark_sites: BTreeSet::new(),
             symbol_keys,
             reference_keys,
+            reference_refinements: Vec::new(),
             ordinals: BTreeMap::new(),
             value_annotations: Vec::new(),
         })
@@ -464,6 +502,73 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     pub(crate) const fn original_symbol_count(&self) -> usize {
         self.original_symbols
+    }
+
+    pub(crate) fn syntax_root(&self) -> Option<Node<'source>> {
+        self.root
+    }
+
+    pub(crate) fn containments(&self) -> &[Containment] {
+        &self.file.containments
+    }
+
+    pub(crate) fn reserve_working_bytes(&mut self, bytes: u64) -> Result<(), ExtractError> {
+        self.budget.reserve_working_bytes(bytes)
+    }
+
+    pub(crate) fn index_bridge_owners(&mut self) -> Result<(), ExtractError> {
+        let count = self.original_symbols;
+        let work = count.saturating_mul(
+            usize::try_from(count.max(1).ilog2())
+                .unwrap_or(usize::MAX)
+                .saturating_add(1),
+        );
+        self.charge_bridge_work(work.saturating_add(self.file.references.len()))?;
+        let bytes = count.saturating_mul(OWNER_INDEX_ENTRY_BYTES);
+        self.reserve_working_bytes(u64::try_from(bytes).map_err(|_| ExtractError::OutputLimit)?)?;
+        self.reserve_working_bytes(REFERENCE_INDEX_ENTRY_BYTES.saturating_mul(
+            u64::try_from(self.file.references.len()).map_err(|_| ExtractError::OutputLimit)?,
+        ))?;
+        self.original_ownership = Some(SourceOwnerIndex::build(
+            &self.file.symbols[..count],
+            self.cancelled,
+        )?);
+        Ok(())
+    }
+
+    pub(crate) fn charge_bridge_work(&mut self, units: usize) -> Result<(), ExtractError> {
+        self.check_cancelled()?;
+        self.bridge_work = self
+            .bridge_work
+            .checked_sub(units)
+            .ok_or(ExtractError::OutputLimit)?;
+        Ok(())
+    }
+
+    pub(crate) fn bridge_checkpoint(&self) -> (usize, usize, usize, usize) {
+        (
+            self.file.symbols.len(),
+            self.file.containments.len(),
+            self.file.references.len(),
+            self.reference_refinements.len(),
+        )
+    }
+
+    pub(crate) fn retained_output_fits(&self) -> bool {
+        self.file.modeled_retained_bytes() <= self.budget.output_limit()
+    }
+
+    pub(crate) fn omit_bridge_facts(&mut self, checkpoint: (usize, usize, usize, usize)) {
+        for (index, previous) in self.reference_refinements.drain(checkpoint.3..).rev() {
+            self.file.references[index].resolution_name = previous;
+        }
+        self.file.symbols.truncate(checkpoint.0);
+        self.file.containments.truncate(checkpoint.1);
+        self.file.references.truncate(checkpoint.2);
+        self.file.symbols.shrink_to_fit();
+        self.file.containments.shrink_to_fit();
+        self.file.references.shrink_to_fit();
+        crate::walk::note_optional_omission(&mut self.file, self.budget.output_limit());
     }
 
     /// References recorded so far (walker facts first, then framework facts).
@@ -610,6 +715,11 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             ],
         )?;
         add_landmark_containment(self, owner, &id)?;
+        let site_bytes = LANDMARK_SITE_INDEX_ENTRY_BYTES
+            .saturating_add(u64::try_from(identity.source_identity.len()).unwrap_or(u64::MAX));
+        self.budget.reserve_working_bytes(site_bytes)?;
+        self.landmark_sites
+            .insert((symbol.kind, identity.source_identity, start, end));
         self.file.symbols.push(symbol);
         if let Some((target, resolution_name, target_start, target_end)) = target {
             self.add_reference_with_resolution(FrameworkReferenceInput {
@@ -666,21 +776,24 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             span.start_byte(),
             span.end_byte(),
         );
-        if !self.reference_keys.insert(key) {
+        if let Some(index) = self.reference_keys.get(&key).copied() {
             if let Some(resolution_name) = resolution_name
-                && let Some(reference) = self.file.references.iter_mut().find(|reference| {
-                    reference.owner == input.owner
-                        && reference.kind == input.kind
-                        && reference.name == name
-                        && reference.span == span
-                })
-                && reference.resolution_name.is_none()
+                && self.file.references[index].resolution_name.is_none()
             {
                 self.budget.reserve_additional_string(&resolution_name)?;
-                reference.resolution_name = Some(resolution_name);
+                self.budget
+                    .reserve_working_bytes(REFERENCE_REFINEMENT_ENTRY_BYTES)?;
+                self.reference_refinements
+                    .try_reserve(1)
+                    .map_err(|_| ExtractError::OutputLimit)?;
+                let previous = self.file.references[index]
+                    .resolution_name
+                    .replace(resolution_name);
+                self.reference_refinements.push((index, previous));
             }
             return Ok(());
         }
+        self.reference_keys.insert(key, self.file.references.len());
         let reference = ExtractedReference {
             owner: input.owner,
             name,
@@ -723,6 +836,12 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     fn owner_near(&self, offset: usize) -> Option<SymbolId> {
         let offset = u64::try_from(offset).ok()?;
+        if let Some(index) = &self.original_ownership {
+            return index
+                .near(offset)
+                .and_then(|owner| self.original_symbol(owner))
+                .map(|symbol| symbol.id.clone());
+        }
         let original = &self.file.symbols[..self.original_symbols];
         if let Some(symbol) = original
             .iter()
@@ -748,11 +867,33 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
     }
 
     fn finish(self) -> Result<ExtractedFile, ExtractError> {
-        if self.file.modeled_retained_bytes() > self.budget.output_limit() {
+        if !self.retained_output_fits() {
             return Err(ExtractError::OutputLimit);
         }
         Ok(self.file)
     }
+}
+
+fn index_reference_sites(
+    file: &ExtractedFile,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<BTreeMap<ReferenceSite, usize>, ExtractError> {
+    let mut sites = BTreeMap::new();
+    for (index, reference) in file.references.iter().enumerate() {
+        if index.is_multiple_of(CANCELLATION_INTERVAL_FRAMEWORK_ITEMS) && cancelled() {
+            return Err(ExtractError::Cancelled);
+        }
+        sites
+            .entry((
+                reference.owner.clone(),
+                reference.kind,
+                reference.name.clone(),
+                reference.span.start_byte(),
+                reference.span.end_byte(),
+            ))
+            .or_insert(index);
+    }
+    Ok(sites)
 }
 
 fn scan_framework_signals(
@@ -2730,24 +2871,6 @@ impl<'source> StatementRanges<'source> {
         }
     }
 
-    fn consume_quote(&mut self, byte: u8) -> bool {
-        if let Some(quote) = self.quote {
-            if self.escaped {
-                self.escaped = false;
-            } else if byte == b'\\' {
-                self.escaped = true;
-            } else if byte == quote {
-                self.quote = None;
-            }
-            return true;
-        }
-        if matches!(byte, b'\'' | b'"' | b'`') {
-            self.quote = Some(byte);
-            return true;
-        }
-        false
-    }
-
     fn update_depth(&mut self, byte: u8) -> bool {
         match byte {
             b'(' => self.parentheses = self.parentheses.saturating_add(1),
@@ -2772,7 +2895,7 @@ impl<'source> Iterator for StatementRanges<'source> {
         while self.cursor < bytes.len() {
             let byte = bytes[self.cursor];
             self.cursor += 1;
-            if self.consume_quote(byte) {
+            if consume_quote_state(byte, &mut self.quote, &mut self.escaped) {
                 continue;
             }
             if self.update_depth(byte) {
@@ -2820,6 +2943,9 @@ fn mask_comments(
     language: SourceLanguage,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<String, ExtractError> {
+    if language == SourceLanguage::ObjectiveC {
+        return mask_objc_comments(source, cancelled);
+    }
     let bytes = source.as_bytes();
     let mut masked = Vec::new();
     masked
@@ -2859,6 +2985,38 @@ fn mask_comments(
     String::from_utf8(masked).map_err(|_| ExtractError::InvalidSpan)
 }
 
+fn mask_objc_comments(
+    source: &str,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<String, ExtractError> {
+    use crate::objc_lex::{ObjcLexer, Region};
+
+    const CANCELLATION_INTERVAL_BYTES: usize = 4_096;
+    let bytes = source.as_bytes();
+    let mut masked = Vec::new();
+    masked
+        .try_reserve_exact(bytes.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    masked.extend_from_slice(bytes);
+    let mut lexer = ObjcLexer::default();
+    let mut cursor = 0;
+    let mut next_probe = 0;
+    while cursor < bytes.len() {
+        if cursor >= next_probe {
+            if cancelled() {
+                return Err(ExtractError::Cancelled);
+            }
+            next_probe = cursor.saturating_add(CANCELLATION_INTERVAL_BYTES);
+        }
+        let (region, next) = lexer.step(bytes, cursor);
+        if region == Region::Comment {
+            mask_comment_bytes(&mut masked, cursor, next);
+        }
+        cursor = next;
+    }
+    String::from_utf8(masked).map_err(|_| ExtractError::InvalidSpan)
+}
+
 fn comment_syntax(language: SourceLanguage) -> CommentSyntax {
     CommentSyntax {
         line: LineCommentSyntax {
@@ -2891,6 +3049,17 @@ fn comment_syntax(language: SourceLanguage) -> CommentSyntax {
                 | SourceLanguage::Aura
         ),
     }
+}
+
+pub(crate) fn consume_quote_state(byte: u8, quote: &mut Option<u8>, escaped: &mut bool) -> bool {
+    if consume_quoted_byte(byte, quote, escaped) {
+        return true;
+    }
+    if matches!(byte, b'\'' | b'"' | b'`') {
+        *quote = Some(byte);
+        return true;
+    }
+    false
 }
 
 pub(crate) fn consume_quoted_byte(byte: u8, quote: &mut Option<u8>, escaped: &mut bool) -> bool {
@@ -2984,4 +3153,42 @@ fn is_play_route_path(path: &str) -> bool {
     path.eq_ignore_ascii_case("conf/routes")
         || (path.to_ascii_lowercase().starts_with("conf/")
             && path.to_ascii_lowercase().ends_with(".routes"))
+}
+
+#[cfg(test)]
+mod bridge_rollback_tests {
+    use super::*;
+    use crate::{NativeExtractor, SourceLimits};
+
+    #[test]
+    fn bridge_rollback_restores_refined_native_references() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let source = "function ordinary(m) { doThing(); m.run(); }";
+        let limits = SourceLimits::new(source.len())?;
+        let snapshot = SourceSnapshot::from_bytes("src/undo.js", source.as_bytes(), limits)?;
+        let file = NativeExtractor::new(SourceLanguage::JavaScript)?.extract(&snapshot)?;
+        let original = serde_json::to_value(&file.references)?;
+        assert!(file.references.iter().any(|reference| reference.name == "doThing" && reference.resolution_name.is_none()));
+        let mut cancelled = || false;
+        let mut builder =
+            FrameworkBuilder::new(FrameworkInput::new(&snapshot, file), &mut cancelled)?;
+        let checkpoint = builder.bridge_checkpoint();
+        let start = source.find("doThing").ok_or("missing native call")?;
+        builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
+            name: "doThing",
+            resolution_name: Some("Camera::doThing"),
+            kind: ReferenceKind::Calls,
+            start,
+            end: start + "doThing".len(),
+        })?;
+        assert!(
+            builder
+                .references()
+                .iter()
+                .any(|reference| reference.resolution_name.as_deref() == Some("Camera::doThing"))
+        );
+        builder.omit_bridge_facts(checkpoint);
+        assert_eq!(serde_json::to_value(builder.references())?, original);
+        Ok(())
+    }
 }

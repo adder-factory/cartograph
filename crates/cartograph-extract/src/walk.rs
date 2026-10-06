@@ -73,8 +73,8 @@ mod type_contracts;
 mod value_references;
 mod vbnet_family;
 
-pub(crate) use optional_facts::extract_with_optional_fact_fallback;
 use optional_facts::{OptionalFactGate, OptionalFacts, PassFailure, WalkedFile};
+pub(crate) use optional_facts::{extract_with_optional_fact_fallback, note_optional_omission};
 use syntax::{
     body_search_text, callable_signature, clone_token_profile, collect_diagnostics, contains_jsx,
     export_flags, has_child_kind, jsdoc, named_children, span_for, starts_uppercase,

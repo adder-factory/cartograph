@@ -10,6 +10,206 @@ use cartograph_extract::{
 const SOURCE_LIMIT: usize = 1024 * 1024;
 
 #[test]
+fn angle_bracket_casts_keep_awaited_dynamic_import_selected_aliases() {
+    let extracted = extract(
+        "src/casts.ts",
+        r"
+export async function load() {
+  const selected = (<Module> /* value */ await import(/* module */ './m')).catch;
+  import(<string> /* path */ './path');
+  return selected;
+}
+",
+    );
+    assert!(extracted.import_bindings.iter().any(|binding| {
+        binding.kind == ImportBindingKind::Named
+            && binding.module_specifier == "./m"
+            && binding.imported_name == "catch"
+            && binding.local_name == "selected"
+    }));
+    assert_one_module_site(&extracted, "./m", Some("selected"));
+    assert_one_module_site(&extracted, "./path", Some("load"));
+}
+
+#[test]
+fn dynamic_import_promise_methods_keep_only_the_module_reference() {
+    let extracted = extract(
+        "src/promises.ts",
+        r"
+import(/* site */ './then' /* end */).then(module => module.Widget);
+(import(/* site */ './catch')).catch(handleError);
+(import(/* site */ './finally' /* end */) as Promise<unknown>)!.finally(cleanup);
+import('./optional')?.then(module => module.Widget).catch(handleError).finally(cleanup);
+const then = import('./bound-then').then;
+const caught = (import('./bound-catch')).catch;
+const done = import('./bound-finally')!.finally;
+",
+    );
+    for (module, owner) in [
+        ("./then", None),
+        ("./catch", None),
+        ("./finally", None),
+        ("./optional", None),
+        ("./bound-then", Some("then")),
+        ("./bound-catch", Some("caught")),
+        ("./bound-finally", Some("done")),
+    ] {
+        assert_one_module_site(&extracted, module, owner);
+    }
+    assert_eq!(extracted.import_bindings, []);
+}
+
+#[test]
+fn awaited_dynamic_import_members_preserve_bindings_including_promise_names() {
+    let extracted = extract(
+        "src/awaited.ts",
+        r"
+export async function load() {
+  const selected = (await import('./target')).member;
+  const wrapped = ((await import('./target')) as Module).other;
+  const { value, renamed: alias } = await import('./target');
+  (await import('./target')).then();
+  (await import('./target')).catch();
+  (await import('./target')).finally();
+}
+type Then = import('./types').then;
+",
+    );
+    for (imported, local) in [
+        ("member", "selected"),
+        ("other", "wrapped"),
+        ("value", "value"),
+        ("renamed", "alias"),
+        ("then", "then"),
+        ("catch", "catch"),
+        ("finally", "finally"),
+    ] {
+        assert!(
+            extracted.import_bindings.iter().any(|binding| {
+                binding.kind == ImportBindingKind::Named
+                    && binding.module_specifier == "./target"
+                    && binding.imported_name == imported
+                    && binding.local_name == local
+            }),
+            "missing awaited {imported} as {local}: {:?}",
+            extracted.import_bindings
+        );
+    }
+    let references = extracted
+        .references
+        .iter()
+        .filter(|reference| {
+            reference.kind == ReferenceKind::Imports && reference.name == "./target"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 6);
+    for (reference, owner) in references
+        .into_iter()
+        .zip(["selected", "wrapped", "load", "load", "load", "load"])
+    {
+        assert_eq!(
+            extracted
+                .references
+                .iter()
+                .filter(|other| {
+                    other.kind == ReferenceKind::Imports && other.span == reference.span
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            reference.owner,
+            extracted
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == owner)
+                .map(|symbol| symbol.id.clone())
+        );
+    }
+    assert_one_module_site(&extracted, "./types", Some("Then"));
+    assert!(extracted.import_bindings.iter().any(|binding| {
+        binding.module_specifier == "./types"
+            && binding.imported_name == "then"
+            && binding.local_name == "import()"
+    }));
+}
+
+#[test]
+fn dynamic_import_promise_destructuring_preserves_awaited_module_members() {
+    let extracted = extract(
+        "src/destructuring.ts",
+        r"
+const { then, catch: reject, finally: finish } = import('./promise');
+export async function load() {
+  const { then: ready, catch: recover, finally: complete } = await import('./module');
+  return [ready, recover, complete];
+}
+",
+    );
+    assert_one_module_site(&extracted, "./promise", None);
+    assert_one_module_site(&extracted, "./module", Some("load"));
+    assert!(
+        extracted
+            .import_bindings
+            .iter()
+            .all(|binding| binding.module_specifier != "./promise")
+    );
+    for (imported, local) in [
+        ("then", "ready"),
+        ("catch", "recover"),
+        ("finally", "complete"),
+    ] {
+        assert!(extracted.import_bindings.iter().any(|binding| {
+            binding.kind == ImportBindingKind::Named
+                && binding.module_specifier == "./module"
+                && binding.imported_name == imported
+                && binding.local_name == local
+        }));
+    }
+}
+
+#[test]
+fn dynamic_import_nonbinding_patterns_preserve_module_and_member_references() {
+    let extracted = extract(
+        "src/patterns.ts",
+        r"
+export async function load() {
+  const { value } = (await import('./nested')).group;
+  const [first] = await import('./array');
+  return [value, first];
+}
+",
+    );
+    for module in ["./nested", "./array"] {
+        assert_one_module_site(&extracted, module, Some("load"));
+    }
+    assert!(extracted.import_bindings.iter().any(|binding| {
+        binding.module_specifier == "./nested"
+            && binding.imported_name == "group"
+            && binding.local_name == "group"
+    }));
+}
+
+fn assert_one_module_site(extracted: &ExtractedFile, module: &str, owner: Option<&str>) {
+    let references = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Imports && reference.name == module)
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 1, "module load {module}");
+    let expected = owner.map(|name| {
+        extracted
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap_or_else(|| panic!("missing owner {name}"))
+            .id
+            .clone()
+    });
+    assert_eq!(references[0].owner, expected, "module owner {module}");
+}
+
+#[test]
 fn dynamic_import_bindings_are_ast_native_and_preserve_original_names() {
     let source = r"
 export async function load() {

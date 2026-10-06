@@ -25,6 +25,7 @@ mod language;
 mod model;
 mod module_alias;
 mod native;
+mod objc_lex;
 mod objc_macro_rewrite;
 mod reader;
 mod snapshot;

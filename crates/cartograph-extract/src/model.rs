@@ -418,8 +418,8 @@ pub enum DiagnosticCode {
     NestingLimitExceeded,
     /// Optional enrichment facts (package bindings, struct fields, constant
     /// reads, literal instantiations, declared-type uses, supertraits, and
-    /// decorators) would have exceeded the per-file output limit, so the file
-    /// was extracted without them. Its declarations and calls are complete.
+    /// decorators or bridge facts) exceeded their output or work budget and
+    /// were omitted. The file's ordinary declarations and calls are complete.
     OptionalFactsOmitted,
 }
 

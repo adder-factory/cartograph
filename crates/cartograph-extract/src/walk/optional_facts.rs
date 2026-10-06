@@ -134,8 +134,13 @@ fn note_omission(
 ) -> Result<ExtractedFile, ExtractError> {
     let output_limit =
         native_output_limit(snapshot.byte_size()).ok_or(ExtractError::OutputLimit)?;
+    note_optional_omission(&mut file, output_limit);
+    Ok(file)
+}
+
+pub(crate) fn note_optional_omission(file: &mut ExtractedFile, output_limit: u64) {
     if file.diagnostics.try_reserve_exact(1).is_err() {
-        return Ok(file);
+        return;
     }
     file.diagnostics.push(ExtractionDiagnostic {
         code: DiagnosticCode::OptionalFactsOmitted,
@@ -145,5 +150,4 @@ fn note_omission(
         file.diagnostics.pop();
         file.diagnostics.shrink_to_fit();
     }
-    Ok(file)
 }

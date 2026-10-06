@@ -20,7 +20,10 @@
 //! nor closes an invocation, so a commented-out macro can never blank live code
 //! and comment, docstring, and literal text always reaches the walker unchanged.
 
-use crate::ExtractError;
+use crate::{
+    ExtractError,
+    objc_lex::{ObjcLexer, Region},
+};
 
 /// Bytes scanned between cancellation probes.
 const CANCELLATION_INTERVAL_BYTES: usize = 64 * 1024;
@@ -29,15 +32,6 @@ const CANCELLATION_INTERVAL_INVOCATIONS: usize = 256;
 
 /// Fast gate shared by every export macro name.
 const MACRO_PREFIX: &str = "RCT_";
-/// Opens a comment running to the end of its line.
-const LINE_COMMENT: &[u8] = b"//";
-/// Opens a comment running to the next [`BLOCK_COMMENT_CLOSE`].
-const BLOCK_COMMENT_OPEN: &[u8] = b"/*";
-/// Closes a comment opened by [`BLOCK_COMMENT_OPEN`].
-const BLOCK_COMMENT_CLOSE: &[u8] = b"*/";
-/// A backslash and the character it escapes inside a literal.
-const ESCAPE_LENGTH: usize = 2;
-
 /// One React Native method-export macro.
 struct MacroSpec {
     /// Macro identifier as written in source.
@@ -159,74 +153,26 @@ fn balanced_invocations(
     Ok(found)
 }
 
-/// The lexical region the scanner is in: only code opens or closes invocations.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Lexeme {
-    #[default]
-    Code,
-    LineComment,
-    BlockComment,
-    /// A string or character literal closed by this quote byte.
-    Literal(u8),
-}
-
-/// The identifier-like token (letters, digits, `_`) the code scanner is inside.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Token {
-    #[default]
-    None,
-    /// A token starting with a letter or `_`: an identifier, keyword, or
-    /// literal encoding prefix such as `L` or `u8`.
-    Word,
-    /// A token starting with a digit: a number, whose `'` separates digits.
-    Number,
-}
-
 /// Pairs each macro's `(` with the `)` that returns to the depth it opened at.
 #[derive(Default)]
 struct InvocationScanner {
-    lexeme: Lexeme,
-    token: Token,
+    lexer: ObjcLexer,
     depth: isize,
     open: Vec<PendingInvocation>,
     found: Vec<Invocation>,
 }
 
 impl InvocationScanner {
-    /// Consume the token at `index` and return the index of the next one.
+    /// Only code bytes can open macros or change parenthesis depth.
     fn step(&mut self, bytes: &[u8], index: usize) -> Result<usize, ExtractError> {
-        let next = index.saturating_add(1);
-        let Some(&byte) = bytes.get(index) else {
+        let (region, next) = self.lexer.step(bytes, index);
+        if region != Region::Code {
             return Ok(next);
-        };
-        match self.lexeme {
-            Lexeme::Code => self.code_step(bytes, index),
-            Lexeme::LineComment => {
-                if matches!(byte, b'\n' | b'\r') {
-                    self.lexeme = Lexeme::Code;
-                }
-                Ok(next)
-            }
-            Lexeme::BlockComment => Ok(self.block_comment_step(bytes, index)),
-            Lexeme::Literal(_) => Ok(self.literal_step(byte, index)),
         }
-    }
-
-    /// One code byte: a comment or literal opener switches the lexeme, an
-    /// export macro opens an invocation, and parentheses move the depth.
-    fn code_step(&mut self, bytes: &[u8], index: usize) -> Result<usize, ExtractError> {
-        if let Some((lexeme, width)) = opening_lexeme(bytes, index, self.token) {
-            self.lexeme = lexeme;
-            self.token = Token::None;
-            return Ok(index.saturating_add(width));
-        }
-        let next = index.saturating_add(1);
-        let byte = bytes.get(index).copied();
-        self.token = next_token(self.token, byte);
-        match byte {
+        match bytes.get(index) {
             Some(b'R') => match macro_at(bytes, index) {
                 Some(spec) => {
-                    self.token = Token::None;
+                    self.lexer.reset_token();
                     self.open_macro(index, spec)
                 }
                 None => Ok(next),
@@ -241,30 +187,6 @@ impl InvocationScanner {
             }
             _ => Ok(next),
         }
-    }
-
-    /// One block-comment byte: only the closing delimiter returns to code.
-    fn block_comment_step(&mut self, bytes: &[u8], index: usize) -> usize {
-        if bytes
-            .get(index..)
-            .is_some_and(|rest| rest.starts_with(BLOCK_COMMENT_CLOSE))
-        {
-            self.lexeme = Lexeme::Code;
-            return index.saturating_add(BLOCK_COMMENT_CLOSE.len());
-        }
-        index.saturating_add(1)
-    }
-
-    /// One literal byte: an escape skips the escaped byte (a backslash-newline
-    /// continues the literal) and a line break ends an unterminated literal.
-    fn literal_step(&mut self, byte: u8, index: usize) -> usize {
-        if byte == b'\\' {
-            return index.saturating_add(ESCAPE_LENGTH);
-        }
-        if self.lexeme == Lexeme::Literal(byte) || matches!(byte, b'\n' | b'\r') {
-            self.lexeme = Lexeme::Code;
-        }
-        index.saturating_add(1)
     }
 
     /// Record a macro named at `start` and return the index after its `(`.
@@ -299,40 +221,6 @@ impl InvocationScanner {
             spec: pending.spec,
         });
         Ok(())
-    }
-}
-
-/// The comment or literal that starts at `index` in code, with the width of
-/// its opening delimiter. Inside a number a `'` separates digits (`1'000`,
-/// `0xFF'FF`, Objective-C++); anywhere else it opens a character literal
-/// (`'x'`, `L'x'`, `return'('`).
-fn opening_lexeme(bytes: &[u8], index: usize, token: Token) -> Option<(Lexeme, usize)> {
-    let rest = bytes.get(index..)?;
-    if rest.starts_with(LINE_COMMENT) {
-        return Some((Lexeme::LineComment, LINE_COMMENT.len()));
-    }
-    if rest.starts_with(BLOCK_COMMENT_OPEN) {
-        return Some((Lexeme::BlockComment, BLOCK_COMMENT_OPEN.len()));
-    }
-    match rest.first()? {
-        b'"' => Some((Lexeme::Literal(b'"'), 1)),
-        b'\'' if token != Token::Number => Some((Lexeme::Literal(b'\''), 1)),
-        _ => None,
-    }
-}
-
-/// The token after consuming `byte` in code: a letter, digit, or `_` starts
-/// or extends one, a digit separator stays inside a number, and anything else
-/// ends it.
-fn next_token(token: Token, byte: Option<u8>) -> Token {
-    match byte {
-        Some(byte) if byte.is_ascii_alphanumeric() || byte == b'_' => match token {
-            Token::None if byte.is_ascii_digit() => Token::Number,
-            Token::None => Token::Word,
-            current => current,
-        },
-        Some(b'\'') if token == Token::Number => Token::Number,
-        _ => Token::None,
     }
 }
 
