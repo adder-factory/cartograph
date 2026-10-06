@@ -113,6 +113,18 @@ fn emit_export_all(
             node,
         },
     )?;
+    // The pinned grammar recovers unsupported `export type *` as an ordinary
+    // wildcard with an error child. Preserve that uncertainty in the binding
+    // rather than exposing runtime values through recovery syntax.
+    if node.has_error() {
+        return builder.emit_import_binding(ExtractedImportBinding {
+            kind: ImportBindingKind::ReExportUncertain,
+            module_specifier: module_name,
+            imported_name: "*".to_owned(),
+            local_name: "*".to_owned(),
+            span: span_for(source_node)?,
+        });
+    }
     let namespace = named_children(node).find(|child| child.kind() == "namespace_export");
     if let Some((namespace, public_node)) =
         namespace.and_then(|namespace| namespace.named_child(0).map(|node| (namespace, node)))

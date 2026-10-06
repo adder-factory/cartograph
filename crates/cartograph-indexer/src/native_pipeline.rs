@@ -1,3 +1,8 @@
+mod file_path_resolution;
+mod javascript_config;
+mod javascript_exports;
+mod javascript_modules;
+mod javascript_packages;
 mod pascal_resolution;
 mod php_resolution;
 mod python_resolution;
@@ -5199,6 +5204,9 @@ struct ModulePathIndex {
     rust_packages: RustPackageMap,
     typescript_aliases: TypeScriptAliasIndex,
     python_source_roots: python_resolution::SourceRootIndex,
+    javascript_configs: javascript_config::ConfigIndex,
+    javascript_packages: javascript_packages::PackageIndex,
+    file_paths: file_path_resolution::SuffixIndex,
 }
 
 #[derive(Default)]
@@ -5208,8 +5216,10 @@ struct TypeScriptAliasIndex {
 
 struct TypeScriptAliasConfig {
     base_path: String,
+    explicit_base_url: Option<String>,
     mappings: Vec<TypeScriptPathMapping>,
     tsconfig: bool,
+    fallback: bool,
 }
 
 struct TypeScriptPathMapping {
@@ -5231,6 +5241,7 @@ struct ResolutionIndex {
     rust_named_re_exports: Vec<RustNamedReExport>,
     test_files: Vec<TestFileEvidence>,
     php: php_resolution::PhpResolutionIndex,
+    javascript_exports: javascript_exports::ExportIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -6223,10 +6234,26 @@ where
         stack: &mut stack,
         cancelled,
     })?;
-    for target in visible.values().flatten() {
+    for (name, target) in &visible {
         if cancelled() {
             return Err(StageItemFailure);
         }
+        let Some(target) = target else {
+            continue;
+        };
+        let Some((confidence, provenance)) = javascript_exports::edge_evidence(
+            javascript_exports::ExportEdgeQuery {
+                index,
+                file: target_file,
+                name,
+                target,
+                namespace: Some(re_export),
+            },
+            cancelled,
+        )?
+        else {
+            continue;
+        };
         append_derived_edge(
             facts,
             budget,
@@ -6234,8 +6261,8 @@ where
                 source_symbol_id: &re_export.source_symbol_id,
                 target_symbol_id: target,
                 kind: EdgeKind::Exports,
-                confidence: IMPORT_BINDING_CONFIDENCE,
-                provenance: RE_EXPORT_NAMESPACE_PROVENANCE,
+                confidence,
+                provenance,
             },
         )?;
     }
@@ -6263,10 +6290,26 @@ where
         .file_symbols
         .get(source_file)
         .ok_or(StageItemFailure)?;
-    for target in visible.values().flatten() {
+    for (name, target) in &visible {
         if cancelled() {
             return Err(StageItemFailure);
         }
+        let Some(target) = target else {
+            continue;
+        };
+        let Some((confidence, provenance)) = javascript_exports::edge_evidence(
+            javascript_exports::ExportEdgeQuery {
+                index,
+                file: source_file,
+                name,
+                target,
+                namespace: None,
+            },
+            cancelled,
+        )?
+        else {
+            continue;
+        };
         append_derived_edge(
             facts,
             budget,
@@ -6274,8 +6317,8 @@ where
                 source_symbol_id: source_symbol,
                 target_symbol_id: target,
                 kind: EdgeKind::Exports,
-                confidence: IMPORT_BINDING_CONFIDENCE,
-                provenance: RE_EXPORT_ALL_PROVENANCE,
+                confidence,
+                provenance,
             },
         )?;
     }
@@ -7638,7 +7681,20 @@ fn finish_spilled_resolution_preparation(
         ..
     } = request;
     let mut cancelled = || cancellation.is_cancelled();
+    javascript_config::finish(
+        &mut preparation.index.modules,
+        &mut ResolutionIndexContext {
+            source_root,
+            budget: &mut preparation.budget,
+            cancelled: &mut cancelled,
+        },
+    )?;
     finalize_resolution_candidate_order(
+        &mut preparation.index,
+        &mut preparation.budget,
+        &mut cancelled,
+    )?;
+    javascript_exports::prepare(
         &mut preparation.index,
         &mut preparation.budget,
         &mut cancelled,
@@ -9733,6 +9789,7 @@ where
         })?;
     }
     finalize_resolution_candidate_order(&mut index, context.budget, context.cancelled)?;
+    javascript_exports::prepare(&mut index, context.budget, context.cancelled)?;
     Ok(index)
 }
 
@@ -9944,7 +10001,7 @@ where
         }
         index_typescript_alias_file(modules, file, context)?;
     }
-    Ok(())
+    javascript_config::finish(modules, context)
 }
 
 fn index_typescript_alias_file<Cancel>(
@@ -9955,114 +10012,7 @@ fn index_typescript_alias_file<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let path = file.file.normalized_path.as_str();
-    let Some(file_name) = path.rsplit('/').next() else {
-        return Ok(());
-    };
-    let tsconfig = file_name == "tsconfig.json";
-    if file.file.language != SourceLanguage::Json.as_str()
-        || (!tsconfig && file_name != "jsconfig.json")
-    {
-        return Ok(());
-    }
-    let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
-    if modules
-        .typescript_aliases
-        .by_directory
-        .get(directory)
-        .is_some_and(|existing| existing.tsconfig || !tsconfig)
-    {
-        return Ok(());
-    }
-    let normalized = NormalizedPath::parse(path).map_err(|_| StageItemFailure)?;
-    let limits = exact_limit_ceiling(file.file.byte_size)?;
-    let snapshot = context
-        .source_root
-        .read_with_cancellation(
-            &normalized,
-            SourceReadOptions::new(limits, &mut *context.cancelled),
-        )
-        .map_err(|_| StageItemFailure)?;
-    if snapshot.content_hash() != &file.file.content_hash
-        || snapshot.byte_size() != file.file.byte_size
-    {
-        return Err(StageItemFailure);
-    }
-    let Some(config) = parse_typescript_alias_config(snapshot.source(), directory, tsconfig)?
-    else {
-        return Ok(());
-    };
-    let replacing = modules
-        .typescript_aliases
-        .by_directory
-        .contains_key(directory);
-    if !replacing
-        && modules.typescript_aliases.by_directory.len() >= MAXIMUM_TYPESCRIPT_ALIAS_CONFIGS
-    {
-        return Err(StageItemFailure);
-    }
-    context
-        .budget
-        .charge(typescript_alias_config_bytes(directory, &config))?;
-    modules
-        .typescript_aliases
-        .by_directory
-        .insert(try_clone_text(directory)?, config);
-    Ok(())
-}
-
-fn parse_typescript_alias_config(
-    source: &str,
-    directory: &str,
-    tsconfig: bool,
-) -> Result<Option<TypeScriptAliasConfig>, StageItemFailure> {
-    let stripped = strip_typescript_config_comments(source);
-    let Ok(parsed) = serde_json::from_str::<Value>(&stripped) else {
-        return Ok(None);
-    };
-    let Some(compiler) = parsed.get("compilerOptions").and_then(Value::as_object) else {
-        return Ok(None);
-    };
-    let Some(paths) = compiler.get("paths").and_then(Value::as_object) else {
-        return Ok(None);
-    };
-    if paths.len() > MAXIMUM_TYPESCRIPT_PATH_MAPPINGS {
-        return Err(StageItemFailure);
-    }
-    let base_url = match compiler.get("baseUrl") {
-        Some(value) => value.as_str().ok_or(StageItemFailure)?,
-        None => ".",
-    };
-    let Some(base_path) = normalize_typescript_alias_base(directory, base_url) else {
-        return Ok(None);
-    };
-    let mut mappings = Vec::new();
-    mappings
-        .try_reserve_exact(paths.len())
-        .map_err(|_| StageItemFailure)?;
-    for (pattern, substitutions) in paths {
-        if let Some(mapping) = parse_typescript_path_mapping(pattern, substitutions)? {
-            mappings.push(mapping);
-        }
-    }
-    mappings.sort_unstable_by(|left, right| {
-        let left_wildcard = left.pattern.find('*');
-        let right_wildcard = right.pattern.find('*');
-        left_wildcard
-            .is_some()
-            .cmp(&right_wildcard.is_some())
-            .then_with(|| {
-                right_wildcard
-                    .unwrap_or(right.pattern.len())
-                    .cmp(&left_wildcard.unwrap_or(left.pattern.len()))
-            })
-            .then_with(|| left.pattern.cmp(&right.pattern))
-    });
-    Ok((!mappings.is_empty()).then_some(TypeScriptAliasConfig {
-        base_path,
-        mappings,
-        tsconfig,
-    }))
+    javascript_config::index_file(modules, file, context)
 }
 
 fn parse_typescript_path_mapping(
@@ -10097,18 +10047,7 @@ fn parse_typescript_path_mapping(
 }
 
 fn normalize_typescript_alias_base(directory: &str, base_url: &str) -> Option<String> {
-    if base_url.contains(['\\', '\0']) || base_url.starts_with('/') {
-        return None;
-    }
-    if matches!(base_url, "" | "." | "./") {
-        return Some(directory.to_owned());
-    }
-    let anchor = if directory.is_empty() {
-        "__cartograph_tsconfig__.json".to_owned()
-    } else {
-        format!("{directory}/__cartograph_tsconfig__.json")
-    };
-    normalize_joined_project_path(&anchor, base_url)
+    javascript_config::normalize_base(directory, base_url)
 }
 
 fn valid_typescript_alias_text(value: &str) -> bool {
@@ -10126,6 +10065,12 @@ fn typescript_alias_config_bytes(directory: &str, config: &TypeScriptAliasConfig
     let mut bytes = RESOLUTION_MAP_NODE_ALLOWANCE
         .saturating_add(usize_to_u64(directory.len()))
         .saturating_add(usize_to_u64(config.base_path.capacity()))
+        .saturating_add(
+            config
+                .explicit_base_url
+                .as_ref()
+                .map_or(0, |base| usize_to_u64(base.capacity())),
+        )
         .saturating_add(vector_capacity_bytes(&config.mappings));
     for mapping in &config.mappings {
         bytes = bytes
@@ -10138,39 +10083,9 @@ fn typescript_alias_config_bytes(directory: &str, config: &TypeScriptAliasConfig
     bytes
 }
 
+#[cfg(test)]
 fn strip_typescript_config_comments(source: &str) -> String {
-    let mut output = Vec::with_capacity(source.len());
-    let bytes = source.as_bytes();
-    let mut index = 0_usize;
-    let mut quoted = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if quoted {
-            (index, quoted) = copy_typescript_config_quoted_byte(bytes, index, &mut output);
-            continue;
-        }
-        if byte == b'"' {
-            quoted = true;
-            output.push(byte);
-            index += 1;
-            continue;
-        }
-        let remaining = &bytes[index..];
-        if remaining.starts_with(b"//") {
-            index = skip_typescript_line_comment(bytes, index);
-            continue;
-        }
-        if remaining.starts_with(b"/*") {
-            index = skip_typescript_block_comment(bytes, index);
-            continue;
-        }
-        output.push(byte);
-        index += 1;
-    }
-    match String::from_utf8(output) {
-        Ok(stripped) => stripped,
-        Err(_) => source.to_owned(),
-    }
+    javascript_config::strip_typescript_config_comments(source)
 }
 
 fn copy_typescript_config_quoted_byte(
@@ -10249,6 +10164,11 @@ where
             package: native_package_name(file),
         },
         budget,
+    )?;
+    file_path_resolution::index_path(
+        &mut index.modules.file_paths,
+        &file.file,
+        (budget, cancelled),
     )?;
     index_test_file_evidence(&mut index.test_files, file, budget)?;
     for containment in &file.containments {
@@ -10539,6 +10459,15 @@ fn index_project_reexports(
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
     for binding in &file.import_bindings {
+        if binding.kind == ImportBindingKind::ReExportUncertain {
+            javascript_exports::mark_uncertain(
+                &mut index.javascript_exports,
+                &file.file.file_id,
+                budget,
+            )?;
+            continue;
+        }
+
         if binding.kind == ImportBindingKind::ReExportNamed {
             budget.charge(
                 RESOLUTION_MAP_NODE_ALLOWANCE
@@ -10565,6 +10494,7 @@ fn index_project_reexports(
             | ImportBindingKind::Named
             | ImportBindingKind::Namespace
             | ImportBindingKind::ReExportNamed
+            | ImportBindingKind::ReExportUncertain
             | ImportBindingKind::IncludeQuoted
             | ImportBindingKind::IncludeSystem => continue,
         };
@@ -10622,6 +10552,7 @@ fn index_test_file_evidence(
             binding.kind,
             ImportBindingKind::IncludeSystem
                 | ImportBindingKind::ReExportAll
+                | ImportBindingKind::ReExportUncertain
                 | ImportBindingKind::ReExportNamespace
         ) {
             import_specifiers.insert(try_clone_text(&binding.module_specifier)?);
@@ -11565,7 +11496,7 @@ fn index_module_stem(
 fn directory_module_stem<'a>(language: &str, stem: &'a str) -> Option<&'a str> {
     let directory = if language == SourceLanguage::Rust.as_str() {
         stem.strip_suffix("/mod")
-    } else if javascript_family_name(language) {
+    } else if javascript_modules::module_language(language) {
         stem.strip_suffix("/index")
     } else if language == SourceLanguage::Python.as_str() {
         stem.strip_suffix("/__init__")
@@ -12149,8 +12080,9 @@ struct ModuleResolutionRequest<'a> {
 
 enum TypeScriptAliasModuleResolution<'a> {
     NotMatched,
-    Resolved(&'a FileId),
+    Resolved(&'a FileId, bool),
     Unresolved,
+    Ambiguous,
 }
 
 #[derive(Clone, Copy)]
@@ -12247,6 +12179,11 @@ where
 {
     if request.import_bindings.fallback_blocked {
         return Ok(None);
+    }
+    if request.language == SourceLanguage::Liquid.as_str()
+        && let Some(target) = file_path_resolution::resolve_reference(index, request, cancelled)?
+    {
+        return Ok(Some(ReferenceResolution::resolved(target)));
     }
     if request.kind == ReferenceKind::Imports
         && request.owner.is_none()
@@ -13481,12 +13418,24 @@ where
         matched = Some(file_symbol);
     }
     match matched {
-        Some(symbol_id) => Ok(ImportResolution::Resolved(ResolvedTarget {
-            symbol_id: symbol_id.clone(),
-            kind: SymbolKind::File,
-            confidence: IMPORT_BINDING_CONFIDENCE,
-            provenance: MODULE_IMPORT_PROVENANCE,
-        })),
+        Some(symbol_id) => {
+            let mut target = ResolvedTarget {
+                symbol_id: symbol_id.clone(),
+                kind: SymbolKind::File,
+                confidence: IMPORT_BINDING_CONFIDENCE,
+                provenance: MODULE_IMPORT_PROVENANCE,
+            };
+            javascript_modules::lower_fallback_target(
+                &mut target,
+                &index.modules,
+                ModuleResolutionRequest {
+                    importing_path: request.file_path,
+                    specifier: request.name,
+                    importing_language: request.language,
+                },
+            );
+            Ok(ImportResolution::Resolved(target))
+        }
         None if bound => Ok(ImportResolution::Unresolved),
         None => Ok(ImportResolution::NotBound),
     }
@@ -13531,6 +13480,7 @@ where
             | ImportBindingKind::Named
             | ImportBindingKind::Namespace
             | ImportBindingKind::ReExportAll
+            | ImportBindingKind::ReExportUncertain
             | ImportBindingKind::ReExportNamespace
             | ImportBindingKind::ReExportNamed => {}
         }
@@ -13542,7 +13492,10 @@ where
             confidence: IMPORT_BINDING_CONFIDENCE,
             provenance: QUOTED_INCLUDE_PROVENANCE,
         })),
-        None if bound => Ok(ImportResolution::Unresolved),
+        None if bound => Ok(
+            file_path_resolution::resolve_reference(index, request, cancelled)?
+                .map_or(ImportResolution::Unresolved, ImportResolution::Resolved),
+        ),
         None => Ok(ImportResolution::NotBound),
     }
 }
@@ -13877,10 +13830,24 @@ where
         module_file_id,
         javascript_value_usage: javascript_value_import_usage(import),
     };
-    Ok(
+    let mut target =
         select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
-            .map(import_binding_target),
-    )
+            .map(import_binding_target);
+    if target.is_none() {
+        target = javascript_exports::resolve_import(query, cancelled)?;
+    }
+    if let Some(target) = target.as_mut() {
+        javascript_modules::lower_fallback_target(
+            target,
+            &index.modules,
+            ModuleResolutionRequest {
+                importing_path: import.reference.file_path,
+                specifier: &binding.module_specifier,
+                importing_language: import.reference.language,
+            },
+        );
+    }
+    Ok(target)
 }
 
 /// A JavaScript-family use of an imported name in a value position, which a
@@ -14263,7 +14230,10 @@ fn language_import_is_project_local(
     ) {
         return true;
     }
-    javascript_family_name(reference.language) && javascript_alias_specifier(specifier)
+    javascript_modules::module_language(reference.language)
+        && (javascript_alias_specifier(specifier)
+            || javascript_packages::is_local(&index.modules, specifier)
+            || resolve_framework_alias_file(&index.modules, module_request).is_some())
 }
 
 fn javascript_alias_specifier(specifier: &str) -> bool {
@@ -14388,6 +14358,7 @@ fn runtime_binding_target_name<'a>(
         ImportBindingKind::IncludeQuoted
         | ImportBindingKind::IncludeSystem
         | ImportBindingKind::ReExportAll
+        | ImportBindingKind::ReExportUncertain
         | ImportBindingKind::ReExportNamespace
         | ImportBindingKind::ReExportNamed => None,
     }
@@ -14433,12 +14404,7 @@ fn resolve_module_file<'a>(
     {
         return Some(file_id);
     }
-    match resolve_typescript_alias_module(modules, request) {
-        TypeScriptAliasModuleResolution::Resolved(file_id) => return Some(file_id),
-        TypeScriptAliasModuleResolution::Unresolved => return None,
-        TypeScriptAliasModuleResolution::NotMatched => {}
-    }
-    resolve_framework_alias_file(modules, request)
+    javascript_modules::resolve_alias_file(modules, request)
 }
 
 /// Resolve a specifier through the importing language's own module path
@@ -14506,12 +14472,10 @@ fn resolve_framework_alias_file<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> Option<&'a FileId> {
-    framework_alias_module_paths(request.importing_language, request.specifier)
-        .into_iter()
-        .flatten()
-        .find_map(|candidate| {
-            resolve_normalized_module_file(modules, &candidate, request.importing_language)
-        })
+    match javascript_modules::conventional_file(modules, request) {
+        ModuleResolutionAttempt::Resolved(file) => Some(file),
+        ModuleResolutionAttempt::NotMatched | ModuleResolutionAttempt::Rejected => None,
+    }
 }
 
 fn compilation_unit_file<'a>(
@@ -14537,7 +14501,7 @@ fn resolve_typescript_alias_module<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> TypeScriptAliasModuleResolution<'a> {
-    if !javascript_family_name(request.importing_language)
+    if !javascript_modules::module_language(request.importing_language)
         || matches!(request.specifier, "." | "..")
         || request.specifier.starts_with("./")
         || request.specifier.starts_with("../")
@@ -14557,10 +14521,23 @@ fn resolve_typescript_alias_module<'a>(
             else {
                 continue;
             };
-            if let Some(file_id) =
-                resolve_normalized_module_file(modules, &candidate, request.importing_language)
-            {
-                return TypeScriptAliasModuleResolution::Resolved(file_id);
+            match javascript_modules::resolve_normalized(
+                modules,
+                &candidate,
+                request.importing_language,
+            ) {
+                ModuleResolutionAttempt::Resolved(file_id) => {
+                    let fallback = javascript_modules::uses_cross_language_fallback(
+                        modules,
+                        &candidate,
+                        request.importing_language,
+                    );
+                    return TypeScriptAliasModuleResolution::Resolved(file_id, fallback);
+                }
+                ModuleResolutionAttempt::Rejected => {
+                    return TypeScriptAliasModuleResolution::Ambiguous;
+                }
+                ModuleResolutionAttempt::NotMatched => {}
             }
         }
         return TypeScriptAliasModuleResolution::Unresolved;
@@ -14613,7 +14590,7 @@ struct TypeScriptAliasMatch<'context> {
 }
 
 fn typescript_alias_matches(modules: &ModulePathIndex, input: TypeScriptAliasMatch<'_>) -> bool {
-    if !javascript_family_name(input.importing_language) {
+    if !javascript_modules::module_language(input.importing_language) {
         return false;
     }
     nearest_typescript_alias_config(modules, input.importing_path).is_some_and(|config| {
@@ -14842,6 +14819,13 @@ fn resolve_normalized_module_file<'a>(
     normalized: &str,
     importing_language: &str,
 ) -> Option<&'a FileId> {
+    if javascript_modules::module_language(importing_language) {
+        return match javascript_modules::resolve_normalized(modules, normalized, importing_language)
+        {
+            ModuleResolutionAttempt::Resolved(file) => Some(file),
+            ModuleResolutionAttempt::NotMatched | ModuleResolutionAttempt::Rejected => None,
+        };
+    }
     match module_file_match(
         modules.exact.get(normalized),
         &modules.files,
@@ -14866,28 +14850,6 @@ fn resolve_normalized_module_file<'a>(
         ModuleFileMatch::Unique(file_id) => Some(file_id),
         ModuleFileMatch::Missing | ModuleFileMatch::Ambiguous => None,
     }
-}
-
-fn framework_alias_module_paths(language: &str, specifier: &str) -> [Option<String>; 2] {
-    if !(javascript_family_name(language) || matches!(language, "vue" | "svelte" | "astro")) {
-        return [None, None];
-    }
-    if let Some(tail) = specifier.strip_prefix("$lib/") {
-        return [normalize_root_module_path(&format!("src/lib/{tail}")), None];
-    }
-    if let Some(tail) = specifier.strip_prefix("@/") {
-        return [
-            normalize_root_module_path(&format!("src/{tail}")),
-            normalize_root_module_path(tail),
-        ];
-    }
-    if let Some(tail) = specifier.strip_prefix("~/") {
-        return [
-            normalize_root_module_path(tail),
-            normalize_root_module_path(&format!("src/{tail}")),
-        ];
-    }
-    [None, None]
 }
 
 fn normalize_root_module_path(path: &str) -> Option<String> {
@@ -16760,6 +16722,7 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod javascript_modules;
     mod javascript_parity;
     mod pascal_units;
     mod php_namespaces;
@@ -20231,7 +20194,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
         assert_eq!(
             module_reference.resolution_provenance,
-            MODULE_IMPORT_PROVENANCE
+            "native-conventional-alias"
         );
         let card_reference =
             capability_reference_in_file(&forward, "src/routes/+page.svelte", "Card");
@@ -20241,7 +20204,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
         assert_eq!(
             card_reference.resolution_provenance,
-            IMPORT_BINDING_PROVENANCE
+            "native-conventional-alias"
         );
         let button_reference =
             capability_reference_in_file(&forward, "src/routes/+page.svelte", "Button");
@@ -20265,7 +20228,10 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             vue_module.target_symbol_id.as_ref(),
             Some(&vue_card_file.symbol_id)
         );
-        assert_eq!(vue_module.resolution_provenance, MODULE_IMPORT_PROVENANCE);
+        assert_eq!(
+            vue_module.resolution_provenance,
+            "native-conventional-alias"
+        );
         let vue_card_reference = capability_reference_in_file(&forward, "pages/index.vue", "Card");
         assert_eq!(
             vue_card_reference.target_symbol_id.as_ref(),
@@ -21731,6 +21697,13 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         wider_partial_band: bool,
         maximum_bytes: u64,
     ) -> CanonicalGenerationFacts {
+        let directory = tempdir().unwrap_or_else(|error| panic!("capability directory: {error}"));
+        for (path, source) in fixtures {
+            let target = directory.path().join(path);
+            fs::create_dir_all(target.parent().unwrap_or(directory.path()))
+                .unwrap_or_else(|error| panic!("capability parent: {error}"));
+            fs::write(target, source).unwrap_or_else(|error| panic!("capability source: {error}"));
+        }
         let source_limits = SourceLimits::new(TEST_SOURCE_BYTES)
             .unwrap_or_else(|error| panic!("capability source limits failed: {error}"));
         let mut extracted = fixtures
@@ -21765,7 +21738,8 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             ResolveGenerationRequest {
                 extracted: accumulator,
                 maximum_bytes,
-                source_root: test_source_root(),
+                source_root: SourceRoot::open(directory.path())
+                    .unwrap_or_else(|error| panic!("capability root: {error}")),
                 evidence_policy: FULL_TEST_EVIDENCE,
                 clone_policy: NativeClonePolicy { wider_partial_band },
             },
@@ -23284,7 +23258,7 @@ export function secondClone(value: number) {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn ambiguous_module_stems_do_not_fall_through_to_directory_indexes() {
+    async fn javascript_module_stems_prefer_language_extensions_before_directory_indexes() {
         let directory = tempdir()
             .unwrap_or_else(|error| panic!("could not create module resolver fixture: {error}"));
         write_module_project(directory.path());
@@ -23294,11 +23268,9 @@ export function secondClone(value: number) {
         };
         let owner = facts.symbol("src/ambiguous.ts", "useAmbiguous");
         let reference = facts.reference(&owner, "choose");
-        assert!(reference.target_symbol_id.is_none());
-        assert_eq!(
-            reference.resolution_provenance,
-            UNRESOLVED_IMPORT_PROVENANCE
-        );
+        let target = facts.symbol("src/foo.ts", "choose");
+        assert_eq!(reference.target_symbol_id.as_ref(), Some(&target));
+        assert_eq!(reference.resolution_provenance, IMPORT_BINDING_PROVENANCE);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

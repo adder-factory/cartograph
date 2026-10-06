@@ -374,6 +374,8 @@ pub enum ImportBindingKind {
     Namespace,
     /// `export * from './module'`, expanded after project-wide module resolution.
     ReExportAll,
+    /// Syntax-recovered wildcard exports remain explicitly unresolved.
+    ReExportUncertain,
     /// `export * as Local from './module'`, retaining the exported namespace owner.
     ReExportNamespace,
     /// Rust `pub use path::Name`, retaining its public facade path and exact source path.
