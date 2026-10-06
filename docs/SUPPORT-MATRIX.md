@@ -36,10 +36,12 @@ enrichment in the focused Rust modules beside them.
 > The per-language claims for the 73 v1 modes are backed by the v1 parity
 > oracle (`crates/cartograph-extract/tests/v1_parity_oracle.rs`), which runs as
 > part of the workspace `cargo test`. Every fact v1.1.33 extracted from a
-> mode's fixture corpus must have a per-file v2 counterpart, or a ledger entry
-> that marks it pending for a later port wave or intentionally different, with
-> a reason. The oracle does not assert that a reference binds to the same
-> cross-file target as in v1.
+> mode's fixture corpus needs a unique exact per-file identity, committed exact
+> alignment pins, or a pending/intentional ledger entry with shared evidence.
+> Ambiguous identities never match and stale rows fail. The
+> [coverage report](LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle) owns current
+> counts and update instructions. Cross-file target resolution requires
+> separate resolver evidence.
 
 **On this page:** [Languages](#languages) ·
 [Game scripting](#dedicated-game-scripting-modes) ·

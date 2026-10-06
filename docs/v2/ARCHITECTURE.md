@@ -299,8 +299,10 @@ The [coverage report](../LANGUAGE-COVERAGE-REPORT.md#strategy-families) lists
 every mode's strategy. Its per-language
 [v1 parity oracle](../LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle) requires
 every per-file fact v1.1.33 extracted from each v1 mode's fixture corpus to
-have a v2 counterpart or a ledgered divergence, so extraction depth cannot
-silently fall below v1. The V21 generation-digest contract (migration 48)
+have a unique exact identity, committed exact alignment pins, or a
+pending/intentional ledger entry. Ambiguous identities never match and stale
+rows fail; the linked report owns current counts and the update procedure.
+The V21 generation-digest contract (migration 48)
 fences these families, so generations from older binaries report stale once
 and republish.
 

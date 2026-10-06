@@ -1268,7 +1268,7 @@ fn exact_parity_carries_every_captured_fact_or_an_explicit_divergence() {
     let outcome = verified(cases, policy);
     assert_eq!(
         outcome.counts["intentional:v1-export-module-misattribution"],
-        3
+        2
     );
     println!(
         "{FACT_COUNT} facts; 0 unmatched / 0 stale / 0 problems; {:?}",

@@ -532,7 +532,9 @@ grammar mismatch, malformed syntax, IDs, spans, declarations, references,
 resolution ambiguity, search documents, test routing, and digest stability.
 The per-language [v1 parity oracle](../LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle)
 requires every fact v1.1.33 extracted from each v1 mode's fixture corpus to
-have a per-file v2 counterpart or a ledgered divergence.
+have a unique exact per-file identity, committed exact alignment pins, or a
+pending/intentional ledger entry. Ambiguous identities never match, and stale
+rows fail; the linked report owns the table formats and current counts.
 
 The Rust-owned live corpus then proves discovery through PostgreSQL publication
 and ParadeDB search at 1, 2, 4, 8, and 16 workers. Every run must retain:

@@ -45,15 +45,18 @@ section lists every step and the shared helpers.
 Changing an existing v1.1.33 mode's extraction must keep
 `crates/cartograph-extract/tests/v1_parity_oracle.rs` passing:
 
-- fix every v1 fact the change drops, or record it in
-  `tests/fixtures/v1_parity/divergences.json` as `pending` (with its audit gap
-  id and wave) or `intentional` (with a reason);
-- delete ledger entries the change fixes, because stale entries fail the test;
-- regenerate a changed corpus's `expected/<mode>.json` only with the
-  maintainer-only `scripts/capture-v1-parity-oracle.sh`, which needs the
-  verified v1.1.33 release binary.
+- require a unique exact identity for every frozen v1 fact, or pin its verified
+  counterpart in `tests/fixtures/v1_parity/alignments.jsonl`;
+- record missing facts in `divergences.jsonl` as `pending` (gap id and wave) or
+  `intentional` (reason id), with shared evidence in `reasons.jsonl`;
+- read candidate suggestions to investigate failures; they never count as
+  matches. Remove stale or redundant rows after a fix and retain the
+  `gate_cases.jsonl` and `counterexamples.jsonl` regressions;
+- keep the corpus and `expected/<mode>.json` frozen. Creating a capture requires
+  the maintainer-only `scripts/capture-v1-parity-oracle.sh` and verified
+  v1.1.33 release binary.
 
-Details are in the
+The key contract, current disposition counts and update procedure are in the
 [coverage report](LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle). A change that
 alters published facts also needs a new
 [generation-digest contract](EXTENDING-EXTRACTORS-RESOLVERS.md#9-generation-digest-contract).

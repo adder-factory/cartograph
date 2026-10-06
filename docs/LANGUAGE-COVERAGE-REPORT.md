@@ -117,89 +117,108 @@ must prove:
 Admission proves robustness, not depth: a mode can parse, publish, and stay
 deterministic while extracting far less than v1 did. The per-language v1
 parity oracle closes that gap for every v1.1.33 mode by comparing v2's
-extraction with what the real v1.1.33 release binary extracted from the same
-files.
+per-file extraction with facts captured once from the real v1.1.33 release
+binary over the same frozen source. The gate uses exact identities and explicit
+pins; it has no runtime matching heuristics.
 
 | Part | Location |
 | --- | --- |
 | Test target | `crates/cartograph-extract/tests/v1_parity_oracle.rs` (runs in `cargo test --locked --workspace`) |
 | Fixture corpus, one per v1 mode | `crates/cartograph-extract/tests/fixtures/v1_parity/<mode>/` |
 | Captured v1.1.33 facts | `crates/cartograph-extract/tests/fixtures/v1_parity/expected/<mode>.json` |
-| Divergence ledger | `crates/cartograph-extract/tests/fixtures/v1_parity/divergences.json` |
+| Exact alignments | `crates/cartograph-extract/tests/fixtures/v1_parity/alignments.jsonl` |
+| Missing-fact ledger | `crates/cartograph-extract/tests/fixtures/v1_parity/divergences.jsonl` |
+| Shared gap and correction evidence | `crates/cartograph-extract/tests/fixtures/v1_parity/reasons.jsonl` |
+| Small gate regressions | `crates/cartograph-extract/tests/fixtures/v1_parity/gate_cases.jsonl` |
+| Adversarial review regressions | `crates/cartograph-extract/tests/fixtures/v1_parity/counterexamples.jsonl` |
 | Capture script (maintainer-only) | `scripts/capture-v1-parity-oracle.sh` |
 
 ### What the oracle checks
 
 The test runs v2's `NativeExtractor` over every corpus file, using the
-corpus-relative path as the virtual path, and requires every v1 fact (symbols,
-resolved edges, and unresolved references) to have a per-file v2 counterpart
-under the mapping rules documented at the top of the test file: matching kinds,
-the same start line, and names that are equal or share a final segment. It
-checks that the per-file fact exists; it does not assert that a reference
-binds to the same cross-file target as in v1.
+corpus-relative path as the virtual path. Each frozen file, symbol, edge or
+unresolved reference needs exactly one disposition:
+
+- **Identity:** a unique exact readable key after the fixed kind and separator
+  normalization. Symbols retain kind, full qualified name and declaration start;
+  containments retain both typed endpoints and any recorded child line;
+  references retain kind, typed owner, owner declaration start, exact target name
+  and any recorded occurrence line. Verified symbol correspondences supply exact
+  relationship endpoints. The index includes all native observations in the
+  file; ambiguous keys never satisfy identity.
+- **Alignment:** committed canonical native pins for a genuine shape difference,
+  split representation or documented correction. A pin selects one observation
+  by readable key, with an end line only when needed to disambiguate it. Every
+  pin in a group must exist and select a distinct observation. No byte offsets,
+  columns, leaf-name fallback or candidate ranking participates in matching.
+- **Ledger:** an explicit missing fact, pending with a wave and gap id or
+  intentional with a reason id. Shared evidence lives once in `reasons.jsonl`.
+
+The captured 8,231 records across 73 modes contain duplicates that share a
+disposition, giving 8,165 distinct selectors. The current disposition counts
+after the extraction fixes are:
+
+| Disposition | Distinct selectors |
+| --- | ---: |
+| Identity | 6,038 |
+| Aligned | 1,957 |
+| Pending, wave 2 | 16 |
+| Pending, wave 3 | 109 |
+| Intentional | 45 |
+
+This gate proves per-file observations. Correction alignments marked
+`v1-target-misresolution-*` preserve only the corrected source occurrence under
+its exact typed owner and declaration/occurrence sites; they reject the captured
+resolved target. They never claim resolved-target parity. Correct cross-file
+target resolution requires separate resolver evidence.
 
 Three tests make up the target:
 
 | Test | Fails when |
 | --- | --- |
-| `v2_extraction_carries_every_v1_parity_fact_or_a_ledgered_divergence` | A v1 fact has no v2 match and no ledger entry, a ledger entry is stale, or v2's classifier assigns a file that v1 attributed to the mode to a different mode |
-| `every_v1_language_mode_has_a_complete_parity_corpus` | One of the 73 v1 modes has no corpus or captured oracle, an oracle was not captured from v1.1.33 by the pinned binary (its SHA-256 is recorded), the corpus differs from the captured file list, a fact names a file outside the corpus, no corpus file is attributed to the mode, or a v1 kind has no mapping |
-| `divergence_ledger_entries_are_well_formed_and_unique` | An entry names an unknown mode, is duplicated, lacks a required reason, has a blank gap id or a wave other than 1, 2, or 3, or gives an edge fact no source (or a non-edge fact one) |
+| `exact_parity_carries_every_captured_fact_or_an_explicit_divergence` | A fact has no disposition, an identity or pin is ambiguous, policy hygiene fails, or capture provenance/corpus membership differs |
+| `compact_tables_are_sorted` | Alignments, divergences or reason definitions are duplicated or out of deterministic order |
+| `small_inputs_and_review_counterexamples_exercise_the_real_gate` | A small gate case or adversarial extraction mutation stops producing its required diagnostics |
 
-To list every unmatched fact, set `CARTOGRAPH_V1_PARITY_REPORT` to a file path
-whose directory exists (use an absolute path; the test runs in the crate
-directory). The test writes the misses there as JSON in the ledger's fact
-shape before it asserts:
+### Resolving a failure
 
-```sh
-CARTOGRAPH_V1_PARITY_REPORT="$HOME/v1-parity-misses.json" \
-  cargo test --locked -p cartograph-extract --test v1_parity_oracle
-```
-
-### Ledger rules
-
-A v1 fact that v2 does not reproduce is either fixed or recorded in
-`divergences.json`. Each entry names one fact (mode, category, file, line,
-kind, name, and the source for edges) and has:
-
-| Field | Rule |
-| --- | --- |
-| `status` | `pending` (the fact returns when its port lands) or `intentional` (v2 deliberately differs) |
-| `gap` | Optional audit gap id tracking the port; never blank |
-| `wave` | Optional port wave: 1, 2, or 3 |
-| `reason` | Why the fact diverges; required for `intentional` entries |
-
-Unknown fields are rejected. An entry whose fact now matches, or no longer
-exists in the oracle, fails the test, so the ledger can only shrink honestly:
-fixing a gap means deleting its entries in the same change. Remaining v1 gaps
-are scheduled as wave 2 (cross-file resolution) and wave 3 (framework and
-bridge detail).
-
-### Regenerating the fixtures
-
-The capture script is maintainer-only. The v2 product, its tests, and CI never
-run it or the v1 binary; the test only reads the JSON it writes. It needs the
-v1.1.33 darwin-arm64 release binary (`cartograph-darwin-arm64.tar.gz`, checked
-against that release's `SHA256SUMS` before unpacking) plus `sqlite3`, `jq`, and
-`shasum`. It copies a corpus into a private temporary Git checkout, indexes it
-with the v1 binary under an isolated `HOME`, and projects v1's graph to a
-sorted, path-relative JSON document.
+Run the target with diagnostics visible:
 
 ```sh
-# From the repository root; v1_binary is the verified v1.1.33 cartograph binary.
-fixtures=crates/cartograph-extract/tests/fixtures/v1_parity
-for corpus in "$fixtures"/*/; do
-  language="$(basename "$corpus")"
-  [[ "$language" == expected ]] && continue
-  scripts/capture-v1-parity-oracle.sh "$v1_binary" "$corpus" "$language" \
-    "$fixtures/expected/$language.json"
-done
-cargo test --locked -p cartograph-extract --test v1_parity_oracle
+cargo test --locked -p cartograph-extract --test v1_parity_oracle -- --nocapture
 ```
 
-Then update `divergences.json` for every fact whose status changed. A capture
-made with any other build fails the coverage test, because each oracle records
-the binary's SHA-256 and the test pins it.
+Read the frozen selector and up to three nearby native candidates. Suggestions
+never count as matches. Inspect the frozen source, capture and native extraction
+to establish the entity and its ownership, then fix extraction or commit unique
+pins for the established correspondence. Pin the complete group when the capture
+represents multiple independently established relationships. Record a pending
+gap or intentional reason only when the fact is not carried.
+
+Each JSONL object occupies one line. An alignment names `language`, `file`, the
+`v1` key, optional captured `end`, native `pins` and optional correction `reason`.
+A divergence names `language`, `file`, `fact` and `disposition` (`pending` with
+`wave` and `id`, or `intentional` with `id`). A reason definition names `id`,
+source-specific `reason` evidence and a `wave` only for pending gaps. Small gate
+cases and counterexamples name inputs, policy and required diagnostic fragments;
+counterexamples may mutate actual extraction output. The test's module docs give
+an example row for each table.
+
+Remove rows whose facts now match by identity and reason definitions no longer
+used. Unknown fields, nonexistent frozen selectors, conflicting dispositions,
+empty/duplicate/overlapping pins, undefined or unused ids and inconsistent waves
+fail hygiene. Preserve existing pending gap ids and waves when updating rows;
+remaining work is scheduled as wave 2 (resolution) and wave 3 (framework/bridge
+detail).
+
+### Frozen capture provenance
+
+Keep `expected/<mode>.json` and the corpus source unchanged when resolving a
+failure. The maintainer-only `scripts/capture-v1-parity-oracle.sh` creates
+captures with the v1.1.33 darwin-arm64 binary verified against that release's
+`SHA256SUMS`, using an isolated `HOME` and private temporary checkout. The gate
+pins that binary's recorded SHA-256. V2, its tests and CI only read captured JSON;
+they never run the historical binary.
 
 ## Validation evidence
 

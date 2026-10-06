@@ -78,8 +78,8 @@ Work through these steps in order. Each links to the detailed rules below.
    `crates/cartograph-db/src/v1_import.rs` and the live cutover tests.
    See [§7](#7-import-and-freshness-boundary).
 10. **v1 parity.** For a v1.1.33 mode, keep the v1 parity oracle green: fix
-    every v1 fact the change drops, or ledger it as `pending` (with its gap id
-    and wave) or `intentional` (with a reason). See
+    dropped facts, pin verified shape differences, or ledger missing facts as
+    `pending` (gap id and wave) or `intentional` (reason id). See
     [§8](#8-v1-parity-oracle).
 11. **Generation contract.** When the change alters the facts an existing
     language publishes, add a new generation-digest contract and its
@@ -273,24 +273,30 @@ appear fresh while unsupported files change or disappear on the next index.
 
 Every v1.1.33 mode has a fixture corpus and the facts the real v1.1.33 binary
 extracted from it, and `crates/cartograph-extract/tests/v1_parity_oracle.rs`
-(part of `cargo test`) requires each of those facts to have a per-file v2
-counterpart. A change to a v1 mode's extraction must keep it green:
+(part of `cargo test`) requires one disposition for every frozen fact:
 
-- **Fix** a v1 fact the change drops whenever v2 should reproduce it.
-- **Or ledger it** in `tests/fixtures/v1_parity/divergences.json` with
-  `status` `pending` (and its audit `gap` id and `wave`) or `intentional`
-  (with a `reason` explaining why v2 deliberately differs).
-- **Remove stale entries.** A ledger entry whose fact now matches fails the
-  test, so a fix deletes its entries in the same change.
+- **Identity:** a unique exact per-file key, including qualified names, kinds
+  and recorded lines. An ambiguous identity never matches.
+- **Alignment:** unique readable native pins in
+  `tests/fixtures/v1_parity/alignments.jsonl` for an established shape difference
+  or documented correction. Every pin in a group is required.
+- **Ledger:** `divergences.jsonl` records a missing fact as `pending` (gap id and
+  wave) or `intentional` (reason id). `reasons.jsonl` stores shared evidence.
+
+Read the failure's candidate suggestions, then inspect the source, capture and
+native extraction before fixing extraction or updating rows. Suggestions never
+satisfy the gate. Delete stale or redundant rows and unused reason definitions.
+`gate_cases.jsonl` and `counterexamples.jsonl` replay regressions through the
+same gate; reference pins always retain the owner's kind and declaration site.
 
 ```sh
 cargo test --locked -p cartograph-extract --test v1_parity_oracle
 ```
 
-When a corpus changes, regenerate its oracle document with the maintainer-only
-`scripts/capture-v1-parity-oracle.sh`, which needs the verified v1.1.33
-release binary; never hand-edit `expected/<mode>.json`. The full rules,
-failure modes, and regeneration loop are in the
+Keep the corpus and captured `expected/<mode>.json` unchanged when resolving a
+failure. Creating a capture requires the maintainer-only
+`scripts/capture-v1-parity-oracle.sh` and verified v1.1.33 release binary.
+The key contract, correction policy and current disposition counts are in the
 [coverage report](LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle).
 
 ### 9. Generation-digest contract
@@ -339,7 +345,7 @@ A cross-language bridge consumes existing facts from both languages. It must:
 | Grammar selected but walker dispatch missing | Files look successfully empty. |
 | Dedicated strategy registered, but the language left in `GENERIC_LANGUAGES` in `walk.rs` | The generic walker keeps running and the new family never executes. |
 | Extraction output changed without a new generation-digest contract | Unchanged checkouts keep reporting fresh with the previous facts. |
-| v1 fact dropped, or a fixed gap left in the parity ledger | `v1_parity_oracle` fails with an unledgered or stale fact. |
+| v1 fact dropped, an ambiguous pin selected, or a redundant policy row retained | `v1_parity_oracle` fails with an unmatched, ambiguous or stale fact. |
 | Non-game language registered in neither `grammar_strategy` nor `fallback_strategy` | Building its `LanguageSpec` panics with `game scripting registry drifted`. |
 | Declarations added without search documents | Exact graph exists but BM25 cannot find it. |
 | Resolver uses global name-only matching | Private same-name symbols acquire false edges. |
