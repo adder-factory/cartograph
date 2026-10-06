@@ -196,11 +196,18 @@ mod tests {
         };
         let file_symbol = native_file_symbol_id(&file);
         let receivers = crate::native_pipeline::generic_resolution::ReceiverSites::default();
+        let lookups = crate::native_pipeline::receiver_resolution::FileLookups::new(
+            &[],
+            &mut budget,
+            &mut || false,
+        )
+        .unwrap_or_else(|_| panic!("receiver lookups"));
         let context = FileResolutionContext {
             identity: &identity,
             file_symbol_id: &file_symbol,
             import_bindings: &imports,
             current_receivers: &receivers,
+            receiver_lookups: &lookups,
         };
         let mut work = 0_usize;
         let mut cancelled = || {

@@ -680,8 +680,15 @@ fn static_member_resolution_work(size: usize) -> u64 {
     let mut scratch = ImportBindingScratch::new(file.import_bindings.len(), &mut budget)
         .unwrap_or_else(|_| panic!("scratch"));
     let receivers = crate::native_pipeline::generic_resolution::ReceiverSites::default();
+    let lookups = crate::native_pipeline::receiver_resolution::FileLookups::new(
+        &[],
+        &mut budget,
+        &mut || false,
+    )
+    .unwrap_or_else(|_| panic!("receiver lookups"));
     let context = FileResolutionContext {
         current_receivers: &receivers,
+        receiver_lookups: &lookups,
         identity: &identity,
         file_symbol_id: index
             .file_symbols

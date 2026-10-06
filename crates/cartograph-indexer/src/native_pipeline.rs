@@ -17,6 +17,7 @@ mod php_resolution;
 mod play_resolution;
 mod python_resolution;
 mod qualified_member_resolution;
+mod receiver_resolution;
 mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
@@ -56,8 +57,8 @@ use cartograph_extract::{
     CloneTokenCount, CloneTokenProfile, Containment, DEFAULT_MAXIMUM_AST_DEPTH,
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DeclarationSyntax, DiagnosticCode, DiscoveredSource,
     DiscoveryLimits, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedCallScopeSite,
-    ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite, ExtractedReference,
-    ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
+    ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite, ExtractedReceiverEvidence,
+    ExtractedReference, ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
     LEXICAL_SCOPE_RESOLUTION_PREFIX, MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor,
     PHP_EXACT_RESOLUTION_PREFIX, PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX,
     RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
@@ -4773,6 +4774,7 @@ fn compact_clone_file(mut file: NativeFileFacts) -> NativeFileFacts {
     file.containments = Vec::new();
     file.references = Vec::new();
     file.call_scope_sites = Vec::new();
+    file.receiver_evidence = None;
     file.numerical_sites = Vec::new();
     file.import_bindings = Vec::new();
     file.test_search_text = String::new();
@@ -4797,6 +4799,7 @@ struct NativeFileFacts {
     javascript_member_calls: Vec<JavascriptMemberCallContext>,
     resolution_abstentions: Vec<SourceSpan>,
     local_type_scopes: Vec<(SourceSpan, SourceSpan)>,
+    receiver_evidence: Option<Box<ExtractedReceiverEvidence>>,
     numerical_sites: Vec<ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
     has_inline_tests: bool,
@@ -4821,6 +4824,7 @@ impl NativeFileFacts {
             javascript_member_calls,
             resolution_abstentions,
             local_type_scopes,
+            receiver_evidence,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4852,6 +4856,7 @@ impl NativeFileFacts {
             javascript_member_calls,
             resolution_abstentions,
             local_type_scopes,
+            receiver_evidence,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4872,6 +4877,9 @@ impl NativeFileFacts {
             .saturating_add(vector_capacity_bytes(&self.javascript_member_calls))
             .saturating_add(vector_capacity_bytes(&self.resolution_abstentions))
             .saturating_add(vector_capacity_bytes(&self.local_type_scopes))
+            .saturating_add(receiver_resolution::evidence_bytes(
+                self.receiver_evidence.as_deref(),
+            ))
             .saturating_add(vector_capacity_bytes(&self.numerical_sites))
             .saturating_add(vector_capacity_bytes(&self.import_bindings))
             .saturating_add(usize_to_u64(self.test_search_text.capacity()));
@@ -5294,6 +5302,7 @@ struct ResolutionIndex {
     generic: generic_resolution::GenericResolutionIndex,
     jvm: jvm_resolution::JvmResolutionIndex,
     types: qualified_member_resolution::TypeIndex,
+    receivers: receiver_resolution::ReceiverIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -9854,6 +9863,7 @@ where
     Cancel: FnMut() -> bool,
 {
     python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     let mut order = Vec::new();
     order
         .try_reserve_exact(index.candidates.len())
@@ -10459,6 +10469,11 @@ where
         file,
         cancelled,
     )?;
+    receiver_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     index_project_reexports(index, file, budget)
 }
 
@@ -10762,6 +10777,7 @@ struct FileResolutionContext<'a> {
     file_symbol_id: &'a SymbolId,
     import_bindings: &'a FileImportBindingIndex<'a>,
     current_receivers: &'a generic_resolution::ReceiverSites,
+    receiver_lookups: &'a receiver_resolution::FileLookups<'a>,
 }
 
 struct FileImportBindingIndex<'a> {
@@ -11124,7 +11140,16 @@ where
         target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
         target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
     }
-    Ok(resolution)
+    let receiver = receiver_resolution::resolve(
+        index,
+        receiver_resolution::ReceiverQuery {
+            context,
+            reference,
+            import_binding_scratch,
+        },
+        cancelled,
+    )?;
+    Ok(receiver_resolution::prefer_base(resolution, receiver))
 }
 
 struct FileRecordInput<'file> {
@@ -11165,6 +11190,7 @@ impl ResolutionOutput<'_> {
             javascript_member_calls: _,
             resolution_abstentions: _,
             local_type_scopes: _,
+            receiver_evidence,
             numerical_sites,
             import_bindings,
             has_inline_tests: _,
@@ -11207,11 +11233,19 @@ impl ResolutionOutput<'_> {
             (&identity.language, self.index, self.budget),
             cancelled,
         )?;
+        let receiver_lookups = receiver_resolution::FileLookups::new(
+            receiver_evidence
+                .as_deref()
+                .map_or(&[], |evidence| evidence.lookups.as_slice()),
+            self.budget,
+            cancelled,
+        )?;
         let context = FileResolutionContext {
             identity: &identity,
             file_symbol_id: &file_symbol_id,
             import_bindings: &import_binding_index,
             current_receivers: &current_receivers,
+            receiver_lookups: &receiver_lookups,
         };
         for reference in references {
             if cancelled() {
@@ -16920,6 +16954,7 @@ mod tests {
     mod php_namespaces;
     mod polyglot_parity;
     mod python_imports;
+    mod receiver_types;
     mod rust_receivers;
     mod script_modules;
     mod v1_resolution_oracle;

@@ -50,6 +50,18 @@ pub const TYPE_QUERY_VALUE_RESOLUTION_PREFIX: &str = "cartograph.type-query-valu
 #[doc(hidden)]
 pub const LEXICAL_SCOPE_RESOLUTION_PREFIX: &str = "cartograph.lexical-scope::";
 
+/// Internal receiver-evidence lookup for an explicit same-file type.
+/// The suffix is `import::type#member`, or `@symbol-id#member` for a local nominal type.
+/// `?#member` fences a closer binding without usable type evidence. This is
+/// syntax evidence only: project class identity and ancestry belong to resolution.
+/// An empty member records the declaration binding of a Python base reference.
+#[doc(hidden)]
+pub const EXPLICIT_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.explicit-receiver::";
+
+/// A receiver type bound by an import at its declaration, independent of locals at its use.
+#[doc(hidden)]
+pub const EXPLICIT_RECEIVER_IMPORT_PREFIX: &str = "import::";
+
 /// Internal lookup marker for a static SQL-literal table reference.
 ///
 /// The suffix is `<operation>::<qualified-table>`. The persisted reference keeps only the
@@ -129,6 +141,10 @@ pub struct ExtractedFile {
     /// Java local type declarations paired with their exact enclosing block.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub local_type_scopes: Vec<(SourceSpan, SourceSpan)>,
+    /// Optional explicit receiver and member-shadowing evidence. An absent
+    /// payload keeps unrelated languages' core output within its original bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiver_evidence: Option<Box<ExtractedReceiverEvidence>>,
     /// Source-ordered, privacy-safe static numerical evidence sites.
     pub numerical_sites: Vec<ExtractedNumericalSite>,
     /// Source-ordered ES module bindings used by project-wide resolution.
@@ -441,6 +457,40 @@ pub struct ExtractedReference {
     pub kind: ReferenceKind,
     /// Exact source range recorded for the reference expression.
     pub span: SourceSpan,
+}
+
+/// Bounded explicit receiver evidence consumed only by the project resolver.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedReceiverEvidence {
+    /// Existing references' spans/kinds and their explicit receiver lookup.
+    pub lookups: Vec<ExtractedReceiverLookup>,
+    /// Non-method bindings that fence inherited member lookup.
+    pub bindings: Vec<ExtractedReceiverBinding>,
+}
+
+/// One receiver lookup, separate from the reference's frozen syntax identity.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedReceiverLookup {
+    /// The syntax reference whose receiver was established.
+    pub span: SourceSpan,
+    /// Distinguishes a member call from a field read at the same syntax site.
+    pub kind: ReferenceKind,
+    /// An internal lookup marker containing only type/member identifiers.
+    pub lookup: String,
+}
+
+/// A class-body binding that cannot be assumed to be an inherited method.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedReceiverBinding {
+    /// Exact local class owning the declaration. `None` retains an assignment
+    /// whose receiver class cannot be established during extraction.
+    pub class_id: Option<SymbolId>,
+    /// The declared or shadowed member. `None` fences all member lookup after
+    /// an unsupported class-body binding.
+    pub name: Option<String>,
+    /// An assignment through a receiver fences every lookup of this member.
+    #[serde(default)]
+    pub assigned: bool,
 }
 
 /// Source import/binding category with explicit module and visibility semantics.

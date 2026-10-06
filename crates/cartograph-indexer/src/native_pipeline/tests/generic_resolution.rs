@@ -921,7 +921,7 @@ fn exact_imports_take_precedence_over_proximity_and_missing_imports_abstain() {
 }
 
 #[test]
-fn python_self_and_bare_javascript_methods_preserve_unproved_receiver_boundaries() {
+fn python_self_receivers_resolve_and_bare_names_keep_unproved_boundaries() {
     let fixtures = [
         (
             "src/worker.py",
@@ -933,10 +933,14 @@ fn python_self_and_bare_javascript_methods_preserve_unproved_receiver_boundaries
         ),
     ];
     let facts = build_capability_generation(&fixtures, false);
+    // `self` as the undecorated first parameter is proven by the explicit
+    // receiver pass; bare names stay unproved below.
     let python = capability_symbol(&facts, "src/worker.py", "Worker::run");
+    let helper = capability_symbol(&facts, "src/worker.py", "Worker::helper");
     let call =
         CapabilityReferenceQuery::new(&facts, python).named("self.helper", ReferenceKind::Calls);
-    assert!(call.target_symbol_id.is_none());
+    assert_eq!(call.target_symbol_id.as_ref(), Some(&helper.symbol_id));
+    assert_eq!(call.resolution_provenance, "native-explicit-receiver-type");
     let python_retry = capability_symbol(&facts, "src/worker.py", "retry");
     let call =
         CapabilityReferenceQuery::new(&facts, python_retry).named("retry", ReferenceKind::Calls);

@@ -4,7 +4,8 @@ use cartograph_domain::SourceSpan;
 
 use crate::{
     Containment, ExtractError, ExtractedCallScopeSite, ExtractedFile, ExtractedImportBinding,
-    ExtractedNumericalSite, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
+    ExtractedNumericalSite, ExtractedReceiverBinding, ExtractedReceiverEvidence,
+    ExtractedReceiverLookup, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
     JavascriptMemberCallContext, JavascriptMemberReceiver, SourceSnapshot,
 };
 
@@ -216,6 +217,13 @@ impl ExtractedFile {
                 ))
             })
             .and_then(|bytes| {
+                bytes.checked_add(
+                    self.receiver_evidence
+                        .as_deref()
+                        .map_or(0, receiver_evidence_bytes),
+                )
+            })
+            .and_then(|bytes| {
                 bytes.checked_add(vector_bytes::<ExtractedNumericalSite>(
                     self.numerical_sites.capacity(),
                 ))
@@ -245,6 +253,42 @@ impl ExtractedFile {
             .and_then(|bytes| bytes.checked_add(usize_to_u64(self.test_search_text.capacity())))
             .unwrap_or(u64::MAX)
     }
+}
+
+fn receiver_evidence_bytes(evidence: &ExtractedReceiverEvidence) -> u64 {
+    let header = usize_to_u64(size_of::<ExtractedReceiverEvidence>())
+        .checked_add(vector_bytes::<ExtractedReceiverLookup>(
+            evidence.lookups.capacity(),
+        ))
+        .and_then(|bytes| {
+            bytes.checked_add(vector_bytes::<ExtractedReceiverBinding>(
+                evidence.bindings.capacity(),
+            ))
+        });
+    header
+        .and_then(|bytes| {
+            evidence.lookups.iter().try_fold(bytes, |total, lookup| {
+                total.checked_add(usize_to_u64(lookup.lookup.capacity()))
+            })
+        })
+        .and_then(|bytes| {
+            evidence.bindings.iter().try_fold(bytes, |total, binding| {
+                total
+                    .checked_add(
+                        binding
+                            .class_id
+                            .as_ref()
+                            .map_or(0, |id| usize_to_u64(id.as_str().len())),
+                    )?
+                    .checked_add(
+                        binding
+                            .name
+                            .as_ref()
+                            .map_or(0, |name| usize_to_u64(name.capacity())),
+                    )
+            })
+        })
+        .unwrap_or(u64::MAX)
 }
 
 pub(crate) fn symbol_budget_bytes(symbol: &ExtractedSymbol) -> u64 {

@@ -514,6 +514,7 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             javascript_member_calls: Vec::new(),
             resolution_abstentions: Vec::new(),
             local_type_scopes: Vec::new(),
+            receiver_evidence: None,
             numerical_sites: Vec::new(),
             import_bindings: self.import_bindings,
             has_inline_tests: false,
