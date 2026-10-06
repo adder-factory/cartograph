@@ -7,14 +7,14 @@ use crate::{
     ExtractError, ExtractedReference, ExtractedSymbol, LEXICAL_SCOPE_RESOLUTION_PREFIX,
     walk::{
         AstVisitBudget, ExtractionBuilder, SingleChildUnwrap,
+        javascript_owners::owner_for_node,
         javascript_scopes::{NearestBinding, read_binding},
-        owner_for_node,
         syntax::{named_children, span_for},
     },
 };
 
 const MAX_AST_DEPTH: usize = 256;
-const MAX_VALUE_REFERENCES: usize = 8_192;
+pub(super) const MAX_VALUE_REFERENCES: usize = 8_192;
 const VALUE_IDENTIFIER_UNWRAP: SingleChildUnwrap = SingleChildUnwrap::new(
     value_identifier,
     &[
@@ -535,7 +535,7 @@ impl<'targets> ValueScanner<'_, '_, '_, 'targets> {
                 let (NearestBinding::Local, Some(scope)) = (binding.nearest, binding.scope) else {
                     return Ok(None);
                 };
-                let owner = owner_for_node(self.builder, node);
+                let owner = owner_for_node(self.builder, node)?;
                 let read = NestedRead {
                     scopes,
                     scope,
@@ -561,7 +561,7 @@ impl<'targets> ValueScanner<'_, '_, '_, 'targets> {
         if !admissible {
             return Ok(None);
         }
-        let owner = owner_for_node(self.builder, node);
+        let owner = owner_for_node(self.builder, node)?;
         if !top_level && !targets.visible_from(target, owner.as_ref()) {
             return Ok(None);
         }

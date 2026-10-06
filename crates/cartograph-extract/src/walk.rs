@@ -36,6 +36,7 @@ mod hcl_family;
 mod javascript_bindings;
 mod javascript_decorators;
 mod javascript_members;
+mod javascript_owners;
 mod javascript_reads;
 mod javascript_scopes;
 mod javascript_state;
@@ -217,6 +218,7 @@ fn prepare_extraction(
     builder: &mut ExtractionBuilder<'_, '_>,
     root: Node<'_>,
 ) -> Result<(), ExtractError> {
+    builder.javascript.scopes = javascript_scopes::LexicalScopes::default();
     module_system::collect_explicit_exports(builder, root)?;
     shader_family::collect_wesl_imports(builder)?;
     type_contracts::collect_contract_generics(builder, root)
@@ -1699,49 +1701,80 @@ fn emit_javascript_binding_tree(
     kind: SymbolKind,
 ) -> Result<(), ExtractError> {
     builder.context.ensure_active()?;
-    match node.kind() {
-        "identifier" | "shorthand_property_identifier_pattern" => {
-            let name = builder.context.owned_text(node)?;
-            builder.emit_symbol(PendingSymbol {
-                kind,
-                name,
-                span_node: node,
-                structural_node: node,
-                doc_anchor: node,
-                body_node: None,
-                declaration_only: false,
-                signature: None,
-                export: crate::SymbolExportFlags::new(false, false),
-                async_symbol: false,
-                static_member: false,
-                visibility: None,
-            })?;
-        }
-        "required_parameter" | "optional_parameter" => {
-            if let Some(binding) = node
-                .child_by_field_name("name")
-                .or_else(|| node.child_by_field_name("pattern"))
-            {
-                emit_javascript_binding_tree(builder, binding, kind)?;
+    let depth = javascript_binding_depth(builder, node)?;
+    let mut budget = AstVisitBudget::<MAX_AST_DEPTH>::default();
+    budget.observe(builder, depth)?;
+    let mut pending = vec![(node, depth)];
+    while let Some((node, depth)) = pending.pop() {
+        match node.kind() {
+            "identifier" | "shorthand_property_identifier_pattern" => {
+                emit_javascript_binding_symbol(builder, node, kind)?;
             }
-        }
-        "pair_pattern" => {
-            if let Some(value) = node.child_by_field_name("value") {
-                emit_javascript_binding_tree(builder, value, kind)?;
+            "required_parameter"
+            | "optional_parameter"
+            | "pair_pattern"
+            | "assignment_pattern"
+            | "object_assignment_pattern"
+            | "formal_parameters"
+            | "object_pattern"
+            | "array_pattern"
+            | "rest_pattern" => {
+                let first = pending.len();
+                for child in javascript_bindings::binding_children(node) {
+                    let depth = depth.saturating_add(1);
+                    budget.observe(builder, depth)?;
+                    pending
+                        .try_reserve(1)
+                        .map_err(|_| ExtractError::OutputLimit)?;
+                    pending.push((child, depth));
+                }
+                pending[first..].reverse();
             }
+            _ => {}
         }
-        "assignment_pattern" | "object_assignment_pattern" => {
-            if let Some(left) = node.child_by_field_name("left") {
-                emit_javascript_binding_tree(builder, left, kind)?;
-            }
-        }
-        "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
-            for child in named_children(node) {
-                emit_javascript_binding_tree(builder, child, kind)?;
-            }
-        }
-        _ => {}
     }
+    Ok(())
+}
+
+/// Binding walks start before the generic traversal reaches the pattern;
+/// include its ancestors when enforcing the configured syntax depth.
+fn javascript_binding_depth(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<usize, ExtractError> {
+    let mut depth = 0_usize;
+    let mut ancestor = node.parent();
+    while let Some(parent) = ancestor {
+        builder.context.ensure_active()?;
+        depth = depth.saturating_add(1);
+        if depth > builder.maximum_ast_depth {
+            return Err(ExtractError::NestingLimit);
+        }
+        ancestor = parent.parent();
+    }
+    Ok(depth)
+}
+
+fn emit_javascript_binding_symbol(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    kind: SymbolKind,
+) -> Result<(), ExtractError> {
+    let name = builder.context.owned_text(node)?;
+    builder.emit_symbol(PendingSymbol {
+        kind,
+        name,
+        span_node: node,
+        structural_node: node,
+        doc_anchor: node,
+        body_node: None,
+        declaration_only: false,
+        signature: None,
+        export: crate::SymbolExportFlags::new(false, false),
+        async_symbol: false,
+        static_member: false,
+        visibility: None,
+    })?;
     Ok(())
 }
 

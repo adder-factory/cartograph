@@ -29,9 +29,11 @@ use tree_sitter::Node;
 use crate::{ExtractError, ExtractedReference, ImportBindingKind};
 
 use super::{
-    AstVisitBudget, ExtractionBuilder, PendingReference, javascript_scopes, module_system,
-    owner_for_node, references,
+    AstVisitBudget, ExtractionBuilder, PendingReference,
+    javascript_owners::owner_for_node,
+    javascript_scopes, module_system, references,
     syntax::{named_children, span_for},
+    value_references::MAX_VALUE_REFERENCES,
 };
 
 /// Deepest literal nesting walked inside one binding table; the walker's own
@@ -263,6 +265,7 @@ pub(super) fn enrich_binding_tables(
         module_values: &module_values,
         existing: &existing,
         budget: AstVisitBudget::default(),
+        references: 0,
     };
     for declarator in module_declarators(root) {
         let Some(value) = declarator
@@ -464,6 +467,7 @@ struct BindingTableScan<'scan, 'tree> {
     module_values: &'scan BTreeSet<String>,
     existing: &'scan BTreeSet<(u64, u64)>,
     budget: AstVisitBudget<MAX_BINDING_TABLE_DEPTH>,
+    references: usize,
 }
 
 impl BindingTableScan<'_, '_> {
@@ -516,8 +520,15 @@ impl BindingTableScan<'_, '_> {
         {
             return Ok(());
         }
+        self.references = self
+            .references
+            .checked_add(1)
+            .ok_or(ExtractError::OutputLimit)?;
+        if self.references > MAX_VALUE_REFERENCES {
+            return Err(ExtractError::OutputLimit);
+        }
         let name = builder.context.owned_text(node)?;
-        let owner = owner_for_node(builder, node);
+        let owner = owner_for_node(builder, node)?;
         builder.emit_reference(ExtractedReference {
             owner,
             name,

@@ -9,8 +9,8 @@
 //! included. Reads no enclosing scope binds name a module binding: a
 //! top-level declaration or import of the file, or an undeclared global.
 //!
-//! The first read a file asks about builds one index of every scope in the
-//! file, in a single bounded pass: each scope's byte range, its enclosing
+//! The first read a syntax tree asks about builds one index of every scope in
+//! that tree, in a single bounded pass: each scope's byte range, its enclosing
 //! scope, and the names it binds. A read then finds its innermost scope by
 //! binary search and walks outward through the scope chain, without
 //! re-walking syntax-tree ancestors. A scope whose bindings exceed a scan
@@ -220,7 +220,7 @@ struct BlockDeclarations<'source> {
     types: BTreeSet<&'source str>,
 }
 
-/// Per-file scope index, built on the first read that asks about a binding.
+/// Per-tree scope index, reset before a program or template expression is walked.
 #[derive(Default)]
 pub(super) struct LexicalScopes<'source> {
     index: Option<ScopeIndex<'source>>,

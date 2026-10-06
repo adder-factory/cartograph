@@ -582,6 +582,7 @@ impl RegionWalker<'_, '_, '_> {
         root: Node<'_>,
         start: ExpressionStart,
     ) -> Result<(), ExtractError> {
+        self.builder.javascript.scopes = super::javascript_scopes::LexicalScopes::default();
         self.builder.embedded.usage_only = true;
         let visited = self.builder.visit(root, 0);
         self.builder.embedded.usage_only = false;

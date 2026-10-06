@@ -19,6 +19,89 @@ const SOURCE_LIMIT: usize = 1024 * 1024;
 const SECRET_SENTINEL: &str = "cartograph_literal_secret_sentinel_7c1f";
 
 #[test]
+fn separate_script_trees_keep_constant_and_value_parameter_shadowing() {
+    let source = "<script context=\"module\">\nconst MAX_RETRY = 3;\nfunction handler() {}\nfunction seed() { configure(handler); return MAX_RETRY; }\n</script>\n<script>\nfunction run(MAX_RETRY, handler) { configure(handler); return MAX_RETRY; }\nfunction free() { return MAX_RETRY; }\n</script>\n";
+    for path in ["src/Scopes.svelte", "src/Scopes.vue"] {
+        let file = extract(path, source);
+        let run = symbol(&file, SymbolKind::Function, "run");
+        assert!(
+            file.references.iter().all(|reference| {
+                reference.owner.as_ref() != Some(&run.id)
+                    || reference.kind != ReferenceKind::References
+                    || !matches!(reference.name.as_str(), "MAX_RETRY" | "handler")
+            }),
+            "a second script's parameters must shadow module values: {:?}",
+            file.references
+        );
+        for name in ["seed", "free"] {
+            let owner = symbol(&file, SymbolKind::Function, name);
+            assert!(
+                file.references.iter().any(|reference| {
+                    reference.owner.as_ref() == Some(&owner.id)
+                        && reference.kind == ReferenceKind::References
+                        && reference.name == "MAX_RETRY"
+                }),
+                "a module read in {name} must remain"
+            );
+        }
+        let seed = symbol(&file, SymbolKind::Function, "seed");
+        assert!(
+            file.references.iter().any(|reference| {
+                reference.owner.as_ref() == Some(&seed.id)
+                    && reference.kind == ReferenceKind::References
+                    && reference.name == "handler"
+            }),
+            "enrichment must revisit the first script's own scope"
+        );
+    }
+}
+
+#[test]
+fn separate_template_trees_keep_constant_parameter_shadowing() {
+    let script = "<script>const MAX_RETRY = 3; function seed() { return MAX_RETRY; }</script>\n";
+    for (path, template) in [
+        (
+            "src/Scopes.svelte",
+            "<p>{((MAX_RETRY) => MAX_RETRY)(1)}</p>\n<p>{MAX_RETRY}</p>\n<p>{((MAX_RETRY) => MAX_RETRY)(2)}</p>\n",
+        ),
+        (
+            "src/Scopes.vue",
+            "<p>{{ ((MAX_RETRY) => MAX_RETRY)(1) }}</p>\n<p>{{ MAX_RETRY }}</p>\n<p>{{ ((MAX_RETRY) => MAX_RETRY)(2) }}</p>\n",
+        ),
+        (
+            "src/Scopes.astro",
+            "<p>{((MAX_RETRY) => MAX_RETRY)(1)}</p>\n<p>{MAX_RETRY}</p>\n<p>{((MAX_RETRY) => MAX_RETRY)(2)}</p>\n",
+        ),
+    ] {
+        let source = if path.ends_with("astro") {
+            format!(
+                "---\nconst MAX_RETRY = 3; function seed() {{ return MAX_RETRY; }}\n---\n{template}"
+            )
+        } else {
+            format!("{script}{template}")
+        };
+        let file = extract(path, &source);
+        let lines = file
+            .references
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::References && reference.name == "MAX_RETRY"
+            })
+            .map(|reference| reference.span.start_line())
+            .collect::<Vec<_>>();
+        let expected = if path.ends_with("astro") {
+            vec![2, 5]
+        } else {
+            vec![1, 3]
+        };
+        assert_eq!(
+            lines, expected,
+            "only unshadowed script and template reads survive in {path}"
+        );
+    }
+}
+
+#[test]
 fn astro_component_frontmatter_and_template_match_the_v1_index_scenario() {
     let source = "---
 import Layout from './Layout.astro';

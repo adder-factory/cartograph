@@ -59,7 +59,7 @@ pub(super) fn scan_bound_names<'tree>(
 }
 
 /// The children of a binding node that are themselves binding positions.
-fn binding_children(node: Node<'_>) -> Box<dyn Iterator<Item = Node<'_>> + '_> {
+pub(super) fn binding_children(node: Node<'_>) -> Box<dyn Iterator<Item = Node<'_>> + '_> {
     let field = match node.kind() {
         "assignment_pattern" | "object_assignment_pattern" => Some("left"),
         "pair_pattern" => Some("value"),

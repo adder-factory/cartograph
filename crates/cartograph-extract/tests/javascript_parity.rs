@@ -7,13 +7,91 @@
 
 mod dependency_ownership;
 
-use cartograph_domain::{ReferenceKind, SymbolKind, Visibility};
+use std::fmt::Write;
+
+use cartograph_domain::{FileParseStatus, ReferenceKind, SymbolKind, Visibility};
 use cartograph_extract::{
-    ExtractedFile, ExtractedReference, ExtractedSymbol, NativeExtractor, SourceLimits,
-    SourceSnapshot,
+    DiagnosticCode, ExtractError, ExtractedFile, ExtractedReference, ExtractedSymbol,
+    NativeExtractor, SourceLimits, SourceSnapshot,
 };
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
+
+#[test]
+fn class_field_parameter_patterns_reject_excessive_nesting_without_aborting() {
+    const CHILD: &str = "CARTOGRAPH_JSTS_DEEP_PARAMETER_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let executable = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("test executable unavailable: {error}"));
+        let status = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "class_field_parameter_patterns_reject_excessive_nesting_without_aborting",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .status()
+            .unwrap_or_else(|error| panic!("nested-parameter child failed to start: {error}"));
+        assert!(
+            status.success(),
+            "nested parameters aborted the process: {status}"
+        );
+        return;
+    }
+    let source = format!(
+        "class C {{ m = ({}x{}) => x; }}",
+        "{a:".repeat(40_000),
+        "}".repeat(40_000)
+    );
+    for path in ["src/deep.js", "src/deep.ts"] {
+        let snapshot = SourceSnapshot::from_bytes(path, source.as_bytes(), limits())
+            .unwrap_or_else(|error| panic!("nested-parameter snapshot failed: {error}"));
+        let mut extractor = NativeExtractor::new(snapshot.language())
+            .unwrap_or_else(|error| panic!("nested-parameter extractor failed: {error}"));
+        assert_nesting_limit(
+            &extractor
+                .extract(&snapshot)
+                .unwrap_or_else(|error| panic!("nested-parameter extraction failed: {error}")),
+        );
+    }
+}
+
+#[test]
+fn imported_binding_tables_enforce_the_value_reference_cap() {
+    let source = imported_binding_table_source(1_024, 8_193);
+    let snapshot = SourceSnapshot::from_bytes("src/table.ts", source.as_bytes(), limits())
+        .unwrap_or_else(|error| panic!("binding-table snapshot failed: {error}"));
+    let mut extractor = NativeExtractor::new(snapshot.language())
+        .unwrap_or_else(|error| panic!("binding-table extractor failed: {error}"));
+    assert!(
+        matches!(extractor.extract(&snapshot), Err(ExtractError::OutputLimit)),
+        "imported table values must obey the value-reference cap"
+    );
+}
+
+fn imported_binding_table_source(declarations: usize, values: usize) -> String {
+    let mut source = String::from("import { handler } from './m';\n");
+    for index in 0..declarations {
+        writeln!(source, "function ordinary{index}() {{}}")
+            .unwrap_or_else(|error| panic!("binding-table fixture formatting failed: {error}"));
+    }
+    source.push_str("const table = [");
+    source.push_str(&"handler, ".repeat(values));
+    source.push_str("];\n/*");
+    source.push_str(&"padding ".repeat(16_384));
+    source.push_str("*/\n");
+    source
+}
+
+fn assert_nesting_limit(file: &ExtractedFile) {
+    assert_eq!(file.parse_status, FileParseStatus::Partial);
+    assert!(file.symbols.is_empty() && file.references.is_empty());
+    assert!(
+        file.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::NestingLimitExceeded)
+    );
+}
 
 #[test]
 fn typescript_class_fields_split_data_fields_from_arrow_field_methods() {
