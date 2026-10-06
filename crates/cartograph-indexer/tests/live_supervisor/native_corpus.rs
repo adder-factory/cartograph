@@ -37,14 +37,16 @@ const EXPECTED_CORPUS_FINGERPRINT: &str =
 // JavaScript/TypeScript parity facts (class fields, def-use, decorators, constant reads,
 // binding tables, body type consumers), callback-binding shadowing of value references, and
 // module value targets no longer hidden by member or other-scope namesakes change the facts;
-// the final per-file parity fixes add five resolved references and their edges; V21 changes
-// the digest domain. Dynamic-import fixes preserve 33 previously skipped import() load
+// the final per-file parity fixes add five resolved references and their edges.
+// V22 changes the digest domain; cross-file resolution parity also adds 39 edges and
+// resolves 48 more existing references in this corpus. Its count and memory constants
+// below still require a live refresh. Dynamic-import fixes preserve 33 skipped import() load
 // references in destructured initializers: 11 in cartograph-llm-service.ts, one each in
 // extraction-phases.ts, index.ts, and llm-setup-plan.ts, and 19 in mcp/tools/admin.ts.
 // All 33 are unresolved Imports facts; symbols, edges, documents, corpus bytes, and
 // ranking identities stay fixed. The added facts also raise modeled retention budgets.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "ee7b5082dda0972286551fef18a479de293d41f8d8022d4261f03477221e66ac";
+    "b6e342d7554791a3e047dd9ba3dca182f1df37c0d2decb12616129726c5287cb";
 const EXPECTED_BM25_DOCUMENT_IDS: [&str; 5] = [
     "5471dbfc-3ba3-87dd-8861-1ce1dd51ed32",
     "78f1eb97-24b2-8a80-ad44-6dd679456592",

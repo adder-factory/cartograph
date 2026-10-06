@@ -53,9 +53,9 @@ const REDUCE_STAGE_KEY: u8 = 0;
 const REDUCE_STAGE_PROGRESS_BYTES: u64 = 0;
 const MEDIAN_PERCENTILE: usize = 50;
 const TAIL_PERCENTILE: usize = 95;
-// V21 changes only this fixture's digest domain, not its source, facts, or ranking.
+// V22 changes the digest domain; facts unchanged in this fixture, with the same ranking.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "0a7c4b156f643cd8216e41cea16b9b49976539eb4cf8e133e985989e6f63ff07";
+    "b4fe2c3dc5a73f44633d8f36061d491b12c0e4bcfdaedcd72dca25eee48ec25f";
 
 static SCHEMA_COUNTER: AtomicU32 = AtomicU32::new(0);
 

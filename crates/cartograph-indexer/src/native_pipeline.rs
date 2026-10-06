@@ -17030,15 +17030,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V21 changes these digest domains. The generic-family projection grows because its
-    // v1 corpora now extract v1's facts through dedicated families; the others stay fixed.
+    // V22 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "f4cf68d3b4cadf80163f963013e06ecc5ca0d86f792acaba67b2abf83c285a96";
+        "f483007b8c7865ce060e125c6c1192d44245d21f9d8c29ede69cf80933d8da4b";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "b741b40e646a8178af013b292a88285eb4e007f397e887caefc622fffa8a9efd";
+        "f2ab906f518d9e51853532b887e8ffe33049270a5c049fd5b02cbafdcc9da8d4";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -17052,16 +17051,16 @@ mod tests {
     // and the method now owns its body).
     // Dart fixture.dart:6 now declares Box::Box, adding exactly its method,
     // Box -> Box::Box containment edge, and symbol search document. Removing
-    // those three facts restores the previous dcf6c35b... digest exactly.
+    // those three facts restored the previous dcf6c35b... digest under V21.
     // Box::Box is concrete: declaration_only is false in the symbol and its
-    // document metadata. Restoring only those two booleans to true restores
-    // the intermediate 36d77193... digest exactly; all counts stay unchanged.
+    // document metadata. Restoring only those two booleans to true restored
+    // the intermediate 36d77193... digest under V21; all counts stay unchanged.
     // Resolution adds CounterView::build -> CounterView::increment (ArkTS)
     // and targets for its two existing references. generic_digest_proof removes
-    // that one Calls edge and restores those references to reproduce fca1307d...
-    // exactly; the canonical per-file extraction facts stay fixed.
+    // that one Calls edge and restores those references to reproduce the
+    // previous fact set under V22 (8fe8df25...); the extraction facts stay fixed.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "743e17050215dd8bfbda5f74c73428a2a907d78460fa3a0534952e6153411143";
+        "a4e55aab2f0dbbaa33046f1a9975810b75c6cee9ea831482cdda5b958a437e2b";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 260, 284, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
@@ -17069,7 +17068,7 @@ mod tests {
     // spans from its `IF` line and is named by its head line, and an LSX
     // resource starts at its `<node>` tag (same projection, new identities).
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "00b7a35cdac9999435d22ff1eeda8a05be25b5279c01dfd1d92a77cb86ac0697";
+        "6ef2ddf7ec04c15deb9fbad64b9f080695c8048396e465c2115893ec03d6a64d";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =

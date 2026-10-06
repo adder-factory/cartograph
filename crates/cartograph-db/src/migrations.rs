@@ -62,7 +62,8 @@ const GENERATION_FACT_COUNTS_SCHEMA_VERSION: i64 = 45;
 const RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION: i64 = 46;
 const RUST_TURBOFISH_CALLS_DIGEST_V20_SCHEMA_VERSION: i64 = 47;
 const LANGUAGE_PARITY_DIGEST_V21_SCHEMA_VERSION: i64 = 48;
-const LATEST_SCHEMA_VERSION: i64 = LANGUAGE_PARITY_DIGEST_V21_SCHEMA_VERSION;
+const RESOLUTION_PARITY_DIGEST_V22_SCHEMA_VERSION: i64 = 49;
+const LATEST_SCHEMA_VERSION: i64 = RESOLUTION_PARITY_DIGEST_V22_SCHEMA_VERSION;
 const MIGRATION_LOCK_NAMESPACE: &str = "cartograph-v2-schema-migration";
 /// Longest one migration attempt waits for any single heavyweight lock: a
 /// table lock its DDL needs, or the advisory lock a concurrent migrator holds.
@@ -1786,7 +1787,16 @@ const LANGUAGE_PARITY_DIGEST_V21_SCHEMA: Migration = Migration {
                 CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21))"#],
 };
 
-const MIGRATIONS: [&Migration; 48] = [
+const RESOLUTION_PARITY_DIGEST_V22_SCHEMA: Migration = Migration {
+    version: RESOLUTION_PARITY_DIGEST_V22_SCHEMA_VERSION,
+    name: "resolution_parity_digest_v22",
+    statements: &[r#"ALTER TABLE {schema}."index_generations"
+            DROP CONSTRAINT index_generations_digest_version_check,
+            ADD CONSTRAINT index_generations_digest_version_check
+                CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22))"#],
+};
+
+const MIGRATIONS: [&Migration; 49] = [
     &INITIAL_SCHEMA,
     &OPERATION_LEASES_SCHEMA,
     &COMPLETE_EDGE_KINDS_SCHEMA,
@@ -1835,6 +1845,7 @@ const MIGRATIONS: [&Migration; 48] = [
     &RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA,
     &RUST_TURBOFISH_CALLS_DIGEST_V20_SCHEMA,
     &LANGUAGE_PARITY_DIGEST_V21_SCHEMA,
+    &RESOLUTION_PARITY_DIGEST_V22_SCHEMA,
 ];
 
 #[cfg(test)]
@@ -2342,7 +2353,7 @@ mod tests {
 
     const MIGRATION_CHECKSUM_HEX_LENGTH: usize = 64;
     const CHECKSUM_COMPARISON_WINDOW: usize = 2;
-    const EXPECTED_MIGRATION_VERSIONS: [i64; 48] = [
+    const EXPECTED_MIGRATION_VERSIONS: [i64; 49] = [
         INITIAL_SCHEMA_VERSION,
         OPERATION_LEASES_SCHEMA_VERSION,
         COMPLETE_EDGE_KINDS_SCHEMA_VERSION,
@@ -2391,9 +2402,10 @@ mod tests {
         RUST_MACRO_REFERENCES_DIGEST_V19_SCHEMA_VERSION,
         RUST_TURBOFISH_CALLS_DIGEST_V20_SCHEMA_VERSION,
         LANGUAGE_PARITY_DIGEST_V21_SCHEMA_VERSION,
+        RESOLUTION_PARITY_DIGEST_V22_SCHEMA_VERSION,
     ];
 
-    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 48] = [
+    const EXPECTED_MIGRATION_CHECKSUMS: [(i64, &str); 49] = [
         (
             1,
             "47651685dfea852db86d644f0e777bd479a3926cfce9e7750887a61cfe4ddc8e",
@@ -2586,6 +2598,10 @@ mod tests {
             48,
             "7f2b1556cc183252cc72bee16759bfa82ff8a9ddcca67c869a8058c84408613f",
         ),
+        (
+            49,
+            "4af1b9e2f88ca2c0afd5e798abecadb5a536297a1bc097f1d9111ce93f420476",
+        ),
     ];
 
     #[test]
@@ -2631,7 +2647,7 @@ mod tests {
         );
         assert_eq!(
             LATEST_SCHEMA_VERSION,
-            LANGUAGE_PARITY_DIGEST_V21_SCHEMA_VERSION
+            RESOLUTION_PARITY_DIGEST_V22_SCHEMA_VERSION
         );
     }
 

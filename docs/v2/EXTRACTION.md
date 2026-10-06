@@ -135,14 +135,10 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V21 fences the v1 language-parity extraction: the dedicated
-families for PHP, Pascal/Delphi, Objective-C, Swift, Dart, F#, ArkTS, Ruby,
-Lua/Luau/KHN, R, Nix, Clojure, Common Lisp, Lean, ReScript, Solidity, VB.NET,
-Apex, and HCL; Astro, Vue, and Svelte scripts through the JavaScript/TypeScript
-walker; and the TypeScript/JavaScript, Python, Go, Rust, JVM, and .NET parity
-facts. A generation published by an older binary no longer matches what this
-binary builds, so an unchanged V20 project reports stale once and publishes new
-facts.
+contract. Contract V22 (migration 49) fences wave 2 of v1 parity: cross-file
+resolution across languages, building on V21's per-file extraction parity.
+A generation published by an older binary no longer matches what this binary
+builds, so an unchanged V21 project reports stale once and publishes new facts.
 
 After an upgrade from an older contract, unchanged source remains stale until a
 normal index publishes current-contract facts. This contract check stays
@@ -150,10 +146,11 @@ separate from the source-manifest digest so v1 import still compares exact
 checkout bytes rather than a binary-specific identity.
 
 <details>
-<summary>Details: generation-digest contract history (V5–V21)</summary>
+<summary>Details: generation-digest contract history (V5–V22)</summary>
 
 | Contract | What it fences |
 | --- | --- |
+| V22 | v1 cross-file resolution parity across languages; forces an unchanged V21 project to publish new facts |
 | V21 | v1 language parity: dedicated extraction families replace the generic walker for 22 v1 modes, Astro/Vue/Svelte scripts run through the JavaScript/TypeScript walker, and the TypeScript/JavaScript, Python, Go, Rust, JVM, and .NET walkers restore v1's per-file facts; forces an unchanged V20 project to publish new facts |
 | V20 | Rust turbofish calls (`f::<T>(..)`, `a::f::<T>(..)`, `x.f::<T>(..)`), which name and resolve their function rather than keeping the type arguments, inside macro arguments too; forces an unchanged V19 project to publish new facts |
 | V19 | Rust references inside macro arguments (calls, paths, receiver calls, nested invocations, and std format-string captures); forces an unchanged V18 project to publish new facts |
