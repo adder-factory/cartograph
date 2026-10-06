@@ -78,6 +78,20 @@ pub const EMBEDDED_SQL_RESOLUTION_PREFIX: &str = "cartograph.embedded-sql::";
 #[doc(hidden)]
 pub const PHP_EXACT_RESOLUTION_PREFIX: &str = "cartograph.php-exact::";
 
+/// Internal module identity of an implicit Salesforce controller binding.
+/// Its import binding retains the exact controller attribute site and name.
+#[doc(hidden)]
+pub const SALESFORCE_CONTROLLER_MODULE: &str = "cartograph.salesforce-controller";
+
+/// Internal module identity of an implicit Salesforce component binding.
+/// Its imported name preserves bundle case independently of the reference name.
+#[doc(hidden)]
+pub const SALESFORCE_COMPONENT_MODULE: &str = "cartograph.salesforce-component";
+
+/// Internal namespace-block marker, including PHP's unnamed global blocks.
+#[doc(hidden)]
+pub const PHP_NAMESPACE_SCOPE_MODULE: &str = "cartograph.php-namespace-scope";
+
 /// Complete storage-independent output for one native source-file extraction.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedFile {

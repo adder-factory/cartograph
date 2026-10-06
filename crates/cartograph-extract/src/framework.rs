@@ -1870,7 +1870,9 @@ fn php_method_resolution(class: &str, method: &str) -> Option<String> {
 }
 
 fn php_class_resolution(value: &str) -> Option<String> {
-    let value = value.trim().trim_start_matches('\\');
+    let value = value.trim();
+    let global = value.starts_with('\\');
+    let value = value.strip_prefix('\\').unwrap_or(value);
     if value.is_empty() || value.len() > MAX_SIGNAL_BYTES {
         return None;
     }
@@ -1888,9 +1890,17 @@ fn php_class_resolution(value: &str) -> Option<String> {
     }
     let class = collected.pop()?;
     if collected.is_empty() {
-        return Some(class.to_owned());
+        return Some(if global {
+            format!("\\{class}")
+        } else {
+            class.to_owned()
+        });
     }
-    Some(format!("{}::{class}", collected.join("\\")))
+    Some(format!(
+        "{}{}::{class}",
+        if global { "\\" } else { "" },
+        collected.join("\\")
+    ))
 }
 
 fn php_identifier(value: &str) -> bool {

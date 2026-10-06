@@ -1480,6 +1480,12 @@ fn scan_salesforce_component_reference(
             ReferenceKind::References,
         )
         .at(tag.start + 3, tag.start + 3 + raw_name.len()),
+    )?;
+    builder.add_import_binding(
+        &CustomImportInput::new(None, crate::SALESFORCE_COMPONENT_MODULE)
+            .with_kind(ImportBindingKind::Named)
+            .binding(raw_name, &reference)
+            .at(tag.start + 3, tag.start + 3 + raw_name.len()),
     )
 }
 
@@ -1497,6 +1503,7 @@ fn scan_salesforce_controller_references(
             .map(str::trim)
             .filter(|item| !item.is_empty() && is_qualified_name(item))
         {
+            builder.check_cancelled()?;
             let relative = value.find(candidate).unwrap_or(0);
             builder.add_reference(
                 CustomReferenceInput::new(
@@ -1505,6 +1512,12 @@ fn scan_salesforce_controller_references(
                     ReferenceKind::References,
                 )
                 .at(offset + relative, offset + relative + candidate.len()),
+            )?;
+            builder.add_import_binding(
+                &CustomImportInput::new(None, crate::SALESFORCE_CONTROLLER_MODULE)
+                    .with_kind(ImportBindingKind::Namespace)
+                    .binding(candidate, candidate)
+                    .at(offset + relative, offset + relative + candidate.len()),
             )?;
         }
     }

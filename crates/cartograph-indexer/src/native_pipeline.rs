@@ -1,11 +1,16 @@
 mod file_path_resolution;
+mod framework_conventions;
+mod framework_methods;
+mod framework_resolution;
 mod javascript_config;
 mod javascript_exports;
 mod javascript_modules;
 mod javascript_packages;
 mod pascal_resolution;
 mod php_resolution;
+mod play_resolution;
 mod python_resolution;
+mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
 
@@ -5242,6 +5247,8 @@ struct ResolutionIndex {
     test_files: Vec<TestFileEvidence>,
     php: php_resolution::PhpResolutionIndex,
     javascript_exports: javascript_exports::ExportIndex,
+    salesforce: salesforce_resolution::SalesforceIndex,
+    framework_methods: framework_methods::MethodIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -9983,7 +9990,7 @@ fn same_language_framework_reference(source: &ResolutionFileContext, reference_n
         "swift" => SWIFT_FRAMEWORK_RULES
             .iter()
             .any(|rule| rule.name.matches(reference_name)),
-        _ => false,
+        _ => framework_conventions::reference(source, reference_name),
     }
 }
 
@@ -10350,6 +10357,15 @@ where
             },
             budget,
         )?;
+        framework_methods::index_method(
+            &mut index.framework_methods,
+            framework_methods::MethodInput {
+                symbol,
+                parent: parent_symbol_id.as_ref(),
+                language: &file.file.language,
+            },
+            budget,
+        )?;
         if symbol.export.default_export {
             push_default_export(
                 &mut index.default_exports,
@@ -10367,6 +10383,14 @@ where
             index_project_export(&mut index.exports, symbol, budget)?;
         }
     }
+    salesforce_resolution::index_file(
+        salesforce_resolution::SalesforceFileInput {
+            index: &mut index.salesforce,
+            file,
+            budget,
+        },
+        cancelled,
+    )?;
     php_resolution::index_file(
         php_resolution::PhpFileIndexInput {
             index: &mut index.php,
@@ -10687,6 +10711,7 @@ impl<'a> FileImportBindingIndex<'a> {
     fn new(
         bindings: &'a [ExtractedImportBinding],
         budget: &mut ResolveBudget,
+        language: &str,
     ) -> Result<Self, StageItemFailure> {
         let mut index = Self {
             bindings,
@@ -10702,6 +10727,12 @@ impl<'a> FileImportBindingIndex<'a> {
             .try_reserve_exact(bindings.len())
             .map_err(|_| StageItemFailure)?;
         for (position, binding) in bindings.iter().enumerate() {
+            if salesforce_resolution::implicit_binding(binding, language) {
+                continue;
+            }
+            if php_resolution::implicit_namespace_binding(binding, language) {
+                continue;
+            }
             if binding.local_name == "*" {
                 budget.charge(usize_to_u64(size_of::<usize>()))?;
                 index.wildcards.push(position);
@@ -11082,7 +11113,8 @@ impl ResolutionOutput<'_> {
             },
             cancelled,
         )?;
-        let import_binding_index = FileImportBindingIndex::new(&import_bindings, self.budget)?;
+        let import_binding_index =
+            FileImportBindingIndex::new(&import_bindings, self.budget, &identity.language)?;
         let mut import_binding_scratch =
             ImportBindingScratch::new(import_bindings.len(), self.budget)?;
         let context = FileResolutionContext {
@@ -12393,6 +12425,9 @@ where
     }
     if request.kind == ReferenceKind::DefUse {
         return resolve_def_use(index, request, cancelled);
+    }
+    if let Some(resolution) = framework_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
     }
     if let Some(resolution) = resolve_terraform_address(index, request, cancelled)? {
         return Ok(resolution);
@@ -13749,6 +13784,16 @@ where
             },
             cancelled,
         );
+    }
+    if let Some(resolution) = salesforce_resolution::resolve_binding(
+        salesforce_resolution::SalesforceBindingQuery {
+            index,
+            binding,
+            reference,
+        },
+        cancelled,
+    )? {
+        return Ok(resolution);
     }
     if imported_name.is_empty() {
         return Ok(ImportResolution::Unresolved);
@@ -15588,7 +15633,7 @@ fn is_framework_candidate(input: FrameworkCandidateInput<'_>) -> bool {
         return false;
     };
     &candidate.file_id != source_file_id
-        && candidate.visibility != Some(Visibility::Private)
+        && framework_conventions::visible(source, target, candidate)
         && (!c_include_family_name(&source.language)
             || c_candidate_is_externally_visible(candidate))
         && project_scope_matches(source, target, candidate)
@@ -16083,7 +16128,7 @@ fn same_language_framework_score(input: &FrameworkConventionInput<'_>) -> u8 {
         "csharp" => framework_rule_score(input, CSHARP_FRAMEWORK_RULES),
         "python" => framework_rule_score(input, PYTHON_FRAMEWORK_RULES),
         "swift" => framework_rule_score(input, SWIFT_FRAMEWORK_RULES),
-        _ => 0,
+        _ => framework_conventions::score(input),
     }
 }
 
@@ -16722,6 +16767,7 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod frameworks;
     mod javascript_modules;
     mod javascript_parity;
     mod pascal_units;
