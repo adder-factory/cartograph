@@ -1,3 +1,6 @@
+mod codeigniter_resolution;
+mod csharp_constructors;
+mod enum_resolution;
 mod file_path_resolution;
 mod framework_conventions;
 mod framework_methods;
@@ -11,13 +14,20 @@ mod javascript_modules;
 mod javascript_packages;
 mod jvm_nested_resolution;
 mod jvm_resolution;
+mod namespace_types;
 mod nominal_scope_resolution;
 mod pascal_resolution;
 mod php_resolution;
 mod play_resolution;
 mod python_resolution;
+mod python_type_variables;
 mod qualified_member_resolution;
+mod qualtype_generics;
+mod qualtype_resolution;
+mod qualtype_source;
 mod receiver_resolution;
+mod rescript_resolution;
+mod rust_local_types;
 mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
@@ -5303,6 +5313,7 @@ struct ResolutionIndex {
     jvm: jvm_resolution::JvmResolutionIndex,
     types: qualified_member_resolution::TypeIndex,
     receivers: receiver_resolution::ReceiverIndex,
+    qualtype: qualtype_resolution::TypeIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -7684,6 +7695,9 @@ async fn build_spilled_resolution_preparation(
                 budget: &mut state.budget,
                 cancelled: &mut cancelled,
             };
+            block_in_place(|| {
+                qualtype_resolution::index_syntax(&mut state.index, &file, &mut context)
+            })?;
             index_typescript_alias_file(&mut state.index.modules, &file, &mut context)?;
             let before = state.compact.retained_bytes;
             let diagnostics = state.compact.diagnostics;
@@ -9833,6 +9847,7 @@ where
             budget: context.budget,
             cancelled: context.cancelled,
         })?;
+        qualtype_resolution::index_syntax(&mut index, file, &mut context)?;
     }
     index_typescript_aliases(&mut index.modules, extracted, &mut context)?;
     index_rust_workspace_packages(RustWorkspacePackageIndexInput {
@@ -10388,6 +10403,11 @@ where
     if cancelled() {
         return Err(StageItemFailure);
     }
+    qualtype_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     let file_ordinal = *index
         .file_ordinals
         .get(&file.file.file_id)
@@ -10399,54 +10419,81 @@ where
         if symbol.input.symbol_kind == "import" {
             continue;
         }
-        qualified_member_resolution::index_type(&mut index.types, symbol, budget)?;
-        let parent_symbol_id = index.parents.get(&symbol.input.symbol_id).cloned();
-        index_compilation_unit(
-            &mut index.modules,
-            CompilationUnitIndexInput {
-                language: file.file.language.as_str(),
-                symbol,
-                top_level: parent_symbol_id.is_none(),
-            },
-            budget,
-        )?;
-        let visibility = javascript_member_resolution::candidate_visibility(index, symbol);
-        let insertion = ResolutionCandidateInsertion {
-            key: &symbol.name,
-            symbol,
-            parent_symbol_id: parent_symbol_id.as_ref(),
-            file_ordinal,
-            language: &file.file.language,
-            visibility,
-        };
-        push_symbol_candidates(&mut index.candidates, insertion, budget)?;
-        framework_methods::index_method(
-            &mut index.framework_methods,
-            framework_methods::MethodInput {
-                symbol,
-                parent: parent_symbol_id.as_ref(),
-                language: &file.file.language,
-            },
-            budget,
-        )?;
-        generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
-        if symbol.export.default_export {
-            push_default_export(
-                &mut index.default_exports,
-                DefaultExportInsertion {
-                    symbol,
-                    parent_symbol_id: parent_symbol_id.as_ref(),
-                },
-                budget,
-            )?;
-        }
-        if symbol.export.exported
-            && parent_symbol_id.is_none()
-            && symbol.input.qualified_name == symbol.name
-        {
-            index_project_export(&mut index.exports, symbol, budget)?;
-        }
+        index_resolution_symbol(index, (file, file_ordinal, symbol), budget)?;
     }
+    index_resolution_file_families(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )
+}
+
+/// Index one non-import symbol for candidate, ownership and family lookups.
+fn index_resolution_symbol(
+    index: &mut ResolutionIndex,
+    (file, file_ordinal, symbol): (&NativeFileFacts, u64, &NativeSymbolFacts),
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    qualified_member_resolution::index_type(&mut index.types, symbol, budget)?;
+    let parent_symbol_id = index.parents.get(&symbol.input.symbol_id).cloned();
+    index_compilation_unit(
+        &mut index.modules,
+        CompilationUnitIndexInput {
+            language: file.file.language.as_str(),
+            symbol,
+            top_level: parent_symbol_id.is_none(),
+        },
+        budget,
+    )?;
+    let visibility = javascript_member_resolution::candidate_visibility(index, symbol);
+    let insertion = ResolutionCandidateInsertion {
+        key: &symbol.name,
+        symbol,
+        parent_symbol_id: parent_symbol_id.as_ref(),
+        file_ordinal,
+        language: &file.file.language,
+        visibility,
+    };
+    push_symbol_candidates(&mut index.candidates, insertion, budget)?;
+    framework_methods::index_method(
+        &mut index.framework_methods,
+        framework_methods::MethodInput {
+            symbol,
+            parent: parent_symbol_id.as_ref(),
+            language: &file.file.language,
+        },
+        budget,
+    )?;
+    generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
+    if symbol.export.default_export {
+        push_default_export(
+            &mut index.default_exports,
+            DefaultExportInsertion {
+                symbol,
+                parent_symbol_id: parent_symbol_id.as_ref(),
+            },
+            budget,
+        )?;
+    }
+    if symbol.export.exported
+        && parent_symbol_id.is_none()
+        && symbol.input.qualified_name == symbol.name
+    {
+        index_project_export(&mut index.exports, symbol, budget)?;
+    }
+    Ok(())
+}
+
+/// Per-file framework, PHP, JVM, receiver and re-export indexes.
+fn index_resolution_file_families<Cancel>(
+    target: &mut ResolutionIndexTarget<'_>,
+    file: &NativeFileFacts,
+    cancelled: &mut Cancel,
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ResolutionIndexTarget { index, budget } = target;
     salesforce_resolution::index_file(
         salesforce_resolution::SalesforceFileInput {
             index: &mut index.salesforce,
@@ -12607,8 +12654,20 @@ where
     if let Some(resolution) = generic_resolution::resolve_class_scope(index, request, cancelled)? {
         return Ok(resolution);
     }
+    if let Some(resolution) = codeigniter_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = enum_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = csharp_constructors::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
     if let Some(target) = resolve_lexical(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
+    }
+    if let Some(resolution) = qualtype_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
     }
     if request.import_bindings.fallback_blocked {
         return Ok(ReferenceResolution::unresolved(
@@ -16954,6 +17013,7 @@ mod tests {
     mod php_namespaces;
     mod polyglot_parity;
     mod python_imports;
+    mod qualified_types;
     mod receiver_types;
     mod rust_receivers;
     mod script_modules;
