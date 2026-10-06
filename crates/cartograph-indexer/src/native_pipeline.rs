@@ -8723,31 +8723,58 @@ where
         if !mybatis_jvm_mapper_method(index, (source, qualified_name))? {
             continue;
         }
-        for &target in &targets {
-            if cancelled() {
-                return Err(StageItemFailure);
-            }
-            if source.symbol_id == target.symbol_id {
-                continue;
-            }
-            // An unpackaged JVM mapper bound to a package-qualified namespace
-            // matches only by the simple-namespace convention, not exactly.
-            let confidence = if mybatis_jvm_statement_name(index, target, cancelled)?.is_some() {
-                FRAMEWORK_CONVENTION_CONFIDENCE
-            } else {
-                EXACT_PROJECT_CONFIDENCE
-            };
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source,
-                    target,
-                    confidence,
-                    provenance: MYBATIS_BRIDGE_PROVENANCE,
-                },
-            )?;
+        append_mybatis_mapper_edges(
+            ResolutionMutation {
+                index,
+                facts: &mut *facts,
+                budget: &mut *budget,
+                cancelled: &mut *cancelled,
+            },
+            source,
+            &targets,
+        )?;
+    }
+    Ok(())
+}
+
+fn append_mybatis_mapper_edges<Cancel>(
+    input: ResolutionMutation<'_, Cancel>,
+    source: &ResolutionCandidate,
+    targets: &[&ResolutionCandidate],
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ResolutionMutation {
+        index,
+        facts,
+        budget,
+        cancelled,
+    } = input;
+    for &target in targets {
+        if cancelled() {
+            return Err(StageItemFailure);
         }
+        if source.symbol_id == target.symbol_id {
+            continue;
+        }
+        // An unpackaged JVM mapper bound to a package-qualified namespace
+        // matches only by the simple-namespace convention, not exactly.
+        let confidence = if mybatis_jvm_statement_name(index, target, cancelled)?.is_some() {
+            FRAMEWORK_CONVENTION_CONFIDENCE
+        } else {
+            EXACT_PROJECT_CONFIDENCE
+        };
+        append_framework_edge(
+            facts,
+            budget,
+            FrameworkEdgeInput {
+                source,
+                target,
+                confidence,
+                provenance: MYBATIS_BRIDGE_PROVENANCE,
+            },
+        )?;
     }
     Ok(())
 }

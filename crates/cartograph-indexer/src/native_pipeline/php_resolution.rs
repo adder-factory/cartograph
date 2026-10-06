@@ -874,29 +874,49 @@ impl<'query> ExactQuery<'query> {
             if visits > MAX_TRAIT_VISITS {
                 return Ok(true);
             }
-            let keys = match self.index.php.composed.get(&class.symbol_id) {
-                None => continue,
-                Some(None) => return Ok(true),
-                Some(Some(keys)) => keys,
+            let current = Composition {
+                class,
+                ..composition
             };
-            for key in keys {
-                match self.class_like(key, cancelled)? {
-                    Some(used) if used.kind == SymbolKind::Trait => {
-                        if self.declares_member([key, composition.member], cancelled)? {
-                            return Ok(true);
-                        }
-                        pending.push(used);
+            if self.visit_composed_traits((current, &mut pending), cancelled)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Inspect one class's composed types, queuing project traits to visit.
+    fn visit_composed_traits<Cancel>(
+        self,
+        traversal: (Composition<'query>, &mut Vec<&'query ResolutionCandidate>),
+        cancelled: &mut Cancel,
+    ) -> Result<bool, StageItemFailure>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        let (composition, pending) = traversal;
+        let keys = match self.index.php.composed.get(&composition.class.symbol_id) {
+            None => return Ok(false),
+            Some(None) => return Ok(true),
+            Some(Some(keys)) => keys,
+        };
+        for key in keys {
+            match self.class_like(key, cancelled)? {
+                Some(used) if used.kind == SymbolKind::Trait => {
+                    if self.declares_member([key, composition.member], cancelled)? {
+                        return Ok(true);
                     }
-                    Some(_) => {}
-                    None => {
-                        let composed = ExactQuery {
-                            intent: Intent::Class,
-                            key,
-                            ..self
-                        };
-                        if composed.declared(cancelled)? {
-                            return Ok(true);
-                        }
+                    pending.push(used);
+                }
+                Some(_) => {}
+                None => {
+                    let composed = ExactQuery {
+                        intent: Intent::Class,
+                        key,
+                        ..self
+                    };
+                    if composed.declared(cancelled)? {
+                        return Ok(true);
                     }
                 }
             }
