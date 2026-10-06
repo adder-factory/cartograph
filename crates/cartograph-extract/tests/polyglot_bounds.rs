@@ -32,7 +32,9 @@ const SATURATING_PARAMETERS: usize = 4_200;
 const FILLING_CALLS: usize = 4_500;
 /// Comment padding that leaves the filling file's core facts no room for
 /// another fact once its optional facts are omitted.
-const FILLING_PADDING_BYTES: usize = 9_225;
+/// The local-type scope vector adds 24 header bytes; one extra source byte
+/// supplies 32 output bytes without making room for the fallback diagnostic.
+const FILLING_PADDING_BYTES: usize = 9_226;
 /// Names of a multi-name Go declaration whose facts fit the output limit.
 const MULTI_NAME_FIELDS: usize = 200;
 /// Names of a long multi-name Go constant declaration in a body.

@@ -511,6 +511,8 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             containments: self.containments,
             references: self.references,
             call_scope_sites: Vec::new(),
+            resolution_abstentions: Vec::new(),
+            local_type_scopes: Vec::new(),
             numerical_sites: Vec::new(),
             import_bindings: self.import_bindings,
             has_inline_tests: false,

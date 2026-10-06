@@ -379,6 +379,8 @@ pub(crate) fn extract(
         containments: facts.containments,
         references,
         call_scope_sites: Vec::new(),
+        resolution_abstentions: Vec::new(),
+        local_type_scopes: Vec::new(),
         numerical_sites: Vec::new(),
         import_bindings: Vec::new(),
         has_inline_tests: false,

@@ -419,6 +419,7 @@ fn native(
                         && reference_edge_kind(
                             parse::<ReferenceKind>(&format!("\"{}\"", reference.reference_kind)),
                             parse::<SymbolKind>(&format!("\"{}\"", target.symbol_kind)),
+                            Some(parse::<SymbolKind>(&format!("\"{}\"", owner.symbol_kind))),
                         ) == Some(edge.kind)
                         && (reference.owner_symbol_id.is_some() || owner.symbol_kind == "file")
                 })
