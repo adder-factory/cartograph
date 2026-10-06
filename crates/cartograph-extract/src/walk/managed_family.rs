@@ -1210,77 +1210,44 @@ fn capture_java_type(
     builder.context.ensure_active()?;
     match input.node.kind() {
         "scoped_type_identifier" => {
-            if let Some(name) = managed_outer_type_name(builder, input.node)? {
-                push_named_reference(
-                    builder,
-                    PendingReference {
-                        owner: Some(input.owner.clone()),
-                        name,
-                        kind: input.kind,
-                        node: input.node,
-                    },
-                )?;
-            }
-            for child in named_children(input.node).filter(|child| {
-                child.kind() == "type_arguments" && names_type_arguments(input.kind)
-            }) {
-                capture_java_type(
-                    builder,
-                    TypeReferenceCapture {
-                        node: child,
-                        owner: input.owner,
-                        kind: input.kind,
-                        depth: input.depth.saturating_add(1),
-                    },
-                )?;
-            }
+            push_managed_type_name(builder, input)?;
+            capture_java_type_children(builder, input)?;
         }
-        "generic_type" => {
-            for child in named_children(input.node) {
-                let head = matches!(child.kind(), "type_identifier" | "scoped_type_identifier");
-                let arguments =
-                    child.kind() == "type_arguments" && names_type_arguments(input.kind);
-                if head || arguments {
-                    capture_java_type(
-                        builder,
-                        TypeReferenceCapture {
-                            node: child,
-                            owner: input.owner,
-                            kind: input.kind,
-                            depth: input.depth.saturating_add(1),
-                        },
-                    )?;
-                }
-            }
-        }
-        "type_identifier" => {
-            if let Some(name) = managed_outer_type_name(builder, input.node)? {
-                push_named_reference(
-                    builder,
-                    PendingReference {
-                        owner: Some(input.owner.clone()),
-                        name,
-                        kind: input.kind,
-                        node: input.node,
-                    },
-                )?;
-            }
-        }
-        _ => {
-            for child in named_children(input.node) {
-                capture_java_type(
-                    builder,
-                    TypeReferenceCapture {
-                        node: child,
-                        owner: input.owner,
-                        kind: input.kind,
-                        depth: input.depth.saturating_add(1),
-                    },
-                )?;
-            }
-        }
+        "type_identifier" => push_managed_type_name(builder, input)?,
+        _ => capture_java_type_children(builder, input)?,
     }
     Ok(())
+}
+
+/// Visit only the direct children that contribute names to this Java type.
+fn capture_java_type_children(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: TypeReferenceCapture<'_, '_>,
+) -> Result<(), ExtractError> {
+    for child in named_children(input.node).filter(|child| is_java_type_child(input, *child)) {
+        capture_java_type(
+            builder,
+            TypeReferenceCapture {
+                node: child,
+                depth: input.depth.saturating_add(1),
+                ..input
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn is_java_type_child(input: TypeReferenceCapture<'_, '_>, child: Node<'_>) -> bool {
+    match input.node.kind() {
+        "scoped_type_identifier" => {
+            child.kind() == "type_arguments" && names_type_arguments(input.kind)
+        }
+        "generic_type" => {
+            matches!(child.kind(), "type_identifier" | "scoped_type_identifier")
+                || (child.kind() == "type_arguments" && names_type_arguments(input.kind))
+        }
+        _ => true,
+    }
 }
 
 /// Whether a type reference of this kind also names its generic arguments.
@@ -1306,7 +1273,7 @@ fn capture_csharp_type(
     match input.node.kind() {
         "qualified_name" | "alias_qualified_name" => capture_csharp_qualified(builder, input)?,
         "generic_name" => capture_csharp_generic(builder, input)?,
-        "identifier" => push_csharp_type_name(builder, input)?,
+        "identifier" => push_managed_type_name(builder, input)?,
         "predefined_type" | "implicit_type" => {}
         "tuple_element" => capture_csharp_tuple_element(builder, input)?,
         _ => capture_csharp_children(builder, input)?,
@@ -1337,7 +1304,7 @@ fn capture_csharp_qualified(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: TypeReferenceCapture<'_, '_>,
 ) -> Result<(), ExtractError> {
-    push_csharp_type_name(builder, input)?;
+    push_managed_type_name(builder, input)?;
     for child in
         descendants_including_root(input.node).filter(|child| child.kind() == "type_argument_list")
     {
@@ -1352,7 +1319,7 @@ fn capture_csharp_generic(
 ) -> Result<(), ExtractError> {
     for child in named_children(input.node) {
         match child.kind() {
-            "identifier" => push_csharp_type_name(
+            "identifier" => push_managed_type_name(
                 builder,
                 TypeReferenceCapture {
                     node: child,
@@ -1401,7 +1368,8 @@ fn capture_csharp_children(
     Ok(())
 }
 
-fn push_csharp_type_name(
+/// Emit a named Java or C# type through the shared managed-type normalization.
+fn push_managed_type_name(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: TypeReferenceCapture<'_, '_>,
 ) -> Result<(), ExtractError> {

@@ -246,18 +246,22 @@ impl<'tree> MatcherScan<'_, '_, '_, 'tree> {
                 }
                 continue;
             }
-            let allowed = if node.kind() == "token_binding_pattern" {
-                node.child_by_field_name("type").is_some_and(|fragment| {
-                    EXPRESSION_FRAGMENTS.contains(&self.builder.context.text(fragment).trim())
-                })
-            } else {
-                !node.is_named() && is_punctuation(node)
-            };
-            if !allowed {
+            if !self.is_expression_token(node) {
                 return Ok(false);
             }
         }
         Ok(true)
+    }
+
+    /// Whether a nongroup matcher node is an expression binding or punctuation.
+    fn is_expression_token(&self, node: Node<'tree>) -> bool {
+        if node.kind() == "token_binding_pattern" {
+            node.child_by_field_name("type").is_some_and(|fragment| {
+                EXPRESSION_FRAGMENTS.contains(&self.builder.context.text(fragment).trim())
+            })
+        } else {
+            !node.is_named() && is_punctuation(node)
+        }
     }
 
     /// Whether a repetition's separator, if any, is punctuation. The grammar

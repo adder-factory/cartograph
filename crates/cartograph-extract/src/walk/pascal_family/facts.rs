@@ -500,13 +500,9 @@ pub(super) fn local_overloads(
     let mut cursor = implementation.walk();
     for local in implementation.children_by_field_name("local", &mut cursor) {
         builder.context.ensure_active()?;
-        let (counts, declaration) = match local.kind() {
-            "declProc" => (&mut forward, local),
-            "defProc" => match local.child_by_field_name("header") {
-                Some(header) => (&mut bodies, header),
-                None => continue,
-            },
-            _ => continue,
+        let Some((counts, declaration)) = local_overload_counts(local, &mut forward, &mut bodies)
+        else {
+            continue;
         };
         let marked = is_marked_overload(declaration);
         for name in declared_field_names(source, declaration) {
@@ -522,6 +518,21 @@ pub(super) fn local_overloads(
         }
     }
     Ok(overloaded)
+}
+
+/// Select the forward/body count map and declaration header of a local routine.
+fn local_overload_counts<'tree, 'counts>(
+    local: Node<'tree>,
+    forward: &'counts mut BTreeMap<String, usize>,
+    bodies: &'counts mut BTreeMap<String, usize>,
+) -> Option<(&'counts mut BTreeMap<String, usize>, Node<'tree>)> {
+    match local.kind() {
+        "declProc" => Some((forward, local)),
+        "defProc" => local
+            .child_by_field_name("header")
+            .map(|header| (bodies, header)),
+        _ => None,
+    }
 }
 
 /// Whether a routine header carries the `overload` directive.

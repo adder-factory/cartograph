@@ -9,7 +9,7 @@ mod clojure;
 mod common_lisp;
 
 use cartograph_domain::SourceLanguage;
-use tree_sitter::Node;
+use tree_sitter::{Node, TreeCursor};
 
 use crate::ExtractError;
 
@@ -111,15 +111,26 @@ fn visit_syntax_quote(
             level = entered_level(level, node.kind());
             continue;
         }
-        // Advance to the next sibling, leaving finished parents and restoring
-        // the level each of them changed on the way in.
-        while !cursor.goto_next_sibling() {
-            if !cursor.goto_parent() || cursor.node().id() == template.id() {
-                return Ok(());
-            }
-            level = left_level(level, cursor.node().kind());
+        if !advance_template_cursor(&mut cursor, template, &mut level) {
+            return Ok(());
         }
     }
+}
+
+/// Advance to the next sibling, restoring the level of finished parents;
+/// `false` when the cursor has left the template's contents.
+fn advance_template_cursor(
+    cursor: &mut TreeCursor<'_>,
+    template: Node<'_>,
+    level: &mut usize,
+) -> bool {
+    while !cursor.goto_next_sibling() {
+        if !cursor.goto_parent() || cursor.node().id() == template.id() {
+            return false;
+        }
+        *level = left_level(*level, cursor.node().kind());
+    }
+    true
 }
 
 /// The quoting level inside a node of kind `kind` entered at `level`.

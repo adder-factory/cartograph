@@ -162,7 +162,7 @@ fn member_call_target_name(
             _ => {}
         }
         if !cursor.goto_next_sibling() {
-            return Ok(if property { name } else { None });
+            return Ok(name.filter(|_| property));
         }
     }
     Ok(None)

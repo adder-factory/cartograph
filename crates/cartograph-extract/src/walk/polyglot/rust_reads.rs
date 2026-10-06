@@ -265,18 +265,8 @@ fn collect_scope_names(
         if !names.scan() {
             return Ok(());
         }
-        let pattern = if parameter.kind() == "parameter" {
-            parameter.child_by_field_name("pattern")
-        } else {
-            Some(parameter)
-        };
-        for candidate in pattern.into_iter().flat_map(descendants_including_root) {
-            if !names.scan() {
-                return Ok(());
-            }
-            if PATTERN_BINDING_KINDS.contains(&candidate.kind()) {
-                bind_constant_shaped(source, candidate, names)?;
-            }
+        if !collect_parameter_pattern_names(source, parameter, names)? {
+            return Ok(());
         }
     }
     for parameter in scope
@@ -295,6 +285,28 @@ fn collect_scope_names(
         }
     }
     Ok(())
+}
+
+/// Collect one parameter pattern, returning `false` when its scan budget is spent.
+fn collect_parameter_pattern_names(
+    source: &str,
+    parameter: Node<'_>,
+    names: &mut ScopeNameSet,
+) -> Result<bool, ExtractError> {
+    let pattern = if parameter.kind() == "parameter" {
+        parameter.child_by_field_name("pattern")
+    } else {
+        Some(parameter)
+    };
+    for candidate in pattern.into_iter().flat_map(descendants_including_root) {
+        if !names.scan() {
+            return Ok(false);
+        }
+        if PATTERN_BINDING_KINDS.contains(&candidate.kind()) {
+            bind_constant_shaped(source, candidate, names)?;
+        }
+    }
+    Ok(true)
 }
 
 /// Record a bound name when it could be mistaken for a constant read.

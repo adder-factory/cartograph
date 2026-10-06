@@ -48,22 +48,14 @@ pub(super) fn capture_heritage(
     for child in named_children(node) {
         builder.context.ensure_active()?;
         match child.kind() {
-            "extends_type_clause" => {
-                for target in named_children(child) {
-                    builder.context.ensure_active()?;
-                    if let Some(name_node) = reference_type_node(target) {
-                        push_node_reference(
-                            builder,
-                            NodeReference {
-                                owner: Some(owner.clone()),
-                                name: name_node,
-                                kind: ReferenceKind::Extends,
-                                span: name_node,
-                            },
-                        )?;
-                    }
-                }
-            }
+            "extends_type_clause" => capture_named_heritage_targets(
+                builder,
+                TypeTreeCapture {
+                    root: child,
+                    owner,
+                    kind: ReferenceKind::Extends,
+                },
+            )?,
             "class_heritage" => capture_class_heritage(builder, child, owner)?,
             _ => {}
         }
@@ -96,22 +88,14 @@ fn capture_class_heritage(
                     )?;
                 }
             }
-            "implements_clause" => {
-                for target in named_children(clause) {
-                    builder.context.ensure_active()?;
-                    if let Some(name_node) = reference_type_node(target) {
-                        push_node_reference(
-                            builder,
-                            NodeReference {
-                                owner: Some(owner.clone()),
-                                name: name_node,
-                                kind: ReferenceKind::Implements,
-                                span: name_node,
-                            },
-                        )?;
-                    }
-                }
-            }
+            "implements_clause" => capture_named_heritage_targets(
+                builder,
+                TypeTreeCapture {
+                    root: clause,
+                    owner,
+                    kind: ReferenceKind::Implements,
+                },
+            )?,
             // Plain JavaScript: `class A extends B` puts the base expression
             // directly under `class_heritage`. Only a static name is a base;
             // a computed mixin (`extends mixin(B)`) has no declaration target.
@@ -131,6 +115,28 @@ fn capture_class_heritage(
                 }
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Emit the named targets of an extends or implements clause in child order.
+fn capture_named_heritage_targets(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: TypeTreeCapture<'_, '_>,
+) -> Result<(), ExtractError> {
+    for target in named_children(input.root) {
+        builder.context.ensure_active()?;
+        if let Some(name_node) = reference_type_node(target) {
+            push_node_reference(
+                builder,
+                NodeReference {
+                    owner: Some(input.owner.clone()),
+                    name: name_node,
+                    kind: input.kind,
+                    span: name_node,
+                },
+            )?;
         }
     }
     Ok(())
