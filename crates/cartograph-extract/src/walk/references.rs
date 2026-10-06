@@ -1229,6 +1229,7 @@ pub(super) fn push_reference(
     if pending.name.is_empty() {
         return Ok(());
     }
+    super::current_class_calls::capture(builder, &pending)?;
     builder.emit_reference(ExtractedReference {
         owner: pending.owner,
         name: pending.name,

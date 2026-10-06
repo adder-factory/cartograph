@@ -15,11 +15,11 @@ mod types;
 use cartograph_domain::{ReferenceKind, SymbolId, SymbolKind, Visibility};
 use tree_sitter::Node;
 
-use crate::{ExtractError, ExtractedReference, SymbolExportFlags};
+use crate::{ExtractError, SymbolExportFlags};
 
 use super::{
-    ExtractionBuilder, PendingSymbol, generic_family,
-    syntax::{children, named_children, span_for},
+    ExtractionBuilder, PendingReference, PendingSymbol, generic_family,
+    syntax::{children, named_children},
 };
 use types::{TypeCapture, TypeScope};
 
@@ -157,13 +157,15 @@ fn capture_spelled_call(
     let Some(name) = generic_family::normalize_reference_name(&plain) else {
         return Ok(true);
     };
-    builder.emit_reference(ExtractedReference {
-        owner: builder.owners.last().cloned(),
-        name,
-        resolution_name: None,
-        kind: ReferenceKind::Calls,
-        span: span_for(callee)?,
-    })?;
+    super::references::push_reference(
+        builder,
+        PendingReference {
+            owner: builder.owners.last().cloned(),
+            name,
+            kind: ReferenceKind::Calls,
+            node: callee,
+        },
+    )?;
     Ok(true)
 }
 

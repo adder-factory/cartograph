@@ -22,6 +22,7 @@ mod apex_family;
 mod arkts_family;
 mod astro_family;
 mod c_family;
+mod current_class_calls;
 mod dart_family;
 mod declarations;
 mod def_use;
@@ -305,6 +306,7 @@ fn finish_extraction(
         symbols: builder.facts.symbols,
         containments: builder.facts.containments,
         references: builder.facts.references,
+        call_scope_sites: builder.facts.call_scope_sites,
         numerical_sites: builder.facts.numerical_sites,
         import_bindings: builder.facts.import_bindings,
         has_inline_tests,
@@ -444,6 +446,7 @@ struct ExtractionBuilder<'source, 'cancel> {
     vbnet_heritage: vbnet_family::HeritageSeen,
     /// JavaScript-family state shared between the walk and its passes.
     javascript: javascript_state::JavaScriptState<'source>,
+    current_class_calls: current_class_calls::MethodProofIndex,
     maximum_ast_depth: usize,
     /// Whether any synthesized name exceeded its canonical bound and had to be
     /// deterministically shortened for this file.
@@ -619,6 +622,7 @@ struct ExtractionFacts {
     symbols: Vec<ExtractedSymbol>,
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
+    call_scope_sites: Vec<crate::ExtractedCallScopeSite>,
     numerical_sites: Vec<crate::ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
 }
@@ -1423,6 +1427,7 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             script: script_support::ScriptState::default(),
             vbnet_heritage: vbnet_family::HeritageSeen::default(),
             javascript: javascript_state::JavaScriptState::default(),
+            current_class_calls: current_class_calls::MethodProofIndex::default(),
             maximum_ast_depth,
             shortened_canonical_names: false,
             optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),

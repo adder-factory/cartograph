@@ -115,6 +115,9 @@ pub struct ExtractedFile {
     pub containments: Vec<Containment>,
     /// Source-ordered unresolved structural references.
     pub references: Vec<ExtractedReference>,
+    /// Syntax-proven callable scope at exact call sites, separate from reference identity.
+    #[serde(default)]
+    pub call_scope_sites: Vec<ExtractedCallScopeSite>,
     /// Source-ordered, privacy-safe static numerical evidence sites.
     pub numerical_sites: Vec<ExtractedNumericalSite>,
     /// Source-ordered ES module bindings used by project-wide resolution.
@@ -127,6 +130,26 @@ pub struct ExtractedFile {
     pub test_search_truncated: bool,
     /// Bounded, credential-safe parse diagnostics.
     pub diagnostics: Vec<ExtractionDiagnostic>,
+}
+
+/// The bounded syntax proof that permits an enclosing-scope call lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallScopeKind {
+    /// A direct method or its lexical receiver closure preserves current-class ownership.
+    CurrentClass,
+    /// A call stays in the retained callable's binding scope without an anonymous boundary.
+    DirectCallable,
+}
+
+/// One call site whose syntax establishes retained callable or class ownership.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedCallScopeSite {
+    /// Retained declaration containing the call.
+    pub owner: SymbolId,
+    /// Exact source range of the call reference.
+    pub span: SourceSpan,
+    /// Scope established by the native syntax walk.
+    pub kind: CallScopeKind,
 }
 
 /// One exact source site where static syntax exposes numerical behavior or risk.

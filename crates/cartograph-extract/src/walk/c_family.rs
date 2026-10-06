@@ -164,6 +164,7 @@ fn visit_c_type_declaration(
     match node.kind() {
         "type_definition" => visit_type_definition(builder, node, depth)?,
         "alias_declaration" => visit_alias(builder, node)?,
+        "namespace_alias_definition" => visit_named_leaf(builder, node, SymbolKind::TypeAlias)?,
         "enumerator" => visit_named_leaf(builder, node, SymbolKind::EnumMember)?,
         _ => return Ok(false),
     }
