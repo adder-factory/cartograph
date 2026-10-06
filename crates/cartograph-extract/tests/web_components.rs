@@ -1117,6 +1117,33 @@ fn event_handler_attributes_are_expressions_or_named_handlers() {
 }
 
 #[test]
+fn svelte_handler_like_text_inside_other_attribute_values_is_not_a_call() {
+    let file = extract(
+        "src/AttributeValues.svelte",
+        r#"<p title="example on:click={fake}">x</p>
+<p title='example onclick={alsoFake}'>x</p>
+<p title="example on:click={renderValue()}">x</p>
+<p data-value={"example on:click={nestedFake}"}>x</p>
+<p data-value={{ text: 'on:click={objectFake}' }}>x</p>
+<p data-value={"example on:click='quotedFake'"}>x</p>
+<button title="example on:click={ignored}" on:click={live}>x</button>
+<button data-value={wrap({ text: 'onclick={ignoredAgain}' })} onclick={store.save}>x</button>
+<form data-value={"example action='?/phantomAction'"} action="?/create"></form>
+"#,
+    );
+    let calls = file
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        ["live", "store.save", "create", "renderValue", "wrap"]
+    );
+}
+
+#[test]
 fn compiler_names_are_dropped_in_every_invocation_shape() {
     let file = extract(
         "src/Shapes.svelte",

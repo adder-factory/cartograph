@@ -467,6 +467,27 @@ fn react_native_macro_methods_keep_exact_original_spans_and_lines() {
 }
 
 #[test]
+fn react_native_remap_separators_ignore_comments() {
+    for invocation in [
+        "RCT_REMAP_METHOD(jsName /* , */, nativeMethod:(id)x)",
+        "RCT_REMAP_METHOD(jsName // , < [ {\n, nativeMethod:(id)x)",
+        "RCT_REMAP_BLOCKING_SYNCHRONOUS_METHOD(jsName, NSDictionary<NSString *, id> * /* , > ] } */, nativeMethod:(id)x)",
+    ] {
+        let source = format!("@implementation M\n{invocation}\n{{\n  [self later];\n}}\n@end\n");
+        let file = extract("ios/Comments.m", &source);
+        assert_eq!(file.parse_status, FileParseStatus::Parsed, "{invocation}");
+        let native = method_definition(&file, "nativeMethod:");
+        let call = file
+            .references
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Calls && reference.name == "later")
+            .unwrap_or_else(|| panic!("missing method body call: {file:?}"));
+        assert_eq!(call.owner.as_ref(), Some(&native.id));
+        assert_eq!(native.span.start_line(), 2);
+    }
+}
+
+#[test]
 fn react_native_rewrite_ignores_substrings_and_survives_unbalanced_macros() {
     let substring = extract(
         "ios/Counter.m",

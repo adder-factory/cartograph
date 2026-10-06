@@ -1753,6 +1753,166 @@ fn mybatis_template_statement_ids_reference_mapper_statements_from_the_calling_m
 }
 
 #[test]
+fn mybatis_lambda_generic_arguments_do_not_shadow_statement_constants() {
+    let source = "class GenericDao {\n  static final String NS = \"pkg.Mapper\";\n  static class NS {}\n  void load() {\n    Consumer<Map<String, NS>> c = (Map<String, NS> values) -> sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n";
+    let extracted = extract("src/GenericDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::find"]);
+}
+
+#[test]
+fn mybatis_lambda_type_names_do_not_shadow_statement_constants() {
+    let source = "class TypeDao {\n  static final String Map = \"pkg.OtherMapper\";\n  void load() {\n    Consumer<Map<String, Integer>> c = (Map<String, Integer> values) -> sqlSessionTemplate.selectOne(Map + \".find\");\n  }\n}\n";
+    let extracted = extract("src/TypeDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["OtherMapper::find"]);
+}
+
+#[test]
+fn mybatis_switch_constant_labels_keep_statement_constants() {
+    for label in ["NS", "ConstantSwitchDao.NS", "NS, OTHER", "\"other\""] {
+        let source = format!(
+            "class ConstantSwitchDao {{\n  static final String NS = \"pkg.Mapper\";\n  static final String OTHER = \"other\";\n  void load(String input) {{\n    switch (input) {{\n      case {label} -> sqlSessionTemplate.selectOne(NS + \".find\");\n      default -> sqlSessionTemplate.selectOne(NS + \".fallback\");\n    }}\n  }}\n}}\n"
+        );
+        let extracted = extract("src/ConstantSwitchDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::find", "Mapper::fallback"], "{label}");
+    }
+}
+
+#[test]
+fn mybatis_switch_type_patterns_and_real_lambdas_shadow_statement_constants() {
+    for arm in [
+        "case String NS -> sqlSessionTemplate.selectOne(NS + \".find\");",
+        "case final String NS -> sqlSessionTemplate.selectOne(NS + \".find\");",
+        "case @Marker(value = {1, 2}) final java.lang.String NS -> sqlSessionTemplate.selectOne(NS + \".find\");",
+        "case String value -> map.forEach(NS -> sqlSessionTemplate.selectOne(NS + \".find\"));",
+    ] {
+        let source = format!(
+            "class PatternSwitchDao {{\n  static final String NS = \"pkg.Mapper\";\n  void load(Object input) {{ switch (input) {{ {arm} default -> {{}} }} }}\n  void field() {{ sqlSessionTemplate.selectOne(NS + \".real\"); }}\n}}\n"
+        );
+        let extracted = extract("src/PatternSwitchDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::real"], "{arm}");
+    }
+}
+
+#[test]
+fn mybatis_switch_record_patterns_abstain_for_statement_constants() {
+    let source = "class RecordSwitchDao {\n  static final String NS = \"pkg.Mapper\";\n  record Box(String value) {}\n  void load(Object input) {\n    switch (input) {\n      case Box(String value) -> sqlSessionTemplate.selectOne(NS + \".find\");\n      default -> {}\n    }\n  }\n  void field() { sqlSessionTemplate.selectOne(NS + \".real\"); }\n}\n";
+    let extracted = extract("src/RecordSwitchDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::real"]);
+}
+
+#[test]
+fn mybatis_nested_switch_record_patterns_shadow_statement_constants() {
+    let source = "class SwitchDao {\n  static final String NS = \"pkg.Mapper\";\n  record Inner(String value) {}\n  record Outer(Inner value) {}\n  void load(Object input) {\n    switch (input) {\n      case Outer(Inner(String NS)) -> sqlSessionTemplate.selectOne(NS + \".find\");\n      default -> {}\n    }\n  }\n  void field() { sqlSessionTemplate.selectOne(NS + \".real\"); }\n}\n";
+    let extracted = extract("src/SwitchDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::real"]);
+}
+
+#[test]
+fn mybatis_varargs_parameters_shadow_statement_constants() {
+    for parameter in [
+        "String... NS",
+        "java.lang.String /* type */ ... NS",
+        "String[]... NS",
+        "Façade... NS",
+    ] {
+        let source = format!(
+            "class VarargsDao {{\n  static final String NS = \"pkg.Mapper\";\n  void load({parameter}) {{ sqlSessionTemplate.selectOne(NS + \".find\"); }}\n  void field() {{ sqlSessionTemplate.selectOne(NS + \".real\"); }}\n}}\n"
+        );
+        let extracted = extract("src/VarargsDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::real"], "{parameter}");
+    }
+}
+
+#[test]
+fn mybatis_large_argument_lists_keep_unshadowed_statement_constants() {
+    let arguments = vec!["NS"; 16_000].join(",");
+    let source = format!(
+        "class LargeDao {{\n  static final String NS = \"pkg.Mapper\";\n  void load() {{ consume({arguments}); sqlSessionTemplate.selectOne(NS + \".find\"); }}\n  void shadowed() {{ map.forEach((NS, value) -> sqlSessionTemplate.selectOne(NS + \".fake\")); }}\n}}\n"
+    );
+    let extracted = extract("src/LargeDao.java", &source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::find"]);
+}
+
+#[test]
+fn mybatis_inferred_lambda_parameters_shadow_statement_constants() {
+    for parameters in [
+        "NS, value",
+        "key, NS, value",
+        "key, NS",
+        "NS, café",
+        "key, NS, café",
+        "café, NS",
+        "NS /* first */,\n value",
+        "var NS, var value",
+        "String NS, String value",
+        "Map<String, Integer> NS, String value",
+        "Map<String, Integer> values, String NS",
+        "@Marker(value = {1, 2}) final Map<String, Integer> NS, String value",
+        "String NS[], String value",
+    ] {
+        let source = format!(
+            "class LambdaDao {{\n  static final String NS = \"pkg.Mapper\";\n  void shadowed() {{ map.forEach(({parameters}) -> sqlSessionTemplate.selectOne(NS + \".find\")); }}\n  void field() {{ map.forEach((key, value) -> sqlSessionTemplate.selectOne(NS + \".real\")); }}\n}}\n"
+        );
+        let extracted = extract("src/LambdaDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::real"], "{parameters}");
+    }
+}
+
+#[test]
 fn mybatis_template_scanning_is_literal_and_unicode_safe() {
     let statements = |path: &str, source: &str| {
         extract(path, source, SourceLanguage::Java)

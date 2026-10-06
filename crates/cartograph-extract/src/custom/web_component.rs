@@ -25,7 +25,7 @@ use crate::{
 use super::{
     CustomBuilder, CustomReferenceInput, CustomSymbolInput, CustomSymbolParts, MarkupTag,
     SymbolOptions, basename_stem, bounded_string, custom_symbol, first_identifier,
-    function_like_names, tag_attribute,
+    function_like_names,
 };
 
 mod layout;
@@ -76,26 +76,27 @@ pub(super) fn extract_component_file(
         return Ok(FileParseStatus::Parsed);
     }
     let component = add_file_component(builder)?;
-    let mut scanner = TemplateScanner::new(builder.source(), template_delimiters(builder));
-    let layout = component_layout(builder, &mut scanner)?;
+    let mut scanner = TemplateScanner::new(
+        builder.source(),
+        template_delimiters(builder),
+        builder.cancelled,
+    )?;
+    let layout = component_layout(&mut scanner)?;
     let mut regions = layout.script_regions();
     let surface = TemplateSurface {
         layout: &layout,
         dialect: template_dialect(&regions),
     };
+    regions.extend(template_expression_regions(&mut scanner, &surface)?);
+    let template_truncated = scanner.budget_exhausted();
     let markup = ComponentMarkup {
         component: &component,
         surface: &surface,
     };
     regions.extend(scan_component_markup(builder, &markup)?);
-    regions.extend(template_expression_regions(
-        builder,
-        &mut scanner,
-        &surface,
-    )?);
     regions.sort_by_key(ScriptRegion::start);
     let mut facts = extract_component_regions(builder, &component, &regions)?;
-    if scanner.budget_exhausted() {
+    if template_truncated {
         facts.record_truncated_template();
     }
     merge_component_facts(builder, &component, facts)
@@ -189,22 +190,28 @@ fn event_handler_regions(
     let svelte = builder.snapshot.language() == SourceLanguage::Svelte;
     let mut regions = Vec::new();
     for key in EVENT_HANDLER_ATTRIBUTES {
-        let handler = match tag_attribute(tag, key) {
-            Some((offset, value)) if svelte && value.contains('{') => {
-                braced_handler(value).map(|(relative, name)| (offset + relative, name))
+        let mut scanner = TemplateScanner::new(tag.raw, SVELTE_DELIMITERS, builder.cancelled)?;
+        let Some(attribute) = scanner.attribute(key)? else {
+            continue;
+        };
+        let offset = tag.start + 1 + attribute.start;
+        let value = attribute.value;
+        let handler = if attribute.braced {
+            svelte
+                .then(|| handler_path(value))
+                .flatten()
+                .map(|(relative, name)| (offset + relative, name))
+        } else if svelte && value.contains('{') {
+            braced_handler(value).map(|(relative, name)| (offset + relative, name))
+        } else {
+            if handler_path(value).is_none() && !value.trim().is_empty() {
+                regions.push(ScriptRegion::template_expression(
+                    offset,
+                    offset + value.len(),
+                    markup.surface.dialect,
+                ));
             }
-            Some((offset, value)) => {
-                if handler_path(value).is_none() && !value.trim().is_empty() {
-                    regions.push(ScriptRegion::template_expression(
-                        offset,
-                        offset + value.len(),
-                        markup.surface.dialect,
-                    ));
-                }
-                handler_path(value).map(|(relative, name)| (offset + relative, name))
-            }
-            None if svelte => unquoted_braced_handler(tag, key),
-            None => None,
+            handler_path(value).map(|(relative, name)| (offset + relative, name))
         };
         if let Some((start, name)) = handler {
             builder.add_reference(
@@ -218,37 +225,6 @@ fn event_handler_regions(
         }
     }
     Ok(regions)
-}
-
-/// The handler name of an unquoted braced attribute (`on:click={save}`), with
-/// its host offset. Any other braced value is an expression the template scan
-/// already walks.
-fn unquoted_braced_handler<'tag>(tag: MarkupTag<'tag>, key: &str) -> Option<(usize, &'tag str)> {
-    let mut search = 0;
-    while let Some(relative) = tag.raw[search..].find(key) {
-        let name_start = search + relative;
-        search = name_start + key.len();
-        let preceded = tag.raw[..name_start]
-            .bytes()
-            .last()
-            .is_some_and(|byte| byte.is_ascii_whitespace());
-        let Some(value) = tag.raw[search..]
-            .trim_start()
-            .strip_prefix('=')
-            .map(str::trim_start)
-            .and_then(|value| value.strip_prefix('{'))
-        else {
-            continue;
-        };
-        if !preceded {
-            continue;
-        }
-        let inner = &value[..value.find('}')?];
-        let (relative, name) = handler_path(inner)?;
-        let inner_start = tag.start + 1 + (tag.raw.len() - value.len());
-        return Some((inner_start + relative, name));
-    }
-    None
 }
 
 /// A handler path wrapped in one pair of braces, with its offset in `value`.
@@ -283,10 +259,15 @@ fn scan_form_action(
     component: &SymbolId,
     tag: MarkupTag<'_>,
 ) -> Result<(), ExtractError> {
-    let Some((offset, value)) = tag_attribute(tag, FORM_ACTION_ATTRIBUTE) else {
+    let mut scanner = TemplateScanner::new(tag.raw, SVELTE_DELIMITERS, builder.cancelled)?;
+    let Some(attribute) = scanner.attribute(FORM_ACTION_ATTRIBUTE)? else {
         return Ok(());
     };
-    if builder.snapshot.language() == SourceLanguage::Svelte && value.contains('{') {
+    let offset = tag.start + 1 + attribute.start;
+    let value = attribute.value;
+    if attribute.braced
+        || (builder.snapshot.language() == SourceLanguage::Svelte && value.contains('{'))
+    {
         return Ok(());
     }
     let calls = function_like_names(value);

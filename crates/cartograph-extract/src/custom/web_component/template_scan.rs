@@ -15,9 +15,9 @@
 //! Once the structured budget is gone, tags still end at their first `>`
 //! outside quotes, and the host reports the template as partial.
 
-use crate::framework::consume_quoted_byte;
+use crate::{ExtractError, framework::consume_quoted_byte};
 
-use super::super::is_identifier_body;
+use super::super::{is_identifier_body, poll_cancellation};
 
 /// Bytes after which a `/` begins a regular expression rather than a division:
 /// an operand never ends with an operator or opening punctuation.
@@ -82,8 +82,9 @@ enum Closer {
 }
 
 /// Budgeted lexical scanner over one component source.
-pub(super) struct TemplateScanner<'source> {
+pub(super) struct TemplateScanner<'source, 'cancel> {
     source: &'source str,
+    cancelled: &'cancel mut dyn FnMut() -> bool,
     delimiters: TemplateDelimiters,
     /// Structured-scan bytes still allowed.
     remaining: usize,
@@ -91,19 +92,38 @@ pub(super) struct TemplateScanner<'source> {
     plain: PlainSearch,
 }
 
-impl<'source> TemplateScanner<'source> {
+/// A quoted or braced attribute value, excluding its delimiters.
+pub(super) struct TemplateAttribute<'source> {
+    pub(super) start: usize,
+    pub(super) value: &'source str,
+    pub(super) braced: bool,
+}
+
+impl<'source, 'cancel> TemplateScanner<'source, 'cancel> {
     /// A scanner for `source` with the language's template delimiters.
-    pub(super) fn new(source: &'source str, delimiters: TemplateDelimiters) -> Self {
-        Self {
+    pub(super) fn new(
+        source: &'source str,
+        delimiters: TemplateDelimiters,
+        cancelled: &'cancel mut dyn FnMut() -> bool,
+    ) -> Result<Self, ExtractError> {
+        let last_expression_close =
+            last_delimiter(source.as_bytes(), delimiters.close.as_bytes(), cancelled)?;
+        let last_brace_close = if delimiters.close == BRACE_CLOSE {
+            last_expression_close
+        } else {
+            last_delimiter(source.as_bytes(), BRACE_CLOSE.as_bytes(), cancelled)?
+        };
+        Ok(Self {
             source,
+            cancelled,
             delimiters,
             remaining: scan_budget(source.len()),
             plain: PlainSearch {
                 remaining: scan_budget(source.len()),
-                last_expression_close: source.rfind(delimiters.close),
-                last_brace_close: source.rfind(BRACE_CLOSE),
+                last_expression_close,
+                last_brace_close,
             },
-        }
+        })
     }
 
     /// The scanned source.
@@ -118,19 +138,23 @@ impl<'source> TemplateScanner<'source> {
 
     /// Offset of the delimiter closing the template expression whose content
     /// starts at `content_start`.
-    pub(super) fn expression_close(&mut self, content_start: usize) -> Option<usize> {
+    pub(super) fn expression_close(
+        &mut self,
+        content_start: usize,
+    ) -> Result<Option<usize>, ExtractError> {
         self.closing(content_start, Closer::Expression)
     }
 
     /// Offset after the template expression opening at `start`, or after the
     /// brace when it opens no expression.
-    pub(super) fn past_expression(&mut self, start: usize) -> usize {
+    pub(super) fn past_expression(&mut self, start: usize) -> Result<usize, ExtractError> {
         let TemplateDelimiters { open, close } = self.delimiters;
         if !self.source[start..].starts_with(open) {
-            return start + 1;
+            return Ok(start + 1);
         }
-        self.closing(start + open.len(), Closer::Expression)
-            .map_or(start + 1, |end| end + close.len())
+        Ok(self
+            .closing(start + open.len(), Closer::Expression)?
+            .map_or(start + 1, |end| end + close.len()))
     }
 
     /// Whether unterminated template structure used up a scan budget, so
@@ -142,42 +166,57 @@ impl<'source> TemplateScanner<'source> {
     /// Offset of the `>` ending the tag whose name starts at `from`, outside
     /// quoted and braced attribute values. Once the structured budget is used
     /// up, the first `>` outside quoted values ends the tag, as in plain HTML.
-    pub(super) fn tag_end(&mut self, from: usize) -> Option<usize> {
-        let structured = self.structured_tag_end(from);
+    pub(super) fn tag_end(&mut self, from: usize) -> Result<Option<usize>, ExtractError> {
+        let structured = self.structured_tag_end(from)?;
         if structured.is_some() || self.remaining > 0 {
-            return structured;
+            return Ok(structured);
         }
-        self.plain.tag_end(self.source.as_bytes(), from)
+        self.plain_tag_end(from)
     }
 
     /// The structured tag scan: quoted values skipped, braced values scanned
     /// as expressions, every byte charged to the structured budget.
-    fn structured_tag_end(&mut self, from: usize) -> Option<usize> {
+    fn structured_tag_end(&mut self, from: usize) -> Result<Option<usize>, ExtractError> {
         let bytes = self.source.as_bytes();
         let mut index = from;
+        let mut next_poll = 0;
         while let Some(&byte) = bytes.get(index) {
-            self.spend(1)?;
-            index = match byte {
-                b'>' => return Some(index),
+            poll_cancellation(self.cancelled, index, &mut next_poll)?;
+            if self.spend(1).is_none() {
+                return Ok(None);
+            }
+            let end = match byte {
+                b'>' => return Ok(Some(index)),
                 b'"' | b'\'' => self.quote_end(index + 1, byte)?,
                 b'{' => self.closing(index + 1, Closer::Brace)?,
-                _ => index,
-            } + 1;
+                _ => Some(index),
+            };
+            let Some(end) = end else {
+                return Ok(None);
+            };
+            index = end + 1;
         }
-        None
+        Ok(None)
     }
 
     /// Offset of the `quote` closing an attribute value whose text starts at
     /// `from`, searched only as far as the remaining structured budget reaches.
-    fn quote_end(&mut self, from: usize, quote: u8) -> Option<usize> {
+    fn quote_end(&mut self, from: usize, quote: u8) -> Result<Option<usize>, ExtractError> {
         let bytes = self.source.as_bytes();
-        let window = bytes.get(from..bytes.len().min(from.saturating_add(self.remaining)))?;
-        let relative = window.iter().position(|&byte| byte == quote);
-        self.spend(relative.map_or(window.len(), |relative| relative + 1))?;
-        relative.map(|relative| from + relative)
+        let Some(window) = budget_window(bytes, from, self.remaining) else {
+            return Ok(None);
+        };
+        let relative = find_position(window.iter(), |&byte| byte == quote, self.cancelled)?;
+        if self
+            .spend(relative.map_or(window.len(), |relative| relative + 1))
+            .is_none()
+        {
+            return Ok(None);
+        }
+        Ok(relative.map(|relative| from + relative))
     }
 
-    fn closing(&mut self, start: usize, closer: Closer) -> Option<usize> {
+    fn closing(&mut self, start: usize, closer: Closer) -> Result<Option<usize>, ExtractError> {
         let (close, last) = match closer {
             Closer::Expression => (self.delimiters.close, self.plain.last_expression_close),
             Closer::Brace => (BRACE_CLOSE, self.plain.last_brace_close),
@@ -185,17 +224,203 @@ impl<'source> TemplateScanner<'source> {
         // No delimiter begins at or after `start`, so neither scan can find
         // one; answering at once keeps a run of unterminated openers linear.
         if last.is_none_or(|last| last < start) {
-            return None;
+            return Ok(None);
         }
         let bytes = self.source.as_bytes();
-        DelimiterScan::new(bytes, close.as_bytes(), &mut self.remaining)
-            .find(start)
-            .or_else(|| self.plain.find(bytes, start, close.as_bytes()))
+        match DelimiterScan::new(bytes, close.as_bytes(), &mut self.remaining)
+            .find(start, self.cancelled)?
+        {
+            Some(end) => Ok(Some(end)),
+            None => self.plain_find(start, close.as_bytes()),
+        }
+    }
+
+    /// Cancellable searches used by the layout, including long raw text.
+    pub(super) fn find_from(
+        &mut self,
+        start: usize,
+        needle: &[u8],
+    ) -> Result<Option<usize>, ExtractError> {
+        let found = find_position(
+            self.source.as_bytes()[start..].windows(needle.len()),
+            |window| window == needle,
+            self.cancelled,
+        )?;
+        Ok(found.map(|relative| start + relative))
+    }
+
+    pub(super) fn find_case_insensitive(
+        &mut self,
+        start: usize,
+        needle: &str,
+    ) -> Result<Option<usize>, ExtractError> {
+        let found = find_position(
+            self.source.as_bytes()[start..].windows(needle.len()),
+            |window| window.eq_ignore_ascii_case(needle.as_bytes()),
+            self.cancelled,
+        )?;
+        Ok(found.map(|relative| start + relative))
+    }
+
+    pub(super) fn markup_start(&mut self, start: usize) -> Result<Option<usize>, ExtractError> {
+        let found = find_position(
+            self.source.as_bytes()[start..].iter(),
+            |byte| matches!(byte, b'<' | b'{'),
+            self.cancelled,
+        )?;
+        Ok(found.map(|relative| start + relative))
+    }
+
+    pub(super) fn is_directive(&mut self, expression: &str) -> Result<bool, ExtractError> {
+        is_template_directive(expression, self.cancelled)
+    }
+
+    /// Attribute lookup outside all other quoted and braced values. A damaged
+    /// braced value abstains instead of using the structure-blind fallback.
+    pub(super) fn attribute(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<TemplateAttribute<'source>>, ExtractError> {
+        let bytes = self.source.as_bytes();
+        let mut index = 0;
+        let mut next_poll = 0;
+        while let Some(&byte) = bytes.get(index) {
+            poll_cancellation(self.cancelled, index, &mut next_poll)?;
+            let preceded = index > 0 && bytes[index - 1].is_ascii_whitespace();
+            if preceded
+                && bytes
+                    .get(index..index + key.len())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(key.as_bytes()))
+                && let Some(value) = self.attribute_at(index + key.len())?
+            {
+                return Ok(Some(value));
+            }
+            let end = match byte {
+                b'"' | b'\'' => self.quote_end(index + 1, byte)?,
+                b'{' => DelimiterScan::new(bytes, BRACE_CLOSE.as_bytes(), &mut self.remaining)
+                    .find(index + 1, self.cancelled)?,
+                _ => Some(index),
+            };
+            let Some(end) = end else {
+                return Ok(None);
+            };
+            index = end + 1;
+        }
+        Ok(None)
+    }
+
+    fn attribute_at(
+        &mut self,
+        after_key: usize,
+    ) -> Result<Option<TemplateAttribute<'source>>, ExtractError> {
+        let equals = self.past_whitespace(after_key)?;
+        if self.source.as_bytes().get(equals) != Some(&b'=') {
+            return Ok(None);
+        }
+        let open = self.past_whitespace(equals + 1)?;
+        let bytes = self.source.as_bytes();
+        let braced = bytes.get(open) == Some(&b'{');
+        let end = match bytes.get(open) {
+            Some(b'"' | b'\'') => self.quote_end(open + 1, bytes[open])?,
+            Some(b'{') => DelimiterScan::new(bytes, BRACE_CLOSE.as_bytes(), &mut self.remaining)
+                .find(open + 1, self.cancelled)?,
+            _ => return Ok(None),
+        };
+        Ok(end.map(|end| TemplateAttribute {
+            start: open + 1,
+            value: &self.source[open + 1..end],
+            braced,
+        }))
+    }
+
+    fn past_whitespace(&mut self, start: usize) -> Result<usize, ExtractError> {
+        let found = find_position(
+            self.source.as_bytes()[start..].iter(),
+            |byte| !byte.is_ascii_whitespace(),
+            self.cancelled,
+        )?;
+        Ok(found.map_or(self.source.len(), |relative| start + relative))
+    }
+
+    fn plain_find(&mut self, start: usize, close: &[u8]) -> Result<Option<usize>, ExtractError> {
+        let Some(window) = budget_window(self.source.as_bytes(), start, self.plain.remaining)
+        else {
+            return Ok(None);
+        };
+        let found = find_position(
+            window.windows(close.len()),
+            |candidate| candidate == close,
+            self.cancelled,
+        )?;
+        let examined = found.map_or(window.len(), |relative| relative + close.len());
+        self.plain.remaining = self.plain.remaining.saturating_sub(examined);
+        Ok(found.map(|relative| start + relative))
+    }
+
+    fn plain_tag_end(&mut self, start: usize) -> Result<Option<usize>, ExtractError> {
+        let Some(window) = budget_window(self.source.as_bytes(), start, self.plain.remaining)
+        else {
+            return Ok(None);
+        };
+        let mut quote = None;
+        let found = find_position(
+            window.iter(),
+            |&byte| match quote {
+                Some(open) => {
+                    if byte == open {
+                        quote = None;
+                    }
+                    false
+                }
+                None if matches!(byte, b'"' | b'\'') => {
+                    quote = Some(byte);
+                    false
+                }
+                None => byte == b'>',
+            },
+            self.cancelled,
+        )?;
+        let examined = found.map_or(window.len(), |relative| relative + 1);
+        self.plain.remaining = self.plain.remaining.saturating_sub(examined);
+        Ok(found.map(|relative| start + relative))
     }
 
     fn spend(&mut self, bytes: usize) -> Option<()> {
         spend_budget(&mut self.remaining, bytes)
     }
+}
+
+/// Search a bounded byte iterator, polling at the custom scanner's byte cadence.
+fn find_position<Item>(
+    items: impl IntoIterator<Item = Item>,
+    mut matches: impl FnMut(Item) -> bool,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<usize>, ExtractError> {
+    let mut next_poll = 0;
+    for (index, item) in items.into_iter().enumerate() {
+        poll_cancellation(cancelled, index, &mut next_poll)?;
+        if matches(item) {
+            return Ok(Some(index));
+        }
+    }
+    Ok(None)
+}
+
+fn last_delimiter(
+    bytes: &[u8],
+    close: &[u8],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<usize>, ExtractError> {
+    let found = find_position(
+        bytes.windows(close.len()).rev(),
+        |window| window == close,
+        cancelled,
+    )?;
+    Ok(found.map(|relative| bytes.len() - close.len() - relative))
+}
+
+fn budget_window(bytes: &[u8], start: usize, remaining: usize) -> Option<&[u8]> {
+    bytes.get(start..bytes.len().min(start.saturating_add(remaining)))
 }
 
 /// Charge `bytes` to `remaining`. A charge larger than what is left uses the
@@ -228,55 +453,25 @@ struct PlainSearch {
     last_brace_close: Option<usize>,
 }
 
-impl PlainSearch {
-    /// Offset of the first `close` at or after `start` that the remaining
-    /// plain budget reaches.
-    fn find(&mut self, bytes: &[u8], start: usize, close: &[u8]) -> Option<usize> {
-        let window = bytes.get(start..bytes.len().min(start.saturating_add(self.remaining)))?;
-        let found = window
-            .windows(close.len())
-            .position(|candidate| candidate == close);
-        let examined = found.map_or(window.len(), |relative| relative + close.len());
-        self.remaining = self.remaining.saturating_sub(examined);
-        found.map(|relative| start + relative)
-    }
-
-    /// Offset of the first `>` at or after `start` outside quoted attribute
-    /// values that the remaining plain budget reaches.
-    fn tag_end(&mut self, bytes: &[u8], start: usize) -> Option<usize> {
-        let window = bytes.get(start..bytes.len().min(start.saturating_add(self.remaining)))?;
-        let mut quote = None;
-        let found = window.iter().position(|&byte| match quote {
-            Some(open) => {
-                if byte == open {
-                    quote = None;
-                }
-                false
-            }
-            None if matches!(byte, b'"' | b'\'') => {
-                quote = Some(byte);
-                false
-            }
-            None => byte == b'>',
-        });
-        let examined = found.map_or(window.len(), |relative| relative + 1);
-        self.remaining = self.remaining.saturating_sub(examined);
-        found.map(|relative| start + relative)
-    }
-}
-
 /// Whether a template expression is a block or directive tag (`{#if}`,
 /// `{/if}`, `{:else}`, `{@html}`) rather than an expression. A leading `/` is a
 /// closing tag unless it opens a comment or a regular-expression literal.
-pub(super) fn is_template_directive(expression: &str) -> bool {
+fn is_template_directive(
+    expression: &str,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<bool, ExtractError> {
     let bytes = expression.as_bytes();
-    match bytes.first() {
+    Ok(match bytes.first() {
         Some(b'#' | b':' | b'@') => true,
         Some(b'/') => {
-            !matches!(bytes.get(1), Some(b'*' | b'/')) && regex_literal_end(bytes, 1).is_err()
+            !matches!(bytes.get(1), Some(b'*' | b'/'))
+                && matches!(
+                    regex_literal_end(bytes, 1, cancelled)?,
+                    RegexEnd::Unterminated(_)
+                )
         }
         _ => false,
-    }
+    })
 }
 
 /// What a `/` began.
@@ -405,16 +600,30 @@ impl<'scan> DelimiterScan<'scan> {
         }
     }
 
-    fn find(mut self, start: usize) -> Option<usize> {
+    fn find(
+        mut self,
+        start: usize,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<usize>, ExtractError> {
         let mut index = start;
+        let mut next_poll = 0;
         while let Some(&byte) = self.bytes.get(index) {
-            self.spend(1)?;
+            poll_cancellation(cancelled, index, &mut next_poll)?;
+            if self.spend(1).is_none() {
+                return Ok(None);
+            }
             if self.quoting.quote.is_some() {
-                index = self.past_quoted_byte(byte, index)?;
+                let Some(next) = self.past_quoted_byte(byte, index) else {
+                    return Ok(None);
+                };
+                index = next;
                 continue;
             }
             if byte == b'/' {
-                match self.past_slash(index)? {
+                let Some(slash) = self.past_slash(index, cancelled)? else {
+                    return Ok(None);
+                };
+                match slash {
                     Slash::Comment(end) => {
                         index = end + 1;
                         continue;
@@ -422,14 +631,14 @@ impl<'scan> DelimiterScan<'scan> {
                     Slash::Token(end) => index = end,
                 }
             } else if self.is_close(byte, index) {
-                return Some(index);
+                return Ok(Some(index));
             }
             if !byte.is_ascii_whitespace() {
                 self.previous = self.previous.advanced(self.bytes, index);
             }
             index += 1;
         }
-        None
+        Ok(None)
     }
 
     fn spend(&mut self, bytes: usize) -> Option<()> {
@@ -468,42 +677,52 @@ impl<'scan> DelimiterScan<'scan> {
     }
 
     /// Classify the `/` at `index` and find where its comment or token ends.
-    fn past_slash(&mut self, index: usize) -> Option<Slash> {
+    fn past_slash(
+        &mut self,
+        index: usize,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<Slash>, ExtractError> {
         let terminator: &[u8] = match self.bytes.get(index + 1) {
             Some(b'*') => b"*/",
             Some(b'/') => b"\n",
-            _ => return self.past_regex_or_division(index),
+            _ => return self.past_regex_or_division(index, cancelled),
         };
         let from = index + COMMENT_OPENER_BYTES;
-        let window = self.bytes.get(from..self.window_end(from))?;
-        let Some(relative) = window
-            .windows(terminator.len())
-            .position(|candidate| candidate == terminator)
+        let Some(window) = self.bytes.get(from..self.window_end(from)) else {
+            return Ok(None);
+        };
+        let Some(relative) = find_position(
+            window.windows(terminator.len()),
+            |candidate| candidate == terminator,
+            cancelled,
+        )?
         else {
-            self.spend(window.len())?;
-            return None;
+            self.spend(window.len());
+            return Ok(None);
         };
         let end = from + relative + terminator.len() - 1;
-        self.spend(end - index)?;
-        Some(Slash::Comment(end))
+        Ok(self.spend(end - index).map(|()| Slash::Comment(end)))
     }
 
-    fn past_regex_or_division(&mut self, index: usize) -> Option<Slash> {
+    fn past_regex_or_division(
+        &mut self,
+        index: usize,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<Slash>, ExtractError> {
         if index < self.regex_free_until || !self.regex_may_follow() {
-            return Some(Slash::Token(index));
+            return Ok(Some(Slash::Token(index)));
         }
-        let window = self.bytes.get(..self.window_end(index + 1))?;
-        match regex_literal_end(window, index + 1) {
-            Ok(end) => {
-                self.spend(end - index)?;
-                Some(Slash::Token(end))
-            }
-            Err(line_end) => {
-                self.spend(line_end.saturating_sub(index))?;
+        let Some(window) = self.bytes.get(..self.window_end(index + 1)) else {
+            return Ok(None);
+        };
+        Ok(match regex_literal_end(window, index + 1, cancelled)? {
+            RegexEnd::Closed(end) => self.spend(end - index).map(|()| Slash::Token(end)),
+            RegexEnd::Unterminated(line_end) => {
                 self.regex_free_until = line_end;
-                Some(Slash::Token(index))
+                self.spend(line_end.saturating_sub(index))
+                    .map(|()| Slash::Token(index))
             }
-        }
+        })
     }
 
     /// Whether a `/` after the previous token begins a regular expression: an
@@ -574,30 +793,40 @@ const fn longest_word(words: &[&[u8]]) -> usize {
 /// Offset of the closing `/` of a regular expression body starting at `from`,
 /// honoring escapes and character classes, or the line end (or the end of
 /// `bytes`) reached without one.
-fn regex_literal_end(bytes: &[u8], from: usize) -> Result<usize, usize> {
+enum RegexEnd {
+    Closed(usize),
+    Unterminated(usize),
+}
+
+fn regex_literal_end(
+    bytes: &[u8],
+    from: usize,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<RegexEnd, ExtractError> {
     let mut in_class = false;
     let mut index = from;
+    let mut next_poll = 0;
     while let Some(&byte) = bytes.get(index) {
+        poll_cancellation(cancelled, index, &mut next_poll)?;
         match byte {
             b'\\' => index += 1,
-            b'\n' | b'\r' => return Err(index),
+            b'\n' | b'\r' => return Ok(RegexEnd::Unterminated(index)),
             b'[' => in_class = true,
             b']' => in_class = false,
-            b'/' if !in_class => return Ok(index),
+            b'/' if !in_class => return Ok(RegexEnd::Closed(index)),
             _ => {}
         }
         index += 1;
     }
-    Err(bytes.len())
+    Ok(RegexEnd::Unterminated(bytes.len()))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::{
-        super::{
-            super::CustomBuilder,
-            layout::{TemplateSurface, component_layout, template_expression_regions},
-        },
+        super::layout::{TemplateSurface, component_layout, template_expression_regions},
         SVELTE_DELIMITERS, TemplateDelimiters, TemplateScanner, VUE_DELIMITERS, scan_budget,
     };
     use crate::{SourceLimits, SourceSnapshot, walk::embedded_script::ScriptDialect};
@@ -606,9 +835,6 @@ mod tests {
     const LIMIT: usize = 4 * 1024 * 1024;
     /// Openers in each pathological fixture.
     const OPENERS: usize = 100_000;
-    /// AST-depth ceiling handed to the builder; the scans never walk an AST.
-    const AST_DEPTH: usize = 256;
-
     /// Bytes the layout and template-expression scans of one component examined.
     struct ScanWork {
         structured: usize,
@@ -623,16 +849,15 @@ mod tests {
         let snapshot = SourceSnapshot::from_bytes(path, source.as_bytes(), limits)
             .unwrap_or_else(|error| panic!("{path} snapshot: {error}"));
         let mut cancelled = || false;
-        let mut builder = CustomBuilder::new(&snapshot, AST_DEPTH, &mut cancelled)
-            .unwrap_or_else(|error| panic!("{path} builder: {error}"));
-        let mut scanner = TemplateScanner::new(source, delimiters);
-        let layout = component_layout(&mut builder, &mut scanner)
-            .unwrap_or_else(|error| panic!("{path} layout: {error}"));
+        let mut scanner = TemplateScanner::new(snapshot.source(), delimiters, &mut cancelled)
+            .unwrap_or_else(|error| panic!("{path} scanner: {error}"));
+        let layout =
+            component_layout(&mut scanner).unwrap_or_else(|error| panic!("{path} layout: {error}"));
         let surface = TemplateSurface {
             layout: &layout,
             dialect: ScriptDialect::JavaScript,
         };
-        let expressions = template_expression_regions(&mut builder, &mut scanner, &surface)
+        let expressions = template_expression_regions(&mut scanner, &surface)
             .unwrap_or_else(|error| panic!("{path} expressions: {error}"))
             .len();
         ScanWork {
@@ -717,6 +942,84 @@ mod tests {
     /// scans stay within a small multiple of the file size (they used to
     /// rescan the tail once per opener: quadratic).
     #[test]
+    fn cancellation_inside_a_large_template_expression_stops_the_layout_scan() {
+        let filler = "x".repeat(256 * 1024);
+        for source in [
+            format!("{{ /*{filler}*/ live() }}"),
+            format!("{{ //{filler}\n live() }}"),
+            format!("{{ '{filler}' + live() }}"),
+            format!("{{ /{filler}/.test(live()) }}"),
+            format!("<p title=\"{filler}\">{{live()}}</p>"),
+            format!("{{ '{filler} }}"),
+            format!("{{ `{filler}${{live()}}` }}"),
+            format!("<!--{filler}--><p>{{live()}}</p>"),
+            format!("<script>/*{filler}*/ live()</script>"),
+            format!("{filler}<p>{{live()}}</p>"),
+        ] {
+            let limits = SourceLimits::new(LIMIT).unwrap_or_else(|error| panic!("limits: {error}"));
+            let snapshot =
+                SourceSnapshot::from_bytes("src/Cancel.svelte", source.as_bytes(), limits)
+                    .unwrap_or_else(|error| panic!("snapshot: {error}"));
+            let polls = Cell::new(0);
+            let armed = Cell::new(false);
+            let mut cancelled = || {
+                if armed.get() {
+                    polls.set(polls.get() + 1);
+                }
+                polls.get() == 4
+            };
+            let mut scanner =
+                TemplateScanner::new(snapshot.source(), SVELTE_DELIMITERS, &mut cancelled)
+                    .unwrap_or_else(|error| panic!("scanner: {error}"));
+            armed.set(true);
+            let outcome = component_layout(&mut scanner);
+            assert!(matches!(outcome, Err(crate::ExtractError::Cancelled)));
+        }
+    }
+
+    #[test]
+    fn cancellation_in_plain_fallback_searches_is_not_a_delimiter_miss() {
+        let filler = "x".repeat(256 * 1024);
+        for (source, tag) in [
+            (format!("{{ /*{filler}*/ live() }}"), false),
+            (format!("<p title=\"{filler}\">"), true),
+        ] {
+            let armed = Cell::new(false);
+            let polls = Cell::new(0);
+            let mut cancelled = || {
+                if armed.get() {
+                    polls.set(polls.get() + 1);
+                }
+                polls.get() == 3
+            };
+            let mut scanner = TemplateScanner::new(&source, SVELTE_DELIMITERS, &mut cancelled)
+                .unwrap_or_else(|error| panic!("scanner: {error}"));
+            scanner.remaining = 0;
+            armed.set(true);
+            let outcome = if tag {
+                scanner.tag_end(1)
+            } else {
+                scanner.expression_close(1)
+            };
+            assert_eq!(outcome, Err(crate::ExtractError::Cancelled));
+        }
+    }
+
+    #[test]
+    fn cancellation_interrupts_the_last_delimiter_preflight() {
+        let source = "x".repeat(256 * 1024);
+        let mut polls = 0;
+        let mut cancelled = || {
+            polls += 1;
+            polls == 3
+        };
+        assert!(matches!(
+            TemplateScanner::new(&source, SVELTE_DELIMITERS, &mut cancelled),
+            Err(crate::ExtractError::Cancelled)
+        ));
+    }
+
+    #[test]
     fn unterminated_openers_cost_work_linear_in_the_file() {
         for &(path, delimiters, prefix, unit, suffix) in PATHOLOGICAL {
             let source = repeated(prefix, unit, suffix);
@@ -759,11 +1062,13 @@ mod tests {
         const LEFT: usize = 64;
         // `(/[` opens a regular-expression class that never closes.
         let source = format!("{{a(/[{}}}", "x".repeat(4 * LEFT));
-        let mut scanner = TemplateScanner::new(&source, SVELTE_DELIMITERS);
+        let mut cancelled = || false;
+        let mut scanner = TemplateScanner::new(&source, SVELTE_DELIMITERS, &mut cancelled)
+            .unwrap_or_else(|error| panic!("scanner: {error}"));
         scanner.remaining = LEFT;
         assert_eq!(
             scanner.expression_close(1),
-            Some(source.len() - 1),
+            Ok(Some(source.len() - 1)),
             "the plain search still closes the expression"
         );
         assert_eq!(scanner.remaining, 0, "the cut-short search was not charged");

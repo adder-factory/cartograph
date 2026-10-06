@@ -1194,6 +1194,141 @@ class Holder
 }
 
 #[test]
+fn symfony_route_paths_normalize_the_joined_leading_slashes() {
+    for (prefix, path, expected) in [
+        ("", "health", "/health"),
+        ("", "///health", "/health"),
+        ("", "  //health  ", "/health"),
+        ("", "\t //health \u{b}", "/health"),
+        ("", "///", "/"),
+        (" //api", "/health ", "/api/health"),
+        ("", "/health//detail/", "/health//detail/"),
+        ("", "\u{a0}health", "/\u{a0}health"),
+    ] {
+        let source = format!(
+            "<?php\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n#[Route('{prefix}')]\nclass Health {{\n  #[Route('{path}', name: 'health')]\n  public function health() {{}}\n}}\n"
+        );
+        let file = extract("src/Controller/Health.php", &source);
+        let health = route(&file, "health");
+        assert_eq!(
+            health.body_search_text,
+            format!("symfony route health ANY {expected}")
+        );
+        assert!(
+            health
+                .qualified_name
+                .contains(&format!("symfony-route::ANY::{expected}::health")),
+            "{health:?}"
+        );
+        assert_eq!(route_target(&file, health).name, "health");
+    }
+    let unnamed = extract(
+        "src/Controller/Unnamed.php",
+        "<?php\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n#[Route('///health')]\nclass Health { public function __invoke() {} }\n",
+    );
+    let health = route(&unnamed, "/health");
+    assert_eq!(health.body_search_text, "symfony route /health ANY /health");
+    assert_eq!(route_target(&unnamed, health).name, "__invoke");
+}
+
+#[test]
+fn symfony_normalized_route_paths_reject_sensitive_content() {
+    const CANARY: &str = "sk_live_CARTOGRAPH_REVIEW_CANARY";
+    for (prefix, path) in [
+        ("", CANARY.to_owned()),
+        ("", format!("  ///{CANARY}  ")),
+        (CANARY, "/secret".to_owned()),
+    ] {
+        let source = format!(
+            "<?php\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n#[Route('{prefix}')]\nclass Sensitive {{\n  #[Route('{path}', name: 'secret')]\n  public function secret() {{}}\n}}\nclass Health {{\n  #[Route('health', name: 'health')]\n  public function health() {{}}\n}}\n"
+        );
+        let file = extract("src/Controller/Sensitive.php", &source);
+        let serialized = serde_json::to_string(&file)
+            .unwrap_or_else(|error| panic!("fact serialization failed: {error}"));
+        assert!(
+            !serialized.contains(CANARY),
+            "sensitive route content leaked"
+        );
+        assert_eq!(names_of(&file, SymbolKind::Route), ["health"]);
+        let health = route(&file, "health");
+        assert_eq!(health.body_search_text, "symfony route health ANY /health");
+        assert!(
+            health
+                .qualified_name
+                .contains("symfony-route::ANY::/health::health")
+        );
+    }
+}
+
+#[test]
+fn symfony_route_segments_reject_sensitive_content() {
+    const CANARY: &str = "sk_live_CARTOGRAPH_REVIEW_CANARY";
+    for (prefix, path) in [
+        ("/api", format!("/{CANARY}")),
+        ("/api", format!("/nested/{CANARY}")),
+        ("/api", CANARY.to_owned()),
+        (
+            "/api/sk_live_CARTOGRAPH_REVIEW_CANARY",
+            "/secret".to_owned(),
+        ),
+        ("/api/sk_", "live_CARTOGRAPH_REVIEW_CANARY".to_owned()),
+    ] {
+        let source = format!(
+            "<?php\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n#[Route('{prefix}')]\nclass Sensitive {{\n  #[Route('{path}', name: 'secret')]\n  public function secret() {{}}\n}}\n#[Route('/api')]\nclass Health {{\n  #[Route('/health', name: 'health')]\n  public function health() {{}}\n}}\n"
+        );
+        let file = extract("src/Controller/Segments.php", &source);
+        let serialized = serde_json::to_string(&file)
+            .unwrap_or_else(|error| panic!("fact serialization failed: {error}"));
+        assert!(
+            !serialized.contains(CANARY),
+            "sensitive route segment leaked"
+        );
+        assert_eq!(names_of(&file, SymbolKind::Route), ["health"]);
+        let health = route(&file, "health");
+        assert_eq!(
+            health.body_search_text,
+            "symfony route health ANY /api/health"
+        );
+        assert!(
+            health
+                .qualified_name
+                .contains("symfony-route::ANY::/api/health::health")
+        );
+    }
+}
+
+#[test]
+fn symfony_route_paths_abstain_if_validation_trims_significant_bytes() {
+    for suffix in ['\u{a0}', '\u{c}'] {
+        let source = format!(
+            "<?php\nuse Symfony\\Component\\Routing\\Attribute\\Route;\nclass Health {{\n  #[Route('health{suffix}', name: 'health')]\n  public function health() {{}}\n}}\n"
+        );
+        let file = extract("src/Controller/Whitespace.php", &source);
+        assert_eq!(names_of(&file, SymbolKind::Route), [] as [&str; 0]);
+    }
+}
+
+#[test]
+fn symfony_route_names_abstain_if_validation_trims_significant_bytes() {
+    for (prefix, name) in [
+        ("", " health"),
+        ("", "health "),
+        ("", "health\u{a0}"),
+        ("api_", "health\u{a0}"),
+        ("api_\u{a0}", ""),
+    ] {
+        let source = format!(
+            "<?php\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n#[Route('/api', name: '{prefix}')]\nclass Health {{\n  #[Route('/health', name: '{name}')]\n  public function health() {{}}\n  #[Route('/neighbor', name: 'neighbor')]\n  public function neighbor() {{}}\n}}\n"
+        );
+        let file = extract("src/Controller/Names.php", &source);
+        assert_eq!(
+            names_of(&file, SymbolKind::Route),
+            [format!("{prefix}neighbor")]
+        );
+    }
+}
+
+#[test]
 fn symfony_routes_handle_unicode_aliases_root_paths_and_invokable_handler_spans() {
     let unicode = extract(
         "src/Controller/Unicode.php",

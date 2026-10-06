@@ -260,19 +260,28 @@ fn rewrite_invocation(bytes: &mut [u8], invocation: Invocation) {
 
 /// The comma ending the REMAP leading arguments inside the macro's own
 /// parentheses. `<>` nests like the other brackets so a generic return type
-/// (`NSDictionary<NSString *, id> *`) keeps its inner comma.
+/// (`NSDictionary<NSString *, id> *`) keeps its inner comma. Comments and
+/// literals can contain commas and brackets but never separate arguments.
 fn nth_top_level_comma(bytes: &[u8], invocation: Invocation) -> Option<usize> {
     let mut depth = 0_usize;
     let mut found = 0_usize;
     let arguments = bytes.get(invocation.open.saturating_add(1)..invocation.close)?;
-    for (offset, byte) in arguments.iter().enumerate() {
-        match byte {
+    let mut lexer = ObjcLexer::default();
+    let mut offset = 0;
+    while offset < arguments.len() {
+        let (region, next) = lexer.step(arguments, offset);
+        let index = offset;
+        offset = next;
+        if region != Region::Code {
+            continue;
+        }
+        match arguments[index] {
             b'(' | b'[' | b'{' | b'<' => depth = depth.saturating_add(1),
             b')' | b']' | b'}' | b'>' => depth = depth.checked_sub(1)?,
             b',' if depth == 0 => {
                 found = found.saturating_add(1);
                 if found == invocation.spec.leading_arguments {
-                    return Some(invocation.open.saturating_add(1).saturating_add(offset));
+                    return Some(invocation.open.saturating_add(1).saturating_add(index));
                 }
             }
             _ => {}
@@ -344,6 +353,26 @@ mod tests {
             rewrite("RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(syncName) {}").as_deref(),
             Some("- (id)                                 syncName  {}")
         );
+    }
+
+    #[test]
+    fn remap_separators_ignore_literals_and_comment_brackets() {
+        for leading in [
+            "jsName /* , > ] } */",
+            "@\"js, > ] }\"",
+            "'>'",
+            "R\"tag(js, > ] })tag\"",
+        ] {
+            let source = format!("RCT_REMAP_METHOD({leading}, nativeMethod:(id)x) {{}}");
+            let rewritten = rewrite(&source).unwrap_or_else(|| panic!("not rewritten"));
+            assert_eq!(rewritten.len(), source.len());
+            assert!(rewritten.ends_with("nativeMethod:(id)x  {}"), "{rewritten}");
+            assert!(
+                rewritten["- (void)".len()..source.find("nativeMethod").unwrap_or(0)]
+                    .bytes()
+                    .all(|byte| byte == b' ')
+            );
+        }
     }
 
     #[test]

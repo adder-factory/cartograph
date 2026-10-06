@@ -544,31 +544,32 @@ fn add_route(
     input: RouteEmission<'_>,
 ) -> Result<(), ExtractError> {
     let globals = input.globals;
-    let prefix = globals.and_then(|globals| globals.path);
-    let joined = format!(
-        "{}{}",
-        prefix.unwrap_or_default(),
-        input.route.path.unwrap_or_default()
-    );
-    // Symfony normalizes an empty route path to the root path.
-    let joined = if joined.is_empty() {
-        "/".to_owned()
-    } else {
-        joined
-    };
-    let Some(path) = safe_route_value(&joined, false) else {
+    let prefix = globals.and_then(|globals| globals.path).unwrap_or_default();
+    let method_path = input.route.path.unwrap_or_default();
+    if ![prefix, method_path]
+        .into_iter()
+        .all(path_components_are_safe)
+    {
+        return Ok(());
+    }
+    let joined = format!("{prefix}{method_path}");
+    let Some(path) = normalized_path(&joined) else {
         return Ok(());
     };
-    let name = match input.route.name {
+    let joined_name = match input.route.name {
         Some(name) => format!(
             "{}{name}",
             globals.and_then(|globals| globals.name).unwrap_or_default()
         ),
         None => path.clone(),
     };
-    let Some(name) = safe_route_value(&name, false) else {
+    let Some(name) = safe_route_value(&joined_name, false) else {
         return Ok(());
     };
+    // The loader concatenates route names without trimming either part.
+    if name != joined_name {
+        return Ok(());
+    }
     let methods = merged_methods(globals, input.route);
     builder.add_landmark(LandmarkInput {
         kind: SymbolKind::Route,
@@ -584,6 +585,34 @@ fn add_route(
             input.handler.1,
         )),
     })
+}
+
+/// Normalize the joined path without hiding a sensitive prefix behind `/`.
+fn normalized_path(joined: &str) -> Option<String> {
+    if !path_components_are_safe(joined) {
+        return None;
+    }
+    // Route::setPath trims PHP's ASCII trim characters, then replaces every
+    // leading slash with one. Screen the content before adding that slash.
+    let content = joined
+        .trim_matches([' ', '\t', '\n', '\r', '\0', '\u{b}'])
+        .trim_start_matches('/');
+    if !content.is_empty() {
+        safe_route_value(content, false)?;
+    }
+    let normalized = format!("/{content}");
+    let path = safe_route_value(&normalized, false)?;
+    // The validator trims Unicode whitespace, which PHP leaves in patterns.
+    // Never publish a different endpoint if validation changed bytes.
+    (path == normalized).then_some(path)
+}
+
+/// Screen the whole path and every segment, allowing empty root segments.
+fn path_components_are_safe(value: &str) -> bool {
+    std::iter::once(value)
+        .chain(value.split('/'))
+        .filter(|component| !component.trim().is_empty())
+        .all(|component| safe_route_value(component, false).is_some())
 }
 
 /// Class-level methods followed by the route's own, uppercased, without
