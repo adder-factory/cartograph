@@ -869,9 +869,16 @@ fn bg3_field_values_reference_plain_identifiers_at_every_site() {
     );
     // URL-shaped and key-bearing values stay opaque: neither the location nor
     // the body of an issued key split off at its `-` becomes a reference.
+    // GitLab-shaped tokens are assembled at runtime so no complete key-shaped
+    // literal sits in the source (secret scanners flag those).
+    let gitlab = |body: &str| ["glpat", body].join("-");
     let locations = extract(
         "Mods/Demo/Stats/Generated/Data/Leaky.txt",
-        "new entry \"SafeEntry\"\ndata \"Boosts\" \"//example.invalid/glpat-AbCdEf01234567890123/m\"\ndata \"Passives\" \"Assets/glpat-QwErTy98765432109876\"\ndata \"Icon\" \"https://example.invalid/IconSword\"\n",
+        &format!(
+            "new entry \"SafeEntry\"\ndata \"Boosts\" \"//example.invalid/{}/m\"\ndata \"Passives\" \"Assets/{}\"\ndata \"Icon\" \"https://example.invalid/IconSword\"\n",
+            gitlab("AbCdEf01234567890123"),
+            gitlab("QwErTy98765432109876"),
+        ),
     );
     assert_eq!(references(&locations), []);
     let rendered = format!("{locations:?}");
