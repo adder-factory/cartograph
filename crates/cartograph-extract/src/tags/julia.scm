@@ -33,6 +33,12 @@
   (identifier) @name
 ) @reference.call
 
+; Additional short-form signature names. The classifier requires an assignment
+; LHS, so these captures do not turn long-form signatures into call sites.
+(call_expression
+  . [(field_expression) (operator) (quote_expression)] @name
+) @reference.signature
+
 (macrocall_expression
   (macro_identifier) @name
 ) @reference.call

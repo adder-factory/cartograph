@@ -157,6 +157,46 @@ fn c_family_preserves_locked_v1_macro_recovery() {
 }
 
 #[test]
+fn attribute_macro_prefixes_are_neither_return_types_nor_variables() {
+    let extracted = extract(
+        "src/api.c",
+        "#define API_EXPORT\ntypedef int AX_S32;\n\
+         API_EXPORT int api_describe(void) { return 0; }\n\
+         AX_VIN_GLB_API AX_S32 AX_VIN_Init(void) { return 0; }\n",
+    );
+    assert_symbol(
+        &extracted,
+        SymbolKind::Function,
+        "api_describe",
+        "api_describe",
+    );
+    assert_symbol(
+        &extracted,
+        SymbolKind::Function,
+        "AX_VIN_Init",
+        "AX_VIN_Init",
+    );
+    let alias = assert_symbol(&extracted, SymbolKind::TypeAlias, "AX_S32", "AX_S32");
+    assert_eq!(alias.span.start_line(), 2);
+    assert!(
+        extracted
+            .symbols
+            .iter()
+            .all(|symbol| symbol.kind != SymbolKind::Variable || symbol.name != "AX_S32"),
+        "the typedef'd return type became a variable: {:?}",
+        extracted.symbols
+    );
+    assert!(
+        extracted.references.iter().all(|reference| {
+            reference.kind != ReferenceKind::Returns
+                || !matches!(reference.name.as_str(), "API_EXPORT" | "AX_VIN_GLB_API")
+        }),
+        "an attribute macro became a return type: {:?}",
+        extracted.references
+    );
+}
+
+#[test]
 fn c_family_recovers_macro_prefixed_cpp_containers() {
     let cases = [
         (

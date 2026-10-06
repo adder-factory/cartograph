@@ -1,0 +1,38 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "regex",
+  "files": [
+    "patterns/email.regexp",
+    "patterns/route.regex",
+    "patterns/slug.regex"
+  ],
+  "symbols": [
+    {
+      "file": "patterns/email.regexp",
+      "kind": "file",
+      "name": "email.regexp",
+      "qualified_name": "patterns/email.regexp",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "patterns/route.regex",
+      "kind": "file",
+      "name": "route.regex",
+      "qualified_name": "patterns/route.regex",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "patterns/slug.regex",
+      "kind": "file",
+      "name": "slug.regex",
+      "qualified_name": "patterns/slug.regex",
+      "start_line": 1,
+      "end_line": 2
+    }
+  ],
+  "edges": [],
+  "unresolved": []
+}

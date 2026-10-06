@@ -1,0 +1,1468 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "pascal",
+  "files": [
+    "forms/About.fmx",
+    "src/Console.lpr",
+    "src/MainUnit.dfm",
+    "src/MainUnit.pas",
+    "src/ShopApp.dpr",
+    "src/ShopPkg.dpk",
+    "src/UAuth.pas",
+    "src/UTypes.pas"
+  ],
+  "symbols": [
+    {
+      "file": "forms/About.fmx",
+      "kind": "component",
+      "name": "AboutForm",
+      "qualified_name": "forms/About.fmx#AboutForm",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "forms/About.fmx",
+      "kind": "file",
+      "name": "About.fmx",
+      "qualified_name": "forms/About.fmx",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "forms/About.fmx",
+      "kind": "component",
+      "name": "OkButton",
+      "qualified_name": "forms/About.fmx#OkButton",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "file",
+      "name": "Console.lpr",
+      "qualified_name": "src/Console.lpr",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "module",
+      "name": "Console",
+      "qualified_name": "Console",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "import",
+      "name": "SysUtils",
+      "qualified_name": "SysUtils",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "import",
+      "name": "UTypes",
+      "qualified_name": "UTypes",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "component",
+      "name": "MainForm",
+      "qualified_name": "src/MainUnit.dfm#MainForm",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "file",
+      "name": "MainUnit.dfm",
+      "qualified_name": "src/MainUnit.dfm",
+      "start_line": 1,
+      "end_line": 26
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "component",
+      "name": "Panel1",
+      "qualified_name": "src/MainUnit.dfm#Panel1",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "component",
+      "name": "Button1",
+      "qualified_name": "src/MainUnit.dfm#Button1",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "component",
+      "name": "Header",
+      "qualified_name": "src/MainUnit.dfm#Header",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "component",
+      "name": "Footer",
+      "qualified_name": "src/MainUnit.dfm#Footer",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "file",
+      "name": "MainUnit.pas",
+      "qualified_name": "src/MainUnit.pas",
+      "start_line": 1,
+      "end_line": 42
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "module",
+      "name": "MainUnit",
+      "qualified_name": "MainUnit",
+      "start_line": 1,
+      "end_line": 41
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "import",
+      "name": "System.SysUtils",
+      "qualified_name": "System.SysUtils",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "import",
+      "name": "Vcl.Forms",
+      "qualified_name": "Vcl.Forms",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "import",
+      "name": "Vcl.StdCtrls",
+      "qualified_name": "Vcl.StdCtrls",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "import",
+      "name": "UAuth",
+      "qualified_name": "UAuth",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "class",
+      "name": "TMainForm",
+      "qualified_name": "TMainForm",
+      "start_line": 9,
+      "end_line": 17
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "field",
+      "name": "Button1",
+      "qualified_name": "TMainForm::Button1",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "method",
+      "name": "FormCreate",
+      "qualified_name": "TMainForm::FormCreate",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "method",
+      "name": "Button1Click",
+      "qualified_name": "TMainForm::Button1Click",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "field",
+      "name": "FCount",
+      "qualified_name": "TMainForm::FCount",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "property",
+      "name": "Count",
+      "qualified_name": "TMainForm::Count",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "variable",
+      "name": "MainForm",
+      "qualified_name": "MainForm",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "file",
+      "name": "ShopApp.dpr",
+      "qualified_name": "src/ShopApp.dpr",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "module",
+      "name": "ShopApp",
+      "qualified_name": "ShopApp",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "import",
+      "name": "Vcl.Forms",
+      "qualified_name": "Vcl.Forms",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "import",
+      "name": "MainUnit",
+      "qualified_name": "MainUnit",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "import",
+      "name": "UAuth",
+      "qualified_name": "UAuth",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/ShopPkg.dpk",
+      "kind": "file",
+      "name": "ShopPkg.dpk",
+      "qualified_name": "src/ShopPkg.dpk",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "file",
+      "name": "UAuth.pas",
+      "qualified_name": "src/UAuth.pas",
+      "start_line": 1,
+      "end_line": 110
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "module",
+      "name": "UAuth",
+      "qualified_name": "UAuth",
+      "start_line": 1,
+      "end_line": 109
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "import",
+      "name": "System.SysUtils",
+      "qualified_name": "System.SysUtils",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "import",
+      "name": "System.Classes",
+      "qualified_name": "System.Classes",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "import",
+      "name": "UTypes",
+      "qualified_name": "UTypes",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "interface",
+      "name": "ITokenValidator",
+      "qualified_name": "ITokenValidator",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Validate",
+      "qualified_name": "ITokenValidator::Validate",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "class",
+      "name": "TPerson",
+      "qualified_name": "TPerson",
+      "start_line": 16,
+      "end_line": 22
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "field",
+      "name": "FName",
+      "qualified_name": "TPerson::FName",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "property",
+      "name": "Name",
+      "qualified_name": "TPerson::Name",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "TPerson::Greet",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "class",
+      "name": "TAuthService",
+      "qualified_name": "TAuthService",
+      "start_line": 24,
+      "end_line": 39
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "field",
+      "name": "FToken",
+      "qualified_name": "TAuthService::FToken",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "field",
+      "name": "FLoginCount",
+      "qualified_name": "TAuthService::FLoginCount",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "IncLoginCount",
+      "qualified_name": "TAuthService::IncLoginCount",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "GetToken",
+      "qualified_name": "TAuthService::GetToken",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Create",
+      "qualified_name": "TAuthService::Create",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Destroy",
+      "qualified_name": "TAuthService::Destroy",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Validate",
+      "qualified_name": "TAuthService::Validate",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Login",
+      "qualified_name": "TAuthService::Login",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Log",
+      "qualified_name": "TAuthService::Log",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "method",
+      "name": "Instance",
+      "qualified_name": "TAuthService::Instance",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "property",
+      "name": "Token",
+      "qualified_name": "TAuthService::Token",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "variable",
+      "name": "GlobalAuth",
+      "qualified_name": "GlobalAuth",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "function",
+      "name": "DoHelper",
+      "qualified_name": "DoHelper",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "file",
+      "name": "UTypes.pas",
+      "qualified_name": "src/UTypes.pas",
+      "start_line": 1,
+      "end_line": 41
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "module",
+      "name": "UTypes",
+      "qualified_name": "UTypes",
+      "start_line": 1,
+      "end_line": 40
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "import",
+      "name": "System.SysUtils",
+      "qualified_name": "System.SysUtils",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "constant",
+      "name": "MaxItems",
+      "qualified_name": "MaxItems",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "constant",
+      "name": "AppName",
+      "qualified_name": "AppName",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "enum",
+      "name": "TColor",
+      "qualified_name": "TColor",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "enum_member",
+      "name": "clRed",
+      "qualified_name": "TColor::clRed",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "enum_member",
+      "name": "clGreen",
+      "qualified_name": "TColor::clGreen",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "enum_member",
+      "name": "clBlue",
+      "qualified_name": "TColor::clBlue",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "type_alias",
+      "name": "TUserName",
+      "qualified_name": "TUserName",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "type_alias",
+      "name": "TIds",
+      "qualified_name": "TIds",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "class",
+      "name": "TPoint",
+      "qualified_name": "TPoint",
+      "start_line": 17,
+      "end_line": 20
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "field",
+      "name": "X",
+      "qualified_name": "TPoint::X",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "field",
+      "name": "Y",
+      "qualified_name": "TPoint::Y",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "interface",
+      "name": "ILogger",
+      "qualified_name": "ILogger",
+      "start_line": 22,
+      "end_line": 25
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "method",
+      "name": "Log",
+      "qualified_name": "ILogger::Log",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "interface",
+      "name": "IGreeter",
+      "qualified_name": "IGreeter",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "IGreeter::Greet",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "function",
+      "name": "Distance",
+      "qualified_name": "Distance",
+      "start_line": 31,
+      "end_line": 31
+    }
+  ],
+  "edges": [
+    {
+      "file": "forms/About.fmx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "forms/About.fmx",
+      "target_kind": "component",
+      "target": "forms/About.fmx#AboutForm",
+      "target_file": "forms/About.fmx",
+      "line": null
+    },
+    {
+      "file": "forms/About.fmx",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "forms/About.fmx#AboutForm",
+      "target_kind": "component",
+      "target": "forms/About.fmx#OkButton",
+      "target_file": "forms/About.fmx",
+      "line": null
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Console.lpr",
+      "target_kind": "module",
+      "target": "Console",
+      "target_file": "src/Console.lpr",
+      "line": null
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Console.lpr",
+      "target_kind": "import",
+      "target": "SysUtils",
+      "target_file": "src/Console.lpr",
+      "line": null
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Console.lpr",
+      "target_kind": "import",
+      "target": "UTypes",
+      "target_file": "src/Console.lpr",
+      "line": null
+    },
+    {
+      "file": "src/Console.lpr",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Console.lpr",
+      "target_kind": "import",
+      "target": "UTypes",
+      "target_file": "src/Console.lpr",
+      "line": 4
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.dfm",
+      "target_kind": "component",
+      "target": "src/MainUnit.dfm#MainForm",
+      "target_file": "src/MainUnit.dfm",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#MainForm",
+      "target_kind": "component",
+      "target": "src/MainUnit.dfm#Footer",
+      "target_file": "src/MainUnit.dfm",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#MainForm",
+      "target_kind": "component",
+      "target": "src/MainUnit.dfm#Header",
+      "target_file": "src/MainUnit.dfm",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#MainForm",
+      "target_kind": "component",
+      "target": "src/MainUnit.dfm#Panel1",
+      "target_file": "src/MainUnit.dfm",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#Panel1",
+      "target_kind": "component",
+      "target": "src/MainUnit.dfm#Button1",
+      "target_file": "src/MainUnit.dfm",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#MainForm",
+      "target_kind": "method",
+      "target": "TMainForm::FormCreate",
+      "target_file": "src/MainUnit.pas",
+      "line": 5
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#Button1",
+      "target_kind": "method",
+      "target": "TMainForm::Button1Click",
+      "target_file": "src/MainUnit.pas",
+      "line": 13
+    },
+    {
+      "file": "src/MainUnit.dfm",
+      "kind": "references",
+      "source_kind": "component",
+      "source": "src/MainUnit.dfm#Header",
+      "target_kind": "method",
+      "target": "TMainForm::FormCreate",
+      "target_file": "src/MainUnit.pas",
+      "line": 17
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TMainForm",
+      "target_kind": "field",
+      "target": "TMainForm::Button1",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TMainForm",
+      "target_kind": "method",
+      "target": "TMainForm::Button1Click",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TMainForm",
+      "target_kind": "property",
+      "target": "TMainForm::Count",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TMainForm",
+      "target_kind": "field",
+      "target": "TMainForm::FCount",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TMainForm",
+      "target_kind": "method",
+      "target": "TMainForm::FormCreate",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "variable",
+      "target": "MainForm",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "module",
+      "target": "MainUnit",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "import",
+      "target": "System.SysUtils",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "class",
+      "target": "TMainForm",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "import",
+      "target": "UAuth",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "import",
+      "target": "Vcl.Forms",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "import",
+      "target": "Vcl.StdCtrls",
+      "target_file": "src/MainUnit.pas",
+      "line": null
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/MainUnit.pas",
+      "target_kind": "import",
+      "target": "UAuth",
+      "target_file": "src/MainUnit.pas",
+      "line": 6
+    },
+    {
+      "file": "src/MainUnit.pas",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "TMainForm::Button1Click",
+      "target_kind": "method",
+      "target": "TAuthService::Login",
+      "target_file": "src/UAuth.pas",
+      "line": 37
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/ShopApp.dpr",
+      "target_kind": "import",
+      "target": "MainUnit",
+      "target_file": "src/ShopApp.dpr",
+      "line": null
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/ShopApp.dpr",
+      "target_kind": "module",
+      "target": "ShopApp",
+      "target_file": "src/ShopApp.dpr",
+      "line": null
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/ShopApp.dpr",
+      "target_kind": "import",
+      "target": "UAuth",
+      "target_file": "src/ShopApp.dpr",
+      "line": null
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/ShopApp.dpr",
+      "target_kind": "import",
+      "target": "Vcl.Forms",
+      "target_file": "src/ShopApp.dpr",
+      "line": null
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/ShopApp.dpr",
+      "target_kind": "import",
+      "target": "MainUnit",
+      "target_file": "src/ShopApp.dpr",
+      "line": 5
+    },
+    {
+      "file": "src/ShopApp.dpr",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/ShopApp.dpr",
+      "target_kind": "import",
+      "target": "UAuth",
+      "target_file": "src/ShopApp.dpr",
+      "line": 6
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "ITokenValidator",
+      "target_kind": "method",
+      "target": "ITokenValidator::Validate",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::Create",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::Destroy",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "field",
+      "target": "TAuthService::FLoginCount",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "field",
+      "target": "TAuthService::FToken",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::GetToken",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::IncLoginCount",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::Instance",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::Log",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::Login",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "property",
+      "target": "TAuthService::Token",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "method",
+      "target": "TAuthService::Validate",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TPerson",
+      "target_kind": "field",
+      "target": "TPerson::FName",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TPerson",
+      "target_kind": "method",
+      "target": "TPerson::Greet",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TPerson",
+      "target_kind": "property",
+      "target": "TPerson::Name",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "function",
+      "target": "DoHelper",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "variable",
+      "target": "GlobalAuth",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "interface",
+      "target": "ITokenValidator",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "import",
+      "target": "System.Classes",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "import",
+      "target": "System.SysUtils",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "class",
+      "target": "TAuthService",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "class",
+      "target": "TPerson",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "module",
+      "target": "UAuth",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "import",
+      "target": "UTypes",
+      "target_file": "src/UAuth.pas",
+      "line": null
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/UAuth.pas",
+      "target_kind": "import",
+      "target": "UTypes",
+      "target_file": "src/UAuth.pas",
+      "line": 8
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "interface",
+      "target": "ILogger",
+      "target_file": "src/UTypes.pas",
+      "line": 24
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "TAuthService",
+      "target_kind": "interface",
+      "target": "ITokenValidator",
+      "target_file": "src/UAuth.pas",
+      "line": 24
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "TAuthService::Instance",
+      "target_kind": "class",
+      "target": "TAuthService",
+      "target_file": "src/UAuth.pas",
+      "line": 37
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "TPerson::Greet",
+      "target_kind": "function",
+      "target": "DoHelper",
+      "target_file": "src/UAuth.pas",
+      "line": 56
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "TAuthService::Login",
+      "target_kind": "method",
+      "target": "TAuthService::Log",
+      "target_file": "src/UAuth.pas",
+      "line": 91
+    },
+    {
+      "file": "src/UAuth.pas",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "TAuthService::Login",
+      "target_kind": "function",
+      "target": "Distance",
+      "target_file": "src/UTypes.pas",
+      "line": 92
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IGreeter",
+      "target_kind": "method",
+      "target": "IGreeter::Greet",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "ILogger",
+      "target_kind": "method",
+      "target": "ILogger::Log",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "TColor",
+      "target_kind": "enum_member",
+      "target": "TColor::clBlue",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "TColor",
+      "target_kind": "enum_member",
+      "target": "TColor::clGreen",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "TColor",
+      "target_kind": "enum_member",
+      "target": "TColor::clRed",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TPoint",
+      "target_kind": "field",
+      "target": "TPoint::X",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TPoint",
+      "target_kind": "field",
+      "target": "TPoint::Y",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "constant",
+      "target": "AppName",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "function",
+      "target": "Distance",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "interface",
+      "target": "IGreeter",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "interface",
+      "target": "ILogger",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "constant",
+      "target": "MaxItems",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "import",
+      "target": "System.SysUtils",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "enum",
+      "target": "TColor",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "type_alias",
+      "target": "TIds",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "class",
+      "target": "TPoint",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "type_alias",
+      "target": "TUserName",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/UTypes.pas",
+      "target_kind": "module",
+      "target": "UTypes",
+      "target_file": "src/UTypes.pas",
+      "line": null
+    },
+    {
+      "file": "src/UTypes.pas",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "Distance",
+      "target_kind": "class",
+      "target": "TPoint",
+      "target_file": "src/UTypes.pas",
+      "line": 31
+    }
+  ],
+  "unresolved": []
+}

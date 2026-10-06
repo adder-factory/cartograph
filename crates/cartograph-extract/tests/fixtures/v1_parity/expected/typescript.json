@@ -1,0 +1,4194 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "typescript",
+  "files": [
+    "packages/core/package.json",
+    "packages/core/src/index.ts",
+    "src/app/app.routes.ts",
+    "src/app/server.ts",
+    "src/services/helpers.ts",
+    "src/services/user-service.ts",
+    "src/shared/format.ts",
+    "src/shared/models.ts",
+    "tsconfig.base.json",
+    "tsconfig.json"
+  ],
+  "symbols": [
+    {
+      "file": "packages/core/package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "packages/core/package.json",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "packages/core/src/index.ts",
+      "kind": "file",
+      "name": "index.ts",
+      "qualified_name": "packages/core/src/index.ts",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "packages/core/src/index.ts",
+      "kind": "function",
+      "name": "coreFn",
+      "qualified_name": "coreFn",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "file",
+      "name": "app.routes.ts",
+      "qualified_name": "src/app/app.routes.ts",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "import",
+      "name": "@angular/router",
+      "qualified_name": "@angular/router",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "import",
+      "name": "@angular/core",
+      "qualified_name": "@angular/core",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "class",
+      "name": "HomeComponent",
+      "qualified_name": "HomeComponent",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "class",
+      "name": "DashComponent",
+      "qualified_name": "DashComponent",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "constant",
+      "name": "routes",
+      "qualified_name": "routes",
+      "start_line": 13,
+      "end_line": 20
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "route",
+      "name": "/",
+      "qualified_name": "src/app/app.routes.ts#/",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "route",
+      "name": "/admin",
+      "qualified_name": "src/app/app.routes.ts#/admin",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "import",
+      "name": "./admin.routes",
+      "qualified_name": "routes::./admin.routes",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "route",
+      "name": "/settings",
+      "qualified_name": "src/app/app.routes.ts#/settings",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "import",
+      "name": "./settings.component",
+      "qualified_name": "routes::./settings.component",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "constant",
+      "name": "appConfig",
+      "qualified_name": "appConfig",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "route",
+      "name": "/dash",
+      "qualified_name": "src/app/app.routes.ts#/dash",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "file",
+      "name": "server.ts",
+      "qualified_name": "src/app/server.ts",
+      "start_line": 1,
+      "end_line": 56
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "express",
+      "qualified_name": "express",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "hono",
+      "qualified_name": "hono",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "commander",
+      "qualified_name": "commander",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "../services/helpers",
+      "qualified_name": "../services/helpers",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "../services/user-service",
+      "qualified_name": "../services/user-service",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "@acme/core",
+      "qualified_name": "@acme/core",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "import",
+      "name": "~/shared/format",
+      "qualified_name": "~/shared/format",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "constant",
+      "name": "app",
+      "qualified_name": "app",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "constant",
+      "name": "router",
+      "qualified_name": "router",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "function",
+      "name": "listUsers",
+      "qualified_name": "listUsers",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "function",
+      "name": "login",
+      "qualified_name": "login",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "function",
+      "name": "serveStatic",
+      "qualified_name": "serveStatic",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "GET /users",
+      "qualified_name": "src/app/server.ts::GET:/users",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "POST /login",
+      "qualified_name": "src/app/server.ts::POST:/login",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "USE /static",
+      "qualified_name": "src/app/server.ts::USE:/static",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "PUT /users/:id",
+      "qualified_name": "src/app/server.ts::PUT:/users/:id",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "DELETE /users/:id",
+      "qualified_name": "src/app/server.ts::DELETE:/users/:id",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "constant",
+      "name": "api",
+      "qualified_name": "api",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "GET /api/health",
+      "qualified_name": "src/app/server.ts::GET:/api/health",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "GET /health",
+      "qualified_name": "src/app/server.ts::GET:/health",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "POST /api/items",
+      "qualified_name": "src/app/server.ts::POST:/api/items",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "POST /items",
+      "qualified_name": "src/app/server.ts::POST:/items",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "constant",
+      "name": "root",
+      "qualified_name": "root",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "constant",
+      "name": "program",
+      "qualified_name": "program",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "cmd serve",
+      "qualified_name": "src/app/server.ts::cmd:serve",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "cmd stop",
+      "qualified_name": "src/app/server.ts::cmd:stop",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "constant",
+      "name": "server",
+      "qualified_name": "server",
+      "start_line": 41,
+      "end_line": 53
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "/healthz",
+      "qualified_name": "src/app/server.ts::BUN:/healthz",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "GET /items",
+      "qualified_name": "src/app/server.ts::GET:/items",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "route",
+      "name": "POST /items",
+      "qualified_name": "src/app/server.ts::POST:/items",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "file",
+      "name": "helpers.ts",
+      "qualified_name": "src/services/helpers.ts",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "Injectable",
+      "qualified_name": "Injectable",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "Input",
+      "qualified_name": "Input",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "Log",
+      "qualified_name": "Log",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "track",
+      "qualified_name": "track",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "memo",
+      "qualified_name": "memo",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "handlerA",
+      "qualified_name": "handlerA",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "handlerB",
+      "qualified_name": "handlerB",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "function",
+      "name": "authMiddleware",
+      "qualified_name": "authMiddleware",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "file",
+      "name": "user-service.ts",
+      "qualified_name": "src/services/user-service.ts",
+      "start_line": 1,
+      "end_line": 106
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "reflect-metadata",
+      "qualified_name": "reflect-metadata",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "../shared/models",
+      "qualified_name": "../shared/models",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "../shared/models",
+      "qualified_name": "../shared/models",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "../shared/models",
+      "qualified_name": "../shared/models",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "@shared/format",
+      "qualified_name": "@shared/format",
+      "start_line": 5,
+      "end_line": 9
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "./helpers",
+      "qualified_name": "./helpers",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "./helpers",
+      "qualified_name": "./helpers",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "constant",
+      "name": "lazyHelpers",
+      "qualified_name": "lazyHelpers",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "./helpers",
+      "qualified_name": "lazyHelpers::./helpers",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "class",
+      "name": "UserService",
+      "qualified_name": "UserService",
+      "start_line": 17,
+      "end_line": 66
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "UserService::name",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field",
+      "name": "repo",
+      "qualified_name": "UserService::repo",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field",
+      "name": "cache",
+      "qualified_name": "UserService::cache",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "UserService::role",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "UserService::count",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "handler",
+      "qualified_name": "UserService::handler",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "onClick",
+      "qualified_name": "UserService::onClick",
+      "start_line": 26,
+      "end_line": 28
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "constructor",
+      "qualified_name": "UserService::constructor",
+      "start_line": 30,
+      "end_line": 32
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "UserService::save",
+      "start_line": 35,
+      "end_line": 41
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "UserService::helper",
+      "start_line": 43,
+      "end_line": 45
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "make",
+      "qualified_name": "UserService::make",
+      "start_line": 47,
+      "end_line": 49
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "commitAll",
+      "qualified_name": "UserService::commitAll",
+      "start_line": 51,
+      "end_line": 54
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "loadLater",
+      "qualified_name": "UserService::loadLater",
+      "start_line": 56,
+      "end_line": 60
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "./helpers",
+      "qualified_name": "UserService::loadLater::./helpers",
+      "start_line": 57,
+      "end_line": 57
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "UserService::describe",
+      "start_line": 63,
+      "end_line": 65
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "class",
+      "name": "AdminService",
+      "qualified_name": "AdminService",
+      "start_line": 68,
+      "end_line": 74
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field",
+      "name": "verbose",
+      "qualified_name": "AdminService::verbose",
+      "start_line": 69,
+      "end_line": 69
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "AdminService::save",
+      "start_line": 71,
+      "end_line": 73
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "function",
+      "name": "useUserService",
+      "qualified_name": "useUserService",
+      "start_line": 76,
+      "end_line": 78
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "function",
+      "name": "parsePayload",
+      "qualified_name": "parsePayload",
+      "start_line": 80,
+      "end_line": 82
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "function",
+      "name": "process",
+      "qualified_name": "process",
+      "start_line": 84,
+      "end_line": 86
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "constant",
+      "name": "ROUTES",
+      "qualified_name": "ROUTES",
+      "start_line": 88,
+      "end_line": 92
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "function",
+      "name": "runHandler",
+      "qualified_name": "runHandler",
+      "start_line": 94,
+      "end_line": 97
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "function",
+      "name": "loadCommonJs",
+      "qualified_name": "loadCommonJs",
+      "start_line": 99,
+      "end_line": 105
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "./helpers",
+      "qualified_name": "loadCommonJs::./helpers",
+      "start_line": 100,
+      "end_line": 100
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "import",
+      "name": "./helpers",
+      "qualified_name": "loadCommonJs::./helpers",
+      "start_line": 101,
+      "end_line": 101
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "file",
+      "name": "format.ts",
+      "qualified_name": "src/shared/format.ts",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "function",
+      "name": "formatName",
+      "qualified_name": "formatName",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "function",
+      "name": "shout",
+      "qualified_name": "shout",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "function",
+      "name": "orig",
+      "qualified_name": "orig",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "file",
+      "name": "models.ts",
+      "qualified_name": "src/shared/models.ts",
+      "start_line": 1,
+      "end_line": 161
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "import",
+      "name": "zod",
+      "qualified_name": "zod",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "constant",
+      "name": "MAX_RETRY",
+      "qualified_name": "MAX_RETRY",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "variable",
+      "name": "retryCount",
+      "qualified_name": "retryCount",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "variable",
+      "name": "legacyFlag",
+      "qualified_name": "legacyFlag",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Entity",
+      "qualified_name": "Entity",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Auditable",
+      "qualified_name": "Auditable",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Repo",
+      "qualified_name": "Repo",
+      "start_line": 16,
+      "end_line": 19
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Service",
+      "qualified_name": "Service",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Req",
+      "qualified_name": "Req",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Resp",
+      "qualified_name": "Resp",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_alias",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_alias",
+      "name": "Units",
+      "qualified_name": "Units",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_alias",
+      "name": "Handler",
+      "qualified_name": "Handler",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_alias",
+      "name": "MyServiceList",
+      "qualified_name": "MyServiceList",
+      "start_line": 32,
+      "end_line": 35
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "property",
+      "name": "query_apply_record",
+      "qualified_name": "MyServiceList::query_apply_record",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "property",
+      "name": "apply_confirm",
+      "qualified_name": "MyServiceList::apply_confirm",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum",
+      "name": "Status",
+      "qualified_name": "Status",
+      "start_line": 37,
+      "end_line": 41
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "Active",
+      "qualified_name": "Status::Active",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "Inactive",
+      "qualified_name": "Status::Inactive",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "Archived",
+      "qualified_name": "Status::Archived",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum",
+      "name": "Direction",
+      "qualified_name": "Direction",
+      "start_line": 43,
+      "end_line": 46
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "Up",
+      "qualified_name": "Direction::Up",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "Down",
+      "qualified_name": "Direction::Down",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "function",
+      "name": "isEmail",
+      "qualified_name": "isEmail",
+      "start_line": 49,
+      "end_line": 51
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "class",
+      "name": "BaseRepo",
+      "qualified_name": "BaseRepo",
+      "start_line": 54,
+      "end_line": 72
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "items",
+      "qualified_name": "BaseRepo::items",
+      "start_line": 55,
+      "end_line": 55
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "instances",
+      "qualified_name": "BaseRepo::instances",
+      "start_line": 56,
+      "end_line": 56
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "BaseRepo::find",
+      "start_line": 60,
+      "end_line": 62
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "BaseRepo::save",
+      "start_line": 64,
+      "end_line": 67
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "touch",
+      "qualified_name": "BaseRepo::touch",
+      "start_line": 69,
+      "end_line": 71
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 74,
+      "end_line": 89
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "User::id",
+      "start_line": 75,
+      "end_line": 75
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "User::createdAt",
+      "start_line": 76,
+      "end_line": 76
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "User::role",
+      "start_line": 77,
+      "end_line": 77
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "status",
+      "qualified_name": "User::status",
+      "start_line": 78,
+      "end_line": 78
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "constructor",
+      "qualified_name": "User::constructor",
+      "start_line": 80,
+      "end_line": 80
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "User::audit",
+      "start_line": 82,
+      "end_line": 84
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "display",
+      "qualified_name": "User::display",
+      "start_line": 86,
+      "end_line": 88
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "class",
+      "name": "UserRepo",
+      "qualified_name": "UserRepo",
+      "start_line": 91,
+      "end_line": 95
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "UserRepo::describe",
+      "start_line": 92,
+      "end_line": 94
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "class",
+      "name": "Committer",
+      "qualified_name": "Committer",
+      "start_line": 97,
+      "end_line": 101
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "commit",
+      "qualified_name": "Committer::commit",
+      "start_line": 98,
+      "end_line": 100
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "class",
+      "name": "Builder",
+      "qualified_name": "Builder",
+      "start_line": 103,
+      "end_line": 110
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "Builder::create",
+      "start_line": 104,
+      "end_line": 106
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "Builder::build",
+      "start_line": 107,
+      "end_line": 109
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "class",
+      "name": "TinyCache",
+      "qualified_name": "TinyCache",
+      "start_line": 112,
+      "end_line": 116
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "method",
+      "name": "remember",
+      "qualified_name": "TinyCache::remember",
+      "start_line": 113,
+      "end_line": 115
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "constant",
+      "name": "UserSchema",
+      "qualified_name": "UserSchema",
+      "start_line": 118,
+      "end_line": 127
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "struct",
+      "name": "UserSchema",
+      "qualified_name": "src/shared/models.ts::UserSchema",
+      "start_line": 118,
+      "end_line": 127
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "src/shared/models.ts::UserSchema.name",
+      "start_line": 120,
+      "end_line": 120
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "src/shared/models.ts::UserSchema.role",
+      "start_line": 121,
+      "end_line": 121
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "admin",
+      "qualified_name": "src/shared/models.ts::UserSchema.role.admin",
+      "start_line": 121,
+      "end_line": 121
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "enum_member",
+      "name": "user",
+      "qualified_name": "src/shared/models.ts::UserSchema.role.user",
+      "start_line": 121,
+      "end_line": 121
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "address",
+      "qualified_name": "src/shared/models.ts::UserSchema.address",
+      "start_line": 122,
+      "end_line": 125
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "struct",
+      "name": "address",
+      "qualified_name": "src/shared/models.ts::UserSchema.address",
+      "start_line": 122,
+      "end_line": 125
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "city",
+      "qualified_name": "src/shared/models.ts::UserSchema.address.city",
+      "start_line": 123,
+      "end_line": 123
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field",
+      "name": "zip",
+      "qualified_name": "src/shared/models.ts::UserSchema.address.zip",
+      "start_line": 124,
+      "end_line": 124
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_alias",
+      "name": "UserInput",
+      "qualified_name": "UserInput",
+      "start_line": 129,
+      "end_line": 129
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "function",
+      "name": "readSchemaName",
+      "qualified_name": "readSchemaName",
+      "start_line": 131,
+      "end_line": 133
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "function",
+      "name": "withRetry",
+      "qualified_name": "withRetry",
+      "start_line": 135,
+      "end_line": 142
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "function",
+      "name": "idGenerator",
+      "qualified_name": "idGenerator",
+      "start_line": 144,
+      "end_line": 147
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "function",
+      "name": "loadUser",
+      "qualified_name": "loadUser",
+      "start_line": 149,
+      "end_line": 152
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "interface",
+      "name": "Options",
+      "qualified_name": "Options",
+      "start_line": 154,
+      "end_line": 156
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "function",
+      "name": "defaultFormatter",
+      "qualified_name": "defaultFormatter",
+      "start_line": 158,
+      "end_line": 160
+    },
+    {
+      "file": "tsconfig.base.json",
+      "kind": "file",
+      "name": "tsconfig.base.json",
+      "qualified_name": "tsconfig.base.json",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "tsconfig.json",
+      "kind": "file",
+      "name": "tsconfig.json",
+      "qualified_name": "tsconfig.json",
+      "start_line": 1,
+      "end_line": 7
+    }
+  ],
+  "edges": [
+    {
+      "file": "packages/core/src/index.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "packages/core/src/index.ts",
+      "target_kind": "function",
+      "target": "coreFn",
+      "target_file": "packages/core/src/index.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "routes",
+      "target_kind": "import",
+      "target": "routes::./admin.routes",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "routes",
+      "target_kind": "import",
+      "target": "routes::./settings.component",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/core",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/router",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "class",
+      "target": "DashComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "class",
+      "target": "HomeComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "constant",
+      "target": "appConfig",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "constant",
+      "target": "routes",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "class",
+      "target": "DashComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "class",
+      "target": "HomeComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/router",
+      "target_file": "src/app/app.routes.ts",
+      "line": 1
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/router",
+      "target_file": "src/app/app.routes.ts",
+      "line": 1
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/router",
+      "target_file": "src/app/app.routes.ts",
+      "line": 1
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/core",
+      "target_file": "src/app/app.routes.ts",
+      "line": 2
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/core",
+      "target_file": "src/app/app.routes.ts",
+      "line": 2
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/app/app.routes.ts",
+      "target_kind": "import",
+      "target": "@angular/core",
+      "target_file": "src/app/app.routes.ts",
+      "line": 4
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "decorates",
+      "source_kind": "class",
+      "source": "HomeComponent",
+      "target_kind": "import",
+      "target": "@angular/core",
+      "target_file": "src/app/app.routes.ts",
+      "line": 4
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "decorates",
+      "source_kind": "class",
+      "source": "DashComponent",
+      "target_kind": "import",
+      "target": "@angular/core",
+      "target_file": "src/app/app.routes.ts",
+      "line": 10
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "type_of",
+      "source_kind": "constant",
+      "source": "routes",
+      "target_kind": "import",
+      "target": "@angular/router",
+      "target_file": "src/app/app.routes.ts",
+      "line": 13
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "routes",
+      "target_kind": "class",
+      "target": "HomeComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": 14
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "src/app/app.routes.ts#/",
+      "target_kind": "class",
+      "target": "HomeComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": 14
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "routes",
+      "target_kind": "import",
+      "target": "routes::./admin.routes",
+      "target_file": "src/app/app.routes.ts",
+      "line": 15
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "imports",
+      "source_kind": "route",
+      "source": "src/app/app.routes.ts#/admin",
+      "target_kind": "import",
+      "target": "routes::./admin.routes",
+      "target_file": "src/app/app.routes.ts",
+      "line": 15
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "imports",
+      "source_kind": "route",
+      "source": "src/app/app.routes.ts#/settings",
+      "target_kind": "import",
+      "target": "routes::./settings.component",
+      "target_file": "src/app/app.routes.ts",
+      "line": 17
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "routes",
+      "target_kind": "import",
+      "target": "routes::./settings.component",
+      "target_file": "src/app/app.routes.ts",
+      "line": 18
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "appConfig",
+      "target_kind": "import",
+      "target": "@angular/router",
+      "target_file": "src/app/app.routes.ts",
+      "line": 23
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "appConfig",
+      "target_kind": "class",
+      "target": "DashComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": 23
+    },
+    {
+      "file": "src/app/app.routes.ts",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "src/app/app.routes.ts#/dash",
+      "target_kind": "class",
+      "target": "DashComponent",
+      "target_file": "src/app/app.routes.ts",
+      "line": 23
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "../services/helpers",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "../services/user-service",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "@acme/core",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "api",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "app",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "commander",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "express",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "hono",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "listUsers",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "login",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "program",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "root",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "router",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "serveStatic",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "server",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "~/shared/format",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "constant",
+      "target": "api",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "listUsers",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "login",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "serveStatic",
+      "target_file": "src/app/server.ts",
+      "line": null
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "express",
+      "target_file": "src/app/server.ts",
+      "line": 1
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "hono",
+      "target_file": "src/app/server.ts",
+      "line": 2
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "hono",
+      "target_file": "src/app/server.ts",
+      "line": 2
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "commander",
+      "target_file": "src/app/server.ts",
+      "line": 3
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "commander",
+      "target_file": "src/app/server.ts",
+      "line": 3
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "../services/helpers",
+      "target_file": "src/app/server.ts",
+      "line": 4
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "authMiddleware",
+      "target_file": "src/services/helpers.ts",
+      "line": 4
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "handlerA",
+      "target_file": "src/services/helpers.ts",
+      "line": 4
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "handlerB",
+      "target_file": "src/services/helpers.ts",
+      "line": 4
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "../services/user-service",
+      "target_file": "src/app/server.ts",
+      "line": 5
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "useUserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 5
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "@acme/core",
+      "target_file": "src/app/server.ts",
+      "line": 6
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "coreFn",
+      "target_file": "packages/core/src/index.ts",
+      "line": 6
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "import",
+      "target": "~/shared/format",
+      "target_file": "src/app/server.ts",
+      "line": 7
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "src/shared/format.ts",
+      "line": 7
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "calls",
+      "source_kind": "constant",
+      "source": "app",
+      "target_kind": "import",
+      "target": "express",
+      "target_file": "src/app/server.ts",
+      "line": 9
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "listUsers",
+      "target_kind": "function",
+      "target": "useUserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 13
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "login",
+      "target_kind": "function",
+      "target": "coreFn",
+      "target_file": "packages/core/src/index.ts",
+      "line": 17
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "login",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "src/shared/format.ts",
+      "line": 17
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "instantiates",
+      "source_kind": "constant",
+      "source": "api",
+      "target_kind": "import",
+      "target": "hono",
+      "target_file": "src/app/server.ts",
+      "line": 28
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "instantiates",
+      "source_kind": "constant",
+      "source": "root",
+      "target_kind": "import",
+      "target": "hono",
+      "target_file": "src/app/server.ts",
+      "line": 31
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "instantiates",
+      "source_kind": "constant",
+      "source": "program",
+      "target_kind": "import",
+      "target": "commander",
+      "target_file": "src/app/server.ts",
+      "line": 34
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "listUsers",
+      "target_file": "src/app/server.ts",
+      "line": 38
+    },
+    {
+      "file": "src/app/server.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/app/server.ts",
+      "target_kind": "function",
+      "target": "login",
+      "target_file": "src/app/server.ts",
+      "line": 39
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "Injectable",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "Input",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "Log",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "authMiddleware",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "handlerA",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "handlerB",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "memo",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/helpers.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/helpers.ts",
+      "target_kind": "function",
+      "target": "track",
+      "target_file": "src/services/helpers.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AdminService",
+      "target_kind": "method",
+      "target": "AdminService::save",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AdminService",
+      "target_kind": "field",
+      "target": "AdminService::verbose",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::cache",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::commitAll",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::constructor",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::count",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::describe",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::handler",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::helper",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::loadLater",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::make",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::name",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::onClick",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::repo",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::role",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::save",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "UserService::loadLater",
+      "target_kind": "import",
+      "target": "UserService::loadLater::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "constant",
+      "source": "lazyHelpers",
+      "target_kind": "import",
+      "target": "lazyHelpers::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "loadCommonJs",
+      "target_kind": "import",
+      "target": "loadCommonJs::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "loadCommonJs",
+      "target_kind": "import",
+      "target": "loadCommonJs::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "../shared/models",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "../shared/models",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "../shared/models",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "@shared/format",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "class",
+      "target": "AdminService",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "constant",
+      "target": "ROUTES",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "constant",
+      "target": "lazyHelpers",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "loadCommonJs",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "parsePayload",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "process",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "reflect-metadata",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "runHandler",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "useUserService",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "def_use",
+      "source_kind": "method",
+      "source": "UserService::commitAll",
+      "target_kind": "method",
+      "target": "UserService::commitAll",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "def_use",
+      "source_kind": "method",
+      "source": "UserService::loadLater",
+      "target_kind": "method",
+      "target": "UserService::loadLater",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "def_use",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "method",
+      "target": "UserService::save",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "loadCommonJs",
+      "target_kind": "function",
+      "target": "loadCommonJs",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "runHandler",
+      "target_kind": "function",
+      "target": "runHandler",
+      "target_file": "src/services/user-service.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "interface",
+      "target": "Options",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "reflect-metadata",
+      "target_file": "src/services/user-service.ts",
+      "line": 1
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "../shared/models",
+      "target_file": "src/services/user-service.ts",
+      "line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "class",
+      "target": "Builder",
+      "target_file": "src/shared/models.ts",
+      "line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "constant",
+      "target": "MAX_RETRY",
+      "target_file": "src/shared/models.ts",
+      "line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "class",
+      "target": "TinyCache",
+      "target_file": "src/shared/models.ts",
+      "line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "src/shared/models.ts",
+      "line": 2
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "type_alias",
+      "target": "Handler",
+      "target_file": "src/shared/models.ts",
+      "line": 4
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "interface",
+      "target": "Options",
+      "target_file": "src/shared/models.ts",
+      "line": 4
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "type_alias",
+      "target": "Role",
+      "target_file": "src/shared/models.ts",
+      "line": 4
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "@shared/format",
+      "target_file": "src/services/user-service.ts",
+      "line": 5
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "src/shared/format.ts",
+      "line": 6
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/shared/format.ts",
+      "line": 7
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "@shared/format",
+      "target_file": "src/services/user-service.ts",
+      "line": 8
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "import",
+      "target": "./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": 10
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "Injectable",
+      "target_file": "src/services/helpers.ts",
+      "line": 10
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "Input",
+      "target_file": "src/services/helpers.ts",
+      "line": 10
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "Log",
+      "target_file": "src/services/helpers.ts",
+      "line": 10
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "handlerA",
+      "target_file": "src/services/helpers.ts",
+      "line": 11
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "handlerB",
+      "target_file": "src/services/helpers.ts",
+      "line": 11
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "memo",
+      "target_file": "src/services/helpers.ts",
+      "line": 11
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "track",
+      "target_file": "src/services/helpers.ts",
+      "line": 11
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "constant",
+      "source": "lazyHelpers",
+      "target_kind": "import",
+      "target": "lazyHelpers::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": 14
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/services/user-service.ts",
+      "target_kind": "function",
+      "target": "Injectable",
+      "target_file": "src/services/helpers.ts",
+      "line": 16
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "decorates",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "function",
+      "target": "Injectable",
+      "target_file": "src/services/helpers.ts",
+      "line": 16
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserService::repo",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "src/shared/models.ts",
+      "line": 19
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserService::cache",
+      "target_kind": "class",
+      "target": "TinyCache",
+      "target_file": "src/shared/models.ts",
+      "line": 20
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "UserService::role",
+      "target_kind": "type_alias",
+      "target": "Role",
+      "target_file": "src/shared/models.ts",
+      "line": 21
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::handler",
+      "target_kind": "function",
+      "target": "track",
+      "target_file": "src/services/helpers.ts",
+      "line": 24
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::onClick",
+      "target_kind": "method",
+      "target": "UserService::save",
+      "target_file": "src/services/user-service.ts",
+      "line": 27
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::constructor",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "src/shared/models.ts",
+      "line": 30
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::constructor",
+      "target_kind": "field",
+      "target": "UserService::repo",
+      "target_file": "src/services/user-service.ts",
+      "line": 31
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "function",
+      "target": "Log",
+      "target_file": "src/services/helpers.ts",
+      "line": 34
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "function",
+      "target": "Log",
+      "target_file": "src/services/helpers.ts",
+      "line": 34
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": 36
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "method",
+      "target": "BaseRepo::save",
+      "target_file": "src/shared/models.ts",
+      "line": 37
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "field",
+      "target": "UserService::repo",
+      "target_file": "src/services/user-service.ts",
+      "line": 37
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "method",
+      "target": "UserService::helper",
+      "target_file": "src/services/user-service.ts",
+      "line": 38
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "method",
+      "target": "TinyCache::remember",
+      "target_file": "src/shared/models.ts",
+      "line": 39
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "field",
+      "target": "UserService::cache",
+      "target_file": "src/services/user-service.ts",
+      "line": 39
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "src/shared/format.ts",
+      "line": 40
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::save",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/shared/format.ts",
+      "line": 40
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::helper",
+      "target_kind": "import",
+      "target": "@shared/format",
+      "target_file": "src/services/user-service.ts",
+      "line": 44
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::make",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 47
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::make",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 47
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserService::make",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "src/shared/models.ts",
+      "line": 48
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserService::make",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 48
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::commitAll",
+      "target_kind": "method",
+      "target": "Builder::create",
+      "target_file": "src/shared/models.ts",
+      "line": 52
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::commitAll",
+      "target_kind": "method",
+      "target": "Builder::build",
+      "target_file": "src/shared/models.ts",
+      "line": 53
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::loadLater",
+      "target_kind": "interface",
+      "target": "Options",
+      "target_file": "src/shared/models.ts",
+      "line": 56
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "method",
+      "source": "UserService::loadLater",
+      "target_kind": "import",
+      "target": "UserService::loadLater::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": 57
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::describe",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": 63
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::describe",
+      "target_kind": "function",
+      "target": "isEmail",
+      "target_file": "src/shared/models.ts",
+      "line": 64
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "AdminService",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 68
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "AdminService",
+      "target_kind": "interface",
+      "target": "Options",
+      "target_file": "src/shared/models.ts",
+      "line": 68
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AdminService::save",
+      "target_kind": "method",
+      "target": "AdminService::save",
+      "target_file": "src/services/user-service.ts",
+      "line": 72
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "useUserService",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 76
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "useUserService",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "src/services/user-service.ts",
+      "line": 76
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "useUserService",
+      "target_kind": "method",
+      "target": "UserService::make",
+      "target_file": "src/services/user-service.ts",
+      "line": 77
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "ROUTES",
+      "target_kind": "function",
+      "target": "handlerA",
+      "target_file": "src/services/helpers.ts",
+      "line": 89
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "ROUTES",
+      "target_kind": "function",
+      "target": "handlerB",
+      "target_file": "src/services/helpers.ts",
+      "line": 90
+    },
+    {
+      "file": "src/services/user-service.ts",
+      "kind": "imports",
+      "source_kind": "function",
+      "source": "loadCommonJs",
+      "target_kind": "import",
+      "target": "loadCommonJs::./helpers",
+      "target_file": "src/services/user-service.ts",
+      "line": 100
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/format.ts",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "src/shared/format.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/format.ts",
+      "target_kind": "function",
+      "target": "orig",
+      "target_file": "src/shared/format.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/format.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/format.ts",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/shared/format.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseRepo",
+      "target_kind": "method",
+      "target": "BaseRepo::find",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseRepo",
+      "target_kind": "field",
+      "target": "BaseRepo::instances",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseRepo",
+      "target_kind": "field",
+      "target": "BaseRepo::items",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseRepo",
+      "target_kind": "method",
+      "target": "BaseRepo::save",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseRepo",
+      "target_kind": "method",
+      "target": "BaseRepo::touch",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Builder",
+      "target_kind": "method",
+      "target": "Builder::build",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Builder",
+      "target_kind": "method",
+      "target": "Builder::create",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::commit",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Direction",
+      "target_kind": "enum_member",
+      "target": "Direction::Down",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Direction",
+      "target_kind": "enum_member",
+      "target": "Direction::Up",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "MyServiceList",
+      "target_kind": "property",
+      "target": "MyServiceList::apply_confirm",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "MyServiceList",
+      "target_kind": "property",
+      "target": "MyServiceList::query_apply_record",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Active",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Archived",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Inactive",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TinyCache",
+      "target_kind": "method",
+      "target": "TinyCache::remember",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::audit",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::constructor",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::createdAt",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::display",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::id",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::role",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::status",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "method",
+      "target": "UserRepo::describe",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Auditable",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "class",
+      "target": "BaseRepo",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "class",
+      "target": "Builder",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "enum",
+      "target": "Direction",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Entity",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "type_alias",
+      "target": "Handler",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "constant",
+      "target": "MAX_RETRY",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "type_alias",
+      "target": "MyServiceList",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Options",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Repo",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Req",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Resp",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "type_alias",
+      "target": "Role",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Service",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "enum",
+      "target": "Status",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "class",
+      "target": "TinyCache",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "type_alias",
+      "target": "Units",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "type_alias",
+      "target": "UserInput",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "constant",
+      "target": "UserSchema",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "function",
+      "target": "defaultFormatter",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "function",
+      "target": "idGenerator",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "function",
+      "target": "isEmail",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "variable",
+      "target": "legacyFlag",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "function",
+      "target": "loadUser",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "function",
+      "target": "readSchemaName",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "variable",
+      "target": "retryCount",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "function",
+      "target": "withRetry",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "import",
+      "target": "zod",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "idGenerator",
+      "target_kind": "function",
+      "target": "idGenerator",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "loadUser",
+      "target_kind": "function",
+      "target": "loadUser",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "def_use",
+      "source_kind": "function",
+      "source": "withRetry",
+      "target_kind": "function",
+      "target": "withRetry",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "enum_member",
+      "target": "Direction::Down",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "interface",
+      "target": "Req",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "field",
+      "target": "User::id",
+      "target_file": "src/shared/models.ts",
+      "line": null
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "import",
+      "target": "zod",
+      "target_file": "src/shared/models.ts",
+      "line": 1
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "src/shared/models.ts",
+      "target_kind": "import",
+      "target": "zod",
+      "target_file": "src/shared/models.ts",
+      "line": 1
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "Auditable",
+      "target_kind": "interface",
+      "target": "Entity",
+      "target_file": "src/shared/models.ts",
+      "line": 11
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "type_alias",
+      "source": "MyServiceList",
+      "target_kind": "interface",
+      "target": "Req",
+      "target_file": "src/shared/models.ts",
+      "line": 33
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "type_alias",
+      "source": "MyServiceList",
+      "target_kind": "interface",
+      "target": "Resp",
+      "target_file": "src/shared/models.ts",
+      "line": 33
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "type_alias",
+      "source": "MyServiceList",
+      "target_kind": "interface",
+      "target": "Service",
+      "target_file": "src/shared/models.ts",
+      "line": 33
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "BaseRepo",
+      "target_kind": "interface",
+      "target": "Repo",
+      "target_file": "src/shared/models.ts",
+      "line": 54
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "BaseRepo::find",
+      "target_kind": "field",
+      "target": "BaseRepo::items",
+      "target_file": "src/shared/models.ts",
+      "line": 61
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "BaseRepo::save",
+      "target_kind": "field",
+      "target": "BaseRepo::items",
+      "target_file": "src/shared/models.ts",
+      "line": 65
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "BaseRepo::save",
+      "target_kind": "field",
+      "target": "User::id",
+      "target_file": "src/shared/models.ts",
+      "line": 65
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "BaseRepo::save",
+      "target_kind": "method",
+      "target": "BaseRepo::touch",
+      "target_file": "src/shared/models.ts",
+      "line": 66
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "BaseRepo::touch",
+      "target_kind": "field",
+      "target": "BaseRepo::instances",
+      "target_file": "src/shared/models.ts",
+      "line": 70
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Auditable",
+      "target_file": "src/shared/models.ts",
+      "line": 74
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User::role",
+      "target_kind": "type_alias",
+      "target": "Role",
+      "target_file": "src/shared/models.ts",
+      "line": 77
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "User::status",
+      "target_kind": "enum",
+      "target": "Status",
+      "target_file": "src/shared/models.ts",
+      "line": 78
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "class",
+      "target": "BaseRepo",
+      "target_file": "src/shared/models.ts",
+      "line": 91
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Builder::create",
+      "target_kind": "class",
+      "target": "Builder",
+      "target_file": "src/shared/models.ts",
+      "line": 104
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Builder::create",
+      "target_kind": "class",
+      "target": "Builder",
+      "target_file": "src/shared/models.ts",
+      "line": 104
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Builder::create",
+      "target_kind": "class",
+      "target": "Builder",
+      "target_file": "src/shared/models.ts",
+      "line": 105
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Builder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/shared/models.ts",
+      "line": 107
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Builder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/shared/models.ts",
+      "line": 107
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Builder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/shared/models.ts",
+      "line": 108
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "src/shared/models.ts::UserSchema",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.name",
+      "target_file": "src/shared/models.ts",
+      "line": 120
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "src/shared/models.ts::UserSchema",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.role",
+      "target_file": "src/shared/models.ts",
+      "line": 121
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "field",
+      "source": "src/shared/models.ts::UserSchema.role",
+      "target_kind": "enum_member",
+      "target": "src/shared/models.ts::UserSchema.role.admin",
+      "target_file": "src/shared/models.ts",
+      "line": 121
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "field",
+      "source": "src/shared/models.ts::UserSchema.role",
+      "target_kind": "enum_member",
+      "target": "src/shared/models.ts::UserSchema.role.user",
+      "target_file": "src/shared/models.ts",
+      "line": 121
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "src/shared/models.ts::UserSchema",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.address",
+      "target_file": "src/shared/models.ts",
+      "line": 122
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "field",
+      "source": "src/shared/models.ts::UserSchema.address",
+      "target_kind": "struct",
+      "target": "src/shared/models.ts::UserSchema.address",
+      "target_file": "src/shared/models.ts",
+      "line": 122
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "src/shared/models.ts::UserSchema.address",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.address.city",
+      "target_file": "src/shared/models.ts",
+      "line": 123
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "src/shared/models.ts::UserSchema.address",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.address.zip",
+      "target_file": "src/shared/models.ts",
+      "line": 124
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "type_alias",
+      "source": "UserInput",
+      "target_kind": "struct",
+      "target": "src/shared/models.ts::UserSchema",
+      "target_file": "src/shared/models.ts",
+      "line": 129
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "field_access",
+      "source_kind": "function",
+      "source": "readSchemaName",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.name",
+      "target_file": "src/shared/models.ts",
+      "line": 132
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "readSchemaName",
+      "target_kind": "field",
+      "target": "src/shared/models.ts::UserSchema.name",
+      "target_file": "src/shared/models.ts",
+      "line": 132
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "withRetry",
+      "target_kind": "constant",
+      "target": "MAX_RETRY",
+      "target_file": "src/shared/models.ts",
+      "line": 137
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "loadUser",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": 149
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "type_of",
+      "source_kind": "function",
+      "source": "loadUser",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": 149
+    },
+    {
+      "file": "src/shared/models.ts",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "loadUser",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "src/shared/models.ts",
+      "line": 150
+    }
+  ],
+  "unresolved": []
+}

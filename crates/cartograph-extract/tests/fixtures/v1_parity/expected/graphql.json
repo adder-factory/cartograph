@@ -1,0 +1,1661 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "graphql",
+  "files": [
+    "schema/base.graphql",
+    "schema/extensions.gql",
+    "schema/operations.graphql"
+  ],
+  "symbols": [
+    {
+      "file": "schema/base.graphql",
+      "kind": "file",
+      "name": "base.graphql",
+      "qualified_name": "schema/base.graphql",
+      "start_line": 1,
+      "end_line": 75
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_alias",
+      "name": "DateTime",
+      "qualified_name": "DateTime",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_alias",
+      "name": "JSONValue",
+      "qualified_name": "JSONValue",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "function",
+      "name": "@replacedBy",
+      "qualified_name": "@replacedBy",
+      "start_line": 8,
+      "end_line": 9
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "function",
+      "name": "@internal",
+      "qualified_name": "@internal",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "interface",
+      "name": "Node",
+      "qualified_name": "Node",
+      "start_line": 13,
+      "end_line": 18
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "id",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "interface",
+      "name": "Timestamped",
+      "qualified_name": "Timestamped",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "createdAt",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "updatedAt",
+      "qualified_name": "updatedAt",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "interface",
+      "name": "Owned",
+      "qualified_name": "Owned",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "id",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "owner",
+      "qualified_name": "owner",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 30,
+      "end_line": 35
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "enum_member",
+      "name": "ADMIN",
+      "qualified_name": "ADMIN",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "enum_member",
+      "name": "EDITOR",
+      "qualified_name": "EDITOR",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "enum_member",
+      "name": "VIEWER",
+      "qualified_name": "VIEWER",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 37,
+      "end_line": 47
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "id",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "name",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "email",
+      "qualified_name": "email",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "role",
+      "start_line": 41,
+      "end_line": 41
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "posts",
+      "qualified_name": "posts",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "friends",
+      "qualified_name": "friends",
+      "start_line": 43,
+      "end_line": 43
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "createdAt",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "updatedAt",
+      "qualified_name": "updatedAt",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "metadata",
+      "qualified_name": "metadata",
+      "start_line": 46,
+      "end_line": 46
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "class",
+      "name": "Post",
+      "qualified_name": "Post",
+      "start_line": 49,
+      "end_line": 55
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "id",
+      "start_line": 50,
+      "end_line": 50
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "owner",
+      "qualified_name": "owner",
+      "start_line": 51,
+      "end_line": 51
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "title",
+      "qualified_name": "title",
+      "start_line": 52,
+      "end_line": 52
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "body",
+      "qualified_name": "body",
+      "start_line": 53,
+      "end_line": 53
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "tags",
+      "qualified_name": "tags",
+      "start_line": 54,
+      "end_line": 54
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "class",
+      "name": "Tag",
+      "qualified_name": "Tag",
+      "start_line": 57,
+      "end_line": 59
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "label",
+      "qualified_name": "label",
+      "start_line": 58,
+      "end_line": 58
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_alias",
+      "name": "SearchResult",
+      "qualified_name": "SearchResult",
+      "start_line": 61,
+      "end_line": 61
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "class",
+      "name": "PostFilter",
+      "qualified_name": "PostFilter",
+      "start_line": 63,
+      "end_line": 68
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "titleContains",
+      "qualified_name": "titleContains",
+      "start_line": 64,
+      "end_line": 64
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "ownerId",
+      "qualified_name": "ownerId",
+      "start_line": 65,
+      "end_line": 65
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "roles",
+      "qualified_name": "roles",
+      "start_line": 66,
+      "end_line": 66
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "createdAfter",
+      "qualified_name": "createdAfter",
+      "start_line": 67,
+      "end_line": 67
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "class",
+      "name": "CreatePostInput",
+      "qualified_name": "CreatePostInput",
+      "start_line": 70,
+      "end_line": 74
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "title",
+      "qualified_name": "title",
+      "start_line": 71,
+      "end_line": 71
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "body",
+      "qualified_name": "body",
+      "start_line": 72,
+      "end_line": 72
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "field",
+      "name": "filter",
+      "qualified_name": "filter",
+      "start_line": 73,
+      "end_line": 73
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "file",
+      "name": "extensions.gql",
+      "qualified_name": "schema/extensions.gql",
+      "start_line": 1,
+      "end_line": 27
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "owner",
+      "qualified_name": "owner",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "lastSeen",
+      "qualified_name": "lastSeen",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "interface",
+      "name": "Node",
+      "qualified_name": "Node",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "version",
+      "qualified_name": "version",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "class",
+      "name": "PostFilter",
+      "qualified_name": "PostFilter",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "tagLabel",
+      "qualified_name": "tagLabel",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "enum_member",
+      "name": "GUEST",
+      "qualified_name": "GUEST",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "type_alias",
+      "name": "SearchResult",
+      "qualified_name": "SearchResult",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "type_alias",
+      "name": "DateTime",
+      "qualified_name": "DateTime",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "class",
+      "name": "Comment",
+      "qualified_name": "Comment",
+      "start_line": 22,
+      "end_line": 26
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "id",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "post",
+      "qualified_name": "post",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "field",
+      "name": "text",
+      "qualified_name": "text",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "file",
+      "name": "operations.graphql",
+      "qualified_name": "schema/operations.graphql",
+      "start_line": 1,
+      "end_line": 34
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "class",
+      "name": "Query",
+      "qualified_name": "Query",
+      "start_line": 7,
+      "end_line": 12
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "me",
+      "qualified_name": "me",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "node",
+      "qualified_name": "node",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "search",
+      "qualified_name": "search",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "posts",
+      "qualified_name": "posts",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "class",
+      "name": "Mutation",
+      "qualified_name": "Mutation",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "createPost",
+      "qualified_name": "createPost",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "deletePost",
+      "qualified_name": "deletePost",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "class",
+      "name": "Subscription",
+      "qualified_name": "Subscription",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "field",
+      "name": "postAdded",
+      "qualified_name": "postAdded",
+      "start_line": 20,
+      "end_line": 20
+    }
+  ],
+  "edges": [
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "CreatePostInput",
+      "target_kind": "field",
+      "target": "body",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "CreatePostInput",
+      "target_kind": "field",
+      "target": "filter",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "CreatePostInput",
+      "target_kind": "field",
+      "target": "title",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Node",
+      "target_kind": "field",
+      "target": "id",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Owned",
+      "target_kind": "field",
+      "target": "id",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Owned",
+      "target_kind": "field",
+      "target": "owner",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "body",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "id",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "owner",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "tags",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Post",
+      "target_kind": "field",
+      "target": "title",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PostFilter",
+      "target_kind": "field",
+      "target": "createdAfter",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PostFilter",
+      "target_kind": "field",
+      "target": "ownerId",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PostFilter",
+      "target_kind": "field",
+      "target": "roles",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PostFilter",
+      "target_kind": "field",
+      "target": "titleContains",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "ADMIN",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "EDITOR",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "VIEWER",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Tag",
+      "target_kind": "field",
+      "target": "label",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Timestamped",
+      "target_kind": "field",
+      "target": "createdAt",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Timestamped",
+      "target_kind": "field",
+      "target": "updatedAt",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "createdAt",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "email",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "friends",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "id",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "metadata",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "name",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "posts",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "role",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "updatedAt",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "function",
+      "target": "@internal",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "function",
+      "target": "@replacedBy",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "class",
+      "target": "CreatePostInput",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "type_alias",
+      "target": "JSONValue",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "interface",
+      "target": "Node",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "interface",
+      "target": "Owned",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "class",
+      "target": "PostFilter",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "type_alias",
+      "target": "SearchResult",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "class",
+      "target": "Tag",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "interface",
+      "target": "Timestamped",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/base.graphql",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/base.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "createdAt",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/base.graphql",
+      "line": 21
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "updatedAt",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/base.graphql",
+      "line": 22
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "owner",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/base.graphql",
+      "line": 27
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Node",
+      "target_file": "schema/base.graphql",
+      "line": 37
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Timestamped",
+      "target_file": "schema/base.graphql",
+      "line": 37
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "role",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "schema/base.graphql",
+      "line": 41
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "posts",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": 42
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "friends",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/base.graphql",
+      "line": 43
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "createdAt",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/base.graphql",
+      "line": 44
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "updatedAt",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/base.graphql",
+      "line": 45
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "metadata",
+      "target_kind": "type_alias",
+      "target": "JSONValue",
+      "target_file": "schema/base.graphql",
+      "line": 46
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Post",
+      "target_kind": "interface",
+      "target": "Owned",
+      "target_file": "schema/base.graphql",
+      "line": 49
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "owner",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/base.graphql",
+      "line": 51
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "tags",
+      "target_kind": "class",
+      "target": "Tag",
+      "target_file": "schema/base.graphql",
+      "line": 54
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "references",
+      "source_kind": "type_alias",
+      "source": "SearchResult",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": 61
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "references",
+      "source_kind": "type_alias",
+      "source": "SearchResult",
+      "target_kind": "class",
+      "target": "Tag",
+      "target_file": "schema/base.graphql",
+      "line": 61
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "references",
+      "source_kind": "type_alias",
+      "source": "SearchResult",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/base.graphql",
+      "line": 61
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "roles",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "schema/base.graphql",
+      "line": 66
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "createdAfter",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/base.graphql",
+      "line": 67
+    },
+    {
+      "file": "schema/base.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "filter",
+      "target_kind": "class",
+      "target": "PostFilter",
+      "target_file": "schema/base.graphql",
+      "line": 73
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Comment",
+      "target_kind": "field",
+      "target": "id",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Comment",
+      "target_kind": "field",
+      "target": "post",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Comment",
+      "target_kind": "field",
+      "target": "text",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Node",
+      "target_kind": "field",
+      "target": "version",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PostFilter",
+      "target_kind": "field",
+      "target": "tagLabel",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "GUEST",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "lastSeen",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "owner",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "class",
+      "target": "Comment",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "interface",
+      "target": "Node",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "class",
+      "target": "PostFilter",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "type_alias",
+      "target": "SearchResult",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/extensions.gql",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/extensions.gql",
+      "line": null
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/extensions.gql",
+      "line": 1
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "interface",
+      "target": "Owned",
+      "target_file": "schema/base.graphql",
+      "line": 1
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "owner",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/extensions.gql",
+      "line": 2
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "lastSeen",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/extensions.gql",
+      "line": 3
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "Node",
+      "target_kind": "interface",
+      "target": "Node",
+      "target_file": "schema/extensions.gql",
+      "line": 6
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "PostFilter",
+      "target_kind": "class",
+      "target": "PostFilter",
+      "target_file": "schema/extensions.gql",
+      "line": 10
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "extends",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "schema/extensions.gql",
+      "line": 14
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "extends",
+      "source_kind": "type_alias",
+      "source": "SearchResult",
+      "target_kind": "type_alias",
+      "target": "SearchResult",
+      "target_file": "schema/extensions.gql",
+      "line": 18
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "references",
+      "source_kind": "type_alias",
+      "source": "SearchResult",
+      "target_kind": "class",
+      "target": "Comment",
+      "target_file": "schema/extensions.gql",
+      "line": 18
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "extends",
+      "source_kind": "type_alias",
+      "source": "DateTime",
+      "target_kind": "type_alias",
+      "target": "DateTime",
+      "target_file": "schema/extensions.gql",
+      "line": 20
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Comment",
+      "target_kind": "interface",
+      "target": "Node",
+      "target_file": "schema/extensions.gql",
+      "line": 22
+    },
+    {
+      "file": "schema/extensions.gql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "post",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": 24
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Mutation",
+      "target_kind": "field",
+      "target": "createPost",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Mutation",
+      "target_kind": "field",
+      "target": "deletePost",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Query",
+      "target_kind": "field",
+      "target": "me",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Query",
+      "target_kind": "field",
+      "target": "node",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Query",
+      "target_kind": "field",
+      "target": "posts",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Query",
+      "target_kind": "field",
+      "target": "search",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Subscription",
+      "target_kind": "field",
+      "target": "postAdded",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/operations.graphql",
+      "target_kind": "class",
+      "target": "Mutation",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/operations.graphql",
+      "target_kind": "class",
+      "target": "Query",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "schema/operations.graphql",
+      "target_kind": "class",
+      "target": "Subscription",
+      "target_file": "schema/operations.graphql",
+      "line": null
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "me",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "schema/extensions.gql",
+      "line": 8
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "node",
+      "target_kind": "interface",
+      "target": "Node",
+      "target_file": "schema/extensions.gql",
+      "line": 9
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "search",
+      "target_kind": "type_alias",
+      "target": "SearchResult",
+      "target_file": "schema/extensions.gql",
+      "line": 10
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "posts",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": 11
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "createPost",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": 15
+    },
+    {
+      "file": "schema/operations.graphql",
+      "kind": "type_of",
+      "source_kind": "field",
+      "source": "postAdded",
+      "target_kind": "class",
+      "target": "Post",
+      "target_file": "schema/base.graphql",
+      "line": 20
+    }
+  ],
+  "unresolved": []
+}

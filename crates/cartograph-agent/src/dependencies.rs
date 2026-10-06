@@ -205,36 +205,8 @@ fn collect_disk_evidence(
     }
     let root_record = read_manifest(&root, &root_manifest)?;
     let patterns = workspace_patterns(&root, &root_record.value)?;
-    let mut manifest_paths = vec![root_manifest];
-    if !patterns.is_empty() {
-        let matcher = WorkspaceMatcher::new(&patterns)?;
-        manifest_paths.extend(
-            discover_package_manifests(&root, cancellation)?
-                .into_iter()
-                .filter(|path| path.as_str() != "package.json")
-                .filter(|path| matcher.matches(path.as_str()))
-                .map(|path| root.join(path.as_str())),
-        );
-    }
-    manifest_paths.sort();
-    manifest_paths.dedup();
-    if manifest_paths.len() > MAX_WORKSPACE_MANIFESTS {
-        return Err(DependencyAuditError::WorkspaceLimit);
-    }
-    let mut records = Vec::with_capacity(manifest_paths.len());
-    let mut total_bytes = 0_u64;
-    for path in manifest_paths {
-        if cancellation.is_cancelled() {
-            return Err(DependencyAuditError::Cancelled);
-        }
-        let metadata =
-            std::fs::metadata(&path).map_err(|_| DependencyAuditError::InvalidManifest)?;
-        total_bytes = total_bytes
-            .checked_add(metadata.len())
-            .filter(|bytes| *bytes <= MAX_MANIFEST_TOTAL_BYTES)
-            .ok_or(DependencyAuditError::WorkspaceLimit)?;
-        records.push(read_manifest(&root, &path)?);
-    }
+    let manifest_paths = workspace_manifest_paths(&root, &patterns, cancellation)?;
+    let records = read_workspace_manifests(&root, manifest_paths, cancellation)?;
     let declared = declared_dependencies(&records);
     let scripts = manifest_scripts(&records);
     let bin_to_package = collect_bin_names(BinNameScan {
@@ -261,6 +233,57 @@ fn collect_disk_evidence(
         configured_providers,
         runtime_shims,
     })
+}
+
+/// The root `package.json` plus every discovered workspace member manifest the
+/// root's workspace patterns select, sorted, de-duplicated and bounded by the
+/// member limit.
+fn workspace_manifest_paths(
+    root: &Path,
+    patterns: &[String],
+    cancellation: &ProjectCancellation,
+) -> Result<Vec<PathBuf>, DependencyAuditError> {
+    let mut manifest_paths = vec![root.join("package.json")];
+    if !patterns.is_empty() {
+        let matcher = WorkspaceMatcher::new(patterns)?;
+        manifest_paths.extend(
+            discover_package_manifests(root, cancellation)?
+                .into_iter()
+                .filter(|path| path.as_str() != "package.json")
+                .filter(|path| matcher.matches(path.as_str()))
+                .map(|path| root.join(path.as_str())),
+        );
+    }
+    manifest_paths.sort();
+    manifest_paths.dedup();
+    if manifest_paths.len() > MAX_WORKSPACE_MANIFESTS {
+        return Err(DependencyAuditError::WorkspaceLimit);
+    }
+    Ok(manifest_paths)
+}
+
+/// Read every selected manifest in order under one cumulative byte bound,
+/// checking cancellation before each file.
+fn read_workspace_manifests(
+    root: &Path,
+    manifest_paths: Vec<PathBuf>,
+    cancellation: &ProjectCancellation,
+) -> Result<Vec<ManifestRecord>, DependencyAuditError> {
+    let mut records = Vec::with_capacity(manifest_paths.len());
+    let mut total_bytes = 0_u64;
+    for path in manifest_paths {
+        if cancellation.is_cancelled() {
+            return Err(DependencyAuditError::Cancelled);
+        }
+        let metadata =
+            std::fs::metadata(&path).map_err(|_| DependencyAuditError::InvalidManifest)?;
+        total_bytes = total_bytes
+            .checked_add(metadata.len())
+            .filter(|bytes| *bytes <= MAX_MANIFEST_TOTAL_BYTES)
+            .ok_or(DependencyAuditError::WorkspaceLimit)?;
+        records.push(read_manifest(root, &path)?);
+    }
+    Ok(records)
 }
 
 fn compose_report(disk: DiskEvidence, imports: Vec<ExternalImportRecord>) -> DependencyAuditReport {

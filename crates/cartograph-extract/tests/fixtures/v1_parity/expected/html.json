@@ -1,0 +1,325 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "html",
+  "files": [
+    "force-app/main/default/lwc/orderCard/orderCard.html",
+    "force-app/main/default/lwc/orderCard/orderCard.js",
+    "force-app/main/default/lwc/orderList/orderList.html",
+    "force-app/main/default/lwc/orderList/orderList.js",
+    "public/about.htm",
+    "public/index.html",
+    "public/main.js"
+  ],
+  "symbols": [
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.html",
+      "kind": "file",
+      "name": "orderCard.html",
+      "qualified_name": "force-app/main/default/lwc/orderCard/orderCard.html",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "file",
+      "name": "orderCard.js",
+      "qualified_name": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "import",
+      "name": "lwc",
+      "qualified_name": "lwc",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "component",
+      "name": "orderCard",
+      "qualified_name": "force-app/main/default/lwc/orderCard/orderCard.js::orderCard",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "class",
+      "name": "OrderCard",
+      "qualified_name": "OrderCard",
+      "start_line": 3,
+      "end_line": 9
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "OrderCard::<anonymous>",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "method",
+      "name": "handleOpen",
+      "qualified_name": "OrderCard::handleOpen",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.html",
+      "kind": "file",
+      "name": "orderList.html",
+      "qualified_name": "force-app/main/default/lwc/orderList/orderList.html",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "file",
+      "name": "orderList.js",
+      "qualified_name": "force-app/main/default/lwc/orderList/orderList.js",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "import",
+      "name": "lwc",
+      "qualified_name": "lwc",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "component",
+      "name": "orderList",
+      "qualified_name": "force-app/main/default/lwc/orderList/orderList.js::orderList",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "class",
+      "name": "OrderList",
+      "qualified_name": "OrderList",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "OrderList::<anonymous>",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "public/about.htm",
+      "kind": "file",
+      "name": "about.htm",
+      "qualified_name": "public/about.htm",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "public/index.html",
+      "kind": "file",
+      "name": "index.html",
+      "qualified_name": "public/index.html",
+      "start_line": 1,
+      "end_line": 30
+    },
+    {
+      "file": "public/main.js",
+      "kind": "file",
+      "name": "main.js",
+      "qualified_name": "public/main.js",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "public/main.js",
+      "kind": "function",
+      "name": "boot",
+      "qualified_name": "boot",
+      "start_line": 1,
+      "end_line": 3
+    }
+  ],
+  "edges": [
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderCard",
+      "target_kind": "method",
+      "target": "OrderCard::<anonymous>",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderCard",
+      "target_kind": "method",
+      "target": "OrderCard::handleOpen",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "target_kind": "class",
+      "target": "OrderCard",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "OrderCard",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "OrderCard::<anonymous>",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": 4
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.html",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderList/orderList.html",
+      "target_kind": "component",
+      "target": "force-app/main/default/lwc/orderCard/orderCard.js::orderCard",
+      "target_file": "force-app/main/default/lwc/orderCard/orderCard.js",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderList",
+      "target_kind": "method",
+      "target": "OrderList::<anonymous>",
+      "target_file": "force-app/main/default/lwc/orderList/orderList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderList/orderList.js",
+      "target_kind": "class",
+      "target": "OrderList",
+      "target_file": "force-app/main/default/lwc/orderList/orderList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderList/orderList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderList/orderList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderList/orderList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderList/orderList.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/orderList/orderList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderList/orderList.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/orderList/orderList.js",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "OrderList",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/orderList/orderList.js",
+      "line": 3
+    },
+    {
+      "file": "public/main.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "public/main.js",
+      "target_kind": "function",
+      "target": "boot",
+      "target_file": "public/main.js",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

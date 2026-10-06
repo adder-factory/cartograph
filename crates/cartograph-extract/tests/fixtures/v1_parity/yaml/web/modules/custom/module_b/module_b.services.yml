@@ -1,0 +1,8 @@
+services:
+  module_b.dispatcher:
+    class: Drupal\module_b\Dispatcher
+    arguments: [!tagged_iterator event_subscriber]
+  module_b.listener:
+    class: Drupal\module_b\Dispatcher
+    tags:
+      - { name: event_subscriber, priority: 10 }

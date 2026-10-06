@@ -1,0 +1,928 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "fsharp",
+  "files": [
+    "scripts/build.fsx",
+    "src/Demo/Greeting.fs",
+    "src/Demo/Math.fs",
+    "src/Sample.fs"
+  ],
+  "symbols": [
+    {
+      "file": "scripts/build.fsx",
+      "kind": "file",
+      "name": "build.fsx",
+      "qualified_name": "scripts/build.fsx",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "import",
+      "name": "System.IO",
+      "qualified_name": "System.IO",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "variable",
+      "name": "outDir",
+      "qualified_name": "outDir",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "function",
+      "name": "clean",
+      "qualified_name": "clean",
+      "start_line": 5,
+      "end_line": 6
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "function",
+      "name": "build",
+      "qualified_name": "build",
+      "start_line": 8,
+      "end_line": 12
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "file",
+      "name": "Greeting.fs",
+      "qualified_name": "src/Demo/Greeting.fs",
+      "start_line": 1,
+      "end_line": 29
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "namespace",
+      "name": "Demo",
+      "qualified_name": "Demo",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "Demo::System",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "import",
+      "name": "Demo.Math",
+      "qualified_name": "Demo::Demo.Math",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "class",
+      "name": "IGreeter",
+      "qualified_name": "Demo::IGreeter",
+      "start_line": 6,
+      "end_line": 7
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "class",
+      "name": "Greeter",
+      "qualified_name": "Demo::Greeter",
+      "start_line": 9,
+      "end_line": 15
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "Demo::Greeter::Greet",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "method",
+      "name": "Run",
+      "qualified_name": "Demo::Greeter::Run",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "method",
+      "name": "Create",
+      "qualified_name": "Demo::Greeter::Create",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "Demo::Greeter::Greet",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "module",
+      "name": "Greeting",
+      "qualified_name": "Demo::Greeting",
+      "start_line": 17,
+      "end_line": 28
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "variable",
+      "name": "greeter",
+      "qualified_name": "Demo::Greeting::greeter",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "Demo::Greeting::greet",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "Demo::Greeting::describe",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "variable",
+      "name": "label",
+      "qualified_name": "Demo::Greeting::describe::label",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "Demo::Greeting::run",
+      "start_line": 26,
+      "end_line": 28
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "file",
+      "name": "Math.fs",
+      "qualified_name": "src/Demo/Math.fs",
+      "start_line": 1,
+      "end_line": 30
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "namespace",
+      "name": "Demo",
+      "qualified_name": "Demo",
+      "start_line": 1,
+      "end_line": 29
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "Demo::System",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "import",
+      "name": "System.Collections.Generic",
+      "qualified_name": "Demo::System.Collections.Generic",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "module",
+      "name": "Math",
+      "qualified_name": "Demo::Math",
+      "start_line": 6,
+      "end_line": 29
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "function",
+      "name": "add",
+      "qualified_name": "Demo::Math::add",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "function",
+      "name": "square",
+      "qualified_name": "Demo::Math::square",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "function",
+      "name": "sumSquares",
+      "qualified_name": "Demo::Math::sumSquares",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "struct",
+      "name": "Person",
+      "qualified_name": "Demo::Math::Person",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "field",
+      "name": "Name",
+      "qualified_name": "Demo::Math::Person::Name",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "field",
+      "name": "Age",
+      "qualified_name": "Demo::Math::Person::Age",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "enum",
+      "name": "Color",
+      "qualified_name": "Demo::Math::Color",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "enum_member",
+      "name": "Red",
+      "qualified_name": "Demo::Math::Color::Red",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "enum_member",
+      "name": "Green",
+      "qualified_name": "Demo::Math::Color::Green",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "enum_member",
+      "name": "Blue",
+      "qualified_name": "Demo::Math::Color::Blue",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "variable",
+      "name": "pi",
+      "qualified_name": "Demo::Math::pi",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "Demo::Math::area",
+      "start_line": 26,
+      "end_line": 29
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "file",
+      "name": "Sample.fs",
+      "qualified_name": "src/Sample.fs",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "namespace",
+      "name": "Demo",
+      "qualified_name": "Demo",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "module",
+      "name": "Math2",
+      "qualified_name": "Demo::Math2",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "function",
+      "name": "add",
+      "qualified_name": "Demo::Math2::add",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "struct",
+      "name": "Person",
+      "qualified_name": "Demo::Math2::Person",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "field",
+      "name": "Name",
+      "qualified_name": "Demo::Math2::Person::Name",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "field",
+      "name": "Age",
+      "qualified_name": "Demo::Math2::Person::Age",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "module",
+      "name": "Program",
+      "qualified_name": "Demo::Program",
+      "start_line": 7,
+      "end_line": 15
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "variable",
+      "name": "result",
+      "qualified_name": "Demo::Program::result",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "Demo::Program::main",
+      "start_line": 11,
+      "end_line": 15
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "variable",
+      "name": "total",
+      "qualified_name": "Demo::Program::main::total",
+      "start_line": 12,
+      "end_line": 12
+    }
+  ],
+  "edges": [
+    {
+      "file": "scripts/build.fsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/build.fsx",
+      "target_kind": "import",
+      "target": "System.IO",
+      "target_file": "scripts/build.fsx",
+      "line": null
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/build.fsx",
+      "target_kind": "function",
+      "target": "build",
+      "target_file": "scripts/build.fsx",
+      "line": null
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/build.fsx",
+      "target_kind": "function",
+      "target": "clean",
+      "target_file": "scripts/build.fsx",
+      "line": null
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/build.fsx",
+      "target_kind": "variable",
+      "target": "outDir",
+      "target_file": "scripts/build.fsx",
+      "line": null
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "build",
+      "target_kind": "function",
+      "target": "clean",
+      "target_file": "scripts/build.fsx",
+      "line": 9
+    },
+    {
+      "file": "scripts/build.fsx",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "scripts/build.fsx",
+      "target_kind": "function",
+      "target": "build",
+      "target_file": "scripts/build.fsx",
+      "line": 12
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "import",
+      "target": "Demo::Demo.Math",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "class",
+      "target": "Demo::Greeter",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "module",
+      "target": "Demo::Greeting",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "class",
+      "target": "Demo::IGreeter",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "import",
+      "target": "Demo::System",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Demo::Greeter",
+      "target_kind": "method",
+      "target": "Demo::Greeter::Create",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Demo::Greeter",
+      "target_kind": "method",
+      "target": "Demo::Greeter::Greet",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Demo::Greeter",
+      "target_kind": "method",
+      "target": "Demo::Greeter::Greet",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Demo::Greeter",
+      "target_kind": "method",
+      "target": "Demo::Greeter::Run",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Greeting",
+      "target_kind": "function",
+      "target": "Demo::Greeting::describe",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Greeting",
+      "target_kind": "function",
+      "target": "Demo::Greeting::greet",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Greeting",
+      "target_kind": "variable",
+      "target": "Demo::Greeting::greeter",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Greeting",
+      "target_kind": "function",
+      "target": "Demo::Greeting::run",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "Demo::Greeting::describe",
+      "target_kind": "variable",
+      "target": "Demo::Greeting::describe::label",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Demo/Greeting.fs",
+      "target_kind": "namespace",
+      "target": "Demo",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Demo::Greeter::Run",
+      "target_kind": "function",
+      "target": "Demo::Math::add",
+      "target_file": "src/Demo/Math.fs",
+      "line": 11
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Demo::Greeter::Create",
+      "target_kind": "class",
+      "target": "Demo::Greeter",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": 12
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "calls",
+      "source_kind": "module",
+      "source": "Demo::Greeting",
+      "target_kind": "method",
+      "target": "Demo::Greeter::Create",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": 18
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Demo::Greeting::greet",
+      "target_kind": "method",
+      "target": "Demo::Greeter::Greet",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": 20
+    },
+    {
+      "file": "src/Demo/Greeting.fs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Demo::Greeting::describe",
+      "target_kind": "function",
+      "target": "Demo::Greeting::greet",
+      "target_file": "src/Demo/Greeting.fs",
+      "line": 23
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "module",
+      "target": "Demo::Math",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "import",
+      "target": "Demo::System",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "import",
+      "target": "Demo::System.Collections.Generic",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "enum",
+      "target": "Demo::Math::Color",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "struct",
+      "target": "Demo::Math::Person",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "function",
+      "target": "Demo::Math::add",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "function",
+      "target": "Demo::Math::area",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "variable",
+      "target": "Demo::Math::pi",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "function",
+      "target": "Demo::Math::square",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math",
+      "target_kind": "function",
+      "target": "Demo::Math::sumSquares",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Demo::Math::Color",
+      "target_kind": "enum_member",
+      "target": "Demo::Math::Color::Blue",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Demo::Math::Color",
+      "target_kind": "enum_member",
+      "target": "Demo::Math::Color::Green",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Demo::Math::Color",
+      "target_kind": "enum_member",
+      "target": "Demo::Math::Color::Red",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Demo::Math::Person",
+      "target_kind": "field",
+      "target": "Demo::Math::Person::Age",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Demo::Math::Person",
+      "target_kind": "field",
+      "target": "Demo::Math::Person::Name",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Demo/Math.fs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Demo/Math.fs",
+      "target_kind": "namespace",
+      "target": "Demo",
+      "target_file": "src/Demo/Math.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "module",
+      "target": "Demo::Math2",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "Demo",
+      "target_kind": "module",
+      "target": "Demo::Program",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math2",
+      "target_kind": "struct",
+      "target": "Demo::Math2::Person",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Math2",
+      "target_kind": "function",
+      "target": "Demo::Math2::add",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Demo::Math2::Person",
+      "target_kind": "field",
+      "target": "Demo::Math2::Person::Age",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Demo::Math2::Person",
+      "target_kind": "field",
+      "target": "Demo::Math2::Person::Name",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Program",
+      "target_kind": "function",
+      "target": "Demo::Program::main",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Demo::Program",
+      "target_kind": "variable",
+      "target": "Demo::Program::result",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "Demo::Program::main",
+      "target_kind": "variable",
+      "target": "Demo::Program::main::total",
+      "target_file": "src/Sample.fs",
+      "line": null
+    },
+    {
+      "file": "src/Sample.fs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Sample.fs",
+      "target_kind": "namespace",
+      "target": "Demo",
+      "target_file": "src/Sample.fs",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

@@ -124,6 +124,58 @@ fn sql_ddl_emits_schema_objects_columns_and_cross_object_relations() {
 }
 
 #[test]
+fn function_body_dml_targets_reference_their_tables_but_invoked_functions_do_not() {
+    let extracted = extract(
+        "db/functions.sql",
+        "CREATE FUNCTION audit_orders() RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO audit_log (id, message) VALUES (1, 'order changed');
+  UPDATE stats SET n = n + 1;
+  DELETE FROM reporting.old_rows WHERE id = 1;
+  INSERT INTO AUDIT_LOG (id) VALUES (2);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE FUNCTION order_count(uid INT) RETURNS INT AS $$
+  SELECT COUNT(*) FROM orders WHERE user_id = uid;
+$$ LANGUAGE SQL;
+",
+    );
+    let audit = symbol(&extracted, SymbolKind::Function, "audit_orders");
+    for (target, line) in [("audit_log", 3), ("stats", 4), ("reporting.old_rows", 5)] {
+        assert_reference(&extracted, &audit.id, target, ReferenceKind::References);
+        assert!(
+            extracted
+                .references
+                .iter()
+                .any(|reference| reference.name == target && reference.span.start_line() == line),
+            "{target} is not anchored on line {line}: {:?}",
+            extracted.references
+        );
+    }
+    assert_eq!(
+        extracted
+            .references
+            .iter()
+            .filter(|reference| reference.name.eq_ignore_ascii_case("audit_log"))
+            .count(),
+        1,
+        "a body references each table once regardless of case: {:?}",
+        extracted.references
+    );
+    let count = symbol(&extracted, SymbolKind::Function, "order_count");
+    assert_reference(&extracted, &count.id, "orders", ReferenceKind::References);
+    assert!(
+        extracted
+            .references
+            .iter()
+            .all(|reference| !reference.name.eq_ignore_ascii_case("count")),
+        "an invoked function is not a table: {:?}",
+        extracted.references
+    );
+}
+
+#[test]
 fn plain_sql_dml_and_malformed_create_statements_do_not_invent_declarations() {
     let extracted = extract(
         "db/queries.sql",

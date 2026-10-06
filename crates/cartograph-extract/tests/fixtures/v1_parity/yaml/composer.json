@@ -1,0 +1,7 @@
+{
+  "name": "example/yaml-oracle",
+  "require": {
+    "drupal/core-recommended": "~10.5",
+    "symfony/framework-bundle": "^6.4"
+  }
+}

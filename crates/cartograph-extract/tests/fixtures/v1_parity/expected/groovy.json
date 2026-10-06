@@ -1,0 +1,785 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "groovy",
+  "files": [
+    "build.gradle",
+    "settings.gradle",
+    "src/main/groovy/demo/App.groovy",
+    "src/main/groovy/demo/Greeter.groovy",
+    "src/test/groovy/demo/GreeterSpec.groovy"
+  ],
+  "symbols": [
+    {
+      "file": "build.gradle",
+      "kind": "file",
+      "name": "build.gradle",
+      "qualified_name": "build.gradle",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "settings.gradle",
+      "kind": "file",
+      "name": "settings.gradle",
+      "qualified_name": "settings.gradle",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "file",
+      "name": "App.groovy",
+      "qualified_name": "src/main/groovy/demo/App.groovy",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "import",
+      "name": "demo.Greeter",
+      "qualified_name": "demo.Greeter",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "class",
+      "name": "App",
+      "qualified_name": "App",
+      "start_line": 5,
+      "end_line": 16
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "method",
+      "name": "main",
+      "qualified_name": "App::main",
+      "start_line": 6,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "method",
+      "name": "runAll",
+      "qualified_name": "App::runAll",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "file",
+      "name": "Greeter.groovy",
+      "qualified_name": "src/main/groovy/demo/Greeter.groovy",
+      "start_line": 1,
+      "end_line": 73
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "import",
+      "name": "java.time.Instant",
+      "qualified_name": "java.time.Instant",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "import",
+      "name": "groovy.transform.CompileStatic",
+      "qualified_name": "groovy.transform.CompileStatic",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "import",
+      "name": "groovy.util.logging.Slf4j",
+      "qualified_name": "groovy.util.logging.Slf4j",
+      "start_line": 5,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "import",
+      "name": "java.util.Objects.requireNonNull",
+      "qualified_name": "java.util.Objects.requireNonNull",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "interface",
+      "name": "Greeting",
+      "qualified_name": "Greeting",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "Greeting::greet",
+      "start_line": 9,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "enum",
+      "name": "Tone",
+      "qualified_name": "Tone",
+      "start_line": 12,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "enum_member",
+      "name": "FORMAL",
+      "qualified_name": "Tone::FORMAL",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "enum_member",
+      "name": "CASUAL",
+      "qualified_name": "Tone::CASUAL",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "function",
+      "name": "prefix",
+      "qualified_name": "prefix",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "class",
+      "name": "BaseGreeter",
+      "qualified_name": "BaseGreeter",
+      "start_line": 20,
+      "end_line": 30
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "field",
+      "name": "tone",
+      "qualified_name": "BaseGreeter::tone",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "sign",
+      "qualified_name": "BaseGreeter::sign",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "BaseGreeter::describe",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "class",
+      "name": "Greeter",
+      "qualified_name": "Greeter",
+      "start_line": 32,
+      "end_line": 62
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "Greeter::name",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "Greeter::createdAt",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "field",
+      "name": "MAX",
+      "qualified_name": "Greeter::MAX",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "Greeter",
+      "qualified_name": "Greeter::Greeter",
+      "start_line": 39,
+      "end_line": 41
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "Greeter::greet",
+      "start_line": 43,
+      "end_line": 46
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "Greeter::helper",
+      "start_line": 48,
+      "end_line": 52
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "Greeter::audit",
+      "start_line": 54,
+      "end_line": 56
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "sign",
+      "qualified_name": "Greeter::sign",
+      "start_line": 58,
+      "end_line": 61
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "class",
+      "name": "Formatter",
+      "qualified_name": "Formatter",
+      "start_line": 64,
+      "end_line": 68
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "method",
+      "name": "format",
+      "qualified_name": "Formatter::format",
+      "start_line": 65,
+      "end_line": 67
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "function",
+      "name": "topLevel",
+      "qualified_name": "topLevel",
+      "start_line": 70,
+      "end_line": 72
+    },
+    {
+      "file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "kind": "file",
+      "name": "GreeterSpec.groovy",
+      "qualified_name": "src/test/groovy/demo/GreeterSpec.groovy",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "kind": "import",
+      "name": "spock.lang.Specification",
+      "qualified_name": "spock.lang.Specification",
+      "start_line": 3,
+      "end_line": 5
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "App",
+      "target_kind": "method",
+      "target": "App::main",
+      "target_file": "src/main/groovy/demo/App.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "App",
+      "target_kind": "method",
+      "target": "App::runAll",
+      "target_file": "src/main/groovy/demo/App.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/App.groovy",
+      "target_kind": "class",
+      "target": "App",
+      "target_file": "src/main/groovy/demo/App.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/App.groovy",
+      "target_kind": "import",
+      "target": "demo.Greeter",
+      "target_file": "src/main/groovy/demo/App.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/App.groovy",
+      "target_kind": "import",
+      "target": "demo.Greeter",
+      "target_file": "src/main/groovy/demo/App.groovy",
+      "line": 3
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "App::main",
+      "target_kind": "class",
+      "target": "Greeter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 7
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "App::main",
+      "target_kind": "method",
+      "target": "App::runAll",
+      "target_file": "src/main/groovy/demo/App.groovy",
+      "line": 9
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "App::runAll",
+      "target_kind": "method",
+      "target": "BaseGreeter::sign",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 13
+    },
+    {
+      "file": "src/main/groovy/demo/App.groovy",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "App::runAll",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 14
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseGreeter",
+      "target_kind": "method",
+      "target": "BaseGreeter::describe",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseGreeter",
+      "target_kind": "method",
+      "target": "BaseGreeter::sign",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseGreeter",
+      "target_kind": "field",
+      "target": "BaseGreeter::tone",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Formatter",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::Greeter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "field",
+      "target": "Greeter::MAX",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::audit",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "field",
+      "target": "Greeter::createdAt",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::greet",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::helper",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "field",
+      "target": "Greeter::name",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::sign",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Greeting",
+      "target_kind": "method",
+      "target": "Greeting::greet",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Tone",
+      "target_kind": "enum_member",
+      "target": "Tone::CASUAL",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Tone",
+      "target_kind": "enum_member",
+      "target": "Tone::FORMAL",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "class",
+      "target": "BaseGreeter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "class",
+      "target": "Formatter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "class",
+      "target": "Greeter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "interface",
+      "target": "Greeting",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "enum",
+      "target": "Tone",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "groovy.transform.CompileStatic",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "groovy.util.logging.Slf4j",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "java.time.Instant",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "java.util.Objects.requireNonNull",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "function",
+      "target": "prefix",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "function",
+      "target": "topLevel",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": null
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "java.time.Instant",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 3
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "groovy.transform.CompileStatic",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 4
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "groovy.util.logging.Slf4j",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 5
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/groovy/demo/Greeter.groovy",
+      "target_kind": "import",
+      "target": "java.util.Objects.requireNonNull",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 6
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "BaseGreeter",
+      "target_kind": "interface",
+      "target": "Greeting",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 20
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "class",
+      "target": "BaseGreeter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 34
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Greeter::greet",
+      "target_kind": "method",
+      "target": "Greeter::helper",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 45
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Greeter::helper",
+      "target_kind": "method",
+      "target": "Greeter::audit",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 50
+    },
+    {
+      "file": "src/main/groovy/demo/Greeter.groovy",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Greeter::helper",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 51
+    },
+    {
+      "file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/test/groovy/demo/GreeterSpec.groovy",
+      "target_kind": "import",
+      "target": "spock.lang.Specification",
+      "target_file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "line": null
+    },
+    {
+      "file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/test/groovy/demo/GreeterSpec.groovy",
+      "target_kind": "import",
+      "target": "spock.lang.Specification",
+      "target_file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "line": 3
+    },
+    {
+      "file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "kind": "instantiates",
+      "source_kind": "file",
+      "source": "src/test/groovy/demo/GreeterSpec.groovy",
+      "target_kind": "class",
+      "target": "Greeter",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 8
+    },
+    {
+      "file": "src/test/groovy/demo/GreeterSpec.groovy",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/test/groovy/demo/GreeterSpec.groovy",
+      "target_kind": "method",
+      "target": "Greeter::greet",
+      "target_file": "src/main/groovy/demo/Greeter.groovy",
+      "line": 11
+    }
+  ],
+  "unresolved": []
+}

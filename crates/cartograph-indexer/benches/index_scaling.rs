@@ -2,6 +2,8 @@
 
 #[path = "../test_support/dependency_ownership.rs"]
 mod dependency_ownership;
+#[path = "index_scaling/fixture.rs"]
+mod fixture;
 
 use std::{
     env, process,
@@ -29,57 +31,31 @@ use cartograph_indexer::{
     IndexerSupervisor, PipelineFailure, PipelineStage, StageCapacity, StageDeadlinePolicy,
     StageEnvelope, StageExecution, StageFold, StageItemBudget, StageItemFailure, StageItemMeta,
     StageMetrics, StageMetricsSnapshot, StageOutput, StageRunConfig, StageSequence, StageWorkItem,
-    StageWorkload, SupervisorConfig, SupervisorContext, SupervisorRequest, SupervisorState,
-    SupervisorStatus,
+    StageWorkload, SupervisorContext, SupervisorRequest, SupervisorState, SupervisorStatus,
 };
 use serde::Serialize;
 use sqlx_core::{query::query, query_scalar::query_scalar, row::Row, sql_str::AssertSqlSafe};
 use thiserror::Error;
 
+use fixture::{
+    BENCHMARK_CONFIG, BenchmarkConfig, EXPECTED_BM25_DOCUMENT_ID, FixtureError, FixtureInput,
+    FrozenFixture, RowCounts, SamplePlan, ValidationBudget, WorkloadSize, committed_row_counts,
+    maximum_stage_reserved_bytes, qualified_name,
+};
+
 const DATABASE_URL_ENV: &str = "CARTOGRAPH_TEST_DATABASE_URL";
-const FIXTURE_NAME: &str = "synthetic-typescript-stage-v1";
-const SOURCE_REVISION: &str = "9999999999999999999999999999999999999999";
-const NEEDLE_QUERY: &str = "needle cartograph benchmark";
-const ITEM_COUNT: usize = 256;
-const SOURCE_REPETITIONS: usize = 192;
-const HASH_ROUNDS: usize = 32;
-const WARMUP_SAMPLES: usize = 1;
-const MEASURED_SAMPLES: usize = 5;
-const VALIDATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
-const VALIDATION_WORKING_BYTES: u64 = 256 * 1024 * 1024;
+
 const REDUCE_STAGE_ITEMS: usize = 1;
 const REDUCE_STAGE_WORKERS: usize = 1;
 const REDUCE_STAGE_QUEUE_ITEMS: usize = 0;
 const REDUCE_STAGE_SEQUENCE: u64 = 0;
 const REDUCE_STAGE_KEY: u8 = 0;
 const REDUCE_STAGE_PROGRESS_BYTES: u64 = 0;
-const SUPERVISED_ITEM_COUNT: usize = ITEM_COUNT + REDUCE_STAGE_ITEMS;
 const MEDIAN_PERCENTILE: usize = 50;
 const TAIL_PERCENTILE: usize = 95;
-const EXPECTED_SOURCE_DIGEST: &str =
-    "b23964be1dfad94c41d158358db1f60187729c399ed623d107c6b4cc0f46d6d1";
-const EXPECTED_FIXTURE_FINGERPRINT: &str =
-    "2c02e8357bee04c11d89f383c316077b8eb2228bd4262d2404cb1535885083d9";
-// V20 changes only this fixture's digest domain, not its source, facts, or ranking.
+// V21 changes only this fixture's digest domain, not its source, facts, or ranking.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "a66d783458ab7d8fadf13f8af0e1b098b0ff86d32dd908b2caf2d9198103220e";
-const EXPECTED_BM25_DOCUMENT_ID: &str = "30000000-0000-4000-8000-000000000001";
-const EXPECTED_FILES: i64 = 256;
-const EXPECTED_SYMBOLS: i64 = 256;
-const EXPECTED_EDGES: i64 = 255;
-const EXPECTED_REFERENCES: i64 = 255;
-const EXPECTED_NUMERICAL_SITES: i64 = 0;
-const EXPECTED_DOCUMENTS: i64 = 256;
-const WORKER_MATRIX: [u16; 5] = [1, 2, 4, 8, 16];
-const OPERATION_TIMEOUT: Duration = Duration::from_mins(1);
-const STAGE_TIMEOUT: Duration = Duration::from_secs(30);
-const ITEM_TIMEOUT: Duration = Duration::from_secs(25);
-const COPY_TIMEOUT: Duration = Duration::from_secs(20);
-const PROGRESS_TIMEOUT: Duration = Duration::from_secs(20);
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
-const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(500);
-const CLEANUP_GRACE: Duration = Duration::from_secs(5);
-const LEASE_DURATION: Duration = Duration::from_mins(1);
+    "0a7c4b156f643cd8216e41cea16b9b49976539eb4cf8e133e985989e6f63ff07";
 
 static SCHEMA_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -106,23 +82,16 @@ enum BenchmarkError {
     },
 }
 
+impl From<FixtureError> for BenchmarkError {
+    fn from(error: FixtureError) -> Self {
+        match error {
+            FixtureError::Invariant(name) => Self::Invariant { name },
+            FixtureError::FingerprintChanged(actual) => Self::FixtureFingerprintChanged { actual },
+        }
+    }
+}
+
 type BenchmarkResult<T> = Result<T, BenchmarkError>;
-
-#[derive(Clone)]
-struct FixtureInput {
-    index: usize,
-    source: String,
-}
-
-struct FrozenFixture {
-    inputs: Vec<FixtureInput>,
-    source_bytes: u64,
-    source_digest: String,
-    fixture_fingerprint: String,
-    maximum_item_bytes: u64,
-    expected_rows: RowCounts,
-    needle_document_id: DocumentId,
-}
 
 struct FactBundle {
     file: FileInput,
@@ -137,16 +106,6 @@ struct DatabaseFixture {
     pool: sqlx_postgres::PgPool,
     schema: String,
     project: ProjectId,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-struct RowCounts {
-    files: i64,
-    symbols: i64,
-    edges: i64,
-    references: i64,
-    numerical_sites: i64,
-    documents: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,15 +145,6 @@ struct ExecutionRequest<'a> {
     coordinates: SampleCoordinates,
 }
 
-struct SamplePlan {
-    worker_count: usize,
-    queue_items: usize,
-    window: usize,
-    maximum_reserved_bytes: u64,
-    stage_deadline: tokio::time::Instant,
-    inputs: Vec<StageEnvelope<String, FixtureInput>>,
-}
-
 struct CompletedSample {
     current: CurrentGeneration,
     generation_id: GenerationId,
@@ -209,6 +159,7 @@ struct CompletedSample {
 }
 
 struct PipelineWork {
+    config: BenchmarkConfig,
     staged: StagedGeneration,
     inputs: Vec<StageEnvelope<String, FixtureInput>>,
     worker_count: usize,
@@ -304,7 +255,7 @@ struct SampleReport {
 #[tokio::main]
 async fn main() -> BenchmarkResult<()> {
     let database_url = env::var(DATABASE_URL_ENV).map_err(|_| BenchmarkError::MissingDatabase)?;
-    let fixture = FrozenFixture::build()?;
+    let fixture = FrozenFixture::build(&BENCHMARK_CONFIG)?;
     let environment = inspect_environment(&database_url).await?;
     verify_setup_failure_cleanup(&database_url).await?;
     let report = run_matrix(&database_url, &fixture, environment).await?;
@@ -314,81 +265,16 @@ async fn main() -> BenchmarkResult<()> {
     Ok(())
 }
 
-impl FrozenFixture {
-    fn build() -> BenchmarkResult<Self> {
-        let mut inputs = Vec::with_capacity(ITEM_COUNT);
-        let mut source_bytes = 0_u64;
-        let mut maximum_item_bytes = 0_u64;
-        let mut source_hasher = blake3::Hasher::new();
-        for index in 0..ITEM_COUNT {
-            let source = fixture_source(index);
-            let bytes = u64::try_from(source.len()).map_err(|_| invariant("source-byte-size"))?;
-            source_bytes = source_bytes
-                .checked_add(bytes)
-                .ok_or_else(|| invariant("total-source-byte-size"))?;
-            maximum_item_bytes = maximum_item_bytes.max(bytes);
-            source_hasher.update(source.as_bytes());
-            inputs.push(FixtureInput { index, source });
-        }
-        let source_digest = source_hasher.finalize().to_hex().to_string();
-        let fixture_fingerprint = fixture_fingerprint(&inputs)?;
-        require(
-            source_digest == EXPECTED_SOURCE_DIGEST,
-            "committed-source-digest",
-        )?;
-        if fixture_fingerprint != EXPECTED_FIXTURE_FINGERPRINT {
-            return Err(BenchmarkError::FixtureFingerprintChanged {
-                actual: fixture_fingerprint,
-            });
-        }
-        Ok(Self {
-            inputs,
-            source_bytes,
-            source_digest,
-            fixture_fingerprint,
-            maximum_item_bytes,
-            expected_rows: committed_row_counts(),
-            needle_document_id: DocumentId::parse(EXPECTED_BM25_DOCUMENT_ID)
-                .map_err(|_| invariant("committed-bm25-document-id"))?,
-        })
-    }
-
-    fn envelopes(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> BenchmarkResult<Vec<StageEnvelope<String, FixtureInput>>> {
-        self.inputs
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(sequence, input)| {
-                let reserved_bytes = u64::try_from(input.source.len())
-                    .map_err(|_| invariant("item-reserved-bytes"))?;
-                let sequence = u64::try_from(sequence)
-                    .map_err(|_| invariant("stage-sequence-representation"))?;
-                let path = normalized_path(input.index);
-                Ok(StageEnvelope::new(
-                    StageItemMeta::new(
-                        StageSequence::new(sequence),
-                        path,
-                        StageItemBudget::new(reserved_bytes, reserved_bytes, deadline),
-                    ),
-                    input,
-                ))
-            })
-            .collect()
-    }
-}
-
 async fn run_matrix(
     database_url: &str,
     fixture: &FrozenFixture,
     environment: EnvironmentReport,
 ) -> BenchmarkResult<BenchmarkReport> {
+    let config = &fixture.config;
     let baseline = committed_invariant_fingerprint();
-    let mut worker_reports = Vec::with_capacity(WORKER_MATRIX.len());
-    for workers in WORKER_MATRIX {
-        for sample in 0..WARMUP_SAMPLES {
+    let mut worker_reports = Vec::with_capacity(config.workers.len());
+    for workers in config.workers {
+        for sample in 0..config.workload[WorkloadSize::WarmupSamples as usize] {
             let observation = run_clean_sample(CleanSampleRequest {
                 database_url,
                 fixture,
@@ -397,8 +283,9 @@ async fn run_matrix(
             .await?;
             validate_fingerprint(&observation.fingerprint)?;
         }
-        let mut observations = Vec::with_capacity(MEASURED_SAMPLES);
-        for sample in 0..MEASURED_SAMPLES {
+        let mut observations =
+            Vec::with_capacity(config.workload[WorkloadSize::MeasuredSamples as usize]);
+        for sample in 0..config.workload[WorkloadSize::MeasuredSamples as usize] {
             let observation = run_clean_sample(CleanSampleRequest {
                 database_url,
                 fixture,
@@ -413,24 +300,24 @@ async fn run_matrix(
     Ok(BenchmarkReport {
         environment,
         fixture: FixtureReport {
-            name: FIXTURE_NAME,
-            items: ITEM_COUNT,
+            name: config.fixture_name,
+            items: config.workload[WorkloadSize::Items as usize],
             source_bytes: fixture.source_bytes,
             source_digest: fixture.source_digest.clone(),
             fixture_fingerprint: fixture.fixture_fingerprint.clone(),
-            source_repetitions: SOURCE_REPETITIONS,
-            hash_rounds: HASH_ROUNDS,
-            warmup_samples: WARMUP_SAMPLES,
-            measured_samples: MEASURED_SAMPLES,
+            source_repetitions: config.workload[WorkloadSize::SourceRepetitions as usize],
+            hash_rounds: config.workload[WorkloadSize::HashRounds as usize],
+            warmup_samples: config.workload[WorkloadSize::WarmupSamples as usize],
+            measured_samples: config.workload[WorkloadSize::MeasuredSamples as usize],
             expected_rows: fixture.expected_rows.clone(),
-            bm25_query: NEEDLE_QUERY,
+            bm25_query: config.bm25_query,
         },
         invariant: InvariantReport {
             logical_digest: baseline.logical_digest,
             logical_digest_version: baseline.logical_digest_version,
             row_counts: baseline.rows,
             bm25_document_ids: baseline.bm25_document_ids,
-            identical_at_workers: WORKER_MATRIX.to_vec(),
+            identical_at_workers: config.workers.to_vec(),
             supervisor_requires_zero_active_tasks_before_publication: true,
             exact_lease_release_verified_each_sample: true,
             setup_failure_cleanup_verified: true,
@@ -518,35 +405,6 @@ async fn execute_sample(request: ExecutionRequest<'_>) -> BenchmarkResult<Sample
     verify_completed_sample(request, completed).await
 }
 
-impl SamplePlan {
-    fn build(fixture: &FrozenFixture, workers: u16) -> BenchmarkResult<Self> {
-        let worker_count = usize::from(workers);
-        let queue_items = worker_count;
-        let window = worker_count
-            .checked_add(queue_items)
-            .ok_or_else(|| invariant("bounded-window"))?;
-        let maximum_reserved_bytes = maximum_stage_reserved_bytes(fixture, window)?;
-        let now = tokio::time::Instant::now();
-        Ok(Self {
-            worker_count,
-            queue_items,
-            window,
-            maximum_reserved_bytes,
-            stage_deadline: now + STAGE_TIMEOUT,
-            inputs: fixture.envelopes(now + ITEM_TIMEOUT)?,
-        })
-    }
-}
-
-fn maximum_stage_reserved_bytes(fixture: &FrozenFixture, window: usize) -> BenchmarkResult<u64> {
-    let window_u64 = u64::try_from(window).map_err(|_| invariant("bounded-window"))?;
-    let parse_window_bytes = fixture
-        .maximum_item_bytes
-        .checked_mul(window_u64)
-        .ok_or_else(|| invariant("scope-byte-cap"))?;
-    Ok(parse_window_bytes.max(VALIDATION_WORKING_BYTES))
-}
-
 async fn run_supervised_pipeline(
     request: ExecutionRequest<'_>,
     plan: SamplePlan,
@@ -560,6 +418,7 @@ async fn run_supervised_pipeline(
         inputs,
     } = plan;
     let database = request.database;
+    let config = request.fixture.config;
     let workers = request.coordinates.workers;
     let stage_metrics = StageMetrics::new();
     let prepare_metrics = PrepareGenerationMetrics::new();
@@ -569,7 +428,7 @@ async fn run_supervised_pipeline(
         .database
         .begin_generation(NewGeneration::new(
             database.project.clone(),
-            SOURCE_REVISION,
+            config.source_revision,
             workers,
         ))
         .await
@@ -582,7 +441,7 @@ async fn run_supervised_pipeline(
     );
     let supervisor = IndexerSupervisor::new(
         database.database.clone(),
-        supervisor_config(window, maximum_reserved_bytes),
+        config.supervisor_config(window, maximum_reserved_bytes),
     );
     let request = SupervisorRequest::new(
         target.clone(),
@@ -590,9 +449,10 @@ async fn run_supervised_pipeline(
             process::id(),
             format!("scaling-{workers}-{}", request.coordinates.sample),
         ),
-        LEASE_DURATION,
+        config.deadlines.lease,
     );
     let work = PipelineWork {
+        config,
         staged,
         inputs,
         worker_count,
@@ -635,7 +495,10 @@ async fn run_pipeline_work(
                     StageRunConfig::new(
                         PipelineStage::Parse,
                         StageCapacity::new(work.worker_count, work.queue_items),
-                        StageDeadlinePolicy::new(work.stage_deadline, CLEANUP_GRACE),
+                        StageDeadlinePolicy::new(
+                            work.stage_deadline,
+                            work.config.deadlines.cleanup_grace,
+                        ),
                     ),
                     StageWorkload::new(
                         work.inputs,
@@ -649,12 +512,15 @@ async fn run_pipeline_work(
             )
             .await
             .map_err(|_| PipelineFailure::new(PipelineStage::Parse))?;
-    let validation_limits =
-        GenerationValidationLimits::new(VALIDATION_OUTPUT_BYTES, VALIDATION_WORKING_BYTES)
-            .map_err(|_| PipelineFailure::new(PipelineStage::Reduce))?;
+    let validation_limits = GenerationValidationLimits::new(
+        work.config.validation_bytes[ValidationBudget::Output as usize],
+        work.config.validation_bytes[ValidationBudget::Working as usize],
+    )
+    .map_err(|_| PipelineFailure::new(PipelineStage::Reduce))?;
     let facts = run_supervised_reduce(
         &context,
         ReduceStageRequest {
+            config: work.config,
             facts,
             stage_deadline: work.stage_deadline,
             validation_limits,
@@ -678,39 +544,62 @@ async fn run_pipeline_work(
 }
 
 struct ReduceStageRequest {
+    config: BenchmarkConfig,
     facts: GenerationFacts,
     stage_deadline: tokio::time::Instant,
     validation_limits: GenerationValidationLimits,
     metrics: StageMetrics,
 }
 
-async fn run_supervised_reduce(
-    context: &SupervisorContext,
-    request: ReduceStageRequest,
-) -> Result<CanonicalGenerationFacts, PipelineFailure> {
-    let item_deadline = (tokio::time::Instant::now() + ITEM_TIMEOUT).min(request.stage_deadline);
-    let inputs = [StageEnvelope::new(
+/// The single reduce work item: all generation facts under the per-item
+/// deadline, capped by the stage deadline, and the validation working budget.
+fn reduce_stage_input(
+    facts: GenerationFacts,
+    stage_deadline: tokio::time::Instant,
+    config: &BenchmarkConfig,
+) -> StageEnvelope<u8, GenerationFacts> {
+    let item_deadline = (tokio::time::Instant::now() + config.deadlines.item).min(stage_deadline);
+    StageEnvelope::new(
         StageItemMeta::new(
             StageSequence::new(REDUCE_STAGE_SEQUENCE),
             REDUCE_STAGE_KEY,
             StageItemBudget::new(
-                VALIDATION_WORKING_BYTES,
+                config.validation_bytes[ValidationBudget::Working as usize],
                 REDUCE_STAGE_PROGRESS_BYTES,
                 item_deadline,
             ),
         ),
+        facts,
+    )
+}
+
+/// One-worker, unqueued reduce stage bounded by the stage deadline and cleanup grace.
+fn reduce_stage_config(
+    stage_deadline: tokio::time::Instant,
+    config: &BenchmarkConfig,
+) -> StageRunConfig {
+    StageRunConfig::new(
+        PipelineStage::Reduce,
+        StageCapacity::new(REDUCE_STAGE_WORKERS, REDUCE_STAGE_QUEUE_ITEMS),
+        StageDeadlinePolicy::new(stage_deadline, config.deadlines.cleanup_grace),
+    )
+}
+
+async fn run_supervised_reduce(
+    context: &SupervisorContext,
+    request: ReduceStageRequest,
+) -> Result<CanonicalGenerationFacts, PipelineFailure> {
+    let inputs = [reduce_stage_input(
         request.facts,
+        request.stage_deadline,
+        &request.config,
     )];
     let validation_limits = request.validation_limits;
     context
         .stages()
         .execute(
             StageExecution::new(
-                StageRunConfig::new(
-                    PipelineStage::Reduce,
-                    StageCapacity::new(REDUCE_STAGE_WORKERS, REDUCE_STAGE_QUEUE_ITEMS),
-                    StageDeadlinePolicy::new(request.stage_deadline, CLEANUP_GRACE),
-                ),
+                reduce_stage_config(request.stage_deadline, &request.config),
                 StageWorkload::new(
                     inputs,
                     move |item: StageWorkItem<u8, GenerationFacts>| async move {
@@ -754,8 +643,11 @@ async fn verify_completed_sample(
         .map_err(|_| operation("stage-metrics-snapshot"))?;
     validate_stage_snapshot(
         stage_snapshot,
-        completed.window,
-        completed.maximum_reserved_bytes,
+        StageSnapshotBounds {
+            expected_items: request.fixture.inputs.len() + REDUCE_STAGE_ITEMS,
+            window: completed.window,
+            maximum_reserved_bytes: completed.maximum_reserved_bytes,
+        },
     )?;
     let copy_nanos = duration_nanos(completed.prepare_metrics.snapshot().copy_duration());
     require(copy_nanos > 0, "copy-duration-observed")?;
@@ -806,7 +698,8 @@ fn validate_supervisor_status(
     )?;
     require(
         status.completed_items()
-            == u64::try_from(SUPERVISED_ITEM_COUNT).map_err(|_| invariant("completed-items"))?,
+            == u64::try_from(fixture.inputs.len() + REDUCE_STAGE_ITEMS)
+                .map_err(|_| invariant("completed-items"))?,
         "supervisor-completed-items",
     )?;
     require(
@@ -815,14 +708,20 @@ fn validate_supervisor_status(
     )
 }
 
-fn validate_stage_snapshot(
-    stage_snapshot: StageMetricsSnapshot,
+#[derive(Clone, Copy)]
+struct StageSnapshotBounds {
+    expected_items: usize,
     window: usize,
     maximum_reserved_bytes: u64,
+}
+
+fn validate_stage_snapshot(
+    stage_snapshot: StageMetricsSnapshot,
+    bounds: StageSnapshotBounds,
 ) -> BenchmarkResult<()> {
     require(
         stage_snapshot.admitted_items()
-            == u64::try_from(SUPERVISED_ITEM_COUNT).map_err(|_| invariant("admitted-items"))?,
+            == u64::try_from(bounds.expected_items).map_err(|_| invariant("admitted-items"))?,
         "all-items-admitted",
     )?;
     require(
@@ -835,11 +734,11 @@ fn validate_stage_snapshot(
         "zero-current-reserved-bytes",
     )?;
     require(
-        stage_snapshot.peak_items() <= window,
+        stage_snapshot.peak_items() <= bounds.window,
         "peak-items-within-window",
     )?;
     require(
-        stage_snapshot.peak_reserved_bytes() <= maximum_reserved_bytes,
+        stage_snapshot.peak_reserved_bytes() <= bounds.maximum_reserved_bytes,
         "peak-bytes-within-cap",
     )
 }
@@ -853,7 +752,7 @@ async fn bm25_fingerprint(
         .database
         .search_current_code(SearchQuery::new(
             CurrentGenerationLookup::new(&database.project, current.generation_id()),
-            NEEDLE_QUERY,
+            fixture.config.bm25_query,
             5,
         ))
         .await
@@ -1009,7 +908,7 @@ fn build_fact_bundle(
     let signature = format!("function {name}(input: number): number");
     let content_hash = blake3::hash(input.source.as_bytes());
     let mut structural_hash = content_hash;
-    for round in 0..HASH_ROUNDS {
+    for round in 0..input.hash_rounds {
         let mut hasher = blake3::Hasher::new();
         hasher.update(structural_hash.as_bytes());
         hasher.update(input.source.as_bytes());
@@ -1019,7 +918,7 @@ fn build_fact_bundle(
     let file = file_id(index)?;
     let symbol = symbol_id(index)?;
     let source_bytes = u64::try_from(input.source.len()).map_err(|_| StageItemFailure)?;
-    let end_line = u32::try_from(SOURCE_REPETITIONS).map_err(|_| StageItemFailure)?;
+    let end_line = u32::try_from(input.source_repetitions).map_err(|_| StageItemFailure)?;
     let previous_symbol = index.checked_sub(1).map(symbol_id).transpose()?;
     Ok(FactBundle {
         file: FileInput {
@@ -1080,7 +979,7 @@ fn build_fact_bundle(
             code: input.source,
             natural_text: natural_text(index),
             metadata: serde_json::json!({
-                "fixture": FIXTURE_NAME,
+                "fixture": input.fixture_name,
                 "index": index,
             }),
         },
@@ -1158,8 +1057,8 @@ fn summarize_workers(
         copy_p95_ms: nanos_to_millis(percentile(&copy, TAIL_PERCENTILE)?),
         end_to_end_p50_ms: nanos_to_millis(total_p50),
         end_to_end_p95_ms: nanos_to_millis(percentile(&total, TAIL_PERCENTILE)?),
-        stage_p50_items_per_second: throughput(stage_p50),
-        end_to_end_p50_items_per_second: throughput(total_p50),
+        stage_p50_items_per_second: throughput(stage_p50, fixture.inputs.len()),
+        end_to_end_p50_items_per_second: throughput(total_p50, fixture.inputs.len()),
         observed_peak_items: observations
             .iter()
             .map(|sample| sample.peak_items)
@@ -1209,17 +1108,6 @@ fn committed_invariant_fingerprint() -> InvariantFingerprint {
     }
 }
 
-const fn committed_row_counts() -> RowCounts {
-    RowCounts {
-        files: EXPECTED_FILES,
-        symbols: EXPECTED_SYMBOLS,
-        edges: EXPECTED_EDGES,
-        references: EXPECTED_REFERENCES,
-        numerical_sites: EXPECTED_NUMERICAL_SITES,
-        documents: EXPECTED_DOCUMENTS,
-    }
-}
-
 fn percentile(values: &[u64], percentile: usize) -> BenchmarkResult<u64> {
     require(!values.is_empty(), "nonempty-percentile-samples")?;
     let mut ordered = values.to_vec();
@@ -1236,98 +1124,12 @@ fn percentile(values: &[u64], percentile: usize) -> BenchmarkResult<u64> {
         .ok_or_else(|| invariant("percentile-rank"))
 }
 
-fn supervisor_config(max_tasks: usize, max_bytes: u64) -> SupervisorConfig {
-    SupervisorConfig::new(OPERATION_TIMEOUT)
-        .with_heartbeat_interval(HEARTBEAT_INTERVAL)
-        .with_heartbeat_timeout(HEARTBEAT_TIMEOUT)
-        .with_progress_timeout(PROGRESS_TIMEOUT)
-        .with_cancellation_grace(CLEANUP_GRACE)
-        .with_copy_timeout(COPY_TIMEOUT)
-        .with_max_worker_tasks(max_tasks)
-        .with_max_worker_bytes(max_bytes)
-}
-
-fn fixture_fingerprint(inputs: &[FixtureInput]) -> BenchmarkResult<String> {
-    let mut hasher = blake3::Hasher::new();
-    fingerprint_field(&mut hasher, b"cartograph-v2-index-scaling-fixture-v2")?;
-    for text in [FIXTURE_NAME, SOURCE_REVISION, NEEDLE_QUERY] {
-        fingerprint_field(&mut hasher, text.as_bytes())?;
-    }
-    for number in [
-        ITEM_COUNT,
-        SOURCE_REPETITIONS,
-        HASH_ROUNDS,
-        WARMUP_SAMPLES,
-        MEASURED_SAMPLES,
-    ] {
-        fingerprint_usize(&mut hasher, number)?;
-    }
-    for duration in [
-        OPERATION_TIMEOUT,
-        STAGE_TIMEOUT,
-        ITEM_TIMEOUT,
-        COPY_TIMEOUT,
-        PROGRESS_TIMEOUT,
-        HEARTBEAT_INTERVAL,
-        HEARTBEAT_TIMEOUT,
-        CLEANUP_GRACE,
-        LEASE_DURATION,
-    ] {
-        let nanos = u64::try_from(duration.as_nanos())
-            .map_err(|_| invariant("fixture-duration-fingerprint"))?;
-        fingerprint_field(&mut hasher, &nanos.to_le_bytes())?;
-    }
-    for bytes in [VALIDATION_OUTPUT_BYTES, VALIDATION_WORKING_BYTES] {
-        fingerprint_field(&mut hasher, &bytes.to_le_bytes())?;
-    }
-    for workers in WORKER_MATRIX {
-        fingerprint_field(&mut hasher, &workers.to_le_bytes())?;
-    }
-    for input in inputs {
-        fingerprint_usize(&mut hasher, input.index)?;
-        fingerprint_field(&mut hasher, input.source.as_bytes())?;
-    }
-    Ok(hasher.finalize().to_hex().to_string())
-}
-
-fn fingerprint_usize(hasher: &mut blake3::Hasher, value: usize) -> BenchmarkResult<()> {
-    let value = u64::try_from(value).map_err(|_| invariant("fixture-number-fingerprint"))?;
-    fingerprint_field(hasher, &value.to_le_bytes())
-}
-
-fn fingerprint_field(hasher: &mut blake3::Hasher, value: &[u8]) -> BenchmarkResult<()> {
-    let length = u64::try_from(value.len()).map_err(|_| invariant("fixture-field-length"))?;
-    hasher.update(&length.to_le_bytes());
-    hasher.update(value);
-    Ok(())
-}
-
-fn fixture_source(index: usize) -> String {
-    let name = qualified_name(index);
-    let line = format!(
-        "export function {name}(input: number): number {{ const snake_case_value = input + {index:04}; return snake_case_value; }}\n"
-    );
-    line.repeat(SOURCE_REPETITIONS)
-}
-
-fn qualified_name(index: usize) -> String {
-    if index == 0 {
-        "needleCartographBenchmark".to_owned()
-    } else {
-        format!("fixtureSymbol{index:04}")
-    }
-}
-
 fn natural_text(index: usize) -> String {
     if index == 0 {
         "unique needle cartograph benchmark evidence".to_owned()
     } else {
         format!("deterministic scaling fixture symbol {index:04}")
     }
-}
-
-fn normalized_path(index: usize) -> String {
-    format!("src/fixture_{index:04}.ts")
 }
 
 fn file_id(index: usize) -> Result<FileId, StageItemFailure> {
@@ -1364,11 +1166,11 @@ fn nanos_to_millis(nanos: u64) -> f64 {
     Duration::from_nanos(nanos).as_secs_f64() * 1_000.0
 }
 
-fn throughput(nanos: u64) -> f64 {
+fn throughput(nanos: u64, item_count: usize) -> f64 {
     if nanos == 0 {
         0.0
     } else {
-        let items = f64::from(u32::try_from(ITEM_COUNT).unwrap_or(u32::MAX));
+        let items = f64::from(u32::try_from(item_count).unwrap_or(u32::MAX));
         items / Duration::from_nanos(nanos).as_secs_f64()
     }
 }

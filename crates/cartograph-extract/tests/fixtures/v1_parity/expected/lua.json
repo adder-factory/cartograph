@@ -1,0 +1,787 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "lua",
+  "files": [
+    "src/config.lua",
+    "src/json.lua",
+    "src/main.lua",
+    "src/player.lua",
+    "src/util/strings.lua"
+  ],
+  "symbols": [
+    {
+      "file": "src/config.lua",
+      "kind": "file",
+      "name": "config.lua",
+      "qualified_name": "src/config.lua",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "file",
+      "name": "json.lua",
+      "qualified_name": "src/json.lua",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "variable",
+      "name": "json",
+      "qualified_name": "json",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "variable",
+      "name": "escape_map",
+      "qualified_name": "escape_map",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "function",
+      "name": "escape_char",
+      "qualified_name": "escape_char",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "function",
+      "name": "encode",
+      "qualified_name": "encode",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "function",
+      "name": "json.encode",
+      "qualified_name": "json.encode",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "function",
+      "name": "json.decode",
+      "qualified_name": "json.decode",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "file",
+      "name": "main.lua",
+      "qualified_name": "src/main.lua",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "variable",
+      "name": "Player",
+      "qualified_name": "Player",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "import",
+      "name": "player",
+      "qualified_name": "player",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "variable",
+      "name": "strings",
+      "qualified_name": "strings",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "import",
+      "name": "util.strings",
+      "qualified_name": "util.strings",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "run",
+      "start_line": 4,
+      "end_line": 10
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "file",
+      "name": "player.lua",
+      "qualified_name": "src/player.lua",
+      "start_line": 1,
+      "end_line": 51
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "json",
+      "qualified_name": "json",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "import",
+      "name": "json",
+      "qualified_name": "json",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "strings",
+      "qualified_name": "strings",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "import",
+      "name": "util.strings",
+      "qualified_name": "util.strings",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "config",
+      "qualified_name": "config",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "import",
+      "name": "config",
+      "qualified_name": "config",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "inspect",
+      "qualified_name": "inspect",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "import",
+      "name": "inspect",
+      "qualified_name": "inspect",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "Player",
+      "qualified_name": "Player",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "MAX_HEALTH",
+      "qualified_name": "MAX_HEALTH",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "DEFAULT_NAME",
+      "qualified_name": "DEFAULT_NAME",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "function",
+      "name": "b",
+      "qualified_name": "b",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "variable",
+      "name": "a",
+      "qualified_name": "a",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "function",
+      "name": "helper_fn",
+      "qualified_name": "helper_fn",
+      "start_line": 11,
+      "end_line": 13
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "function",
+      "name": "Player.new",
+      "qualified_name": "Player.new",
+      "start_line": 15,
+      "end_line": 20
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "method",
+      "name": "Player:damage",
+      "qualified_name": "Player:damage",
+      "start_line": 22,
+      "end_line": 27
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "method",
+      "name": "Player:die",
+      "qualified_name": "Player:die",
+      "start_line": 29,
+      "end_line": 32
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "method",
+      "name": "Player:serialize",
+      "qualified_name": "Player:serialize",
+      "start_line": 34,
+      "end_line": 36
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "function",
+      "name": "clamp",
+      "qualified_name": "clamp",
+      "start_line": 38,
+      "end_line": 40
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "function",
+      "name": "log_event",
+      "qualified_name": "log_event",
+      "start_line": 42,
+      "end_line": 44
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "function",
+      "name": "qux",
+      "qualified_name": "qux",
+      "start_line": 46,
+      "end_line": 48
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "file",
+      "name": "strings.lua",
+      "qualified_name": "src/util/strings.lua",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "variable",
+      "name": "M",
+      "qualified_name": "M",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "function",
+      "name": "M.trim",
+      "qualified_name": "M.trim",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "function",
+      "name": "M.split",
+      "qualified_name": "M.split",
+      "start_line": 9,
+      "end_line": 15
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/json.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/json.lua",
+      "target_kind": "function",
+      "target": "encode",
+      "target_file": "src/json.lua",
+      "line": null
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/json.lua",
+      "target_kind": "function",
+      "target": "escape_char",
+      "target_file": "src/json.lua",
+      "line": null
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/json.lua",
+      "target_kind": "variable",
+      "target": "escape_map",
+      "target_file": "src/json.lua",
+      "line": null
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/json.lua",
+      "target_kind": "variable",
+      "target": "json",
+      "target_file": "src/json.lua",
+      "line": null
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/json.lua",
+      "target_kind": "function",
+      "target": "json.decode",
+      "target_file": "src/json.lua",
+      "line": null
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/json.lua",
+      "target_kind": "function",
+      "target": "json.encode",
+      "target_file": "src/json.lua",
+      "line": null
+    },
+    {
+      "file": "src/json.lua",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "json.encode",
+      "target_kind": "function",
+      "target": "encode",
+      "target_file": "src/json.lua",
+      "line": 14
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.lua",
+      "target_kind": "variable",
+      "target": "Player",
+      "target_file": "src/main.lua",
+      "line": null
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.lua",
+      "target_kind": "import",
+      "target": "player",
+      "target_file": "src/main.lua",
+      "line": null
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.lua",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "src/main.lua",
+      "line": null
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.lua",
+      "target_kind": "variable",
+      "target": "strings",
+      "target_file": "src/main.lua",
+      "line": null
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.lua",
+      "target_kind": "import",
+      "target": "util.strings",
+      "target_file": "src/main.lua",
+      "line": null
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "Player.new",
+      "target_file": "src/player.lua",
+      "line": 5
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "log_event",
+      "target_file": "src/player.lua",
+      "line": 9
+    },
+    {
+      "file": "src/main.lua",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/main.lua",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "src/main.lua",
+      "line": 12
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "DEFAULT_NAME",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "MAX_HEALTH",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "Player",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "Player.new",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "method",
+      "target": "Player:damage",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "method",
+      "target": "Player:die",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "method",
+      "target": "Player:serialize",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "a",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "b",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "clamp",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "import",
+      "target": "config",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "config",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "helper_fn",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "import",
+      "target": "inspect",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "inspect",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "import",
+      "target": "json",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "json",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "log_event",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "qux",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "variable",
+      "target": "strings",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "import",
+      "target": "util.strings",
+      "target_file": "src/player.lua",
+      "line": null
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "b",
+      "target_kind": "function",
+      "target": "qux",
+      "target_file": "src/player.lua",
+      "line": 10
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "src/player.lua",
+      "target_kind": "function",
+      "target": "qux",
+      "target_file": "src/player.lua",
+      "line": 10
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Player:die",
+      "target_kind": "function",
+      "target": "log_event",
+      "target_file": "src/player.lua",
+      "line": 31
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Player:serialize",
+      "target_kind": "function",
+      "target": "json.encode",
+      "target_file": "src/json.lua",
+      "line": 35
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "log_event",
+      "target_kind": "function",
+      "target": "clamp",
+      "target_file": "src/player.lua",
+      "line": 43
+    },
+    {
+      "file": "src/player.lua",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "qux",
+      "target_kind": "function",
+      "target": "helper_fn",
+      "target_file": "src/player.lua",
+      "line": 47
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strings.lua",
+      "target_kind": "variable",
+      "target": "M",
+      "target_file": "src/util/strings.lua",
+      "line": null
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strings.lua",
+      "target_kind": "function",
+      "target": "M.split",
+      "target_file": "src/util/strings.lua",
+      "line": null
+    },
+    {
+      "file": "src/util/strings.lua",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strings.lua",
+      "target_kind": "function",
+      "target": "M.trim",
+      "target_file": "src/util/strings.lua",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

@@ -1,0 +1,14 @@
+{
+  "Name": "MAG_JSON_Item",
+  "UUID": "44444444-4444-4444-4444-444444444444",
+  "ParentTemplateId": "22222222-2222-2222-2222-222222222222",
+  "Children": [
+    {
+      "Name": "MAG_JSON_Child",
+      "Boosts": "UnlockSpell(Target_Spell)"
+    }
+  ],
+  "Tags": [
+    "Target_Tag"
+  ]
+}

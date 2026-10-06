@@ -1,0 +1,1134 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "ruby",
+  "files": [
+    "Gemfile",
+    "app/controllers/application_controller.rb",
+    "app/controllers/orders_controller.rb",
+    "app/models/application_record.rb",
+    "app/models/invoice.rb",
+    "app/services/tax_calculator.rb",
+    "config/routes.rb",
+    "lib/tasks/cleanup.rake"
+  ],
+  "symbols": [
+    {
+      "file": "app/controllers/application_controller.rb",
+      "kind": "class",
+      "name": "ApplicationController",
+      "qualified_name": "ApplicationController",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "app/controllers/application_controller.rb",
+      "kind": "file",
+      "name": "application_controller.rb",
+      "qualified_name": "app/controllers/application_controller.rb",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "app/controllers/application_controller.rb",
+      "kind": "method",
+      "name": "current_user",
+      "qualified_name": "app/controllers/application_controller.rb::current_user",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/controllers/application_controller.rb",
+      "kind": "method",
+      "name": "current_user",
+      "qualified_name": "ApplicationController::current_user",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "file",
+      "name": "orders_controller.rb",
+      "qualified_name": "app/controllers/orders_controller.rb",
+      "start_line": 1,
+      "end_line": 30
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "import",
+      "name": "../models/invoice",
+      "qualified_name": "../models/invoice",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "class",
+      "name": "OrdersController",
+      "qualified_name": "OrdersController",
+      "start_line": 3,
+      "end_line": 29
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "index",
+      "qualified_name": "app/controllers/orders_controller.rb::index",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "index",
+      "qualified_name": "OrdersController::index",
+      "start_line": 6,
+      "end_line": 13
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "app/controllers/orders_controller.rb::show",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "OrdersController::show",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "app/controllers/orders_controller.rb::create",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "OrdersController::create",
+      "start_line": 20,
+      "end_line": 22
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "method",
+      "name": "set_order",
+      "qualified_name": "OrdersController::set_order",
+      "start_line": 26,
+      "end_line": 28
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "class",
+      "name": "ApplicationRecord",
+      "qualified_name": "ApplicationRecord",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "file",
+      "name": "application_record.rb",
+      "qualified_name": "app/models/application_record.rb",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "ApplicationRecord::find",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "ApplicationRecord::save",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "file",
+      "name": "invoice.rb",
+      "qualified_name": "app/models/invoice.rb",
+      "start_line": 1,
+      "end_line": 65
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "import",
+      "name": "json",
+      "qualified_name": "json",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "import",
+      "name": "active_support/core_ext/string",
+      "qualified_name": "active_support/core_ext/string",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "import",
+      "name": "application_record",
+      "qualified_name": "application_record",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "import",
+      "name": "../services/tax_calculator",
+      "qualified_name": "../services/tax_calculator",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "module",
+      "name": "Billing",
+      "qualified_name": "Billing",
+      "start_line": 6,
+      "end_line": 64
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "module",
+      "name": "Auditable",
+      "qualified_name": "Billing::Auditable",
+      "start_line": 7,
+      "end_line": 15
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "Billing::Auditable::audit",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "log_event",
+      "qualified_name": "Billing::Auditable::log_event",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "class",
+      "name": "Invoice",
+      "qualified_name": "Billing::Invoice",
+      "start_line": 17,
+      "end_line": 63
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "constant",
+      "name": "RATE",
+      "qualified_name": "Billing::Invoice::RATE",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "constant",
+      "name": "STATES",
+      "qualified_name": "Billing::Invoice::STATES",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "field",
+      "name": "tax",
+      "qualified_name": "Billing::Invoice::tax",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "field",
+      "name": "total",
+      "qualified_name": "Billing::Invoice::total",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "field",
+      "name": "note",
+      "qualified_name": "Billing::Invoice::note",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "field",
+      "name": "status",
+      "qualified_name": "Billing::Invoice::status",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "field",
+      "name": "default_currency",
+      "qualified_name": "Billing::Invoice::default_currency",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "initialize",
+      "qualified_name": "Billing::Invoice::initialize",
+      "start_line": 28,
+      "end_line": 31
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "Billing::Invoice::build",
+      "start_line": 33,
+      "end_line": 35
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "finalize",
+      "qualified_name": "Billing::Invoice::finalize",
+      "start_line": 37,
+      "end_line": 42
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "to_json",
+      "qualified_name": "Billing::Invoice::to_json",
+      "start_line": 44,
+      "end_line": 46
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "reset",
+      "qualified_name": "Billing::Invoice::reset",
+      "start_line": 50,
+      "end_line": 52
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "calculate_total",
+      "qualified_name": "Billing::Invoice::calculate_total",
+      "start_line": 54,
+      "end_line": 56
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "method",
+      "name": "internal_note",
+      "qualified_name": "Billing::Invoice::internal_note",
+      "start_line": 60,
+      "end_line": 62
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "constant",
+      "name": "MAX_RATE",
+      "qualified_name": "MAX_RATE",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "file",
+      "name": "tax_calculator.rb",
+      "qualified_name": "app/services/tax_calculator.rb",
+      "start_line": 1,
+      "end_line": 23
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "variable",
+      "name": "default_region",
+      "qualified_name": "default_region",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "class",
+      "name": "TaxCalculator",
+      "qualified_name": "TaxCalculator",
+      "start_line": 4,
+      "end_line": 12
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "method",
+      "name": "compute",
+      "qualified_name": "TaxCalculator::compute",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "method",
+      "name": "clamp",
+      "qualified_name": "TaxCalculator::clamp",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "class",
+      "name": "Repository",
+      "qualified_name": "Repository",
+      "start_line": 14,
+      "end_line": 18
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "Repository::save",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "function",
+      "name": "helper_function",
+      "qualified_name": "helper_function",
+      "start_line": 20,
+      "end_line": 22
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "file",
+      "name": "routes.rb",
+      "qualified_name": "config/routes.rb",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "/ -> home#index",
+      "qualified_name": "config/routes.rb::root",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "resource:orders",
+      "qualified_name": "config/routes.rb::resource:orders",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "resource:profile",
+      "qualified_name": "config/routes.rb::resource:profile",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "GET /health",
+      "qualified_name": "config/routes.rb::GET:/health",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "POST /login",
+      "qualified_name": "config/routes.rb::POST:/login",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "GET /status",
+      "qualified_name": "config/routes.rb::GET:/status",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "DELETE /sessions",
+      "qualified_name": "config/routes.rb::DELETE:/sessions",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "GET /a",
+      "qualified_name": "config/routes.rb::GET:/a",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "POST /b",
+      "qualified_name": "config/routes.rb::POST:/b",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "config/routes.rb",
+      "kind": "route",
+      "name": "/ -> pages#landing",
+      "qualified_name": "config/routes.rb::root",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "lib/tasks/cleanup.rake",
+      "kind": "file",
+      "name": "cleanup.rake",
+      "qualified_name": "lib/tasks/cleanup.rake",
+      "start_line": 1,
+      "end_line": 6
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/controllers/application_controller.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ApplicationController",
+      "target_kind": "method",
+      "target": "ApplicationController::current_user",
+      "target_file": "app/controllers/application_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/application_controller.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/application_controller.rb",
+      "target_kind": "class",
+      "target": "ApplicationController",
+      "target_file": "app/controllers/application_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::create",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::index",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::set_order",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "method",
+      "target": "OrdersController::show",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/orders_controller.rb",
+      "target_kind": "import",
+      "target": "../models/invoice",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/orders_controller.rb",
+      "target_kind": "class",
+      "target": "OrdersController",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": null
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/controllers/orders_controller.rb",
+      "target_kind": "import",
+      "target": "../models/invoice",
+      "target_file": "app/controllers/orders_controller.rb",
+      "line": 1
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "OrdersController",
+      "target_kind": "class",
+      "target": "ApplicationController",
+      "target_file": "app/controllers/application_controller.rb",
+      "line": 3
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrdersController::index",
+      "target_kind": "method",
+      "target": "Repository::save",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": 9
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrdersController::index",
+      "target_kind": "method",
+      "target": "Repository::save",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": 10
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrdersController::index",
+      "target_kind": "function",
+      "target": "helper_function",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": 11
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrdersController::index",
+      "target_kind": "method",
+      "target": "ApplicationController::current_user",
+      "target_file": "app/controllers/application_controller.rb",
+      "line": 12
+    },
+    {
+      "file": "app/controllers/orders_controller.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrdersController::show",
+      "target_kind": "method",
+      "target": "Billing::Invoice::finalize",
+      "target_file": "app/models/invoice.rb",
+      "line": 17
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ApplicationRecord",
+      "target_kind": "method",
+      "target": "ApplicationRecord::find",
+      "target_file": "app/models/application_record.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ApplicationRecord",
+      "target_kind": "method",
+      "target": "ApplicationRecord::save",
+      "target_file": "app/models/application_record.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/application_record.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/application_record.rb",
+      "target_kind": "class",
+      "target": "ApplicationRecord",
+      "target_file": "app/models/application_record.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Billing",
+      "target_kind": "module",
+      "target": "Billing::Auditable",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Billing",
+      "target_kind": "class",
+      "target": "Billing::Invoice",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Billing::Auditable",
+      "target_kind": "method",
+      "target": "Billing::Auditable::audit",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Billing::Auditable",
+      "target_kind": "method",
+      "target": "Billing::Auditable::log_event",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "constant",
+      "target": "Billing::Invoice::RATE",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "constant",
+      "target": "Billing::Invoice::STATES",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::build",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::calculate_total",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "field",
+      "target": "Billing::Invoice::default_currency",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::finalize",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::initialize",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::internal_note",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "field",
+      "target": "Billing::Invoice::note",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::reset",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "field",
+      "target": "Billing::Invoice::status",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "field",
+      "target": "Billing::Invoice::tax",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "method",
+      "target": "Billing::Invoice::to_json",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "field",
+      "target": "Billing::Invoice::total",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "../services/tax_calculator",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "module",
+      "target": "Billing",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "active_support/core_ext/string",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "application_record",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "json",
+      "target_file": "app/models/invoice.rb",
+      "line": null
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "json",
+      "target_file": "app/models/invoice.rb",
+      "line": 1
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "active_support/core_ext/string",
+      "target_file": "app/models/invoice.rb",
+      "line": 2
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "application_record",
+      "target_file": "app/models/invoice.rb",
+      "line": 3
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models/invoice.rb",
+      "target_kind": "import",
+      "target": "../services/tax_calculator",
+      "target_file": "app/models/invoice.rb",
+      "line": 4
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Billing::Auditable::audit",
+      "target_kind": "method",
+      "target": "Billing::Auditable::log_event",
+      "target_file": "app/models/invoice.rb",
+      "line": 9
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "Billing::Invoice",
+      "target_kind": "class",
+      "target": "ApplicationRecord",
+      "target_file": "app/models/application_record.rb",
+      "line": 17
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Billing::Invoice::initialize",
+      "target_kind": "method",
+      "target": "TaxCalculator::compute",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": 30
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Billing::Invoice::finalize",
+      "target_kind": "method",
+      "target": "Billing::Invoice::reset",
+      "target_file": "app/models/invoice.rb",
+      "line": 38
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Billing::Invoice::finalize",
+      "target_kind": "method",
+      "target": "Billing::Auditable::audit",
+      "target_file": "app/models/invoice.rb",
+      "line": 39
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Billing::Invoice::finalize",
+      "target_kind": "method",
+      "target": "Billing::Invoice::calculate_total",
+      "target_file": "app/models/invoice.rb",
+      "line": 40
+    },
+    {
+      "file": "app/models/invoice.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Billing::Invoice::finalize",
+      "target_kind": "method",
+      "target": "ApplicationRecord::save",
+      "target_file": "app/models/application_record.rb",
+      "line": 41
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Repository",
+      "target_kind": "method",
+      "target": "Repository::save",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TaxCalculator",
+      "target_kind": "method",
+      "target": "TaxCalculator::clamp",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "TaxCalculator",
+      "target_kind": "method",
+      "target": "TaxCalculator::compute",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/tax_calculator.rb",
+      "target_kind": "constant",
+      "target": "MAX_RATE",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/tax_calculator.rb",
+      "target_kind": "class",
+      "target": "Repository",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/tax_calculator.rb",
+      "target_kind": "class",
+      "target": "TaxCalculator",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/tax_calculator.rb",
+      "target_kind": "variable",
+      "target": "default_region",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/tax_calculator.rb",
+      "target_kind": "function",
+      "target": "helper_function",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": null
+    },
+    {
+      "file": "app/services/tax_calculator.rb",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "TaxCalculator::compute",
+      "target_kind": "method",
+      "target": "TaxCalculator::clamp",
+      "target_file": "app/services/tax_calculator.rb",
+      "line": 6
+    }
+  ],
+  "unresolved": []
+}

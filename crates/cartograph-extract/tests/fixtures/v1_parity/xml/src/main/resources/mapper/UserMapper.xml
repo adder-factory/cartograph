@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "mybatis-3-mapper.dtd">
+<!-- Example in a comment must not extract: <select id="ghost"> <include refid="ghostCols"/> -->
+<mapper namespace="com.acme.mapper.UserMapper">
+  <resultMap id="UserResult" type="com.acme.model.User">
+    <id property="id" column="user_id"/>
+    <result property="name" column="user_name"/>
+  </resultMap>
+
+  <resultMap id="ExtendedResult" extends="UserResult">
+    <result property="email" column="email"/>
+  </resultMap>
+
+  <parameterMap id="UserParams" type="com.acme.model.User">
+    <parameter property="id"/>
+  </parameterMap>
+
+  <sql id="userColumns">user_id, user_name</sql>
+
+  <select id="findById" resultMap="UserResult">
+    SELECT <include refid="userColumns"/>, <include refid="com.acme.mapper.AuditMapper.auditColumns"></include>
+    FROM users WHERE user_id = #{id,jdbcType=BIGINT} ORDER BY ${orderColumn}
+  </select>
+
+  <insert id="insertUser" parameterMap="UserParams">
+    INSERT INTO users (user_name) VALUES (#{user.name}) /* #{user.id} repeats head */ #{user.id}
+  </insert>
+
+  <update id="updateName">
+    UPDATE users SET user_name = #{name} WHERE user_id = #{id}
+  </update>
+
+  <delete id="deleteById">
+    DELETE FROM users WHERE user_id = #{id}
+  </delete>
+
+  <select id="countAll" resultType="int"/>
+
+  <SELECT id='legacyFind' resultMap='AuditMapper.AuditResult'>
+    SELECT * FROM users WHERE user_id = #{id}
+  </SELECT>
+</mapper>

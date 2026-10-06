@@ -2,6 +2,7 @@
 
 mod bounded_name;
 mod budget;
+mod code_scan;
 mod custom;
 mod discovery;
 mod discovery_policy;
@@ -13,14 +14,19 @@ mod framework_drupal;
 mod framework_hono;
 mod framework_managed_routes;
 mod framework_manifest;
+mod framework_mybatis;
 mod framework_nest;
 mod framework_rails;
+mod framework_spring;
+mod framework_symfony;
 mod grammars;
 mod identity;
 mod language;
 mod model;
 mod module_alias;
 mod native;
+mod objc_lex;
+mod objc_macro_rewrite;
 mod reader;
 mod snapshot;
 mod source_lines;
@@ -43,8 +49,9 @@ pub use model::{
     CloneTokenCount, CloneTokenProfile, Containment, DYNAMIC_DISPATCH_RESOLUTION_PREFIX,
     DiagnosticCode, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
-    ImportBindingKind, RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX,
-    SymbolHealthMetrics, TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
+    ImportBindingKind, LEXICAL_SCOPE_RESOLUTION_PREFIX, PHP_EXACT_RESOLUTION_PREFIX,
+    RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SymbolHealthMetrics,
+    TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
 };
 pub use module_alias::substitute_module_alias;
 pub use native::{

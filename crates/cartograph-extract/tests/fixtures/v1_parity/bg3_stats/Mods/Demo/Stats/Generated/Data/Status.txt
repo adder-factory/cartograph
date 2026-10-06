@@ -1,0 +1,10 @@
+new entry "Base_Status"
+type "StatusData"
+data "StatusType" "BOOST"
+
+new entry "Target_Status"
+type "StatusData"
+using "Base_Status"
+data "Boosts" "UnlockSpell(Target_Spell);Target_Passive"
+data "StackId" "TARGET_STATUS"
+add "Target_Tag"

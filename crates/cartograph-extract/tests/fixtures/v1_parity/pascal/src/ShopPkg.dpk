@@ -1,0 +1,10 @@
+package ShopPkg;
+
+requires
+  rtl;
+
+contains
+  UTypes in 'UTypes.pas',
+  UAuth in 'UAuth.pas';
+
+end.

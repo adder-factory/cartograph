@@ -1,0 +1,11 @@
+---
+layout: none
+---
+<html>
+  <body>
+    {% include nav.html %}
+    {% include 'footer.html' %}
+    {% assign year = site.time | date: '%Y' %}
+    {{ content }}
+  </body>
+</html>

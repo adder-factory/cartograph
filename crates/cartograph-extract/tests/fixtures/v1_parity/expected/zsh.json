@@ -1,0 +1,464 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "zsh",
+  "files": [
+    "lib/aliases.zsh",
+    "plugins/git-extras/git-extras.plugin.zsh"
+  ],
+  "symbols": [
+    {
+      "file": "dotfiles/.zlogin",
+      "kind": "file",
+      "name": ".zlogin",
+      "qualified_name": "dotfiles/.zlogin",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "dotfiles/.zlogin",
+      "kind": "variable",
+      "name": "LAST_LOGIN",
+      "qualified_name": "LAST_LOGIN",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "dotfiles/.zprofile",
+      "kind": "file",
+      "name": ".zprofile",
+      "qualified_name": "dotfiles/.zprofile",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "dotfiles/.zprofile",
+      "kind": "import",
+      "name": "./lib/aliases.zsh",
+      "qualified_name": "./lib/aliases.zsh",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "dotfiles/.zprofile",
+      "kind": "function",
+      "name": "login_banner",
+      "qualified_name": "login_banner",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "dotfiles/.zshenv",
+      "kind": "file",
+      "name": ".zshenv",
+      "qualified_name": "dotfiles/.zshenv",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "dotfiles/.zshenv",
+      "kind": "variable",
+      "name": "ZDOTDIR",
+      "qualified_name": "ZDOTDIR",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "dotfiles/.zshenv",
+      "kind": "variable",
+      "name": "path",
+      "qualified_name": "path",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "file",
+      "name": ".zshrc",
+      "qualified_name": "dotfiles/.zshrc",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "import",
+      "name": "./lib/aliases.zsh",
+      "qualified_name": "./lib/aliases.zsh",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "import",
+      "name": "./plugins/git-extras/git-extras.plugin.zsh",
+      "qualified_name": "./plugins/git-extras/git-extras.plugin.zsh",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "variable",
+      "name": "EDITOR",
+      "qualified_name": "EDITOR",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "variable",
+      "name": "HISTSIZE",
+      "qualified_name": "HISTSIZE",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "function",
+      "name": "prompt_setup",
+      "qualified_name": "prompt_setup",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "function",
+      "name": "precmd",
+      "qualified_name": "precmd",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "file",
+      "name": "aliases.zsh",
+      "qualified_name": "lib/aliases.zsh",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "variable",
+      "name": "ALIAS_VERSION",
+      "qualified_name": "ALIAS_VERSION",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "function",
+      "name": "mkcd",
+      "qualified_name": "mkcd",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "function",
+      "name": "up",
+      "qualified_name": "up",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "file",
+      "name": "git-extras.plugin.zsh",
+      "qualified_name": "plugins/git-extras/git-extras.plugin.zsh",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "import",
+      "name": "./lib/aliases.zsh",
+      "qualified_name": "./lib/aliases.zsh",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "constant",
+      "name": "GIT_EXTRAS_DIR",
+      "qualified_name": "GIT_EXTRAS_DIR",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "variable",
+      "name": "GIT_PAGER",
+      "qualified_name": "GIT_PAGER",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "function",
+      "name": "git_current_branch",
+      "qualified_name": "git_current_branch",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "function",
+      "name": "git_sync",
+      "qualified_name": "git_sync",
+      "start_line": 10,
+      "end_line": 15
+    }
+  ],
+  "edges": [
+    {
+      "file": "dotfiles/.zlogin",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zlogin",
+      "target_kind": "variable",
+      "target": "LAST_LOGIN",
+      "target_file": "dotfiles/.zlogin",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zlogin",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "dotfiles/.zlogin",
+      "target_kind": "function",
+      "target": "up",
+      "target_file": "lib/aliases.zsh",
+      "line": 2
+    },
+    {
+      "file": "dotfiles/.zprofile",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zprofile",
+      "target_kind": "import",
+      "target": "./lib/aliases.zsh",
+      "target_file": "dotfiles/.zprofile",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zprofile",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zprofile",
+      "target_kind": "function",
+      "target": "login_banner",
+      "target_file": "dotfiles/.zprofile",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zprofile",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "dotfiles/.zprofile",
+      "target_kind": "function",
+      "target": "login_banner",
+      "target_file": "dotfiles/.zprofile",
+      "line": 5
+    },
+    {
+      "file": "dotfiles/.zshenv",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshenv",
+      "target_kind": "variable",
+      "target": "ZDOTDIR",
+      "target_file": "dotfiles/.zshenv",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshenv",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshenv",
+      "target_kind": "variable",
+      "target": "path",
+      "target_file": "dotfiles/.zshenv",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "import",
+      "target": "./lib/aliases.zsh",
+      "target_file": "dotfiles/.zshrc",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "import",
+      "target": "./plugins/git-extras/git-extras.plugin.zsh",
+      "target_file": "dotfiles/.zshrc",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "variable",
+      "target": "EDITOR",
+      "target_file": "dotfiles/.zshrc",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "variable",
+      "target": "HISTSIZE",
+      "target_file": "dotfiles/.zshrc",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "function",
+      "target": "precmd",
+      "target_file": "dotfiles/.zshrc",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "function",
+      "target": "prompt_setup",
+      "target_file": "dotfiles/.zshrc",
+      "line": null
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "precmd",
+      "target_kind": "function",
+      "target": "prompt_setup",
+      "target_file": "dotfiles/.zshrc",
+      "line": 14
+    },
+    {
+      "file": "dotfiles/.zshrc",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "dotfiles/.zshrc",
+      "target_kind": "function",
+      "target": "git_sync",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": 21
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/aliases.zsh",
+      "target_kind": "variable",
+      "target": "ALIAS_VERSION",
+      "target_file": "lib/aliases.zsh",
+      "line": null
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/aliases.zsh",
+      "target_kind": "function",
+      "target": "mkcd",
+      "target_file": "lib/aliases.zsh",
+      "line": null
+    },
+    {
+      "file": "lib/aliases.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/aliases.zsh",
+      "target_kind": "function",
+      "target": "up",
+      "target_file": "lib/aliases.zsh",
+      "line": null
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "plugins/git-extras/git-extras.plugin.zsh",
+      "target_kind": "import",
+      "target": "./lib/aliases.zsh",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": null
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "plugins/git-extras/git-extras.plugin.zsh",
+      "target_kind": "constant",
+      "target": "GIT_EXTRAS_DIR",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": null
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "plugins/git-extras/git-extras.plugin.zsh",
+      "target_kind": "variable",
+      "target": "GIT_PAGER",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": null
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "plugins/git-extras/git-extras.plugin.zsh",
+      "target_kind": "function",
+      "target": "git_current_branch",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": null
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "plugins/git-extras/git-extras.plugin.zsh",
+      "target_kind": "function",
+      "target": "git_sync",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": null
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "git_sync",
+      "target_kind": "function",
+      "target": "git_current_branch",
+      "target_file": "plugins/git-extras/git-extras.plugin.zsh",
+      "line": 11
+    },
+    {
+      "file": "plugins/git-extras/git-extras.plugin.zsh",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "git_sync",
+      "target_kind": "function",
+      "target": "mkcd",
+      "target_file": "lib/aliases.zsh",
+      "line": 14
+    }
+  ],
+  "unresolved": []
+}

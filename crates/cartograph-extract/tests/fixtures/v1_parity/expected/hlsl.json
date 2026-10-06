@@ -1,0 +1,423 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "hlsl",
+  "files": [
+    "shaders/blur_cs.hlsl",
+    "shaders/common.hlsli",
+    "shaders/effect.fx",
+    "shaders/lit.hlsl",
+    "shaders/post.fxh"
+  ],
+  "symbols": [
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "file",
+      "name": "blur_cs.hlsl",
+      "qualified_name": "shaders/blur_cs.hlsl",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "variable",
+      "name": "output",
+      "qualified_name": "output",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "variable",
+      "name": "input",
+      "qualified_name": "input",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "function",
+      "name": "load",
+      "qualified_name": "load",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "function",
+      "name": "CSMain",
+      "qualified_name": "CSMain",
+      "start_line": 12,
+      "end_line": 18
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "file",
+      "name": "common.hlsli",
+      "qualified_name": "shaders/common.hlsli",
+      "start_line": 1,
+      "end_line": 32
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "struct",
+      "name": "VSInput",
+      "qualified_name": "VSInput",
+      "start_line": 6,
+      "end_line": 10
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "struct",
+      "name": "PSInput",
+      "qualified_name": "PSInput",
+      "start_line": 12,
+      "end_line": 16
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "function",
+      "name": "saturateDot",
+      "qualified_name": "saturateDot",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "function",
+      "name": "lambert",
+      "qualified_name": "lambert",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "file",
+      "name": "effect.fx",
+      "qualified_name": "shaders/effect.fx",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "variable",
+      "name": "tint",
+      "qualified_name": "tint",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "function",
+      "name": "applyTint",
+      "qualified_name": "applyTint",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "file",
+      "name": "lit.hlsl",
+      "qualified_name": "shaders/lit.hlsl",
+      "start_line": 1,
+      "end_line": 23
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "variable",
+      "name": "albedoTex",
+      "qualified_name": "albedoTex",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "variable",
+      "name": "linearSampler",
+      "qualified_name": "linearSampler",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "function",
+      "name": "VSMain",
+      "qualified_name": "VSMain",
+      "start_line": 10,
+      "end_line": 16
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "function",
+      "name": "PSMain",
+      "qualified_name": "PSMain",
+      "start_line": 18,
+      "end_line": 22
+    },
+    {
+      "file": "shaders/post.fxh",
+      "kind": "file",
+      "name": "post.fxh",
+      "qualified_name": "shaders/post.fxh",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "shaders/post.fxh",
+      "kind": "function",
+      "name": "luminance",
+      "qualified_name": "luminance",
+      "start_line": 1,
+      "end_line": 3
+    }
+  ],
+  "edges": [
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur_cs.hlsl",
+      "target_kind": "function",
+      "target": "CSMain",
+      "target_file": "shaders/blur_cs.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur_cs.hlsl",
+      "target_kind": "variable",
+      "target": "input",
+      "target_file": "shaders/blur_cs.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur_cs.hlsl",
+      "target_kind": "function",
+      "target": "load",
+      "target_file": "shaders/blur_cs.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur_cs.hlsl",
+      "target_kind": "variable",
+      "target": "output",
+      "target_file": "shaders/blur_cs.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "CSMain",
+      "target_kind": "function",
+      "target": "load",
+      "target_file": "shaders/blur_cs.hlsl",
+      "line": 14
+    },
+    {
+      "file": "shaders/blur_cs.hlsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "CSMain",
+      "target_kind": "function",
+      "target": "luminance",
+      "target_file": "shaders/post.fxh",
+      "line": 16
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.hlsli",
+      "target_kind": "struct",
+      "target": "PSInput",
+      "target_file": "shaders/common.hlsli",
+      "line": null
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.hlsli",
+      "target_kind": "struct",
+      "target": "VSInput",
+      "target_file": "shaders/common.hlsli",
+      "line": null
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.hlsli",
+      "target_kind": "function",
+      "target": "lambert",
+      "target_file": "shaders/common.hlsli",
+      "line": null
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.hlsli",
+      "target_kind": "function",
+      "target": "saturateDot",
+      "target_file": "shaders/common.hlsli",
+      "line": null
+    },
+    {
+      "file": "shaders/common.hlsli",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "lambert",
+      "target_kind": "function",
+      "target": "saturateDot",
+      "target_file": "shaders/common.hlsli",
+      "line": 28
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/effect.fx",
+      "target_kind": "function",
+      "target": "applyTint",
+      "target_file": "shaders/effect.fx",
+      "line": null
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/effect.fx",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/effect.fx",
+      "line": null
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/effect.fx",
+      "target_kind": "variable",
+      "target": "tint",
+      "target_file": "shaders/effect.fx",
+      "line": null
+    },
+    {
+      "file": "shaders/effect.fx",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "applyTint",
+      "target_file": "shaders/effect.fx",
+      "line": 8
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/lit.hlsl",
+      "target_kind": "function",
+      "target": "PSMain",
+      "target_file": "shaders/lit.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/lit.hlsl",
+      "target_kind": "function",
+      "target": "VSMain",
+      "target_file": "shaders/lit.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/lit.hlsl",
+      "target_kind": "variable",
+      "target": "albedoTex",
+      "target_file": "shaders/lit.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/lit.hlsl",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "shaders/lit.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/lit.hlsl",
+      "target_kind": "variable",
+      "target": "linearSampler",
+      "target_file": "shaders/lit.hlsl",
+      "line": null
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "PSMain",
+      "target_kind": "function",
+      "target": "lambert",
+      "target_file": "shaders/common.hlsli",
+      "line": 20
+    },
+    {
+      "file": "shaders/lit.hlsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "PSMain",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "shaders/lit.hlsl",
+      "line": 21
+    },
+    {
+      "file": "shaders/post.fxh",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/post.fxh",
+      "target_kind": "function",
+      "target": "luminance",
+      "target_file": "shaders/post.fxh",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

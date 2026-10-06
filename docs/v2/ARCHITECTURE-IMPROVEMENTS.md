@@ -1,5 +1,10 @@
 # Architecture improvement scope and evidence
 
+[Documentation home](../README.md) · [Changelog](../RELEASES.md#dependency-audits) · [V2 architecture](ARCHITECTURE.md)
+
+> [!NOTE]
+> Dated historical record of the 2026-09-08 architecture review; this work shipped in [v2.1.28](../releases/v2.1.28.md).
+
 This development package follows the 2026-09-08 review of `v2.1.27`, based on
 commit `12dc7c3fe215c2bebd24e840ce4aabed54043476`. It preserves native Rust,
 PostgreSQL-only storage, immutable generations, explicit uncertainty, bounded

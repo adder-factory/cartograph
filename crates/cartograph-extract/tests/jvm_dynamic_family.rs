@@ -4,7 +4,7 @@ mod dependency_ownership;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
+use cartograph_domain::{FileParseStatus, ReferenceKind, SourceLanguage, SymbolKind, Visibility};
 use cartograph_extract::{
     ExtractError, ExtractedFile, ExtractedSymbol, ImportBindingKind, NativeExtractor, SourceLimits,
     SourceSnapshot,
@@ -14,6 +14,65 @@ const SOURCE_LIMIT: usize = 1024 * 1024;
 const KOTLIN_ORACLE: &str = include_str!("fixtures/v1_1_33/repository.kt");
 const SCALA_ORACLE: &str = include_str!("fixtures/v1_1_33/container.scala");
 const GROOVY_ORACLE: &str = include_str!("fixtures/v1_1_33/greeter.groovy");
+
+#[test]
+fn groovy_wide_error_lines_bound_lookback_and_abstain() {
+    let source = format!(
+        "def run() {{ {}; @ }}\n",
+        (0..256)
+            .map(|index| format!("call{index}()"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    let extracted = extract("src/WideError.groovy", &source);
+    let run = symbol(&extracted, SymbolKind::Function, "run", "run");
+    assert_reference_owned_by(&extracted, run, "call0", ReferenceKind::Calls);
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| reference.name == "call255"),
+        "a lookback beyond the charged scan bound must abstain"
+    );
+}
+
+#[test]
+fn groovy_multiline_error_parents_charge_skipped_siblings() {
+    let source = format!(
+        "def run() {{\n{}\n @\n}}\n",
+        (0..256)
+            .map(|index| format!("call{index}()"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let extracted = extract("src/MultilineError.groovy", &source);
+    let run = symbol(&extracted, SymbolKind::Function, "run", "run");
+    assert_reference_owned_by(&extracted, run, "call0", ReferenceKind::Calls);
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| reference.name == "call255"),
+        "skipping prior rows consumes the lookback budget"
+    );
+}
+
+#[test]
+fn groovy_error_free_deep_parentheses_keep_their_call() {
+    let source = format!(
+        "def run() {{ {}helper(){} }}\n",
+        "(".repeat(160),
+        ")".repeat(160)
+    );
+    let extracted = extract("src/Nested.groovy", &source);
+    assert!(
+        extracted.diagnostics.is_empty(),
+        "error-free nesting has no diagnostics: {:?}",
+        extracted.diagnostics
+    );
+    let run = symbol(&extracted, SymbolKind::Function, "run", "run");
+    assert_reference_owned_by(&extracted, run, "helper", ReferenceKind::Calls);
+}
 
 #[test]
 fn kotlin_preserves_v1_type_structure_and_adds_jvm_reference_semantics() {
@@ -524,6 +583,324 @@ fn jvm_dynamic_signatures_drop_defaults_and_oversized_declarations() {
     );
     symbol_with_signature(&groovy, SymbolKind::Function, "safe", "def (value)");
     assert!(!format!("{groovy:?}").contains("sk_live_groovy_signature"));
+}
+
+#[test]
+fn kotlin_groovy_and_scala_annotations_decorate_their_declarations() {
+    let kotlin = extract(
+        "src/a/Svc.kt",
+        "package a\n\n@Service\n@org.springframework.stereotype.Component\nclass Svc(@Value(\"\\${app.url}\") val url: String) {\n    @field:Autowired\n    private val repo: Repo? = null\n    @Transactional\n    fun go() {}\n    fun plain() {}\n}\nenum class E { @JsonProperty(\"annotation_literal_sentinel\") A, B }\n",
+    );
+    let svc = symbol(&kotlin, SymbolKind::Class, "Svc", "a::Svc");
+    assert_reference_owned_by(&kotlin, svc, "Service", ReferenceKind::Decorates);
+    assert_reference_owned_by(
+        &kotlin,
+        svc,
+        "org.springframework.stereotype.Component",
+        ReferenceKind::Decorates,
+    );
+    let url = symbol(&kotlin, SymbolKind::Field, "url", "a::Svc::url");
+    assert_reference_owned_by(&kotlin, url, "Value", ReferenceKind::Decorates);
+    let repo = symbol(&kotlin, SymbolKind::Field, "repo", "a::Svc::repo");
+    assert_reference_owned_by(&kotlin, repo, "Autowired", ReferenceKind::Decorates);
+    let go = symbol(&kotlin, SymbolKind::Method, "go", "a::Svc::go");
+    assert_reference_owned_by(&kotlin, go, "Transactional", ReferenceKind::Decorates);
+    let member = symbol(&kotlin, SymbolKind::EnumMember, "A", "a::E::A");
+    assert_reference_owned_by(&kotlin, member, "JsonProperty", ReferenceKind::Decorates);
+    let plain = symbol(&kotlin, SymbolKind::Method, "plain", "a::Svc::plain");
+    assert_eq!(decorations(&kotlin, plain), Vec::<&str>::new());
+    assert_eq!(decorations(&kotlin, go), vec!["Transactional"]);
+    assert!(!format!("{kotlin:?}").contains("annotation_literal_sentinel"));
+
+    let groovy = extract(
+        "src/a/Svc.groovy",
+        "package a\n\n@Slf4j\nclass Svc {\n    @Autowired Repo repo\n    @Transactional\n    def go() {}\n    def plain() {}\n}\n",
+    );
+    let svc = symbol(&groovy, SymbolKind::Class, "Svc", "a::Svc");
+    assert_reference_owned_by(&groovy, svc, "Slf4j", ReferenceKind::Decorates);
+    let go = symbol(&groovy, SymbolKind::Method, "go", "a::Svc::go");
+    assert_reference_owned_by(&groovy, go, "Transactional", ReferenceKind::Decorates);
+    let repo = symbol(&groovy, SymbolKind::Field, "repo", "a::Svc::repo");
+    assert_reference_owned_by(&groovy, repo, "Autowired", ReferenceKind::Decorates);
+    let plain = symbol(&groovy, SymbolKind::Method, "plain", "a::Svc::plain");
+    assert_eq!(decorations(&groovy, plain), Vec::<&str>::new());
+
+    let scala = extract(
+        "src/demo/Svc.scala",
+        "package demo\n\n@Service\nclass Svc {\n  @Transactional def go(): Unit = {}\n  def plain(): Unit = {}\n}\n",
+    );
+    let svc = symbol(&scala, SymbolKind::Class, "Svc", "demo::Svc");
+    assert_reference_owned_by(&scala, svc, "Service", ReferenceKind::Decorates);
+    let go = symbol(&scala, SymbolKind::Method, "go", "demo::Svc::go");
+    assert_reference_owned_by(&scala, go, "Transactional", ReferenceKind::Decorates);
+    let plain = symbol(&scala, SymbolKind::Method, "plain", "demo::Svc::plain");
+    assert_eq!(decorations(&scala, plain), Vec::<&str>::new());
+}
+
+#[test]
+fn kotlin_annotated_parameters_become_decorated_parameter_symbols() {
+    let extracted = extract(
+        "src/UserMapper.kt",
+        "interface UserMapper {\n  fun find(@Param(\"id\") id: UserId, plain: Int): User\n  fun findByName(@Param(\"name\") name: String, @Param(\"limit\") limit: Int): List<User>\n  fun create(plainParam: User, @Param(\"param_literal_sentinel\") audit: String)\n}\n",
+    );
+    let find = symbol(&extracted, SymbolKind::Method, "find", "UserMapper::find");
+    let id = symbol_with_signature(
+        &extracted,
+        SymbolKind::Parameter,
+        "UserMapper::find::id",
+        "id: UserId",
+    );
+    assert_containment(&extracted, find, id);
+    assert_reference_owned_by(&extracted, id, "Param", ReferenceKind::Decorates);
+    assert_reference_owned_by(&extracted, id, "UserId", ReferenceKind::TypeOf);
+    let parameters = extracted
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Parameter)
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        parameters,
+        BTreeSet::from([
+            "UserMapper::create::audit",
+            "UserMapper::find::id",
+            "UserMapper::findByName::limit",
+            "UserMapper::findByName::name",
+        ]),
+        "unannotated parameters must not become symbols"
+    );
+    assert!(!format!("{extracted:?}").contains("param_literal_sentinel"));
+}
+
+#[test]
+fn kotlin_extension_functions_are_receiver_qualified_functions() {
+    let extracted = extract(
+        "src/com/demo/Ext.kt",
+        "package com.demo\n\nclass Cfg\nfun String.shout(): String = this.uppercase()\nfun Map<String, Int>.total(): Int = 0\nfun Cfg.extra() {}\nfun com.demo.Cfg.qualified() {}\nfun Cfg?.nullable() {}\nfun @Ann Cfg.annotated() {}\nfun (Cfg).parenthesized() {}\nfun a.Cfg.run() {}\nfun b.Cfg.run() {}\nfun plain() {}\nobject Holder { fun String.inner() {} }\n",
+    );
+    let shout = symbol_with_signature(
+        &extracted,
+        SymbolKind::Function,
+        "com.demo::String::shout",
+        "(): String",
+    );
+    assert_reference_owned_by(&extracted, shout, "String", ReferenceKind::TypeOf);
+    symbol(
+        &extracted,
+        SymbolKind::Function,
+        "total",
+        "com.demo::Map::total",
+    );
+    let package = symbol(&extracted, SymbolKind::Namespace, "com.demo", "com.demo");
+    let cfg = symbol(&extracted, SymbolKind::Class, "Cfg", "com.demo::Cfg");
+    for (name, qualified) in [
+        ("extra", "com.demo::Cfg::extra"),
+        ("nullable", "com.demo::Cfg::nullable"),
+        ("annotated", "com.demo::Cfg::annotated"),
+        ("parenthesized", "com.demo::Cfg::parenthesized"),
+    ] {
+        let method = symbol(&extracted, SymbolKind::Function, name, qualified);
+        // Lexical ownership stays with the package: a same-named type is never
+        // assumed to own an extension declared outside its body.
+        assert_containment(&extracted, package, method);
+        assert!(
+            !extracted
+                .containments
+                .iter()
+                .any(|edge| edge.parent == cfg.id && edge.child == method.id),
+            "{qualified} was attached to a type it is not declared in"
+        );
+    }
+    // A receiver's type annotation stays a type use of the extension, as in
+    // every other Kotlin type position.
+    let annotated = symbol(
+        &extracted,
+        SymbolKind::Function,
+        "annotated",
+        "com.demo::Cfg::annotated",
+    );
+    assert_reference_owned_by(&extracted, annotated, "Ann", ReferenceKind::TypeOf);
+    assert_reference_owned_by(&extracted, annotated, "Cfg", ReferenceKind::TypeOf);
+    let qualified = symbol(
+        &extracted,
+        SymbolKind::Function,
+        "qualified",
+        "com.demo::com.demo.Cfg::qualified",
+    );
+    assert_reference_owned_by(&extracted, qualified, "Cfg", ReferenceKind::TypeOf);
+    assert!(
+        extracted.references.iter().all(|reference| {
+            reference.kind != ReferenceKind::TypeOf
+                || !matches!(reference.name.as_str(), "com" | "demo" | "a" | "b")
+                    && !reference.name.contains('.')
+        }),
+        "qualified receiver package segments became type references: {:?}",
+        reference_facts(&extracted),
+    );
+    // Explicitly qualified receivers keep their written path, so extensions on
+    // `a.Cfg` and `b.Cfg` never share an identity.
+    symbol(
+        &extracted,
+        SymbolKind::Function,
+        "run",
+        "com.demo::a.Cfg::run",
+    );
+    symbol(
+        &extracted,
+        SymbolKind::Function,
+        "run",
+        "com.demo::b.Cfg::run",
+    );
+    symbol(&extracted, SymbolKind::Function, "plain", "com.demo::plain");
+    symbol(
+        &extracted,
+        SymbolKind::Method,
+        "inner",
+        "com.demo::Holder::inner",
+    );
+    assert!(
+        extracted
+            .symbols
+            .iter()
+            .all(|symbol| symbol.qualified_name != "com.demo::shout"),
+        "extension function kept its unqualified function identity"
+    );
+}
+
+#[test]
+fn groovy_recovered_enums_keep_their_methods() {
+    // The Groovy grammar has no `enum` rule, so `enum Tone { ... }` parses as
+    // a call whose closure holds the constants in an ERROR node; the methods
+    // after the constants must still be extracted as enum members.
+    let extracted = extract(
+        "src/demo/Tone.groovy",
+        "package demo\n\nenum Tone {\n    FORMAL, CASUAL\n\n    String prefix() {\n        return this == FORMAL ? 'Dear' : 'Hey'\n    }\n}\n",
+    );
+    let tone = symbol(&extracted, SymbolKind::Enum, "Tone", "demo::Tone");
+    let formal = symbol(
+        &extracted,
+        SymbolKind::EnumMember,
+        "FORMAL",
+        "demo::Tone::FORMAL",
+    );
+    assert_containment(&extracted, tone, formal);
+    let prefix = symbol(
+        &extracted,
+        SymbolKind::Method,
+        "prefix",
+        "demo::Tone::prefix",
+    );
+    assert_eq!(prefix.span.start_line(), 6);
+    assert_containment(&extracted, tone, prefix);
+    assert_reference_owned_by(&extracted, prefix, "String", ReferenceKind::Returns);
+    assert_unique_ids(&extracted);
+
+    // A constant-specific body is not a declaration of the enum itself.
+    let bodies = extract(
+        "src/demo/Mode.groovy",
+        "package demo\n\nenum Mode {\n    FAST { String speed() { 'fast' } }, SLOW\n\n    String label() { name() }\n}\n",
+    );
+    symbol(&bodies, SymbolKind::Method, "label", "demo::Mode::label");
+    assert!(
+        bodies
+            .symbols
+            .iter()
+            .all(|symbol| symbol.qualified_name != "demo::Mode::speed"),
+        "a constant-specific method was owned by the enum: {:?}",
+        symbol_facts(&bodies)
+    );
+}
+
+#[test]
+fn groovy_member_command_calls_are_calls() {
+    // `greeter.greet('x').endsWith('x')` parses as a juxtaposed (command) call
+    // whose function is `greeter.greet`; a Spock feature named by a string is
+    // split by error recovery into calls (`with a`, `tone "..."`, `a.b c`,
+    // `q.r()`) that start inside the title literal and are not calls.
+    let extracted = extract(
+        "src/test/demo/GreeterSpec.groovy",
+        "package demo\n\nclass GreeterSpec extends Specification {\n    def plain() {\n        /* don't */ log.warn 'w'\n        def text = \"Hi ${name.trim()}\"\n    }\n    def \"greets with a tone\"() {\n        expect:\n        greeter.greet('x').endsWith('x')\n        log.info 'done'\n    }\n    def \"uses a.b c\"() {\n        expect:\n        greeter.greet 'y'\n    }\n    def \"uses q.r() s\"() {\n    }\n}\n",
+    );
+    let calls = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .map(|reference| (reference.name.as_str(), reference.span.start_line()))
+        .collect::<Vec<_>>();
+    // A comment before a command call and a GString interpolation are code.
+    assert!(calls.contains(&("log.warn", 5)), "{calls:?}");
+    assert!(calls.contains(&("name.trim", 6)), "{calls:?}");
+    assert!(calls.contains(&("greeter.greet", 10)), "{calls:?}");
+    assert!(calls.contains(&("log.info", 11)), "{calls:?}");
+    assert!(calls.contains(&("greeter.greet", 15)), "{calls:?}");
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| matches!(reference.span.start_line(), 8 | 13 | 17)),
+        "a string-named feature title produced references: {:?}",
+        reference_facts(&extracted)
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|(name, _)| matches!(*name, "with" | "tone" | "a.b" | "uses" | "q.r")),
+        "string-named feature words became calls: {calls:?}"
+    );
+    assert!(
+        !extracted.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::FieldAccess && reference.name == "greet"
+        }),
+        "the called member is also a field access: {:?}",
+        reference_facts(&extracted)
+    );
+}
+
+#[test]
+fn groovy_calls_after_literals_in_parsed_code_are_kept() {
+    // Only error recovery turns literal words into calls; in cleanly parsed
+    // code every call is kept, even after literal forms a line re-lex cannot
+    // read (a block comment opened on an earlier line, slashy and
+    // dollar-slashy strings holding quotes) and after a very long line prefix.
+    let padding = "x".repeat(5_000);
+    let source = format!(
+        "class H {{\n    def run() {{\n        /* comment\n        it's finished */ log.warn(\"w\")\n        def p = $/don't/$; svc.dollar()\n        def u = /a\"b/; svc.slashy(); u.size\n        def text = '{padding}'; svc.far(); text.size\n    }}\n}}\n"
+    );
+    let extracted = extract("src/demo/H.groovy", &source);
+    assert_eq!(extracted.parse_status, FileParseStatus::Parsed);
+    let facts = extracted
+        .references
+        .iter()
+        .map(|reference| {
+            (
+                reference.kind,
+                reference.name.as_str(),
+                reference.span.start_line(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        (ReferenceKind::Calls, "log.warn", 4),
+        (ReferenceKind::Calls, "svc.dollar", 5),
+        (ReferenceKind::Calls, "svc.slashy", 6),
+        (ReferenceKind::FieldAccess, "size", 6),
+        (ReferenceKind::Calls, "svc.far", 7),
+        (ReferenceKind::FieldAccess, "size", 7),
+    ] {
+        assert!(facts.contains(&expected), "missing {expected:?}: {facts:?}");
+    }
+}
+
+fn decorations<'file>(extracted: &'file ExtractedFile, owner: &ExtractedSymbol) -> Vec<&'file str> {
+    extracted
+        .references
+        .iter()
+        .filter(|reference| {
+            reference.kind == ReferenceKind::Decorates
+                && reference.owner.as_ref() == Some(&owner.id)
+        })
+        .map(|reference| reference.name.as_str())
+        .collect()
 }
 
 fn extract(path: &str, source: &str) -> ExtractedFile {

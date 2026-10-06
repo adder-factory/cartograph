@@ -19,20 +19,24 @@ The native executable uses these principal projects:
 
 | Project | License | Use |
 | --- | --- | --- |
-| [Rust](https://www.rust-lang.org/) | Apache-2.0 / MIT | Language, standard library, and toolchain |
+| [Rust](https://www.rust-lang.org/) | MIT OR Apache-2.0 | Language, standard library, and toolchain |
 | [Tokio](https://tokio.rs/) | MIT | Bounded asynchronous runtime, process supervision, deadlines, and cancellation |
-| [SQLx](https://github.com/launchbadge/sqlx) | Apache-2.0 / MIT | PostgreSQL protocol, pools, transactions, COPY, and typed row decoding |
-| [Serde](https://serde.rs/) / [serde_json](https://github.com/serde-rs/json) | Apache-2.0 / MIT | Validated JSON protocol and persistence boundaries |
-| [clap](https://github.com/clap-rs/clap) | Apache-2.0 / MIT | Native CLI parsing and help |
+| [SQLx](https://github.com/launchbadge/sqlx) (`sqlx-core`, `sqlx-postgres`) | MIT OR Apache-2.0 | PostgreSQL protocol, pools, transactions, COPY, and typed row decoding |
+| [Serde](https://serde.rs/) / [serde_json](https://github.com/serde-rs/json) | MIT OR Apache-2.0 | Validated JSON protocol and persistence boundaries |
+| [clap](https://github.com/clap-rs/clap) | MIT OR Apache-2.0 | Native CLI parsing and help |
 | [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) | MIT | Incremental concrete syntax parsing |
-| [BLAKE3](https://github.com/BLAKE3-team/BLAKE3) | Apache-2.0 / CC0-1.0 | Stable identities, source revisions, and logical generation digests |
-| [rustls](https://github.com/rustls/rustls) / [ring](https://github.com/briansmith/ring) | Apache-2.0 / ISC / MIT | TLS used by PostgreSQL connections |
-| [ignore](https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore) | MIT / Unlicense | Git-compatible bounded source discovery |
+| [BLAKE3](https://github.com/BLAKE3-team/BLAKE3) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | Stable identities, source revisions, and logical generation digests |
+| [reqwest](https://github.com/seanmonstar/reqwest) | MIT OR Apache-2.0 | HTTP client for optional LLM, embedding, and Jev providers and for `cartograph upgrade` release downloads |
+| [rustls](https://github.com/rustls/rustls) | Apache-2.0 OR ISC OR MIT | TLS used by PostgreSQL connections and HTTPS requests |
+| [ring](https://github.com/briansmith/ring) | Apache-2.0 AND ISC | Cryptography provider for rustls |
+| [ignore](https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore) | Unlicense OR MIT | Git-compatible bounded source discovery |
 | [notify](https://github.com/notify-rs/notify) | CC0-1.0 | Native recursive filesystem watching with a bounded polling fallback |
-| [secrecy](https://github.com/iqlusioninc/crates/tree/main/secrecy) | Apache-2.0 / MIT | Secret-bearing database URL wrappers |
-| [toml_edit](https://github.com/toml-rs/toml) | Apache-2.0 / MIT | Format-preserving Codex MCP configuration updates |
-| [tempfile](https://github.com/Stebalien/tempfile) | Apache-2.0 / MIT | Private temporary files and atomic configuration persistence |
-| [thiserror](https://github.com/dtolnay/thiserror) | Apache-2.0 / MIT | Structured, redacted error contracts |
+| [secrecy](https://github.com/iqlusioninc/crates/tree/main/secrecy) | Apache-2.0 OR MIT | Secret-bearing database URL wrappers |
+| [toml_edit](https://github.com/toml-rs/toml) | MIT OR Apache-2.0 | Format-preserving Codex MCP configuration updates |
+| [tempfile](https://github.com/Stebalien/tempfile) | MIT OR Apache-2.0 | Private temporary files and atomic configuration persistence |
+| [thiserror](https://github.com/dtolnay/thiserror) | MIT OR Apache-2.0 | Structured, redacted error contracts |
+
+Crate licenses are the SPDX expressions recorded for the locked versions.
 
 The release gate runs `cargo deny` against the locked dependency graph for
 advisories, licenses, banned SQLite crates, duplicate exceptions, and source
@@ -41,7 +45,9 @@ provenance. `Cargo.lock` is the authoritative version inventory for a release.
 ## Native Tree-sitter grammars
 
 Cartograph links the Rust grammar crates listed below. It does not bundle the
-old v1 WebAssembly grammar collection.
+old v1 WebAssembly grammar collection. `Cargo.lock` (exact versions) and
+`deny.toml` (the enforced license allowlist) remain the authoritative
+inventory.
 
 | Grammar family | Upstream | License |
 | --- | --- | --- |
@@ -50,6 +56,26 @@ old v1 WebAssembly grammar collection.
 | Rust | [tree-sitter/tree-sitter-rust](https://github.com/tree-sitter/tree-sitter-rust) | MIT |
 | Python | [tree-sitter/tree-sitter-python](https://github.com/tree-sitter/tree-sitter-python) | MIT |
 | Go | [tree-sitter/tree-sitter-go](https://github.com/tree-sitter/tree-sitter-go) | MIT |
+| OCaml (`tree-sitter-ocaml`) | [tree-sitter/tree-sitter-ocaml](https://github.com/tree-sitter/tree-sitter-ocaml) | MIT |
+| Embedded templates (`tree-sitter-embedded-template`) | [tree-sitter/tree-sitter-embedded-template](https://github.com/tree-sitter/tree-sitter-embedded-template) | MIT |
+| 42 `arborium-*` grammar crates (41 declared directly, plus `arborium-javascript`, pulled in by `arborium-html`) | [bearcove/arborium](https://github.com/bearcove/arborium) | MIT, except `arborium-clojure` and `arborium-fish` (Unlicense) and `arborium-elixir` and `arborium-hcl` (Apache-2.0) |
+| ABAP (`tree-sitter-abap-sqry`, `sqry-tree-sitter-support`) | [verivus-oss/sqry](https://github.com/verivus-oss/sqry) | MIT |
+| Ada (`tree-sitter-ada`) | [briot/tree-sitter-ada](https://github.com/briot/tree-sitter-ada) | MIT |
+| ArkTS (`tree-sitter-arkts`) | [harmony-contrib/tree-sitter-arkts](https://github.com/harmony-contrib/tree-sitter-arkts) | MIT |
+| Astro (`tree-sitter-astro-next`) | [PRRPCHT/tree-sitter-astro-next](https://github.com/PRRPCHT/tree-sitter-astro-next) | MIT OR Apache-2.0 |
+| CUDA (`tree-sitter-cuda`) | [tree-sitter-grammars/tree-sitter-cuda](https://github.com/tree-sitter-grammars/tree-sitter-cuda) | MIT |
+| Luau (`tree-sitter-luau`) | [tree-sitter-grammars/tree-sitter-luau](https://github.com/tree-sitter-grammars/tree-sitter-luau) | MIT |
+| Pascal (`tree-sitter-pascal`) | [Isopod/tree-sitter-pascal](https://github.com/Isopod/tree-sitter-pascal) | MIT |
+| Prisma (`tree-sitter-prisma-io`) | [victorhqc/tree-sitter-prisma](https://github.com/victorhqc/tree-sitter-prisma) | MIT |
+| Salesforce Apex (`tree-sitter-sfapex`) | [aheber/tree-sitter-sfapex](https://github.com/aheber/tree-sitter-sfapex) | MIT |
+| Slang (`tree-sitter-slang`) | [theHamsta/tree-sitter-slang](https://github.com/theHamsta/tree-sitter-slang) | MIT |
+| WGSL (`tree-sitter-wgsl-bevy`) | [tree-sitter-grammars/tree-sitter-wgsl-bevy](https://github.com/tree-sitter-grammars/tree-sitter-wgsl-bevy) | MIT |
+
+The `arborium-*` crates cover Bash, C, C#, Clojure, Common Lisp, C++, CSS,
+Dart, Elixir, Fish, F#, GLSL, GraphQL, Groovy, Haskell, HCL, HLSL, HTML, Java,
+JavaScript, JSDoc, JSON, Julia, Kotlin, Lean, Lua, Nix, Objective-C, PHP,
+PowerShell, R, regular expressions, ReScript, Ruby, Scala, Solidity, SQL,
+Swift, Visual Basic, Verilog, VHDL, and YAML.
 
 Max Brunsfeld and Tree-sitter contributors created and maintain the parsing
 runtime; the grammar repositories are maintained by their respective
@@ -66,9 +92,10 @@ Cartograph requires separately installed services and extensions:
 
 These projects are not copied into or redistributed with Cartograph's native
 release archives. `cartograph db start` instructs the user's local Docker daemon
-to pull an upstream, digest-pinned ParadeDB image as a separate service. See
-[`docs/v2/LICENSING.md`](docs/v2/LICENSING.md) for the enforced distribution and
-supported-use boundary.
+to pull an upstream, digest-pinned ParadeDB image as a separate service. The
+enforced distribution and supported-use boundary ships in each release archive
+as `share/cartograph/PARADEDB-NOTICE.md`; its source is
+[`docs/v2/LICENSING.md`](https://github.com/adder-factory/cartograph/blob/main/docs/v2/LICENSING.md).
 
 ## Build and quality tools
 

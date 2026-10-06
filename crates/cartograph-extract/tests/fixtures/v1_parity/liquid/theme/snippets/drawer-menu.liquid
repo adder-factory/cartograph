@@ -1,0 +1,6 @@
+<nav class="drawer">
+  {% for link in links %}
+    <a href="{{ link.url }}">{{ link.title }}</a>
+  {% endfor %}
+  {% render 'icon-cart' %}
+</nav>

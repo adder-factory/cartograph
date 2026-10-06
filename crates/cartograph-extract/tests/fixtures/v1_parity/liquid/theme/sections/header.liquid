@@ -1,0 +1,13 @@
+<header>
+  {% render 'drawer-menu', links: section.settings.menu %}
+  {% assign logo = section.settings.logo %}
+</header>
+
+{% schema %}
+{
+  "name": "Header",
+  "settings": [
+    { "type": "link_list", "id": "menu", "label": "Menu" }
+  ]
+}
+{% endschema %}

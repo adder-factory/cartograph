@@ -1,0 +1,56 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "embedded_template",
+  "files": [
+    "app/views/layouts/application.html.erb",
+    "app/views/users/index.html.erb",
+    "lua/view.etlua",
+    "templates/page.eta",
+    "views/index.ejs"
+  ],
+  "symbols": [
+    {
+      "file": "app/views/layouts/application.html.erb",
+      "kind": "file",
+      "name": "application.html.erb",
+      "qualified_name": "app/views/layouts/application.html.erb",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "app/views/users/index.html.erb",
+      "kind": "file",
+      "name": "index.html.erb",
+      "qualified_name": "app/views/users/index.html.erb",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "lua/view.etlua",
+      "kind": "file",
+      "name": "view.etlua",
+      "qualified_name": "lua/view.etlua",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "templates/page.eta",
+      "kind": "file",
+      "name": "page.eta",
+      "qualified_name": "templates/page.eta",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "views/index.ejs",
+      "kind": "file",
+      "name": "index.ejs",
+      "qualified_name": "views/index.ejs",
+      "start_line": 1,
+      "end_line": 13
+    }
+  ],
+  "edges": [],
+  "unresolved": []
+}

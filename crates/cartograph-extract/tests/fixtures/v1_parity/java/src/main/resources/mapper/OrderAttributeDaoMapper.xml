@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="com.acme.shop.mapper.OrderAttributeDaoMapper">
+  <delete id="deleteByOrderId">DELETE FROM order_attr WHERE order_id = #{id}</delete>
+  <select id="findAttr">SELECT * FROM order_attr WHERE order_id = #{id}</select>
+</mapper>

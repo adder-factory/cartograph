@@ -18,27 +18,64 @@ use crate::{
 };
 
 mod ada_family;
+mod apex_family;
+mod arkts_family;
+mod astro_family;
 mod c_family;
+mod dart_family;
 mod declarations;
+mod def_use;
 mod dynamic_dispatch;
+pub(crate) mod embedded_script;
 mod embedded_sql;
+mod family_support;
+mod fsharp_family;
 mod generic_family;
 mod graphql_family;
+mod hcl_family;
+mod javascript_bindings;
+mod javascript_decorators;
+mod javascript_members;
+mod javascript_owners;
+mod javascript_reads;
+mod javascript_scopes;
+mod javascript_state;
+mod javascript_types;
 mod jvm_dynamic_family;
+mod lean_family;
+mod lisp_family;
+mod lua_family;
 mod managed_family;
 mod module_system;
+mod nix_family;
 mod numerical;
+mod objc_family;
+mod optional_facts;
+mod pascal_family;
+mod php_family;
 mod polyglot;
 mod prisma_family;
+mod r_family;
 mod references;
+mod require_aliases;
+mod rescript_family;
+mod ruby_family;
 mod rust_macro;
 mod schema;
+mod script_support;
 mod shader_family;
 mod shell_family;
+mod solidity_family;
+pub(crate) mod specifier_safety;
 mod sql_family;
+mod swift_family;
 pub(crate) mod syntax;
+mod type_contracts;
 mod value_references;
+mod vbnet_family;
 
+use optional_facts::{OptionalFactGate, OptionalFacts, PassFailure, WalkedFile};
+pub(crate) use optional_facts::{extract_with_optional_fact_fallback, note_optional_omission};
 use syntax::{
     body_search_text, callable_signature, clone_token_profile, collect_diagnostics, contains_jsx,
     export_flags, has_child_kind, jsdoc, named_children, span_for, starts_uppercase,
@@ -83,6 +120,8 @@ pub(crate) struct WalkInput<'tree> {
     root: Node<'tree>,
     parse_status: FileParseStatus,
     maximum_ast_depth: usize,
+    optional_facts: OptionalFacts,
+    syntax_source: Option<&'tree str>,
 }
 
 impl<'tree> WalkInput<'tree> {
@@ -95,39 +134,107 @@ impl<'tree> WalkInput<'tree> {
             root,
             parse_status,
             maximum_ast_depth,
+            optional_facts: OptionalFacts::Recorded,
+            syntax_source: None,
+        }
+    }
+
+    /// The same walk under another optional-fact policy.
+    pub(crate) const fn with_optional_facts(self, optional_facts: OptionalFacts) -> Self {
+        Self {
+            optional_facts,
+            ..self
+        }
+    }
+
+    /// The text the tree was parsed from when a span-preserving pre-parse
+    /// rewrite changed it; every byte offset still addresses the snapshot.
+    pub(crate) const fn with_syntax_source(self, syntax_source: &'tree str) -> Self {
+        Self {
+            syntax_source: Some(syntax_source),
+            ..self
         }
     }
 }
 
-pub(crate) fn extract(
-    snapshot: &SourceSnapshot,
-    input: WalkInput<'_>,
+/// Walk one parsed file under its input's optional-fact policy. A failure
+/// says whether the pass recorded optional facts, so the caller can retry
+/// without them (see [`extract_with_optional_fact_fallback`]).
+pub(crate) fn extract<'source>(
+    snapshot: &'source SourceSnapshot,
+    input: WalkInput<'source>,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<ExtractedFile, ExtractError> {
+) -> Result<WalkedFile, PassFailure> {
     let strategy = LanguageSpec::for_language(snapshot.language()).strategy();
+    let unrecorded = |error| PassFailure {
+        error,
+        recorded_optional_facts: false,
+    };
     if !strategy.is_executable() {
-        return Err(ExtractError::UnsupportedLanguage);
+        return Err(unrecorded(ExtractError::UnsupportedLanguage));
     }
-    let mut builder = ExtractionBuilder::new(snapshot, input.maximum_ast_depth, cancelled)?;
+    let mut builder =
+        ExtractionBuilder::new(snapshot, input.maximum_ast_depth, cancelled).map_err(unrecorded)?;
+    if let Some(syntax_source) = input.syntax_source {
+        builder.context.source = syntax_source;
+    }
+    builder.optional_facts = OptionalFactGate::new(input.optional_facts);
+    let diagnostics = walk_pass(&mut builder, input, strategy);
+    let recorded_optional_facts = builder.optional_facts.recorded_any();
+    diagnostics
+        .and_then(|diagnostics| finish_extraction(builder, input, diagnostics))
+        .map(|file| WalkedFile {
+            file,
+            recorded_optional_facts,
+        })
+        .map_err(|error| PassFailure {
+            error,
+            recorded_optional_facts,
+        })
+}
+
+fn walk_pass(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: WalkInput<'_>,
+    strategy: ExtractionStrategy,
+) -> Result<Vec<ExtractionDiagnostic>, ExtractError> {
     if strategy != ExtractionStrategy::ParserOnly {
-        enrich_extraction(&mut builder, input.root)?;
+        enrich_extraction(builder, input.root)?;
     }
-    let diagnostics = collect_extraction_diagnostics(&mut builder, input)?;
-    finish_extraction(builder, input, diagnostics)
+    collect_extraction_diagnostics(builder, input)
 }
 
 fn enrich_extraction(
     builder: &mut ExtractionBuilder<'_, '_>,
     root: Node<'_>,
 ) -> Result<(), ExtractError> {
+    prepare_extraction(builder, root)?;
+    builder.visit(root, 0)?;
+    enrich_visited(builder, root)
+}
+
+/// Module facts that must be known before any declaration is emitted.
+fn prepare_extraction(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    root: Node<'_>,
+) -> Result<(), ExtractError> {
+    builder.javascript.scopes = javascript_scopes::LexicalScopes::default();
     module_system::collect_explicit_exports(builder, root)?;
     shader_family::collect_wesl_imports(builder)?;
-    builder.visit(root, 0)?;
+    type_contracts::collect_contract_generics(builder, root)
+}
+
+/// Enrichers that read the declarations the visit emitted.
+fn enrich_visited(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    root: Node<'_>,
+) -> Result<(), ExtractError> {
     numerical::enrich(builder, root)?;
     dynamic_dispatch::enrich(builder, root)?;
     schema::enrich(builder, root)?;
     embedded_sql::enrich(builder, root)?;
-    value_references::enrich(builder, root)
+    value_references::enrich(builder, root)?;
+    javascript_reads::enrich_binding_tables(builder, root)
 }
 
 fn collect_extraction_diagnostics(
@@ -155,6 +262,7 @@ fn collect_extraction_diagnostics(
             span: None,
         });
     }
+    diagnostics.append(&mut builder.embedded.diagnostics);
     for _ in &diagnostics {
         builder
             .context
@@ -172,6 +280,19 @@ fn finish_extraction(
     let snapshot = builder.context.snapshot;
     let output_limit = builder.context.budget.output_limit();
     let has_inline_tests = has_inline_tests(&mut builder, input.root)?;
+    // An embedded script region that failed to parse, or a template
+    // expression too deep to walk, leaves a diagnostic even when the host
+    // grammar parsed cleanly; such a file is partial.
+    let parse_status = if diagnostics.iter().any(|diagnostic| {
+        matches!(
+            diagnostic.code,
+            DiagnosticCode::SyntaxError | DiagnosticCode::NestingLimitExceeded
+        )
+    }) {
+        FileParseStatus::Partial
+    } else {
+        input.parse_status
+    };
     let file = ExtractedFile {
         file_id: snapshot.file_id().clone(),
         path: snapshot.path().clone(),
@@ -179,7 +300,7 @@ fn finish_extraction(
         content_hash: snapshot.content_hash().clone(),
         byte_size: snapshot.byte_size(),
         line_count: snapshot.line_count(),
-        parse_status: input.parse_status,
+        parse_status,
         symbols: builder.facts.symbols,
         containments: builder.facts.containments,
         references: builder.facts.references,
@@ -316,10 +437,26 @@ struct ExtractionBuilder<'source, 'cancel> {
     explicit_exports: BTreeSet<String>,
     explicit_default_exports: BTreeSet<String>,
     commonjs_shadowing: module_system::CommonJsShadowing,
+    /// Source-order walk state of the dynamic scripting families.
+    script: script_support::ScriptState,
+    /// Recovered VB heritage sites already emitted in this file.
+    vbnet_heritage: vbnet_family::HeritageSeen,
+    /// JavaScript-family state shared between the walk and its passes.
+    javascript: javascript_state::JavaScriptState<'source>,
     maximum_ast_depth: usize,
     /// Whether any synthesized name exceeded its canonical bound and had to be
     /// deterministically shortened for this file.
     shortened_canonical_names: bool,
+    /// Whether this pass records optional enrichment facts.
+    optional_facts: OptionalFactGate,
+    /// Per-file lookup state of the polyglot walk.
+    polyglot: polyglot::PolyglotIndex,
+    /// Rust `macro_rules!` definitions seen so far and whether they take expressions.
+    rust_macros: rust_macro::LocalExpressionMacros,
+    /// PHP compile-time name-resolution state (namespace, `use` aliases, class context).
+    php: php_family::PhpScope,
+    /// Embedded-region state; empty for a standalone file.
+    embedded: embedded_script::EmbeddedScope,
 }
 
 fn visit_container(
@@ -355,6 +492,7 @@ fn visit_container(
     builder.owners.push(id.clone());
     builder.qualifiers.push(name);
     references::capture_heritage(builder, node, &id)?;
+    javascript_decorators::capture_declaration_decorators(builder, node, &id)?;
     for child in named_children(node) {
         if child.kind() == body_kind {
             builder.visit(child, depth.saturating_add(1))?;
@@ -409,11 +547,13 @@ fn visit_callable(
     };
     let id = builder.emit_symbol(pending)?;
     references::capture_callable_types(builder, node, &id)?;
-    builder.owners.push(id);
+    javascript_decorators::capture_declaration_decorators(builder, node, &id)?;
+    builder.owners.push(id.clone());
     builder.qualifiers.push(name);
     emit_javascript_callable_parameters(builder, node)?;
     if let Some(body) = body {
         builder.visit(body, depth.saturating_add(1))?;
+        def_use::capture(builder, def_use::DefUseScope::new(body, &id))?;
     }
     builder.qualifiers.pop();
     builder.owners.pop();
@@ -461,10 +601,14 @@ fn owner_for_node(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> Option
                 .saturating_sub(symbol.span.start_byte())
         })
         .map(|symbol| symbol.id.clone())
+        .or_else(|| builder.embedded.module_owner(&builder.owners))
 }
 
 struct ExtractionContext<'source, 'cancel> {
     snapshot: &'source SourceSnapshot,
+    /// Text the walker reads: the snapshot itself, or its span-preserving
+    /// pre-parse rewrite. Framework enrichment always reads the snapshot.
+    source: &'source str,
     cancelled: &'cancel mut dyn FnMut() -> bool,
     budget: ExtractionBudget,
 }
@@ -510,6 +654,102 @@ impl<'tree> PendingSymbol<'tree> {
             visibility: None,
         }
     }
+
+    /// An unexported declaration spanning `node`, with no body, signature,
+    /// modifiers, or visibility; callers override the fields they know.
+    fn plain(kind: SymbolKind, name: String, node: Node<'tree>) -> Self {
+        Self {
+            kind,
+            name,
+            span_node: node,
+            structural_node: node,
+            doc_anchor: node,
+            body_node: None,
+            declaration_only: false,
+            signature: None,
+            export: SymbolExportFlags::default(),
+            async_symbol: false,
+            static_member: false,
+            visibility: None,
+        }
+    }
+}
+
+/// One declaration node, the node that names it, and the symbol kind it declares.
+#[derive(Clone, Copy)]
+struct NamedDeclaration<'tree> {
+    node: Node<'tree>,
+    name: Node<'tree>,
+    kind: SymbolKind,
+}
+
+impl<'tree> NamedDeclaration<'tree> {
+    /// Bundle a declaration with its name node and kind.
+    const fn new(node: Node<'tree>, name: Node<'tree>, kind: SymbolKind) -> Self {
+        Self { node, name, kind }
+    }
+}
+
+/// An emitted symbol whose syntactic children are visited as its members.
+struct SymbolScope {
+    id: SymbolId,
+    kind: SymbolKind,
+    name: String,
+}
+
+/// Visit `visit` with `scope` as the innermost owner and qualifier, restoring
+/// the enclosing scope even when the visit fails.
+fn in_symbol_scope<'source, 'cancel>(
+    builder: &mut ExtractionBuilder<'source, 'cancel>,
+    scope: SymbolScope,
+    visit: impl FnOnce(&mut ExtractionBuilder<'source, 'cancel>) -> Result<(), ExtractError>,
+) -> Result<(), ExtractError> {
+    builder.owners.push(scope.id);
+    builder.native_owner_kinds.push(scope.kind);
+    builder.qualifiers.push(scope.name);
+    let result = visit(builder);
+    builder.qualifiers.pop();
+    builder.native_owner_kinds.pop();
+    builder.owners.pop();
+    result
+}
+
+/// Sibling nodes that together form one logical declaration.
+#[derive(Clone, Copy)]
+struct NodeRange<'tree> {
+    first: Node<'tree>,
+    last: Node<'tree>,
+}
+
+/// Widen the just-emitted symbol `id` to cover `range`, for grammars that keep
+/// one logical declaration in sibling nodes (a signature beside its body).
+fn widen_symbol_span(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    id: &SymbolId,
+    range: NodeRange<'_>,
+) -> Result<(), ExtractError> {
+    let start = span_for(range.first)?;
+    let end = span_for(range.last)?;
+    let span = cartograph_domain::SourceSpan::new(
+        cartograph_domain::SourcePosition::new(
+            start.start_byte(),
+            start.start_line(),
+            start.start_column(),
+        )
+        .map_err(|_| ExtractError::InvalidSpan)?,
+        cartograph_domain::SourcePosition::new(end.end_byte(), end.end_line(), end.end_column())
+            .map_err(|_| ExtractError::InvalidSpan)?,
+    )
+    .map_err(|_| ExtractError::InvalidSpan)?;
+    if let Some(symbol) = builder
+        .facts
+        .symbols
+        .last_mut()
+        .filter(|symbol| &symbol.id == id)
+    {
+        symbol.span = span;
+    }
+    Ok(())
 }
 
 fn current_owner_kind_in(builder: &ExtractionBuilder<'_, '_>, allowed: &[SymbolKind]) -> bool {
@@ -679,23 +919,6 @@ pub(super) struct PendingReference<'tree> {
     node: Node<'tree>,
 }
 
-#[derive(Clone, Copy)]
-enum ExtractionFamily {
-    Ada,
-    Shader,
-    Shell,
-    C,
-    Managed,
-    JvmDynamic,
-    GraphQl,
-    Prisma,
-    Sql,
-    Generic,
-    Polyglot,
-    JavaScript,
-    Unsupported,
-}
-
 const SHELL_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Bash,
     SourceLanguage::Fish,
@@ -703,6 +926,11 @@ const SHELL_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Zsh,
 ];
 const ADA_LANGUAGES: &[SourceLanguage] = &[SourceLanguage::Ada, SourceLanguage::Vhdl];
+const LUA_LANGUAGES: &[SourceLanguage] = &[
+    SourceLanguage::Lua,
+    SourceLanguage::Luau,
+    SourceLanguage::Khn,
+];
 const C_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::C,
     SourceLanguage::Cpp,
@@ -720,29 +948,7 @@ const JVM_DYNAMIC_LANGUAGES: &[SourceLanguage] = &[
 ];
 const GENERIC_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::Abap,
-    SourceLanguage::Apex,
-    SourceLanguage::ArkTs,
-    SourceLanguage::Astro,
-    SourceLanguage::Clojure,
-    SourceLanguage::CommonLisp,
-    SourceLanguage::Dart,
-    SourceLanguage::FSharp,
-    SourceLanguage::Hcl,
     SourceLanguage::Html,
-    SourceLanguage::Khn,
-    SourceLanguage::Lean,
-    SourceLanguage::Lua,
-    SourceLanguage::Luau,
-    SourceLanguage::Nix,
-    SourceLanguage::ObjectiveC,
-    SourceLanguage::Pascal,
-    SourceLanguage::Php,
-    SourceLanguage::R,
-    SourceLanguage::ReScript,
-    SourceLanguage::Ruby,
-    SourceLanguage::Solidity,
-    SourceLanguage::Swift,
-    SourceLanguage::VbNet,
     SourceLanguage::Yaml,
 ];
 const POLYGLOT_LANGUAGES: &[SourceLanguage] = &[
@@ -756,143 +962,218 @@ const JAVASCRIPT_LANGUAGES: &[SourceLanguage] = &[
     SourceLanguage::JavaScript,
     SourceLanguage::Jsx,
 ];
+const LISP_LANGUAGES: &[SourceLanguage] = &[SourceLanguage::Clojure, SourceLanguage::CommonLisp];
+const SHADER_LANGUAGES: &[SourceLanguage] = &[SourceLanguage::Wesl, SourceLanguage::Wgsl];
 
-/// Declaration and usage entry points for one extraction family.
+/// A family's declaration pass: true when it handled the node's subtree.
+type DeclarationVisit =
+    fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<bool, ExtractError>;
+/// A family's usage pass over one node and, when it chooses, its subtree.
+type UsageVisit = fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<(), ExtractError>;
+/// A family's record of one node's own usage facts, before its children.
+type UsageCapture = fn(&mut ExtractionBuilder<'_, '_>, Node<'_>) -> Result<(), ExtractError>;
+
+/// How a family's usage pass treats a node the declaration pass left alone.
+#[derive(Clone, Copy)]
+enum UsagePass {
+    /// Visit only the node's children; the family records no usage facts.
+    Children,
+    /// Record the node's own usage facts, then visit its children.
+    CaptureThenChildren(UsageCapture),
+    /// The family drives the usage traversal itself.
+    Custom(UsageVisit),
+}
+
+/// Declaration and usage entry points for one extraction family, and the
+/// languages it extracts.
 ///
 /// Pairing them keeps a family from being wired into one traversal and
 /// forgotten in the other, which would make its files look successfully empty.
 struct FamilySlice {
-    visit_declaration:
-        fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<bool, ExtractError>,
-    visit_usage: fn(&mut ExtractionBuilder<'_, '_>, Node<'_>, usize) -> Result<(), ExtractError>,
+    languages: &'static [SourceLanguage],
+    visit_declaration: DeclarationVisit,
+    usage: UsagePass,
 }
 
-/// Structural family slices for the walker-driven language families.
-const fn family_slice_structural(family: ExtractionFamily) -> Option<FamilySlice> {
-    let slice = match family {
-        ExtractionFamily::Ada => FamilySlice {
-            visit_declaration: ada_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                ada_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Shader => FamilySlice {
-            visit_declaration: shader_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                shader_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Shell => FamilySlice {
-            visit_declaration: shell_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                shell_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::C => FamilySlice {
-            visit_declaration: c_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                c_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Managed => FamilySlice {
-            visit_declaration: managed_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                managed_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::JvmDynamic => FamilySlice {
-            visit_declaration: jvm_dynamic_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                jvm_dynamic_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        _ => return None,
-    };
-    Some(slice)
-}
-
-/// Slices for the declarative, generic, and JavaScript-family languages.
-const fn family_slice_declarative(family: ExtractionFamily) -> Option<FamilySlice> {
-    let slice = match family {
-        ExtractionFamily::GraphQl => FamilySlice {
-            visit_declaration: graphql_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Prisma => FamilySlice {
-            visit_declaration: prisma_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Sql => FamilySlice {
-            visit_declaration: sql_family::visit_declaration,
-            visit_usage: |builder, node, depth| builder.visit_named_children(node, depth),
-        },
-        ExtractionFamily::Generic => FamilySlice {
-            visit_declaration: generic_family::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                generic_family::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::Polyglot => FamilySlice {
-            visit_declaration: polyglot::visit_declaration,
-            visit_usage: |builder, node, depth| {
-                polyglot::capture_usage(builder, node)?;
-                builder.visit_named_children(node, depth)
-            },
-        },
-        ExtractionFamily::JavaScript => FamilySlice {
-            visit_declaration: visit_javascript_declaration,
-            visit_usage: visit_javascript_usage,
-        },
-        _ => return None,
-    };
-    Some(slice)
-}
-
-/// Entry points for one extraction family, or `None` for unsupported source.
-///
-/// The families are split across two lookups for the same reason the grammar
-/// bindings are: one exhaustive match over every family would make this the
-/// single highest-fan-out symbol in the crate.
-const fn family_slice(family: ExtractionFamily) -> Option<FamilySlice> {
-    if let Some(slice) = family_slice_structural(family) {
-        return Some(slice);
-    }
-    family_slice_declarative(family)
-}
-
-fn extraction_family(language: SourceLanguage) -> ExtractionFamily {
-    if ADA_LANGUAGES.contains(&language) {
-        ExtractionFamily::Ada
-    } else if SHELL_LANGUAGES.contains(&language) {
-        ExtractionFamily::Shell
-    } else if C_LANGUAGES.contains(&language) {
-        ExtractionFamily::C
-    } else if MANAGED_LANGUAGES.contains(&language) {
-        ExtractionFamily::Managed
-    } else if JVM_DYNAMIC_LANGUAGES.contains(&language) {
-        ExtractionFamily::JvmDynamic
-    } else if GENERIC_LANGUAGES.contains(&language) {
-        ExtractionFamily::Generic
-    } else if POLYGLOT_LANGUAGES.contains(&language) {
-        ExtractionFamily::Polyglot
-    } else if JAVASCRIPT_LANGUAGES.contains(&language) {
-        ExtractionFamily::JavaScript
-    } else {
-        match language {
-            SourceLanguage::GraphQl => ExtractionFamily::GraphQl,
-            SourceLanguage::Wesl | SourceLanguage::Wgsl => ExtractionFamily::Shader,
-            SourceLanguage::Prisma => ExtractionFamily::Prisma,
-            SourceLanguage::Sql => ExtractionFamily::Sql,
-            _ => ExtractionFamily::Unsupported,
+impl FamilySlice {
+    /// A family whose usage pass records its own usage facts before visiting
+    /// a node's children.
+    const fn capturing(
+        languages: &'static [SourceLanguage],
+        visit_declaration: DeclarationVisit,
+        capture_usage: UsageCapture,
+    ) -> Self {
+        Self {
+            languages,
+            visit_declaration,
+            usage: UsagePass::CaptureThenChildren(capture_usage),
         }
     }
+
+    /// A family whose declaration pass records every fact; its usage pass only
+    /// descends.
+    const fn declarative(
+        languages: &'static [SourceLanguage],
+        visit_declaration: DeclarationVisit,
+    ) -> Self {
+        Self {
+            languages,
+            visit_declaration,
+            usage: UsagePass::Children,
+        }
+    }
+
+    /// A family that drives its own usage traversal.
+    const fn custom(
+        languages: &'static [SourceLanguage],
+        visit_declaration: DeclarationVisit,
+        visit_usage: UsageVisit,
+    ) -> Self {
+        Self {
+            languages,
+            visit_declaration,
+            usage: UsagePass::Custom(visit_usage),
+        }
+    }
+}
+
+/// Every walker-driven extraction family. The language sets are disjoint, so
+/// a language selects at most one family; any other language is unsupported.
+const FAMILY_SLICES: &[FamilySlice] = &[
+    FamilySlice::capturing(
+        ADA_LANGUAGES,
+        ada_family::visit_declaration,
+        ada_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        LUA_LANGUAGES,
+        lua_family::visit_declaration,
+        lua_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        SHELL_LANGUAGES,
+        shell_family::visit_declaration,
+        shell_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        C_LANGUAGES,
+        c_family::visit_declaration,
+        c_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        MANAGED_LANGUAGES,
+        managed_family::visit_declaration,
+        managed_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        JVM_DYNAMIC_LANGUAGES,
+        jvm_dynamic_family::visit_declaration,
+        jvm_dynamic_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        GENERIC_LANGUAGES,
+        generic_family::visit_declaration,
+        generic_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        POLYGLOT_LANGUAGES,
+        polyglot::visit_declaration,
+        polyglot::capture_usage,
+    ),
+    FamilySlice::custom(
+        JAVASCRIPT_LANGUAGES,
+        visit_javascript_declaration,
+        visit_javascript_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Dart],
+        dart_family::visit_declaration,
+        dart_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::FSharp],
+        fsharp_family::visit_declaration,
+        fsharp_family::capture_usage,
+    ),
+    FamilySlice::custom(
+        &[SourceLanguage::ArkTs],
+        arkts_family::visit_declaration,
+        visit_javascript_usage,
+    ),
+    FamilySlice::declarative(LISP_LANGUAGES, lisp_family::visit_declaration),
+    FamilySlice::declarative(&[SourceLanguage::Lean], lean_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::ReScript],
+        rescript_family::visit_declaration,
+        rescript_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Solidity],
+        solidity_family::visit_declaration,
+        solidity_family::capture_usage,
+    ),
+    FamilySlice::declarative(
+        &[SourceLanguage::GraphQl],
+        graphql_family::visit_declaration,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Hcl], hcl_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::ObjectiveC],
+        objc_family::visit_declaration,
+        objc_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Swift],
+        swift_family::visit_declaration,
+        swift_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        SHADER_LANGUAGES,
+        shader_family::visit_declaration,
+        shader_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Php],
+        php_family::visit_declaration,
+        php_family::capture_usage,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Prisma], prisma_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::Ruby],
+        ruby_family::visit_declaration,
+        ruby_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::R],
+        r_family::visit_declaration,
+        r_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Nix],
+        nix_family::visit_declaration,
+        nix_family::capture_usage,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Sql], sql_family::visit_declaration),
+    FamilySlice::capturing(
+        &[SourceLanguage::VbNet],
+        vbnet_family::visit_declaration,
+        vbnet_family::capture_usage,
+    ),
+    FamilySlice::capturing(
+        &[SourceLanguage::Apex],
+        apex_family::visit_declaration,
+        apex_family::capture_usage,
+    ),
+    FamilySlice::declarative(&[SourceLanguage::Pascal], pascal_family::visit_declaration),
+    FamilySlice::declarative(&[SourceLanguage::Astro], astro_family::visit_declaration),
+];
+
+/// Entry points for the family that extracts `language`, or `None` for
+/// unsupported source.
+fn family_slice(language: SourceLanguage) -> Option<&'static FamilySlice> {
+    FAMILY_SLICES
+        .iter()
+        .find(|slice| slice.languages.contains(&language))
 }
 
 fn visit_javascript_declaration(
@@ -911,6 +1192,9 @@ fn visit_javascript_declaration(
         | "method_signature"
         | "abstract_method_signature" => visit_callable(builder, node, depth)?,
         "lexical_declaration" | "variable_declaration" => visit_bindings(builder, node, depth)?,
+        "public_field_definition" | "field_definition" => {
+            javascript_members::visit_class_field(builder, node, depth)?;
+        }
         "import_statement" => declarations::visit_import(builder, node)?,
         "export_statement" => declarations::visit_export(builder, node, depth)?,
         "type_alias_declaration" => declarations::visit_type_alias(builder, node, depth)?,
@@ -925,10 +1209,15 @@ fn visit_javascript_usage(
     node: Node<'_>,
     depth: usize,
 ) -> Result<(), ExtractError> {
-    module_system::capture_commonjs_assignment(builder, node)?;
+    if !builder.embedded.usage_only {
+        module_system::capture_commonjs_assignment(builder, node)?;
+    }
+    javascript_reads::capture_constant_read(builder, node)?;
+    javascript_types::capture_type_consumers(builder, node)?;
     match node.kind() {
         "call_expression" => {
             if !module_system::capture_dynamic_import(builder, node)? {
+                module_system::capture_require_import(builder, node)?;
                 references::capture_invocation(builder, node, references::InvocationKind::Call)?;
             }
         }
@@ -1027,11 +1316,16 @@ fn visit_javascript_binding_value(
     if let Some(callable_node) = input.callable {
         emit_javascript_callable_parameters(builder, callable_node)?;
     }
-    let visit_node = input
+    let callable_body = input
         .callable
-        .and_then(|callable_node| callable_node.child_by_field_name("body"))
-        .unwrap_or(input.value);
-    builder.visit(visit_node, input.depth.saturating_add(1))?;
+        .and_then(|callable_node| callable_node.child_by_field_name("body"));
+    builder.visit(
+        callable_body.unwrap_or(input.value),
+        input.depth.saturating_add(1),
+    )?;
+    if let Some(body) = callable_body {
+        def_use::capture(builder, def_use::DefUseScope::new(body, input.id))?;
+    }
     builder.qualifiers.pop();
     builder.owners.pop();
     Ok(())
@@ -1087,6 +1381,10 @@ fn visit_javascript_binding(
         references::capture_callable_types(builder, symbol_node, &id)?;
     } else {
         references::capture_type_nodes(builder, input.declarator, &id)?;
+        builder.javascript.whole_type_owners.insert(id.clone());
+        if let Some(annotation) = input.declarator.child_by_field_name("type") {
+            module_system::capture_type_position_imports(builder, annotation, &id)?;
+        }
     }
     if let Some(value) = value {
         visit_javascript_binding_value(
@@ -1121,8 +1419,16 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             explicit_exports: BTreeSet::new(),
             explicit_default_exports: BTreeSet::new(),
             commonjs_shadowing: module_system::CommonJsShadowing::default(),
+            script: script_support::ScriptState::default(),
+            vbnet_heritage: vbnet_family::HeritageSeen::default(),
+            javascript: javascript_state::JavaScriptState::default(),
             maximum_ast_depth,
             shortened_canonical_names: false,
+            optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),
+            polyglot: polyglot::PolyglotIndex::default(),
+            rust_macros: rust_macro::LocalExpressionMacros::default(),
+            php: php_family::PhpScope::default(),
+            embedded: embedded_script::EmbeddedScope::default(),
         })
     }
 
@@ -1131,26 +1437,33 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
         if depth > self.maximum_ast_depth {
             return Err(ExtractError::NestingLimit);
         }
-        if self.visit_declaration(node, depth)? {
+        // A template expression only uses names: its declarations are walked
+        // for their references but declare nothing.
+        if !self.embedded.usage_only && self.visit_declaration(node, depth)? {
             return Ok(());
         }
         self.visit_usage(node, depth)
     }
 
     fn visit_declaration(&mut self, node: Node<'_>, depth: usize) -> Result<bool, ExtractError> {
-        let family = extraction_family(self.context.snapshot.language());
-        let Some(slice) = family_slice(family) else {
+        let Some(slice) = family_slice(self.context.snapshot.language()) else {
             return Err(ExtractError::UnsupportedLanguage);
         };
         (slice.visit_declaration)(self, node, depth)
     }
 
     fn visit_usage(&mut self, node: Node<'_>, depth: usize) -> Result<(), ExtractError> {
-        let family = extraction_family(self.context.snapshot.language());
-        let Some(slice) = family_slice(family) else {
+        let Some(slice) = family_slice(self.context.snapshot.language()) else {
             return Err(ExtractError::UnsupportedLanguage);
         };
-        (slice.visit_usage)(self, node, depth)
+        match slice.usage {
+            UsagePass::Children => self.visit_named_children(node, depth),
+            UsagePass::CaptureThenChildren(capture_usage) => {
+                capture_usage(self, node)?;
+                self.visit_named_children(node, depth)
+            }
+            UsagePass::Custom(visit_usage) => visit_usage(self, node, depth),
+        }
     }
 
     fn visit_named_children(&mut self, node: Node<'_>, depth: usize) -> Result<(), ExtractError> {
@@ -1161,8 +1474,18 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
     }
 
     fn emit_symbol(&mut self, pending: PendingSymbol<'_>) -> Result<SymbolId, ExtractError> {
-        self.context.ensure_active()?;
         let qualified_name = self.qualified_name(&pending.name)?;
+        self.emit_symbol_with_qualified_name(pending, qualified_name)
+    }
+
+    /// Emit a symbol whose language-defined qualified name is not the lexical
+    /// `::` join of its enclosing qualifiers (for example Terraform `var.x`).
+    fn emit_symbol_with_qualified_name(
+        &mut self,
+        pending: PendingSymbol<'_>,
+        qualified_name: String,
+    ) -> Result<SymbolId, ExtractError> {
+        self.context.ensure_active()?;
         let qualified_name = self.bound_canonical_name(
             qualified_name,
             crate::bounded_name::MAX_CANONICAL_QUALIFIED_NAME_BYTES,
@@ -1204,16 +1527,15 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
 
     fn extracted_symbol(
         &mut self,
-        pending: PendingSymbol<'_>,
+        mut pending: PendingSymbol<'_>,
         id: &SymbolId,
         qualified_name: String,
     ) -> Result<ExtractedSymbol, ExtractError> {
+        screen_signature(&mut pending);
         let span = span_for(pending.span_node)?;
         let docstring = self.context.jsdoc(pending.doc_anchor)?;
         let body_search = match pending.body_node {
-            Some(body) => {
-                body_search_text(body, self.context.snapshot.source(), self.context.cancelled)?
-            }
+            Some(body) => body_search_text(body, self.context.source, self.context.cancelled)?,
             None => syntax::BodySearchText::default(),
         };
         let health = syntax::symbol_health_metrics(
@@ -1226,13 +1548,13 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
                 docstring: docstring.as_deref(),
                 language: self.context.snapshot.language(),
                 async_symbol: pending.async_symbol,
-                source: self.context.snapshot.source(),
+                source: self.context.source,
             },
             self.context.cancelled,
         )?;
         let structural_digest = structural_digest(
             pending.structural_node,
-            self.context.snapshot.source(),
+            self.context.source,
             self.context.cancelled,
         )?;
         let clone_shape_digest =
@@ -1244,13 +1566,13 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
         .then(|| {
             clone_token_profile(
                 pending.structural_node,
-                self.context.snapshot.source(),
+                self.context.source,
                 self.context.cancelled,
             )
         })
         .transpose()?
         .flatten();
-        let top_level = self.owners.is_empty();
+        let top_level = self.owners.len() <= self.embedded.module_scope_owners;
         let explicit_export = top_level && self.explicit_exports.contains(&pending.name);
         let explicit_default = top_level && self.explicit_default_exports.contains(&pending.name);
         Ok(ExtractedSymbol {
@@ -1383,49 +1705,80 @@ fn emit_javascript_binding_tree(
     kind: SymbolKind,
 ) -> Result<(), ExtractError> {
     builder.context.ensure_active()?;
-    match node.kind() {
-        "identifier" | "shorthand_property_identifier_pattern" => {
-            let name = builder.context.owned_text(node)?;
-            builder.emit_symbol(PendingSymbol {
-                kind,
-                name,
-                span_node: node,
-                structural_node: node,
-                doc_anchor: node,
-                body_node: None,
-                declaration_only: false,
-                signature: None,
-                export: crate::SymbolExportFlags::new(false, false),
-                async_symbol: false,
-                static_member: false,
-                visibility: None,
-            })?;
-        }
-        "required_parameter" | "optional_parameter" => {
-            if let Some(binding) = node
-                .child_by_field_name("name")
-                .or_else(|| node.child_by_field_name("pattern"))
-            {
-                emit_javascript_binding_tree(builder, binding, kind)?;
+    let depth = javascript_binding_depth(builder, node)?;
+    let mut budget = AstVisitBudget::<MAX_AST_DEPTH>::default();
+    budget.observe(builder, depth)?;
+    let mut pending = vec![(node, depth)];
+    while let Some((node, depth)) = pending.pop() {
+        match node.kind() {
+            "identifier" | "shorthand_property_identifier_pattern" => {
+                emit_javascript_binding_symbol(builder, node, kind)?;
             }
-        }
-        "pair_pattern" => {
-            if let Some(value) = node.child_by_field_name("value") {
-                emit_javascript_binding_tree(builder, value, kind)?;
+            "required_parameter"
+            | "optional_parameter"
+            | "pair_pattern"
+            | "assignment_pattern"
+            | "object_assignment_pattern"
+            | "formal_parameters"
+            | "object_pattern"
+            | "array_pattern"
+            | "rest_pattern" => {
+                let first = pending.len();
+                for child in javascript_bindings::binding_children(node) {
+                    let depth = depth.saturating_add(1);
+                    budget.observe(builder, depth)?;
+                    pending
+                        .try_reserve(1)
+                        .map_err(|_| ExtractError::OutputLimit)?;
+                    pending.push((child, depth));
+                }
+                pending[first..].reverse();
             }
+            _ => {}
         }
-        "assignment_pattern" | "object_assignment_pattern" => {
-            if let Some(left) = node.child_by_field_name("left") {
-                emit_javascript_binding_tree(builder, left, kind)?;
-            }
-        }
-        "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
-            for child in named_children(node) {
-                emit_javascript_binding_tree(builder, child, kind)?;
-            }
-        }
-        _ => {}
     }
+    Ok(())
+}
+
+/// Binding walks start before the generic traversal reaches the pattern;
+/// include its ancestors when enforcing the configured syntax depth.
+fn javascript_binding_depth(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<usize, ExtractError> {
+    let mut depth = 0_usize;
+    let mut ancestor = node.parent();
+    while let Some(parent) = ancestor {
+        builder.context.ensure_active()?;
+        depth = depth.saturating_add(1);
+        if depth > builder.maximum_ast_depth {
+            return Err(ExtractError::NestingLimit);
+        }
+        ancestor = parent.parent();
+    }
+    Ok(depth)
+}
+
+fn emit_javascript_binding_symbol(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    kind: SymbolKind,
+) -> Result<(), ExtractError> {
+    let name = builder.context.owned_text(node)?;
+    builder.emit_symbol(PendingSymbol {
+        kind,
+        name,
+        span_node: node,
+        structural_node: node,
+        doc_anchor: node,
+        body_node: None,
+        declaration_only: false,
+        signature: None,
+        export: crate::SymbolExportFlags::new(false, false),
+        async_symbol: false,
+        static_member: false,
+        visibility: None,
+    })?;
     Ok(())
 }
 
@@ -1436,6 +1789,7 @@ impl<'source, 'cancel> ExtractionContext<'source, 'cancel> {
     ) -> Result<Self, ExtractError> {
         Ok(Self {
             snapshot,
+            source: snapshot.source(),
             cancelled,
             budget: ExtractionBudget::new(snapshot)?,
         })
@@ -1449,8 +1803,8 @@ impl<'source, 'cancel> ExtractionContext<'source, 'cancel> {
         }
     }
 
-    fn source(&self) -> &str {
-        self.snapshot.source()
+    const fn source(&self) -> &'source str {
+        self.source
     }
 
     fn owned_text(&mut self, node: Node<'_>) -> Result<String, ExtractError> {
@@ -1480,7 +1834,7 @@ impl<'source, 'cancel> ExtractionContext<'source, 'cancel> {
     }
 
     fn callable_signature(&mut self, node: Node<'_>) -> Result<Option<String>, ExtractError> {
-        let source = self.snapshot.source();
+        let source = self.source;
         let signature = callable_signature(node, source, &mut *self.cancelled)?;
         if let Some(value) = &signature {
             self.budget.ensure_string_length(value.len())?;
@@ -1511,7 +1865,7 @@ impl<'source, 'cancel> ExtractionContext<'source, 'cancel> {
         if self.snapshot.language() == SourceLanguage::GraphQl {
             return graphql_family::description_from_context(self, node);
         }
-        let source = self.snapshot.source();
+        let source = self.source;
         let docstring = jsdoc(node, source, &mut *self.cancelled)?;
         if let Some(value) = &docstring {
             self.budget.ensure_string_length(value.len())?;
@@ -1523,5 +1877,16 @@ impl<'source, 'cancel> ExtractionContext<'source, 'cancel> {
         self.source()
             .get(node.start_byte()..node.end_byte())
             .unwrap_or_default()
+    }
+}
+
+/// Drops a declaration signature that carries a credential.
+fn screen_signature(pending: &mut PendingSymbol<'_>) {
+    if pending.signature.as_deref().is_some_and(|signature| {
+        signature
+            .split_whitespace()
+            .any(specifier_safety::specifier_may_carry_credential)
+    }) {
+        pending.signature = None;
     }
 }

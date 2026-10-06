@@ -1,0 +1,25 @@
+INIT:
+DB_Characters(S_Player_Astarion_c7c13742-bacd-460a-8f65-f864fe41f255);
+
+KB:
+PROC
+PROC_Target((CHARACTER)_Character)
+AND
+QRY_OnlyOnce("Target_Procedure")
+THEN
+DebugText(_Character, "Target_Status");
+
+QRY
+QRY_Target([out](INTEGER)_Result)
+THEN
+IntegerSum(1, 1, _Result);
+
+QRY
+QRY_OnlyOnce((STRING)_Key)
+AND
+NOT DB_Seen(_Key)
+THEN
+DB_Seen(_Key);
+
+EXIT:
+NOT DB_Characters(S_Player_Astarion_c7c13742-bacd-460a-8f65-f864fe41f255);

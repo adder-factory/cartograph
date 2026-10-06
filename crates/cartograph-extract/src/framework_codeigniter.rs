@@ -122,26 +122,19 @@ fn scan_loaded_resources(
                 cursor = close + 1;
                 continue;
             };
-            let alias = next_quoted_after_comma(source, resource.quote_end + 1, close).map_or_else(
-                || {
-                    resource
-                        .value
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(resource.value)
-                        .to_owned()
-                },
-                |quoted| quoted.value.to_owned(),
-            );
-            let class = ci_class_name(resource.value);
+            let alias = next_quoted_after_comma(source, resource.quote_end + 1, close);
+            let Some(loaded) = screened_loaded_resource(&resource, alias) else {
+                cursor = close + 1;
+                continue;
+            };
             builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
                 name: resource.value,
-                resolution_name: Some(&class),
+                resolution_name: Some(&loaded.class),
                 kind: ReferenceKind::References,
                 start: resource.start,
                 end: resource.end,
             })?;
-            resources.push(LoadedResource { alias, class });
+            resources.push(loaded);
             cursor = close + 1;
         }
     }
@@ -176,6 +169,37 @@ struct LoadedResource {
     class: String,
 }
 
+/// Screen source operands before basename/capitalization and alias registration.
+fn screened_loaded_resource(
+    resource: &Quoted<'_>,
+    alias: Option<Quoted<'_>>,
+) -> Option<LoadedResource> {
+    if resource.unsupported_escape
+        || crate::walk::specifier_safety::specifier_may_carry_credential(resource.value)
+        || alias.as_ref().is_some_and(|alias| {
+            alias.unsupported_escape
+                || crate::walk::specifier_safety::specifier_may_carry_credential(alias.value)
+        })
+    {
+        return None;
+    }
+    let alias = alias.map_or_else(
+        || {
+            resource
+                .value
+                .rsplit('/')
+                .next()
+                .unwrap_or(resource.value)
+                .to_owned()
+        },
+        |quoted| quoted.value.to_owned(),
+    );
+    Some(LoadedResource {
+        alias,
+        class: ci_class_name(resource.value),
+    })
+}
+
 fn ci_class_name(resource: &str) -> String {
     let base = resource.rsplit('/').next().unwrap_or(resource);
     let mut class = base.to_owned();
@@ -195,6 +219,7 @@ struct Quoted<'source> {
     start: usize,
     end: usize,
     quote_end: usize,
+    unsupported_escape: bool,
 }
 
 fn quoted_after(value: &str, from: usize, limit: usize) -> Option<Quoted<'_>> {
@@ -206,18 +231,25 @@ fn quoted_after(value: &str, from: usize, limit: usize) -> Option<Quoted<'_>> {
     let start = cursor + 1;
     cursor = start;
     let mut escaped = false;
+    let mut unsupported_escape = false;
     while cursor < limit {
         let byte = value.as_bytes()[cursor];
         if escaped {
             escaped = false;
         } else if byte == b'\\' {
             escaped = true;
+            unsupported_escape |= quote == b'"'
+                || value
+                    .as_bytes()
+                    .get(cursor + 1)
+                    .is_some_and(|next| matches!(next, b'\\' | b'\''));
         } else if byte == quote {
             return Some(Quoted {
                 value: &value[start..cursor],
                 start,
                 end: cursor,
                 quote_end: cursor,
+                unsupported_escape,
             });
         }
         cursor += 1;

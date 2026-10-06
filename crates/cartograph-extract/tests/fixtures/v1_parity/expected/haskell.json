@@ -1,0 +1,723 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "haskell",
+  "files": [
+    "app/Main.hs",
+    "src/Geometry/Shapes.hs",
+    "src/Util/Strings.hs"
+  ],
+  "symbols": [
+    {
+      "file": "app/Main.hs",
+      "kind": "file",
+      "name": "Main.hs",
+      "qualified_name": "app/Main.hs",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "module",
+      "name": "Main",
+      "qualified_name": "Main",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "function",
+      "name": "total",
+      "qualified_name": "total",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "function",
+      "name": "total",
+      "qualified_name": "total",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "file",
+      "name": "Shapes.hs",
+      "qualified_name": "src/Geometry/Shapes.hs",
+      "start_line": 1,
+      "end_line": 56
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "module",
+      "name": "Geometry",
+      "qualified_name": "Geometry",
+      "start_line": 3,
+      "end_line": 10
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "module",
+      "name": "Shapes",
+      "qualified_name": "Shapes",
+      "start_line": 3,
+      "end_line": 10
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "type_alias",
+      "name": "Shape",
+      "qualified_name": "Shape",
+      "start_line": 17,
+      "end_line": 20
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "type_alias",
+      "name": "Point",
+      "qualified_name": "Point",
+      "start_line": 23,
+      "end_line": 26
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "type_alias",
+      "name": "Name",
+      "qualified_name": "Name",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "class",
+      "name": "HasArea",
+      "qualified_name": "HasArea",
+      "start_line": 32,
+      "end_line": 34
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "HasArea.area",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "perimeter",
+      "qualified_name": "HasArea.perimeter",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "area",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "area",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "perimeter",
+      "qualified_name": "perimeter",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "perimeter",
+      "qualified_name": "perimeter",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "square",
+      "qualified_name": "square",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "square",
+      "qualified_name": "square",
+      "start_line": 43,
+      "end_line": 43
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "describe",
+      "start_line": 45,
+      "end_line": 45
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "describe",
+      "start_line": 46,
+      "end_line": 46
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "sortShapes",
+      "qualified_name": "sortShapes",
+      "start_line": 48,
+      "end_line": 48
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "lookupArea",
+      "qualified_name": "lookupArea",
+      "start_line": 54,
+      "end_line": 54
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "function",
+      "name": "lookupArea",
+      "qualified_name": "lookupArea",
+      "start_line": 55,
+      "end_line": 55
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "file",
+      "name": "Strings.hs",
+      "qualified_name": "src/Util/Strings.hs",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "module",
+      "name": "Strings",
+      "qualified_name": "Strings",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "module",
+      "name": "Util",
+      "qualified_name": "Util",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "padLeft",
+      "qualified_name": "padLeft",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "padLeft",
+      "qualified_name": "padLeft",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "joinWith",
+      "qualified_name": "joinWith",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "joinWith",
+      "qualified_name": "joinWith",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "joinWith",
+      "qualified_name": "joinWith",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "shout",
+      "qualified_name": "shout",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "type_alias",
+      "name": "Token",
+      "qualified_name": "Token",
+      "start_line": 19,
+      "end_line": 20
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "class",
+      "name": "Render",
+      "qualified_name": "Render",
+      "start_line": 22,
+      "end_line": 23
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "render",
+      "qualified_name": "Render.render",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "render",
+      "qualified_name": "render",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "function",
+      "name": "render",
+      "qualified_name": "render",
+      "start_line": 27,
+      "end_line": 27
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/Main.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Main.hs",
+      "target_kind": "module",
+      "target": "Main",
+      "target_file": "app/Main.hs",
+      "line": null
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Main.hs",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "app/Main.hs",
+      "line": null
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Main.hs",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "app/Main.hs",
+      "line": null
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Main.hs",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "app/Main.hs",
+      "line": null
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Main.hs",
+      "target_kind": "function",
+      "target": "total",
+      "target_file": "app/Main.hs",
+      "line": null
+    },
+    {
+      "file": "app/Main.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/Main.hs",
+      "target_kind": "function",
+      "target": "total",
+      "target_file": "app/Main.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HasArea",
+      "target_kind": "function",
+      "target": "HasArea.area",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HasArea",
+      "target_kind": "function",
+      "target": "HasArea.perimeter",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "module",
+      "target": "Geometry",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "class",
+      "target": "HasArea",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "type_alias",
+      "target": "Name",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "type_alias",
+      "target": "Point",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "type_alias",
+      "target": "Shape",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "module",
+      "target": "Shapes",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "describe",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "describe",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "lookupArea",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "lookupArea",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "perimeter",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "perimeter",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "sortShapes",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Geometry/Shapes.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Geometry/Shapes.hs",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "src/Geometry/Shapes.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Render",
+      "target_kind": "function",
+      "target": "Render.render",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "class",
+      "target": "Render",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "module",
+      "target": "Strings",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "type_alias",
+      "target": "Token",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "module",
+      "target": "Util",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "joinWith",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "joinWith",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "joinWith",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "padLeft",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "padLeft",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "render",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "render",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    },
+    {
+      "file": "src/Util/Strings.hs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Util/Strings.hs",
+      "target_kind": "function",
+      "target": "shout",
+      "target_file": "src/Util/Strings.hs",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

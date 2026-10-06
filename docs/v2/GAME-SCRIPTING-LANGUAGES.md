@@ -3,19 +3,24 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Language matrix](../SUPPORT-MATRIX.md) · [Native extraction](EXTRACTION.md)
 
-Last implementation audit: 2026-10-04 (`v2.1.39`).
+Last implementation audit: 2026-10-06 (`v2.1.40`).
 
 Research inventory last reviewed: 2026-08-02 (`v2.1.7`).
 
-Cartograph v2.1.39 recognizes 132 native source-language modes. Seventy-three
+Cartograph v2.1.40 recognizes 132 native source-language modes. Seventy-three
 remain the byte-for-byte v1.1.33 parity floor, TOML remains an additive v2 mode,
 52 dedicated game, modding, and interactive-fiction scripting modes were
-introduced in v2.1.7, WGSL and Metal were added in v2.1.12, and Slang and WESL
-were added in v2.1.15. Rhai is included in the 52.
+introduced in v2.1.7, WGSL and Metal were added in v2.1.12, Slang and WESL
+were added in v2.1.15, and Ada/SPARK and VHDL were added in v2.1.27. Rhai is
+included in the 52.
 
 This page defines what “all game scripting languages” means for the release. It
 is a researched and testable support boundary, not a claim that every private
 engine DSL ever created has a public source format.
+
+**On this page:** [Inclusion boundary](#inclusion-boundary) ·
+[Dedicated modes](#dedicated-modes) · [Collision policy](#collision-policy) ·
+[Research trail](#research-trail)
 
 ## Inclusion boundary
 
@@ -32,6 +37,8 @@ A dedicated mode is included when all of these are true:
 5. ambiguous extensions are content- or path-gated without changing the frozen
    v1 classifier.
 
+### Covered elsewhere or excluded
+
 The existing general-purpose modes already cover the dominant game stacks:
 C, C++, C#, Java, Kotlin, JavaScript, TypeScript, Lua, Luau, Python, Ruby, Rust,
 Pascal/Delphi, GLSL, and HLSL. They are part of game-development coverage but
@@ -47,6 +54,9 @@ language-support work; the executable Haxe `hscript` interpreter language is
 included here.
 
 ## Dedicated modes
+
+Every mode below uses a bounded, non-executing Rust scanner (no tree-sitter
+grammar).
 
 | Stable mode | Canonical source boundary | Extraction emphasis |
 |---|---|---|

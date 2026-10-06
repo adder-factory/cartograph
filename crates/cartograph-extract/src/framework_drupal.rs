@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind};
 
@@ -10,6 +10,8 @@ use crate::{
 
 const MAX_SIGNAL_BYTES: usize = 4_096;
 const MAX_TAGS_PER_FILE: usize = 4_096;
+/// Service keys whose `@service:method` value names a method after the colon.
+const METHOD_SEPARATED_SERVICE_KEYS: [&str; 2] = ["factory", "configurator"];
 
 pub(crate) fn scan(
     builder: &mut FrameworkBuilder<'_, '_>,
@@ -43,6 +45,9 @@ struct ServiceLine<'a> {
     service: &'a ServiceState,
     start: usize,
     text: &'a str,
+    /// Whether the line is one of the service's own block-mapping keys
+    /// (`factory:`, `class:`), not a nested argument or sequence item.
+    service_setting: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -77,6 +82,8 @@ struct ServiceScanState {
     service_indent: Option<usize>,
     current: Option<ServiceState>,
     tag_section_indent: Option<usize>,
+    /// Indentation of the current service's own keys, once its first key is seen.
+    member_indent: Option<usize>,
     tag_facts: BTreeSet<ServiceTagFact>,
 }
 
@@ -128,15 +135,19 @@ fn scan_service_line(
         state.tag_section_indent = None;
         return Ok(true);
     }
-    if let Some((key, _, _)) = yaml_mapping_key(line.text) {
+    let mapping_key = yaml_mapping_key(line.text).filter(|_| !trimmed.starts_with('#'));
+    if let Some((key, _, _)) = mapping_key {
         state.tag_section_indent = (key == "tags").then_some(line.indent);
     }
+    let service_setting =
+        mapping_key.is_some() && *state.member_indent.get_or_insert(line.indent) == line.indent;
     scan_service_direct_references(
         builder,
         ServiceLine {
             service,
             start: line.start,
             text: line.text,
+            service_setting,
         },
     )?;
     collect_service_tags(state, line);
@@ -161,6 +172,7 @@ fn begin_service(
     };
     state.service_indent.get_or_insert(line.indent);
     state.tag_section_indent = None;
+    state.member_indent = None;
     if id.starts_with('_') {
         state.current = None;
         return Ok(());
@@ -189,23 +201,23 @@ fn collect_service_tags(state: &mut ServiceScanState, line: ServiceSourceLine<'_
     if state
         .tag_section_indent
         .is_some_and(|section_indent| line.indent > section_indent)
-        && let Some((tag, start, end)) = yaml_value_for_key(line.text, "name")
+        && let Some(tag) = yaml_value_for_key(line.text, "name")
     {
         state.tag_facts.insert((
             service.id.clone(),
-            tag.to_owned(),
+            tag.value.into_owned(),
             true,
-            line.start + start,
-            line.start + end,
+            line.start + tag.start,
+            line.start + tag.end,
         ));
     }
-    if let Some((tag, start, end)) = tagged_iterator(line.text) {
+    if let Some(tag) = tagged_iterator(line.text) {
         state.tag_facts.insert((
             service.id.clone(),
-            tag.to_owned(),
+            tag.value.into_owned(),
             false,
-            line.start + start,
-            line.start + end,
+            line.start + tag.start,
+            line.start + tag.end,
         ));
     }
 }
@@ -245,39 +257,28 @@ fn scan_service_direct_references(
         service,
         start: line_start,
         text: line,
+        service_setting,
     } = input;
-    for key in ["class", "alias", "parent"] {
-        if let Some((value, start, end)) = yaml_value_for_key(line, key) {
-            add_service_reference(
-                builder,
-                ServiceReference {
-                    service,
-                    value,
-                    start: line_start + start,
-                    end: line_start + end,
-                },
-            )?;
-        }
+    scan_service_scalar_references(builder, input)?;
+    // A `factory`/`configurator` whose scalar is rejected (an unterminated
+    // quote, an unsupported escape) names nothing rather than a raw guess.
+    if yaml_first_key(line).is_some_and(|(key, ..)| {
+        METHOD_SEPARATED_SERVICE_KEYS.contains(&key) && yaml_value_for_key(line, key).is_none()
+    }) {
+        return Ok(());
     }
-    if let Some((factory, start, end)) = yaml_value_for_key(line, "factory") {
-        let target = factory
-            .strip_prefix("@?")
-            .or_else(|| factory.strip_prefix('@'))
-            .map(str::to_owned)
-            .or_else(|| factory.split_once("::").map(|(class, _)| class.to_owned()));
-        if let Some(target) = target {
-            let target_len = target.len().min(end.saturating_sub(start));
-            add_service_reference(
-                builder,
-                ServiceReference {
-                    service,
-                    value: &target,
-                    start: line_start + start,
-                    end: line_start + start + target_len,
-                },
-            )?;
-        }
-    }
+    // The service's own scalar `factory` or `configurator` setting
+    // `@service:method` names the service before the colon, as Symfony's
+    // loader splits it; anywhere else (a `[@service, method]` sequence, a
+    // nested argument mapping) the colon is part of the service id.
+    let method_separated_at = METHOD_SEPARATED_SERVICE_KEYS
+        .iter()
+        .filter(|_| service_setting)
+        .find_map(|key| {
+            yaml_value_for_key(line, key)
+                .filter(|scalar| scalar.value.starts_with('@'))
+                .map(|scalar| scalar.start)
+        });
     let mut cursor = 0_usize;
     while let Some(relative) = line[cursor..].find('@') {
         let marker = cursor + relative;
@@ -291,7 +292,18 @@ fn scan_service_direct_references(
             } else {
                 1
             };
-        let end = service_identifier_end(line, name_start);
+        let mut end = service_identifier_end(line, name_start);
+        if !ends_service_identifier(line, end) {
+            // The id continues with a character no service id spells here;
+            // a prefix of it would name a different service.
+            cursor = end.max(marker + 1);
+            continue;
+        }
+        if method_separated_at == Some(marker)
+            && let Some(colon) = line[name_start..end].find(':')
+        {
+            end = name_start + colon;
+        }
         if end > name_start {
             add_service_reference(
                 builder,
@@ -304,6 +316,51 @@ fn scan_service_direct_references(
             )?;
         }
         cursor = end.max(marker + 1);
+    }
+    Ok(())
+}
+
+fn scan_service_scalar_references(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    input: ServiceLine<'_>,
+) -> Result<(), ExtractError> {
+    let ServiceLine {
+        service,
+        start: line_start,
+        text: line,
+        ..
+    } = input;
+    for key in ["class", "alias", "parent"] {
+        if let Some(scalar) = yaml_value_for_key(line, key) {
+            add_service_reference(
+                builder,
+                ServiceReference {
+                    service,
+                    value: &scalar.value,
+                    start: line_start + scalar.start,
+                    end: line_start + scalar.end,
+                },
+            )?;
+        }
+    }
+    // A `Class::method` factory names its class; an `@service` factory is
+    // one of the service references scanned by the caller.
+    if let Some(factory) = yaml_value_for_key(line, "factory")
+        && !factory.value.starts_with('@')
+        && let Some((class, _)) = factory.value.split_once("::")
+        && let Some(raw_class_length) = line[factory.start..factory.end].find("::")
+    {
+        // No supported escape spells `::`, so the raw and decoded texts
+        // split at the same separator; the span covers the raw class text.
+        add_service_reference(
+            builder,
+            ServiceReference {
+                service,
+                value: class,
+                start: line_start + factory.start,
+                end: line_start + factory.start + raw_class_length,
+            },
+        )?;
     }
     Ok(())
 }
@@ -518,35 +575,130 @@ fn yaml_mapping_key(line: &str) -> Option<(&str, usize, usize)> {
     ))
 }
 
-fn yaml_value_for_key<'line>(
-    line: &'line str,
-    expected: &str,
-) -> Option<(&'line str, usize, usize)> {
-    let content = line
-        .trim_start()
-        .trim_start_matches('-')
-        .trim_start()
-        .trim_start_matches('{')
-        .trim_start();
-    let key = content.split_once(':')?.0.trim();
+/// One YAML scalar on a line: its decoded value and the byte bounds of its
+/// raw text (inside the quotes for a quoted scalar).
+struct YamlScalar<'line> {
+    /// Decoded value; borrowed unless a quote escape had to be decoded.
+    value: Cow<'line, str>,
+    /// First byte of the raw text.
+    start: usize,
+    /// Byte after the raw text.
+    end: usize,
+}
+
+/// The scalar value of `expected` when it is the line's first key, in a
+/// block mapping (`key: value`), a sequence item (`- key: value`), or a flow
+/// mapping (`- { key: value, other: 1 }`).
+fn yaml_value_for_key<'line>(line: &'line str, expected: &str) -> Option<YamlScalar<'line>> {
+    let (key, colon, flow) = yaml_first_key(line)?;
     if key != expected {
         return None;
     }
-    let raw = content
-        .split_once(':')?
-        .1
-        .trim()
-        .trim_end_matches([',', ']', '}'])
-        .trim();
-    if raw.is_empty() {
-        return None;
-    }
-    let value = unquote(raw);
-    let start = line.find(value)?;
-    Some((value, start, start + value.len()))
+    yaml_scalar_at(line, skip_ascii_whitespace(line, colon + 1), flow)
 }
 
-fn tagged_iterator(line: &str) -> Option<(&str, usize, usize)> {
+/// The line's first mapping key (trimmed), the byte offset of its `:`, and
+/// whether it sits in a flow mapping.
+fn yaml_first_key(line: &str) -> Option<(&str, usize, bool)> {
+    let item = line.trim_start().trim_start_matches('-').trim_start();
+    let flow = item.starts_with('{');
+    let key_start = line.len() - item.trim_start_matches('{').trim_start().len();
+    let colon = key_start + line[key_start..].find(':')?;
+    Some((line[key_start..colon].trim(), colon, flow))
+}
+
+/// The scalar starting at `start`: a quoted scalar's decoded contents, a
+/// flow-mapping scalar up to its `,` or `}`, or the rest of a block line
+/// without trailing flow punctuation. A quoted scalar that does not close on
+/// this line or uses an escape other than a quote or backslash yields nothing,
+/// so no shorter or differently spelled literal is ever reported.
+fn yaml_scalar_at(line: &str, start: usize, flow: bool) -> Option<YamlScalar<'_>> {
+    let rest = &line[start..];
+    match rest.as_bytes().first() {
+        Some(b'\'') => return single_quoted(line, start + 1),
+        Some(b'"') => return double_quoted(line, start + 1),
+        _ => {}
+    }
+    let raw_end = if flow {
+        rest.find([',', '}']).unwrap_or(rest.len())
+    } else {
+        rest.len()
+    };
+    let value = rest[..raw_end]
+        .trim_end()
+        .trim_end_matches([',', ']', '}'])
+        .trim_end();
+    (!value.is_empty()).then(|| YamlScalar {
+        value: Cow::Borrowed(value),
+        start,
+        end: start + value.len(),
+    })
+}
+
+/// A single-quoted scalar whose contents start at `start`; `''` is a quote.
+fn single_quoted(line: &str, start: usize) -> Option<YamlScalar<'_>> {
+    let bytes = line.as_bytes();
+    let mut cursor = start;
+    loop {
+        let quote = cursor + line[cursor..].find('\'')?;
+        if bytes.get(quote + 1) != Some(&b'\'') {
+            let raw = &line[start..quote];
+            let value = if raw.contains("''") {
+                Cow::Owned(raw.replace("''", "'"))
+            } else {
+                Cow::Borrowed(raw)
+            };
+            return (!value.is_empty()).then_some(YamlScalar {
+                value,
+                start,
+                end: quote,
+            });
+        }
+        cursor = quote + 2;
+    }
+}
+
+/// A double-quoted scalar whose contents start at `start`, decoding only the
+/// `\\`, `\"` and `\/` escapes.
+fn double_quoted(line: &str, start: usize) -> Option<YamlScalar<'_>> {
+    let mut decoded = String::new();
+    let mut escaped = false;
+    let mut segment = start;
+    let mut characters = line[start..].char_indices();
+    while let Some((offset, character)) = characters.next() {
+        let position = start + offset;
+        match character {
+            '"' => {
+                let raw = &line[start..position];
+                let value = if escaped {
+                    decoded.push_str(&line[segment..position]);
+                    Cow::Owned(decoded)
+                } else {
+                    Cow::Borrowed(raw)
+                };
+                return (!value.is_empty()).then_some(YamlScalar {
+                    value,
+                    start,
+                    end: position,
+                });
+            }
+            '\\' => {
+                let (_, next) = characters.next()?;
+                if !matches!(next, '\\' | '"' | '/') {
+                    return None;
+                }
+                decoded.push_str(&line[segment..position]);
+                decoded.push(next);
+                segment = position + 1 + next.len_utf8();
+                escaped = true;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn tagged_iterator(line: &str) -> Option<YamlScalar<'_>> {
     let marker = line.find("!tagged")?;
     let suffix = &line[marker..];
     let after_kind = suffix.find(char::is_whitespace)?;
@@ -556,7 +708,11 @@ fn tagged_iterator(line: &str) -> Option<(&str, usize, usize)> {
         return yaml_value_for_key(line, "tag");
     }
     let end = service_identifier_end(line, start);
-    (end > start).then_some((&line[start..end], start, end))
+    (end > start).then(|| YamlScalar {
+        value: Cow::Borrowed(&line[start..end]),
+        start,
+        end,
+    })
 }
 
 fn unquote(value: &str) -> &str {
@@ -566,13 +722,24 @@ fn unquote(value: &str) -> &str {
         .unwrap_or(value)
 }
 
-fn service_identifier_end(value: &str, mut cursor: usize) -> usize {
-    while value.as_bytes().get(cursor).is_some_and(|byte| {
-        byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'.' | b'-' | b'\\' | b':' | b'/')
-    }) {
-        cursor += 1;
-    }
-    cursor
+/// The byte after the service-id characters starting at `cursor`: Unicode
+/// alphanumerics plus `_ . - \\ : /`.
+fn service_identifier_end(value: &str, cursor: usize) -> usize {
+    value[cursor..]
+        .char_indices()
+        .find(|&(_, character)| {
+            !(character.is_alphanumeric()
+                || matches!(character, '_' | '.' | '-' | '\\' | ':' | '/'))
+        })
+        .map_or(value.len(), |(offset, _)| cursor + offset)
+}
+
+/// Whether a service id ending at `end` ends there: at the end of the line,
+/// whitespace, a quote, or flow punctuation.
+fn ends_service_identifier(line: &str, end: usize) -> bool {
+    line.as_bytes().get(end).is_none_or(|byte| {
+        byte.is_ascii_whitespace() || matches!(*byte, b'\'' | b'"' | b',' | b']' | b'}')
+    })
 }
 
 struct Quoted<'source> {

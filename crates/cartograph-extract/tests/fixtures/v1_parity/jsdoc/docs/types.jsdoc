@@ -1,0 +1,20 @@
+/**
+ * A 2D point.
+ * @typedef {Object} Point
+ * @property {number} x - horizontal position
+ * @property {number} y - vertical position
+ */
+
+/**
+ * @callback Visitor
+ * @param {Point} point
+ * @param {number} index
+ * @returns {void}
+ */
+
+/**
+ * @class Shape
+ * @abstract
+ * @implements {Drawable}
+ * @template T
+ */

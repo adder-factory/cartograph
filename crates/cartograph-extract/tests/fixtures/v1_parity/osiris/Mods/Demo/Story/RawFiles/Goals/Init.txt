@@ -1,0 +1,24 @@
+Version 1
+SubGoalCombiner SGC_AND
+INITSECTION
+DB_Check(S_Player_Astarion_c7c13742-bacd-460a-8f65-f864fe41f255);
+KBSECTION
+IF
+CharacterUsedSkill(_Player, "Target_Spell", _)
+AND
+DB_Check(_Player)
+THEN
+ApplyStatus(_Player, "Target_Status", -1)
+DB_Seen(_Player)
+
+IF
+Unequipped(_Item, _Character)
+AND
+HasActiveStatus(_Character, "Target_Status", 1)
+THEN
+RemoveStatus(_Character, "Target_Status", _Item);
+PROC_Target(_Character);
+EXITSECTION
+NOT DB_Seen(S_Player_Astarion_c7c13742-bacd-460a-8f65-f864fe41f255);
+SysCompleteGoal("Init");
+ENDEXITSECTION

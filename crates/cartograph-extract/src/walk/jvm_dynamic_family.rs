@@ -4,18 +4,32 @@ use cartograph_domain::{
 };
 use tree_sitter::Node;
 
-use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
+use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind, code_scan::CodeScan};
 
 use super::{
-    ExtractionBuilder, PendingReference, PendingSymbol, current_owner_kind_in, references,
+    ExtractionBuilder, PendingReference, PendingSymbol, current_owner_kind_in,
+    family_support::screened_name,
+    references,
     syntax::{children, descendants_including_root, named_children, span_for},
     with_root_scope,
 };
+
+mod annotations;
+mod kotlin_callables;
 
 const MAX_SIGNATURE_BYTES: usize = 512;
 const MAX_REFERENCE_TARGET_BYTES: usize = 512;
 const MAX_TYPE_DEPTH: usize = 64;
 const MAX_DOC_BYTES: usize = 16 * 1024;
+/// Groovy grammar node for a juxtaposed (parenthesis-free) command call.
+const GROOVY_COMMAND_CALL: &str = "juxt_function_call";
+/// Groovy declarations that may follow the constants of a recovered enum body.
+const GROOVY_ENUM_MEMBER_DECLARATIONS: &[&str] =
+    &["function_definition", "function_declaration", "declaration"];
+/// Most bytes of one error-recovered line scanned for an open literal before a call.
+const MAX_LINE_PREFIX_SCAN_BYTES: usize = 4_096;
+/// Most ancestors and preceding siblings inspected for one recovered use.
+const MAX_PARSE_ERROR_LOOKBACK_NODES: usize = 128;
 const JVM_TYPE_OWNER_KINDS: &[SymbolKind] = &[
     SymbolKind::Class,
     SymbolKind::Struct,
@@ -247,7 +261,9 @@ fn visit_groovy_recovered_enum(
     else {
         return Ok(false);
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(false);
+    };
     let id = emit_jvm_symbol(
         builder,
         PendingSymbol {
@@ -286,6 +302,15 @@ fn visit_groovy_recovered_enum(
             )?;
         }
     }
+    // Declarations after the constants (methods, fields) parse cleanly inside
+    // the recovered body and belong to the enum. A constant-specific body
+    // (`FORMAL { String foo() {} }`) parses as a call with a closure argument
+    // and is not an enum member declaration, so it is left alone.
+    for member in
+        named_children(body).filter(|child| GROOVY_ENUM_MEMBER_DECLARATIONS.contains(&child.kind()))
+    {
+        builder.visit(member, depth.saturating_add(1))?;
+    }
     builder.qualifiers.pop();
     builder.native_owner_kinds.pop();
     builder.owners.pop();
@@ -317,7 +342,9 @@ fn visit_persistent_namespace(
     let Some(name_node) = name_node else {
         return Ok(());
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let id = emit_namespace(builder, node, name.clone())?;
     builder.owners.push(id);
     builder.native_owner_kinds.push(SymbolKind::Namespace);
@@ -336,7 +363,9 @@ fn visit_scala_package(
     let Some(body) = node.child_by_field_name("body") else {
         return visit_persistent_namespace(builder, node, Some(name_node));
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let id = emit_namespace(builder, node, name.clone())?;
     builder.owners.push(id);
     builder.native_owner_kinds.push(SymbolKind::Namespace);
@@ -492,6 +521,7 @@ fn visit_groovy_import(
 fn safe_import_target(target: &str) -> bool {
     !target.is_empty()
         && target.len() <= MAX_REFERENCE_TARGET_BYTES
+        && !super::specifier_safety::specifier_may_carry_credential(target)
         && target
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'$'))
@@ -547,8 +577,10 @@ fn emit_jvm_symbol(
     pending: PendingSymbol<'_>,
 ) -> Result<SymbolId, ExtractError> {
     let doc_anchor = pending.doc_anchor;
+    let structural_node = pending.structural_node;
     let custom_doc = preceding_jvm_doc(builder, doc_anchor)?;
     let id = builder.emit_symbol(pending)?;
+    annotations::capture_annotations(builder, structural_node, &id)?;
     let needs_override = builder
         .facts
         .symbols
@@ -578,6 +610,12 @@ fn preceding_jvm_doc(
     let Some(raw) = raw_jvm_doc(prefix, lower_bound) else {
         return Ok(None);
     };
+    if raw
+        .split_whitespace()
+        .any(super::specifier_safety::specifier_may_carry_credential)
+    {
+        return Ok(None);
+    }
     let raw = builder.context.copy_text(raw)?;
     normalize_doc(builder, &raw)
 }
@@ -683,6 +721,12 @@ fn emit_binding(
         imported,
         local,
     } = input;
+    if [module, imported, local]
+        .into_iter()
+        .any(super::specifier_safety::specifier_may_carry_credential)
+    {
+        return Ok(());
+    }
     builder.emit_import_binding(ExtractedImportBinding {
         kind,
         module_specifier: builder.context.copy_text(module)?,
@@ -712,7 +756,9 @@ fn visit_kotlin_container(
     };
     let body =
         named_children(node).find(|child| matches!(child.kind(), "class_body" | "enum_class_body"));
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let visibility = jvm_visibility(builder, node)?;
     let id = emit_container(
         builder,
@@ -770,7 +816,9 @@ fn visit_scala_container(
         "class_definition" | "object_definition" => SymbolKind::Class,
         _ => return builder.visit_named_children(node, depth),
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let visibility = jvm_visibility(builder, node)?;
     let id = emit_container(
         builder,
@@ -832,7 +880,9 @@ fn visit_groovy_container(
     } else {
         SymbolKind::Class
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let visibility = jvm_visibility(builder, node)?;
     let id = emit_container(
         builder,
@@ -1071,11 +1121,53 @@ fn visit_kotlin_callable(
     else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    // A top-level extension function keeps the `Function` kind (Kotlin compiles
+    // it to a static function, and v2 member resolution would otherwise stop
+    // binding its bare `shout()` calls); its receiver qualifies its identity.
+    let receiver = kotlin_callables::extension_receiver(builder, node)?;
     let kind = if current_owner_kind_in(builder, JVM_TYPE_OWNER_KINDS) {
         SymbolKind::Method
     } else {
         SymbolKind::Function
+    };
+    let qualifier_depth = builder.qualifiers.len();
+    builder.qualifiers.extend(receiver);
+    let result = emit_kotlin_callable(
+        builder,
+        KotlinCallable {
+            node,
+            name_node,
+            parameters,
+            kind,
+            depth,
+        },
+    );
+    builder.qualifiers.truncate(qualifier_depth);
+    result
+}
+
+#[derive(Clone, Copy)]
+struct KotlinCallable<'tree> {
+    node: Node<'tree>,
+    name_node: Node<'tree>,
+    parameters: Node<'tree>,
+    kind: SymbolKind,
+    depth: usize,
+}
+
+fn emit_kotlin_callable(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: KotlinCallable<'_>,
+) -> Result<(), ExtractError> {
+    let KotlinCallable {
+        node,
+        name_node,
+        parameters,
+        kind,
+        depth,
+    } = input;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
     };
     let return_type = kotlin_return_type(node, parameters);
     let body = named_children(node).find(|child| child.kind() == "function_body");
@@ -1112,26 +1204,17 @@ fn visit_kotlin_callable(
         )?;
     }
     if let Some(receiver) = node.child_by_field_name("receiver") {
-        capture_type_references(
-            builder,
-            TypeReferenceCapture {
-                node: receiver,
-                owner: &id,
-                kind: ReferenceKind::TypeOf,
-                depth: 0,
-            },
-        )?;
+        kotlin_callables::capture_receiver_types(builder, receiver, &id)?;
     }
-    visit_owned_body(
-        builder,
-        OwnedBody {
-            id,
-            kind,
-            name,
-            body,
-            depth,
-        },
-    )
+    builder.owners.push(id);
+    builder.native_owner_kinds.push(kind);
+    builder.qualifiers.push(name);
+    let result = kotlin_callables::emit_annotated_parameters(builder, parameters)
+        .and_then(|()| body.map_or(Ok(()), |body| builder.visit(body, depth.saturating_add(1))));
+    builder.qualifiers.pop();
+    builder.native_owner_kinds.pop();
+    builder.owners.pop();
+    result
 }
 
 fn visit_scala_callable(
@@ -1142,7 +1225,9 @@ fn visit_scala_callable(
     let Some(name_node) = node.child_by_field_name("name") else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let kind = if current_owner_kind_in(builder, JVM_TYPE_OWNER_KINDS) {
         SymbolKind::Method
     } else {
@@ -1210,7 +1295,9 @@ fn visit_groovy_callable(
     let Some(parameters) = node.child_by_field_name("parameters") else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let kind = if current_owner_kind_in(builder, JVM_TYPE_OWNER_KINDS) {
         SymbolKind::Method
     } else {
@@ -1287,7 +1374,9 @@ fn visit_groovy_constructor(
     let Some(arguments) = node.child_by_field_name("args") else {
         return Ok(());
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let signature = groovy_recovered_constructor_signature(builder, arguments)?;
     let visibility = jvm_visibility(builder, node)?;
     let body = descendants_including_root(arguments)
@@ -1475,7 +1564,9 @@ fn emit_kotlin_property_symbol(
         return Ok(None);
     };
     let keyword = if immutable { "val" } else { "var" };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(None);
+    };
     let kind = if class_scope {
         SymbolKind::Field
     } else if immutable {
@@ -1533,7 +1624,9 @@ fn emit_scala_class_parameter(
     let Some(name_node) = node.child_by_field_name("name") else {
         return Ok(());
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let type_node = node.child_by_field_name("type");
     let keyword = if direct_keyword(builder, node, "var")? {
         "var"
@@ -1590,7 +1683,9 @@ fn visit_scala_binding(
     let Some(name_node) = scala_pattern_name(pattern) else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let class_scope = current_owner_kind_in(builder, JVM_TYPE_OWNER_KINDS);
     let immutable = node.kind() == "val_definition";
     let kind = if class_scope {
@@ -1660,7 +1755,9 @@ fn visit_groovy_binding(
     let Some(name_node) = node.child_by_field_name("name") else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let class_scope = current_owner_kind_in(builder, JVM_TYPE_OWNER_KINDS);
     let kind = if class_scope {
         SymbolKind::Field
@@ -1768,7 +1865,9 @@ fn emit_type_alias(
         name_node,
         target,
     } = input;
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let visibility = jvm_visibility(builder, node)?;
     let id = emit_jvm_symbol(
         builder,
@@ -1813,7 +1912,9 @@ fn visit_enum_member(
     let Some(name_node) = name_node else {
         return builder.visit_named_children(node, depth);
     };
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let id = emit_jvm_symbol(
         builder,
         PendingSymbol {
@@ -2130,7 +2231,9 @@ fn capture_groovy_usage(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     match node.kind() {
-        "function_call" if !is_groovy_construction_target(node) => {
+        "function_call" | GROOVY_COMMAND_CALL
+            if !is_groovy_construction_target(node) && is_groovy_call(builder, node)? =>
+        {
             let Some(target) = node.child_by_field_name("function") else {
                 return Ok(());
             };
@@ -2167,7 +2270,10 @@ fn capture_groovy_usage(
                 },
             )
         }
-        "dotted_identifier" if !is_groovy_call_target(node) => {
+        "dotted_identifier"
+            if !is_groovy_call_target(builder, node)?
+                && !is_recovered_literal_word(builder, node)? =>
+        {
             capture_terminal_member(builder, node)
         }
         _ => Ok(()),
@@ -2221,13 +2327,175 @@ fn is_scala_call_target(node: Node<'_>) -> bool {
     })
 }
 
-fn is_groovy_call_target(node: Node<'_>) -> bool {
-    node.parent().is_some_and(|parent| {
-        parent.kind() == "function_call"
+fn is_groovy_call_target(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let Some(parent) = node.parent().filter(|parent| {
+        matches!(parent.kind(), "function_call" | GROOVY_COMMAND_CALL)
             && parent
                 .child_by_field_name("function")
                 .is_some_and(|target| same_node(target, node))
+    }) else {
+        return Ok(false);
+    };
+    is_groovy_call(builder, parent)
+}
+
+/// Whether a Groovy call node is a call: it is not a word of an error-recovered
+/// literal, and a juxtaposed command call (`receiver.method args`) calls
+/// through a member path.
+///
+/// Error recovery turns the words of a string-named method into calls
+/// (`def "greets with a tone"()` becomes `with a` and `tone "..."`,
+/// `def "uses a.b c"()` becomes `a.b c` and `def "uses a.b() c"()` becomes
+/// `a.b()`), so a call recovered inside a literal, or a bare juxtaposition, is
+/// not trusted.
+fn is_groovy_call(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    Ok(!is_recovered_literal_word(builder, node)?
+        && (node.kind() != GROOVY_COMMAND_CALL
+            || node
+                .child_by_field_name("function")
+                .is_some_and(|target| target.kind() == "dotted_identifier")))
+}
+
+/// Whether `node` is a word that error recovery lifted out of a literal: a
+/// parse error ends earlier on its line and the line's text before it is
+/// inside a literal or comment. Nodes in error-free surroundings are trusted
+/// as the grammar parsed them, so Groovy slashy, dollar-slashy, triple-quoted
+/// and multi-line literals the line re-lex does not model are never consulted.
+fn is_recovered_literal_word(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    Ok(match follows_parse_error_on_line(builder, node)? {
+        Some(false) => false,
+        Some(true) => starts_inside_line_literal(builder.context.source(), node.start_byte()),
+        None => true,
     })
+}
+
+/// Whether a parse error (an `ERROR` or missing node) ends on the row where
+/// `node` starts, before it. Only ancestors starting on that row and parents
+/// whose subtree holds an error are searched, so error-free trees cost one
+/// `has_error` check per ancestor on the row.
+fn follows_parse_error_on_line(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<bool>, ExtractError> {
+    let start = node.start_position();
+    let line = NodeLine {
+        start_byte: node.start_byte().saturating_sub(start.column),
+        row: start.row,
+    };
+    let mut current = node;
+    let mut visits = 0;
+    while let Some(parent) = current.parent() {
+        builder.context.ensure_active()?;
+        if parent.has_error() {
+            if !charge_error_lookback(builder, &mut visits)? {
+                return Ok(None);
+            }
+            match error_precedes_on_line(
+                builder,
+                ErrorLookback {
+                    parent,
+                    current,
+                    line,
+                },
+                &mut visits,
+            )? {
+                Some(false) => {}
+                result => return Ok(result),
+            }
+        }
+        if parent.start_position().row != start.row {
+            return Ok(Some(false));
+        }
+        current = parent;
+    }
+    Ok(Some(false))
+}
+
+/// Charge every examined node and poll cancellation before reading it.
+fn charge_error_lookback(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    visits: &mut usize,
+) -> Result<bool, ExtractError> {
+    builder.context.ensure_active()?;
+    *visits = visits.saturating_add(1);
+    Ok(*visits <= MAX_PARSE_ERROR_LOOKBACK_NODES)
+}
+
+/// The source line a node starts on: its first byte and its row.
+#[derive(Clone, Copy)]
+struct NodeLine {
+    start_byte: usize,
+    row: usize,
+}
+
+#[derive(Clone, Copy)]
+struct ErrorLookback<'tree> {
+    parent: Node<'tree>,
+    current: Node<'tree>,
+    line: NodeLine,
+}
+
+/// Whether a child of `parent` before `current` holds a parse error and ends
+/// on `line`, at or after its start.
+fn error_precedes_on_line(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: ErrorLookback<'_>,
+    visits: &mut usize,
+) -> Result<Option<bool>, ExtractError> {
+    let ErrorLookback {
+        parent,
+        current,
+        line,
+    } = input;
+    let mut cursor = parent.walk();
+    if !cursor.goto_first_child() {
+        return Ok(Some(false));
+    }
+    loop {
+        if !charge_error_lookback(builder, visits)? {
+            return Ok(None);
+        }
+        let child = cursor.node();
+        if child.start_byte() >= current.start_byte() || same_node(child, current) {
+            return Ok(Some(false));
+        }
+        if child.has_error()
+            && child.end_byte() >= line.start_byte
+            && child.end_position().row == line.row
+        {
+            return Ok(Some(true));
+        }
+        if !cursor.goto_next_sibling() {
+            return Ok(Some(false));
+        }
+    }
+}
+
+/// Whether `offset` lies inside a literal or comment opened earlier on its line
+/// (Groovy `GString` `${...}` interpolations are code). When the line starts beyond the
+/// scan bound the position is unknown and the caller abstains, as for a literal.
+fn starts_inside_line_literal(source: &str, offset: usize) -> bool {
+    let window_start = offset.saturating_sub(MAX_LINE_PREFIX_SCAN_BYTES);
+    let Some(window) = source.as_bytes().get(window_start..offset) else {
+        return true;
+    };
+    let line = match window.iter().rposition(|byte| *byte == b'\n') {
+        Some(newline) => &window[newline + 1..],
+        None if window_start == 0 => window,
+        None => return true,
+    };
+    let mut scan = CodeScan::new(line).with_interpolation();
+    scan.by_ref().for_each(drop);
+    scan.in_literal()
 }
 
 fn is_groovy_construction_target(node: Node<'_>) -> bool {
@@ -2274,7 +2542,10 @@ fn normalize_reference(
     builder: &ExtractionBuilder<'_, '_>,
     raw: &str,
 ) -> Result<Option<String>, ExtractError> {
-    if raw.is_empty() || raw.len() > MAX_REFERENCE_TARGET_BYTES {
+    if raw.is_empty()
+        || raw.len() > MAX_REFERENCE_TARGET_BYTES
+        || super::specifier_safety::specifier_may_carry_credential(raw)
+    {
         return Ok(None);
     }
     let mut normalized = String::new();

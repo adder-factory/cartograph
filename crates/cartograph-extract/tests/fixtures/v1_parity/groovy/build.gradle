@@ -1,0 +1,23 @@
+plugins {
+    id 'groovy'
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.apache.groovy:groovy:4.0.15'
+    testImplementation 'org.spockframework:spock-core:2.3-groovy-4.0'
+}
+
+application {
+    mainClass = 'demo.App'
+}
+
+tasks.register('hello') {
+    doLast {
+        println 'hello'
+    }
+}

@@ -6,6 +6,7 @@ use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
 use super::{
     ExtractionBuilder, PendingReference, PendingSymbol, module_system, references,
     syntax::{descendants, export_flags, named_children, span_for, visibility},
+    type_contracts,
 };
 
 const MAX_TYPE_ALIAS_SIGNATURE_BYTES: usize = 64 * 1024;
@@ -16,6 +17,11 @@ pub(super) fn visit_export(
     depth: usize,
 ) -> Result<(), ExtractError> {
     let source_node = node.child_by_field_name("source");
+    if source_node
+        .is_some_and(|source| module_system::screened_import_source(builder, source).is_none())
+    {
+        return Ok(());
+    }
     let source = source_node
         .map(|source| builder.context.owned_unquoted_text(source))
         .transpose()?;
@@ -129,7 +135,10 @@ pub(super) fn visit_import(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
-    let Some(source_node) = node.child_by_field_name("source") else {
+    let Some(source_node) = node
+        .child_by_field_name("source")
+        .and_then(|source| module_system::screened_import_source(builder, source))
+    else {
         return Ok(());
     };
     let module_name = builder.context.owned_unquoted_text(source_node)?;
@@ -221,6 +230,9 @@ fn emit_named_import_bindings(
         }
         if let Some(name_node) = specifier.child_by_field_name("name") {
             let name = builder.context.owned_unquoted_text(name_node)?;
+            if !module_system::import_literal_is_safe(&name) {
+                continue;
+            }
             let local_node = specifier.child_by_field_name("alias").unwrap_or(name_node);
             if local_node.kind() == "identifier" {
                 let local_name = builder.context.owned_text(local_node)?;
@@ -259,9 +271,10 @@ pub(super) fn visit_type_alias(
         <= MAX_TYPE_ALIAS_SIGNATURE_BYTES)
         .then(|| builder.context.owned_text(node))
         .transpose()?;
+    let name = builder.context.owned_text(name_node)?;
     let pending = PendingSymbol {
         kind: SymbolKind::TypeAlias,
-        name: builder.context.owned_text(name_node)?,
+        name: name.clone(),
         span_node: node,
         structural_node: node,
         doc_anchor: node,
@@ -274,8 +287,23 @@ pub(super) fn visit_type_alias(
         visibility: visibility(node, builder.context.source()),
     };
     let id = builder.emit_symbol(pending)?;
+    let alias_exported = builder
+        .facts
+        .symbols
+        .last()
+        .is_some_and(|symbol| symbol.export.exported);
     if let Some(value) = node.child_by_field_name("value") {
         references::capture_type_nodes(builder, value, &id)?;
+        builder.javascript.whole_type_owners.insert(id.clone());
+        type_contracts::emit_contract_properties(
+            builder,
+            value,
+            type_contracts::ContractAlias::new(
+                &id,
+                &name,
+                crate::SymbolExportFlags::named(alias_exported),
+            ),
+        )?;
         builder.owners.push(id);
         builder.visit(value, depth.saturating_add(1))?;
         builder.owners.pop();

@@ -2,6 +2,8 @@
 
 mod dependency_ownership;
 
+use std::fmt::Write;
+
 use cartograph_domain::ReferenceKind;
 use cartograph_extract::{
     ExtractError, ExtractedFile, ExtractedReference, NativeExtractor, RUST_MACRO_RESOLUTION_PREFIX,
@@ -10,6 +12,42 @@ use cartograph_extract::{
 
 const SOURCE_LIMIT_BYTES: usize = 1024 * 1024;
 const MAX_MACRO_REFERENCES: usize = 8_192;
+
+#[test]
+fn expired_sibling_macros_restore_the_root_expression_reading() {
+    const COUNT: usize = 1_024;
+    let mut source =
+        String::from("const LIMIT: usize = 1;\nmacro_rules! q { ($x:expr) => { $x } }\n");
+    for index in 0..COUNT {
+        source
+            .write_fmt(format_args!(
+                "fn sibling_{index}() {{ macro_rules! q {{ ($x:tt) => {{}} }} }}\n"
+            ))
+            .unwrap_or_else(|error| panic!("fixture formatting failed: {error}"));
+    }
+    source.push_str("fn after() {\n");
+    for _ in 0..COUNT {
+        source.push_str("q!(LIMIT);\n");
+    }
+    source.push_str("}\n");
+    let file = extract("src/scoped.rs", &source);
+    let references = owned_references(&file, "after").collect::<Vec<_>>();
+    assert_eq!(
+        references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References
+                && reference.name == "LIMIT")
+            .count(),
+        COUNT
+    );
+    assert_eq!(
+        references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::Calls && reference.name == "q")
+            .count(),
+        COUNT
+    );
+}
 
 /// The same expressions written directly and as `vec!` arguments.
 const EQUIVALENT_SHAPES: &str = r"

@@ -1,0 +1,7 @@
+{
+  "name": "fixture/php-oracle",
+  "require": {
+    "drupal/core": "^10.0",
+    "symfony/framework-bundle": "^6.4"
+  }
+}

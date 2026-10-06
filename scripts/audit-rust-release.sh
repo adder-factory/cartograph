@@ -67,7 +67,7 @@ fi
 
 TRACKED_LEGACY="$({
   git ls-files '*.ts' '*.tsx' '*.js' '*.jsx' '*.mts' '*.cts' '*.mjs' '*.cjs'
-} | grep -Ev '^(crates/cartograph-indexer/tests/fixtures/native_corpus_v1/|crates/cartograph-extract/tests/fixtures/v1_1_33/|docs/test-beds/)' || true)"
+} | grep -Ev '^(crates/cartograph-indexer/tests/fixtures/native_corpus_v1/|crates/cartograph-extract/tests/fixtures/v1_1_33/|crates/cartograph-extract/tests/fixtures/v1_parity/|docs/test-beds/)' || true)"
 if [[ -n "$TRACKED_LEGACY" ]]; then
   echo "Cartograph v2 tracks executable legacy runtime source outside frozen fixtures" >&2
   printf '%s\n' "$TRACKED_LEGACY" >&2

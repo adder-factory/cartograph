@@ -30,6 +30,42 @@ enum SearchFlavor {
     FuzzyName(u8),
 }
 
+/// `ParadeDB` predicate, fixed match evidence and operation name for one flavor.
+struct FlavorPlan {
+    matches: String,
+    /// Exact components every hit matched, or `None` when the all-field
+    /// flavor must probe each returned row's fields.
+    fixed_components: Option<&'static [SearchComponent]>,
+    operation: &'static str,
+}
+
+impl FlavorPlan {
+    fn for_flavor(flavor: SearchFlavor) -> Self {
+        match flavor {
+            SearchFlavor::All => Self {
+                matches: "(documents.qualified_name ||| $2 OR documents.code ||| $2 OR documents.natural_text ||| $2)".to_owned(),
+                fixed_components: None,
+                operation: "bm25-search",
+            },
+            SearchFlavor::Name => Self {
+                matches: "documents.symbol_id IS NOT NULL AND documents.qualified_name ||| $2".to_owned(),
+                fixed_components: Some(&[SearchComponent::QualifiedName]),
+                operation: "name-search",
+            },
+            SearchFlavor::Intent => Self {
+                matches: "documents.natural_text ||| $2".to_owned(),
+                fixed_components: Some(&[SearchComponent::NaturalText]),
+                operation: "intent-search",
+            },
+            SearchFlavor::FuzzyName(distance) => Self {
+                matches: format!("documents.symbol_id IS NOT NULL AND documents.qualified_name ||| $2::pdb.fuzzy({distance})"),
+                fixed_components: Some(&[SearchComponent::QualifiedName]),
+                operation: "fuzzy-name-search",
+            },
+        }
+    }
+}
+
 /// Bounded BM25 query against one project's atomically published generation.
 pub struct SearchQuery {
     project_id: ProjectId,
@@ -259,29 +295,11 @@ impl CartographDatabase {
         .await?;
         let relation =
             require_generation_search_relation(&mut transaction, &self.schema, generation).await?;
-        let (matches, fixed_components, operation): (String, Option<&[SearchComponent]>, _) =
-            match flavor {
-                SearchFlavor::All => (
-                    "(documents.qualified_name ||| $2 OR documents.code ||| $2 OR documents.natural_text ||| $2)".to_owned(),
-                    None,
-                    "bm25-search",
-                ),
-                SearchFlavor::Name => (
-                    "documents.symbol_id IS NOT NULL AND documents.qualified_name ||| $2".to_owned(),
-                    Some(&[SearchComponent::QualifiedName]),
-                    "name-search",
-                ),
-                SearchFlavor::Intent => (
-                    "documents.natural_text ||| $2".to_owned(),
-                    Some(&[SearchComponent::NaturalText]),
-                    "intent-search",
-                ),
-                SearchFlavor::FuzzyName(distance) => (
-                    format!("documents.symbol_id IS NOT NULL AND documents.qualified_name ||| $2::pdb.fuzzy({distance})"),
-                    Some(&[SearchComponent::QualifiedName]),
-                    "fuzzy-name-search",
-                ),
-            };
+        let FlavorPlan {
+            matches,
+            fixed_components,
+            operation,
+        } = FlavorPlan::for_flavor(flavor);
         let table = relation.qualified_table(&self.schema);
         // Field-match flags are deliberately not select-list `|||` expressions:
         // ParadeDB cannot evaluate a match outside its index scan and falls back

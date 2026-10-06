@@ -1,4 +1,7 @@
+mod pascal_resolution;
+mod php_resolution;
 mod scip_spill;
+mod script_modules;
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -35,12 +38,13 @@ use cartograph_extract::{
     CloneTokenCount, CloneTokenProfile, Containment, DEFAULT_MAXIMUM_AST_DEPTH,
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
     EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
-    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, MAXIMUM_AST_DEPTH,
-    MINIMUM_AST_DEPTH, NativeExtractor, RUST_MACRO_RESOLUTION_PREFIX,
-    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
-    SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
-    TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
-    native_extractor_contract_digest, native_read_reservation, substitute_module_alias,
+    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, LEXICAL_SCOPE_RESOLUTION_PREFIX,
+    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
+    RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
+    SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
+    SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
+    native_extraction_reservation, native_extractor_contract_digest, native_read_reservation,
+    substitute_module_alias,
 };
 use cartograph_scip::{
     ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
@@ -4721,7 +4725,9 @@ const fn degraded_file_reason(diagnostic: DiagnosticCode) -> Option<&'static str
         DiagnosticCode::InvalidSpan => Some("extraction_invalid_span"),
         DiagnosticCode::ParserStopped => Some("extraction_parser_stopped"),
         DiagnosticCode::NestingLimitExceeded => Some("nesting_limit_exceeded"),
-        DiagnosticCode::SyntaxError | DiagnosticCode::CanonicalNameTruncated => None,
+        DiagnosticCode::SyntaxError
+        | DiagnosticCode::CanonicalNameTruncated
+        | DiagnosticCode::OptionalFactsOmitted => None,
     }
 }
 
@@ -5222,6 +5228,7 @@ struct ResolutionIndex {
     re_exports: Vec<ProjectReExport>,
     rust_named_re_exports: Vec<RustNamedReExport>,
     test_files: Vec<TestFileEvidence>,
+    php: php_resolution::PhpResolutionIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -8565,11 +8572,26 @@ where
             qualified_name,
             candidates,
         )?;
+        append_mybatis_packaged_edges(
+            ResolutionMutation {
+                index,
+                facts: &mut *facts,
+                budget: &mut *budget,
+                cancelled: &mut *cancelled,
+            },
+            qualified_name,
+            candidates,
+        )?;
     }
     Ok(())
 }
 
-fn append_mybatis_qualified_edges<Cancel>(
+/// Bind a packaged JVM mapper method (`com.example::OrderMapper::findOrder`) to
+/// the XML statement of the mapper whose namespace is exactly
+/// `com.example.OrderMapper`. The XML statement keeps the simple
+/// `OrderMapper::findOrder` name, so its exact JVM name is derived from the
+/// mapper namespace symbol that contains it; nothing is matched by suffix.
+fn append_mybatis_packaged_edges<Cancel>(
     input: ResolutionMutation<'_, Cancel>,
     qualified_name: &str,
     candidates: &[ResolutionCandidate],
@@ -8581,29 +8603,26 @@ where
         index,
         facts,
         budget,
-        cancelled: _,
+        cancelled,
     } = input;
-    let exact = candidates
-        .iter()
-        .filter(|candidate| candidate.qualified_name == qualified_name)
-        .collect::<Vec<_>>();
-    for source in &exact {
-        let Some(source_file) = index.modules.files.get(&source.file_id) else {
+    for target in candidates {
+        if cancelled() {
             return Err(StageItemFailure);
-        };
-        if !matches!(source_file.language.as_str(), "java" | "kotlin" | "scala")
-            || source.kind != SymbolKind::Method
-        {
+        }
+        if target.qualified_name != qualified_name {
             continue;
         }
-        for target in &exact {
-            let Some(target_file) = index.modules.files.get(&target.file_id) else {
+        let Some(jvm_name) = mybatis_jvm_statement_name(index, target, cancelled)? else {
+            continue;
+        };
+        let Some(sources) = index.candidates.get(&jvm_name) else {
+            continue;
+        };
+        for source in sources.as_slice() {
+            if cancelled() {
                 return Err(StageItemFailure);
-            };
-            if target_file.language != "xml"
-                || target.kind != SymbolKind::Method
-                || source.symbol_id == target.symbol_id
-            {
+            }
+            if !mybatis_jvm_mapper_method(index, (source, &jvm_name))? {
                 continue;
             }
             append_framework_edge(
@@ -8619,6 +8638,193 @@ where
         }
     }
     Ok(())
+}
+
+fn mybatis_jvm_mapper_method(
+    index: &ResolutionIndex,
+    source: (&ResolutionCandidate, &str),
+) -> Result<bool, StageItemFailure> {
+    let (candidate, name) = source;
+    let file = index
+        .modules
+        .files
+        .get(&candidate.file_id)
+        .ok_or(StageItemFailure)?;
+    Ok(candidate.qualified_name == name
+        && candidate.kind == SymbolKind::Method
+        && matches!(file.language.as_str(), "java" | "kotlin" | "scala"))
+}
+
+/// The exact JVM qualified name of a `MyBatis` XML statement whose mapper
+/// namespace is package-qualified, or `None` for any other candidate.
+fn mybatis_jvm_statement_name<Cancel>(
+    index: &ResolutionIndex,
+    statement: &ResolutionCandidate,
+    cancelled: &mut Cancel,
+) -> Result<Option<String>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let Some(file) = index.modules.files.get(&statement.file_id) else {
+        return Err(StageItemFailure);
+    };
+    if file.language != SourceLanguage::Xml.as_str() || statement.kind != SymbolKind::Method {
+        return Ok(None);
+    }
+    let (Some(parent), Some((mapper, _))) = (
+        statement.parent_symbol_id.as_ref(),
+        statement.qualified_name.split_once("::"),
+    ) else {
+        return Ok(None);
+    };
+    let mut namespace = None;
+    for candidate in resolution_candidates_for_file(index, mapper, &statement.file_id) {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if &candidate.symbol_id == parent && candidate.kind == SymbolKind::Namespace {
+            namespace = Some(candidate);
+            break;
+        }
+    }
+    let Some((package, simple)) =
+        namespace.and_then(|namespace| namespace.qualified_name.rsplit_once('.'))
+    else {
+        return Ok(None);
+    };
+    if package.is_empty() || simple != mapper {
+        return Ok(None);
+    }
+    Ok(Some(format!("{package}::{}", statement.qualified_name)))
+}
+
+fn append_mybatis_qualified_edges<Cancel>(
+    input: ResolutionMutation<'_, Cancel>,
+    qualified_name: &str,
+    candidates: &[ResolutionCandidate],
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ResolutionMutation {
+        index,
+        facts,
+        budget,
+        cancelled,
+    } = input;
+    let targets = mybatis_xml_targets((index, qualified_name, candidates), budget, cancelled)?;
+    if targets.is_empty() {
+        return Ok(());
+    }
+    for source in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if !mybatis_jvm_mapper_method(index, (source, qualified_name))? {
+            continue;
+        }
+        append_mybatis_mapper_edges(
+            ResolutionMutation {
+                index,
+                facts: &mut *facts,
+                budget: &mut *budget,
+                cancelled: &mut *cancelled,
+            },
+            source,
+            &targets,
+        )?;
+    }
+    Ok(())
+}
+
+fn append_mybatis_mapper_edges<Cancel>(
+    input: ResolutionMutation<'_, Cancel>,
+    source: &ResolutionCandidate,
+    targets: &[&ResolutionCandidate],
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ResolutionMutation {
+        index,
+        facts,
+        budget,
+        cancelled,
+    } = input;
+    for &target in targets {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if source.symbol_id == target.symbol_id {
+            continue;
+        }
+        // An unpackaged JVM mapper bound to a package-qualified namespace
+        // matches only by the simple-namespace convention, not exactly.
+        let confidence = if mybatis_jvm_statement_name(index, target, cancelled)?.is_some() {
+            FRAMEWORK_CONVENTION_CONFIDENCE
+        } else {
+            EXACT_PROJECT_CONFIDENCE
+        };
+        append_framework_edge(
+            facts,
+            budget,
+            FrameworkEdgeInput {
+                source,
+                target,
+                confidence,
+                provenance: MYBATIS_BRIDGE_PROVENANCE,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// Select exact XML statements once, before scanning JVM mapper sources.
+fn mybatis_xml_targets<'candidate, Cancel>(
+    input: (&ResolutionIndex, &str, &'candidate [ResolutionCandidate]),
+    budget: &mut ResolveBudget,
+    cancelled: &mut Cancel,
+) -> Result<Vec<&'candidate ResolutionCandidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (index, name, candidates) = input;
+    let mut targets = Vec::new();
+    for candidate in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if candidate.qualified_name != name || candidate.kind != SymbolKind::Method {
+            continue;
+        }
+        let file = index
+            .modules
+            .files
+            .get(&candidate.file_id)
+            .ok_or(StageItemFailure)?;
+        if file.language != SourceLanguage::Xml.as_str() {
+            continue;
+        }
+        reserve_mybatis_target_slot(&mut targets, budget)?;
+        targets.push(candidate);
+    }
+    Ok(targets)
+}
+
+fn reserve_mybatis_target_slot(
+    targets: &mut Vec<&ResolutionCandidate>,
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    if targets.len() < targets.capacity() {
+        return Ok(());
+    }
+    let additional = targets.capacity().max(1);
+    budget.charge(
+        usize_to_u64(additional).saturating_mul(usize_to_u64(size_of::<&ResolutionCandidate>())),
+    )?;
+    targets
+        .try_reserve_exact(additional)
+        .map_err(|_| StageItemFailure)
 }
 
 fn append_named_framework_bridges<Cancel>(
@@ -9136,6 +9342,7 @@ where
             module,
             cancelled,
         })? {
+            let target = objc_alias_method(index, target).unwrap_or(target);
             append_framework_edge(
                 facts,
                 budget,
@@ -9225,7 +9432,9 @@ where
             let matches = candidate.kind == SymbolKind::Method
                 && languages.contains(&file.language.as_str())
                 && is_tagged == tagged
-                && (tagged || !framework_synthetic_candidate(candidate))
+                && (tagged
+                    || !framework_synthetic_candidate(candidate)
+                    || objc_keyword_selector_alias(candidate).is_some())
                 && turbo_module_matches(module, file, candidate);
             if matches {
                 eligible = eligible.saturating_add(1);
@@ -9239,6 +9448,42 @@ where
         (None, 0) => CandidateTier::Missing,
         (None, _) => CandidateTier::Ambiguous,
     })
+}
+
+/// The keyword selector (`setValue:forKey:`) of an Objective-C method's literal
+/// Swift alias (`setValue`), the name a `TurboModule` spec method shares with its
+/// native implementation. Unary selectors and preposition-reduced aliases are
+/// not literal aliases: a unary method already shares its own name.
+fn objc_keyword_selector_alias(candidate: &ResolutionCandidate) -> Option<&str> {
+    let (_, tail) = candidate
+        .qualified_name
+        .split_once("::objc-swift-method::")?;
+    let (selector, alias) = tail.rsplit_once("::")?;
+    let alias = alias.split_once('#').map_or(alias, |(alias, _)| alias);
+    let (head, _) = selector.split_once(':')?;
+    (head == alias).then_some(selector)
+}
+
+/// The native method a literal selector alias stands for.
+fn objc_alias_method<'index>(
+    index: &'index ResolutionIndex,
+    alias: &ResolutionCandidate,
+) -> Option<&'index ResolutionCandidate> {
+    let selector = objc_keyword_selector_alias(alias)?;
+    let method = index.parents.get(&alias.symbol_id)?;
+    index
+        .candidates
+        .get(selector)?
+        .as_slice()
+        .iter()
+        .find(|candidate| &candidate.symbol_id == method)
+}
+
+/// Synthetic framework or bridge landmarks, including JS-visible React Native
+/// methods, which are never a source declaration's own member.
+fn framework_landmark_candidate(candidate: &ResolutionCandidate) -> bool {
+    framework_synthetic_candidate(candidate)
+        || candidate.qualified_name.contains("::react-native-method::")
 }
 
 fn framework_synthetic_candidate(candidate: &ResolutionCandidate) -> bool {
@@ -10171,7 +10416,7 @@ where
             },
             budget,
         )?;
-        push_candidate(
+        push_symbol_candidates(
             &mut index.candidates,
             ResolutionCandidateInsertion {
                 key: &symbol.name,
@@ -10182,35 +10427,6 @@ where
             },
             budget,
         )?;
-        if symbol.input.qualified_name != symbol.name {
-            push_candidate(
-                &mut index.candidates,
-                ResolutionCandidateInsertion {
-                    key: &symbol.input.qualified_name,
-                    symbol,
-                    parent_symbol_id: parent_symbol_id.as_ref(),
-                    file_ordinal,
-                    language: &file.file.language,
-                },
-                budget,
-            )?;
-        }
-        if let Some(alias) = framework_resolution_alias(symbol, &file.file.language)
-            && alias != symbol.name
-            && alias != symbol.input.qualified_name
-        {
-            push_candidate(
-                &mut index.candidates,
-                ResolutionCandidateInsertion {
-                    key: alias,
-                    symbol,
-                    parent_symbol_id: parent_symbol_id.as_ref(),
-                    file_ordinal,
-                    language: &file.file.language,
-                },
-                budget,
-            )?;
-        }
         if symbol.export.default_export {
             push_default_export(
                 &mut index.default_exports,
@@ -10228,7 +10444,42 @@ where
             index_project_export(&mut index.exports, symbol, budget)?;
         }
     }
+    php_resolution::index_file(
+        php_resolution::PhpFileIndexInput {
+            index: &mut index.php,
+            file,
+            budget,
+        },
+        cancelled,
+    )?;
     index_project_reexports(index, file, budget)
+}
+
+/// Index one symbol under each distinct name a reference can spell it by:
+/// its own name (`insertion.key`), then its qualified name and its framework
+/// alias when those differ from the names already indexed.
+fn push_symbol_candidates(
+    candidates: &mut CandidateMap,
+    insertion: ResolutionCandidateInsertion<'_>,
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    let name = insertion.key;
+    let qualified_name = insertion.symbol.input.qualified_name.as_str();
+    let alias = framework_resolution_alias(insertion.symbol, insertion.language)
+        .filter(|alias| *alias != name && *alias != qualified_name);
+    let keys = [
+        Some(name),
+        (qualified_name != name).then_some(qualified_name),
+        alias,
+    ];
+    for key in keys.into_iter().flatten() {
+        push_candidate(
+            candidates,
+            ResolutionCandidateInsertion { key, ..insertion },
+            budget,
+        )?;
+    }
+    Ok(())
 }
 
 fn index_project_export(
@@ -10669,7 +10920,9 @@ struct ReferenceLookup<'reference> {
     rust_self_receiver_name: Option<&'reference str>,
     rust_macro_name: Option<&'reference str>,
     type_query_value_name: Option<&'reference str>,
+    lexical_scope_name: Option<&'reference str>,
     embedded_sql: Option<EmbeddedSqlLookup<'reference>>,
+    php_exact: Option<php_resolution::PhpExactLookup<'reference>>,
     lookup_name: &'reference str,
 }
 
@@ -10684,20 +10937,50 @@ impl<'reference> ReferenceLookup<'reference> {
             resolution_name.and_then(|name| name.strip_prefix(RUST_MACRO_RESOLUTION_PREFIX));
         let type_query_value_name =
             resolution_name.and_then(|name| name.strip_prefix(TYPE_QUERY_VALUE_RESOLUTION_PREFIX));
+        let lexical_scope_name =
+            resolution_name.and_then(|name| name.strip_prefix(LEXICAL_SCOPE_RESOLUTION_PREFIX));
         let embedded_sql = embedded_sql_lookup(resolution_name);
+        let php_exact = resolution_name
+            .and_then(|name| name.strip_prefix(PHP_EXACT_RESOLUTION_PREFIX))
+            .and_then(php_resolution::PhpExactLookup::parse);
         let lookup_name = rust_self_receiver_name
             .or(dynamic_dispatch_name)
             .or(rust_macro_name)
             .or(type_query_value_name)
+            .or(lexical_scope_name)
             .or_else(|| embedded_sql.as_ref().map(|lookup| lookup.table))
+            .or_else(|| php_exact.map(php_resolution::PhpExactLookup::key))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
         Self {
             dynamic_dispatch_name,
             rust_self_receiver_name,
             rust_macro_name,
             type_query_value_name,
+            lexical_scope_name,
             embedded_sql,
+            php_exact,
             lookup_name,
+        }
+    }
+
+    /// The receiver dispatch a name-based lookup resolves under.
+    const fn dispatch(&self) -> ReferenceDispatch {
+        if self.rust_self_receiver_name.is_some() {
+            ReferenceDispatch::RustSelf
+        } else if self.dynamic_dispatch_name.is_some() {
+            ReferenceDispatch::Dynamic
+        } else {
+            ReferenceDispatch::Static
+        }
+    }
+
+    /// A type-query value (`typeof value`) reads the value, so it resolves as
+    /// a plain reference whatever kind the extractor recorded.
+    const fn request_kind(&self, extracted: ReferenceKind) -> ReferenceKind {
+        if self.type_query_value_name.is_some() {
+            ReferenceKind::References
+        } else {
+            extracted
         }
     }
 }
@@ -10705,6 +10988,83 @@ impl<'reference> ReferenceLookup<'reference> {
 struct ReferenceAppendRequest<'a, 'b> {
     context: &'a FileResolutionContext<'b>,
     reference: ExtractedReference,
+}
+
+struct ExtractedReferenceQuery<'a, 'b> {
+    context: &'a FileResolutionContext<'b>,
+    reference: &'a ExtractedReference,
+    import_binding_scratch: &'a mut ImportBindingScratch,
+}
+
+/// Resolve one extracted reference through the lookup its resolver prefix
+/// selects, then give a target reached through dynamic dispatch the
+/// dynamic-dispatch confidence and provenance.
+fn resolve_extracted_reference<Cancel>(
+    index: &ResolutionIndex,
+    query: ExtractedReferenceQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ExtractedReferenceQuery {
+        context,
+        reference,
+        import_binding_scratch,
+    } = query;
+    let lookup = ReferenceLookup::classify(reference);
+    let mut resolution = if lookup.rust_macro_name.is_some() {
+        ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
+    } else if let Some(sql) = lookup.embedded_sql {
+        resolve_embedded_sql(index, sql, cancelled)?
+    } else if let Some(name) = lookup.lexical_scope_name {
+        resolve_lexical_scope_reference(
+            index,
+            LexicalScopeReference {
+                context,
+                reference,
+                name,
+            },
+            cancelled,
+        )?
+    } else if let Some(php_lookup) = lookup.php_exact {
+        php_resolution::resolve_exact(
+            index,
+            php_resolution::PhpExactRequest {
+                file_id: &context.identity.file_id,
+                caller_class: php_resolution::caller_class(index, reference.owner.as_ref()),
+                lookup: php_lookup,
+            },
+            cancelled,
+        )?
+    } else {
+        resolve_reference_or_source_name(
+            index,
+            SourceNameFallbackQuery {
+                request: &ResolutionRequest {
+                    file_id: &context.identity.file_id,
+                    file_path: &context.identity.path,
+                    language: &context.identity.language,
+                    import_bindings: import_binding_scratch
+                        .select(context.import_bindings, lookup.lookup_name),
+                    owner: reference.owner.as_ref(),
+                    name: lookup.lookup_name,
+                    dispatch: lookup.dispatch(),
+                    kind: lookup.request_kind(reference.kind),
+                    span: reference.span,
+                },
+                source_name: &reference.name,
+            },
+            cancelled,
+        )?
+    };
+    if lookup.dynamic_dispatch_name.is_some()
+        && let Some(target) = resolution.target.as_mut()
+    {
+        target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
+        target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
+    }
+    Ok(resolution)
 }
 
 struct FileRecordInput<'file> {
@@ -10886,53 +11246,15 @@ impl ResolutionOutput<'_> {
         Cancel: FnMut() -> bool,
     {
         let ReferenceAppendRequest { context, reference } = request;
-        let lookup = ReferenceLookup::classify(&reference);
-        let ReferenceLookup {
-            dynamic_dispatch_name,
-            rust_self_receiver_name,
-            rust_macro_name,
-            type_query_value_name,
-            embedded_sql,
-            lookup_name,
-        } = lookup;
-        let import_bindings = import_binding_scratch.select(context.import_bindings, lookup_name);
-        let mut resolution = if rust_macro_name.is_some() {
-            ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
-        } else if let Some(lookup) = embedded_sql {
-            resolve_embedded_sql(self.index, lookup, cancelled)?
-        } else {
-            resolve_reference(
-                self.index,
-                &ResolutionRequest {
-                    file_id: &context.identity.file_id,
-                    file_path: &context.identity.path,
-                    language: &context.identity.language,
-                    import_bindings,
-                    owner: reference.owner.as_ref(),
-                    name: lookup_name,
-                    dispatch: if rust_self_receiver_name.is_some() {
-                        ReferenceDispatch::RustSelf
-                    } else if dynamic_dispatch_name.is_some() {
-                        ReferenceDispatch::Dynamic
-                    } else {
-                        ReferenceDispatch::Static
-                    },
-                    kind: if type_query_value_name.is_some() {
-                        ReferenceKind::References
-                    } else {
-                        reference.kind
-                    },
-                    span: reference.span,
-                },
-                cancelled,
-            )?
-        };
-        if dynamic_dispatch_name.is_some()
-            && let Some(target) = resolution.target.as_mut()
-        {
-            target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
-            target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
-        }
+        let resolution = resolve_extracted_reference(
+            self.index,
+            ExtractedReferenceQuery {
+                context,
+                reference: &reference,
+                import_binding_scratch,
+            },
+            cancelled,
+        )?;
         self.count_resolution(resolution.target.is_some())?;
         let source_symbol_id = reference
             .owner
@@ -11364,13 +11686,7 @@ fn index_compilation_unit(
     input: CompilationUnitIndexInput<'_>,
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
-    if !input.top_level
-        || !matches!(input.language, "ada" | "vhdl")
-        || !matches!(
-            input.symbol.kind,
-            SymbolKind::Module | SymbolKind::Interface
-        )
-    {
+    if !input.top_level || !compilation_unit_symbol(input.language, input.symbol) {
         return Ok(());
     }
     let paths = if input.symbol.implementation.declaration_only
@@ -11388,6 +11704,22 @@ fn index_compilation_unit(
         },
         budget,
     )
+}
+
+/// Languages whose imports name a declared compilation unit, not a path.
+fn compilation_unit_language(language: &str) -> bool {
+    matches!(language, "ada" | "vhdl" | "pascal")
+}
+
+/// A top-level declaration that other files import by its declared name:
+/// Ada/VHDL packages and entities, and Pascal units (a Pascal program or
+/// library is never named by `uses` and is extracted unexported).
+fn compilation_unit_symbol(language: &str, symbol: &NativeSymbolFacts) -> bool {
+    match language {
+        "ada" | "vhdl" => matches!(symbol.kind, SymbolKind::Module | SymbolKind::Interface),
+        "pascal" => symbol.kind == SymbolKind::Module && symbol.export.exported,
+        _ => false,
+    }
 }
 
 fn push_candidate(
@@ -11901,6 +12233,15 @@ where
     {
         return Ok(Some(resolution));
     }
+    if request.kind == ReferenceKind::Imports
+        && request.owner.is_none()
+        && script_modules::binds_loads_exactly(request.language)
+        && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
+            index, request, cancelled,
+        )?)
+    {
+        return Ok(Some(resolution));
+    }
     if request.owner.is_none()
         && request.kind == ReferenceKind::References
         && let Some(resolution) = import_reference_resolution(resolve_import(
@@ -11913,6 +12254,35 @@ where
         )?)
     {
         return Ok(Some(resolution));
+    }
+    if matches!(request.kind, ReferenceKind::TypeOf | ReferenceKind::Returns)
+        && let Some(binding) = request
+            .import_bindings
+            .iter()
+            .find(|binding| binding.span == request.span)
+    {
+        // An inline import type (`import('./m').Name`) names its module at the
+        // reference site itself. It resolves only through that site's binding,
+        // never through a same-named local or binding elsewhere in the file.
+        let site = resolve_import(
+            index,
+            ImportResolutionRequest {
+                reference: request,
+                site: ImportReferenceSite::Declaration,
+            },
+            cancelled,
+        )?;
+        return Ok(Some(match site {
+            ImportResolution::Resolved(target) => ReferenceResolution::resolved(target),
+            ImportResolution::Unresolved | ImportResolution::NotBound
+                if import_binding_is_project_local(index, binding, request) =>
+            {
+                ReferenceResolution::unresolved(UNRESOLVED_IMPORT_PROVENANCE)
+            }
+            ImportResolution::Unresolved | ImportResolution::NotBound => {
+                ReferenceResolution::unresolved(EXTERNAL_REFERENCE_UNRESOLVED_PROVENANCE)
+            }
+        }));
     }
     if request.kind == ReferenceKind::Exports
         && let Some(resolution) = import_reference_resolution(resolve_import(
@@ -11929,6 +12299,125 @@ where
     Ok(None)
 }
 
+/// Resolve a Terraform address (`var.x`, `local.x`, `module.x`, `T.N`,
+/// `data.T.N`) terminally: a Terraform module is one directory, and an
+/// address names exactly the HCL declaration whose qualified name it equals.
+/// Display names (`T.N` is also a data source's name) and other languages
+/// never satisfy it; duplicates and self-references stay unresolved.
+fn resolve_terraform_address<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if request.language != SourceLanguage::Hcl.as_str() || request.kind != ReferenceKind::References
+    {
+        return Ok(None);
+    }
+    let source = project_source_context(index, request)?;
+    let candidates = index.candidates.get(request.name).map_or(
+        &[] as &[ResolutionCandidate],
+        ResolutionCandidateBucket::as_slice,
+    );
+    let mut declaration = None;
+    let mut declarations = 0_usize;
+    for candidate in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        let in_module = index
+            .modules
+            .files
+            .get(&candidate.file_id)
+            .is_some_and(|target| {
+                target.language == source.language && target.directory == source.directory
+            });
+        if in_module && candidate.qualified_name == request.name {
+            declarations = declarations.saturating_add(1);
+            declaration = Some(candidate);
+        }
+    }
+    let target = declaration
+        .filter(|candidate| declarations == 1 && request.owner != Some(&candidate.symbol_id));
+    Ok(Some(target.map_or(
+        ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
+        |candidate| {
+            let (confidence, provenance) = if &candidate.file_id == request.file_id {
+                (EXACT_SAME_FILE_CONFIDENCE, EXACT_SAME_FILE_PROVENANCE)
+            } else {
+                (EXACT_PROJECT_CONFIDENCE, EXACT_PROJECT_PROVENANCE)
+            };
+            ReferenceResolution::resolved(ResolvedTarget {
+                symbol_id: candidate.symbol_id.clone(),
+                kind: candidate.kind,
+                confidence,
+                provenance,
+            })
+        },
+    )))
+}
+
+/// A resolution request plus the reference's source-visible name.
+#[derive(Clone, Copy)]
+struct SourceNameFallbackQuery<'request, 'name> {
+    request: &'request ResolutionRequest<'name>,
+    source_name: &'name str,
+}
+
+/// Resolve by the reference's exact lookup name and, only for `MyBatis` XML
+/// references that carry a package-qualified lookup name
+/// (`com.example::OrderMapper::findOrder::orderId`), retry once with the exact
+/// source-visible name (`OrderMapper::findOrder::orderId`). The retry can only
+/// match an unpackaged JVM declaration (a packaged one never has that exact
+/// name), keeps the pre-existing simple-namespace binding, and is recorded with
+/// framework-convention confidence and provenance rather than as exact.
+fn resolve_reference_or_source_name<Cancel>(
+    index: &ResolutionIndex,
+    query: SourceNameFallbackQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let SourceNameFallbackQuery {
+        request,
+        source_name,
+    } = query;
+    let resolution = resolve_reference(index, request, cancelled)?;
+    let package_qualified = request
+        .name
+        .strip_suffix(source_name)
+        .is_some_and(|package| package.len() > "::".len() && package.ends_with("::"));
+    // Any declaration carrying the exact package-qualified name (even an
+    // ambiguous set) is authoritative; the compatibility lookup only runs when
+    // no packaged declaration exists at all.
+    if resolution.target.is_some()
+        || request.language != SourceLanguage::Xml.as_str()
+        || !package_qualified
+        || index.candidates.contains_key(request.name)
+    {
+        return Ok(resolution);
+    }
+    let mut fallback = resolve_reference(
+        index,
+        &ResolutionRequest {
+            name: source_name,
+            ..*request
+        },
+        cancelled,
+    )?;
+    let Some(target) = fallback.target.as_mut() else {
+        return Ok(resolution);
+    };
+    // The package named by the mapper namespace is absent from the target, so
+    // this binding is the legacy simple-namespace convention, not exact identity.
+    target.confidence = FRAMEWORK_CONVENTION_CONFIDENCE;
+    target.provenance = FRAMEWORK_CONVENTION_PROVENANCE;
+    Ok(fallback)
+}
+
 fn resolve_reference<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
@@ -11941,6 +12430,12 @@ where
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
+    }
+    if request.kind == ReferenceKind::DefUse {
+        return resolve_def_use(index, request, cancelled);
+    }
+    if let Some(resolution) = resolve_terraform_address(index, request, cancelled)? {
+        return Ok(resolution);
     }
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
@@ -12018,6 +12513,8 @@ fn fixed_unresolved_provenance(request: &ResolutionRequest<'_>) -> Option<&'stat
     } else if request.language == SourceLanguage::Rust.as_str() && rust_intrinsic_reference(request)
     {
         Some(RUST_INTRINSIC_UNRESOLVED_PROVENANCE)
+    } else if pascal_resolution::runtime_reference(request.language, request.name) {
+        Some(EXTERNAL_REFERENCE_UNRESOLVED_PROVENANCE)
     } else {
         None
     }
@@ -12395,7 +12892,9 @@ fn import_reference_resolution(resolution: ImportResolution) -> Option<Reference
 }
 
 fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
-    if request.dispatch == ReferenceDispatch::RustSelf {
+    if request.dispatch == ReferenceDispatch::RustSelf
+        || pascal_resolution::runtime_reference(request.language, request.name)
+    {
         return false;
     }
     let runtime_require = javascript_family_name(request.language)
@@ -12404,8 +12903,20 @@ fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest
     let external_binding = request.import_bindings.iter().any(|binding| {
         binding_matches_reference_name(binding, request.name)
             && !import_binding_is_project_local(index, binding, request)
+            && !wildcard_import_yields_to_project(request.language, binding)
     });
     !runtime_require && !external_binding
+}
+
+/// Swift looks a name up in the importing module before any imported module,
+/// and Objective-C classes and selectors share one global runtime namespace, so
+/// in both a wildcard import of an external module (`import Foundation`,
+/// `#import <UIKit/UIKit.h>`, written in nearly every file) cannot hide the
+/// project's own declaration of a name and never vetoes project resolution.
+fn wildcard_import_yields_to_project(language: &str, binding: &ExtractedImportBinding) -> bool {
+    binding.local_name == "*"
+        && (language == SourceLanguage::Swift.as_str()
+            || language == SourceLanguage::ObjectiveC.as_str())
 }
 
 fn resolve_lexical<Cancel>(
@@ -12440,6 +12951,92 @@ where
             provenance: EXACT_SAME_FILE_PROVENANCE,
         }));
     }
+    if pascal_resolution::exact_scope_only(request.language, request.dispatch) {
+        return Ok(None);
+    }
+    resolve_lexical_scope(
+        index,
+        LexicalScopeQuery {
+            request,
+            candidates,
+        },
+        cancelled,
+    )
+}
+
+/// Resolve a JavaScript-family read the extractor marked as bound by a nested
+/// lexical declaration whose qualified name a namesake shares: only the scope
+/// walk from the read's owner binds it, never the exact same-file
+/// qualified-name pass, an import, or a project name.
+fn resolve_lexical_scope_reference<Cancel>(
+    index: &ResolutionIndex,
+    query: LexicalScopeReference<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let LexicalScopeReference {
+        context,
+        reference,
+        name,
+    } = query;
+    let request = ResolutionRequest {
+        file_id: &context.identity.file_id,
+        file_path: &context.identity.path,
+        language: &context.identity.language,
+        import_bindings: ImportBindingSelection::empty(),
+        owner: reference.owner.as_ref(),
+        name,
+        dispatch: ReferenceDispatch::Static,
+        kind: reference.kind,
+        span: reference.span,
+    };
+    let candidates = resolution_candidates_for_file(index, name, request.file_id);
+    Ok(
+        match resolve_lexical_scope(
+            index,
+            LexicalScopeQuery {
+                request: &request,
+                candidates,
+            },
+            cancelled,
+        )? {
+            Some(target) => ReferenceResolution::resolved(target),
+            None => ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
+        },
+    )
+}
+
+/// A lexical-scope-marked reference and the name its scope walk binds.
+#[derive(Clone, Copy)]
+struct LexicalScopeReference<'a, 'b> {
+    context: &'a FileResolutionContext<'b>,
+    reference: &'a ExtractedReference,
+    name: &'a str,
+}
+
+/// A lexical scope walk's request and the same-file candidates it binds from.
+#[derive(Clone, Copy)]
+struct LexicalScopeQuery<'request, 'a> {
+    request: &'request ResolutionRequest<'a>,
+    candidates: &'request [ResolutionCandidate],
+}
+
+/// Walk the reference owner's enclosing scopes outward to the file's top
+/// level and bind the first scope's declaration of the name.
+fn resolve_lexical_scope<Cancel>(
+    index: &ResolutionIndex,
+    query: LexicalScopeQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ResolvedTarget>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let LexicalScopeQuery {
+        request,
+        candidates,
+    } = query;
     let mut scope = request.owner;
     // There can be one more lexical scope than parent-map entries: an
     // uncontained owner must still advance once to the file's top-level scope.
@@ -12450,7 +13047,8 @@ where
         if let Some(candidate) = select_candidate(
             candidates,
             |candidate| {
-                is_lexical_candidate(request.kind, request.name, candidate)
+                (is_lexical_candidate(request.kind, request.name, candidate)
+                    || swift_implicit_member_call(request, candidate))
                     && &candidate.file_id == request.file_id
                     && request.owner != Some(&candidate.symbol_id)
                     && candidate.parent_symbol_id.as_ref() == scope
@@ -12475,6 +13073,55 @@ where
         scope = index.parents.get(symbol_id);
     }
     Ok(None)
+}
+
+/// Resolve a def-use site to the local it reads: the unique same-file binding
+/// declared directly in the owning callable's scope.
+///
+/// A local is never bound through outer scopes, imports, or project names; a
+/// name declared more than once in the callable stays unresolved with its
+/// sites retained.
+fn resolve_def_use<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let Some(owner) = request.owner else {
+        return Ok(ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE));
+    };
+    let candidates = resolution_candidates_for_file(index, request.name, request.file_id);
+    let local = select_candidate(
+        candidates,
+        |candidate| {
+            &candidate.file_id == request.file_id
+                && candidate.parent_symbol_id.as_ref() == Some(owner)
+                && matches!(
+                    candidate.kind,
+                    SymbolKind::Variable
+                        | SymbolKind::Constant
+                        | SymbolKind::Function
+                        | SymbolKind::Component
+                )
+                && candidate
+                    .qualified_name
+                    .rsplit("::")
+                    .next()
+                    .is_some_and(|name| name == request.name)
+        },
+        cancelled,
+    )?;
+    Ok(match local {
+        Some(candidate) => ReferenceResolution::resolved(ResolvedTarget {
+            symbol_id: candidate.symbol_id.clone(),
+            kind: candidate.kind,
+            confidence: EXACT_LEXICAL_CONFIDENCE,
+            provenance: EXACT_LEXICAL_PROVENANCE,
+        }),
+        None => ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE),
+    })
 }
 
 fn rust_self_has_local_nominal<Cancel>(
@@ -12700,6 +13347,20 @@ fn is_lexical_candidate(
                     | SymbolKind::Field
                     | SymbolKind::EnumMember
             ))
+}
+
+/// Swift looks an unqualified call up among the enclosing type's methods
+/// (implicit `self`) before outer scopes, so the lexical scope walk may stop at
+/// a sibling method of the caller's own type.
+fn swift_implicit_member_call(
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    request.language == SourceLanguage::Swift.as_str()
+        && request.kind == ReferenceKind::Calls
+        && candidate.kind == SymbolKind::Method
+        && !request.name.contains('.')
+        && !framework_landmark_candidate(candidate)
 }
 
 fn reference_kind_candidate(
@@ -13084,6 +13745,17 @@ where
         ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
         ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
     };
+    if reference.language == SourceLanguage::Php.as_str() {
+        return php_resolution::resolve_use_binding(
+            php_resolution::PhpUseBinding {
+                index,
+                reference,
+                binding,
+                site,
+            },
+            cancelled,
+        );
+    }
     if imported_name.is_empty() {
         return Ok(ImportResolution::Unresolved);
     }
@@ -13095,35 +13767,19 @@ where
             importing_language: reference.language,
         },
     );
-    if let Some(module_file_id) = module_file_id {
-        let candidates = import_resolution_candidates(ImportCandidatesQuery {
-            index,
-            binding,
-            imported_name,
-            module_file_id,
-        });
-        let javascript_value_usage = matches!(site, ImportReferenceSite::Usage)
-            && javascript_family_name(reference.language)
-            && !matches!(
-                reference.kind,
-                ReferenceKind::TypeOf
-                    | ReferenceKind::Returns
-                    | ReferenceKind::Inherits
-                    | ReferenceKind::Implements
-                    | ReferenceKind::Extends
-            );
-        let filter = ImportCandidateFilter {
-            index,
-            reference,
-            imported_name,
-            module_file_id,
-            javascript_value_usage,
-        };
-        if let Some(candidate) =
-            select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
-        {
-            return Ok(ImportResolution::Resolved(import_binding_target(candidate)));
-        }
+    if let Some(module_file_id) = module_file_id
+        && let Some(target) = resolve_module_import(
+            ModuleImportQuery {
+                index,
+                import: input,
+                binding,
+                imported_name,
+                module_file_id,
+            },
+            cancelled,
+        )?
+    {
+        return Ok(ImportResolution::Resolved(target));
     }
     if let Some(target) = resolve_rust_namespace_symbol_import(
         RustNamespaceImportQuery {
@@ -13140,6 +13796,65 @@ where
     } else {
         missing_import_module_resolution(index, reference, binding)
     })
+}
+
+#[derive(Clone, Copy)]
+struct ModuleImportQuery<'a, 'b> {
+    index: &'a ResolutionIndex,
+    import: ImportResolutionRequest<'a, 'b>,
+    binding: &'a ExtractedImportBinding,
+    imported_name: &'a str,
+    module_file_id: &'a FileId,
+}
+
+/// Bind an import to the declaration the resolved module file exposes under
+/// the imported name.
+fn resolve_module_import<Cancel>(
+    query: ModuleImportQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ResolvedTarget>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ModuleImportQuery {
+        index,
+        import,
+        binding,
+        imported_name,
+        module_file_id,
+    } = query;
+    let candidates = import_resolution_candidates(ImportCandidatesQuery {
+        index,
+        binding,
+        imported_name,
+        module_file_id,
+    });
+    let filter = ImportCandidateFilter {
+        index,
+        reference: import.reference,
+        imported_name,
+        module_file_id,
+        javascript_value_usage: javascript_value_import_usage(import),
+    };
+    Ok(
+        select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
+            .map(import_binding_target),
+    )
+}
+
+/// A JavaScript-family use of an imported name in a value position, which a
+/// type-only export cannot satisfy.
+fn javascript_value_import_usage(import: ImportResolutionRequest<'_, '_>) -> bool {
+    matches!(import.site, ImportReferenceSite::Usage)
+        && javascript_family_name(import.reference.language)
+        && !matches!(
+            import.reference.kind,
+            ReferenceKind::TypeOf
+                | ReferenceKind::Returns
+                | ReferenceKind::Inherits
+                | ReferenceKind::Implements
+                | ReferenceKind::Extends
+        )
 }
 
 fn import_binding_target(candidate: &ResolutionCandidate) -> ResolvedTarget {
@@ -13492,7 +14207,7 @@ fn language_import_is_project_local(
         specifier,
         importing_language: reference.language,
     };
-    if matches!(reference.language, "ada" | "vhdl")
+    if compilation_unit_language(reference.language)
         && resolve_module_file(&index.modules, module_request).is_some()
     {
         return true;
@@ -13652,44 +14367,17 @@ fn resolve_module_file<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> Option<&'a FileId> {
+    match script_modules::resolve_script_module(modules, request) {
+        ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
+        ModuleResolutionAttempt::Rejected => return None,
+        ModuleResolutionAttempt::NotMatched => {}
+    }
     match resolve_compilation_unit_module(modules, request) {
         ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
         ModuleResolutionAttempt::Rejected => return None,
         ModuleResolutionAttempt::NotMatched => {}
     }
-    if request.importing_language == SourceLanguage::Slang.as_str()
-        && let Some(normalized) = normalize_root_module_path(request.specifier)
-        && let Some(file_id) =
-            resolve_normalized_module_file(modules, &normalized, request.importing_language)
-    {
-        return Some(file_id);
-    }
-    if request.importing_language == SourceLanguage::Wesl.as_str()
-        && let Some(file_id) = resolve_wesl_module_file(modules, request)
-    {
-        return Some(file_id);
-    }
-    if request.importing_language == SourceLanguage::Rust.as_str()
-        && request.specifier == "crate"
-        && let Some(file_id) = rust_crate_entry_file(modules, request.importing_path)
-    {
-        return Some(file_id);
-    }
-    if SourceLanguage::from_stable_str(request.importing_language)
-        .is_some_and(SourceLanguage::is_game_scripting)
-        && let Some(normalized) =
-            normalize_game_script_module_path(request.importing_path, request.specifier)
-        && let Some(file_id) =
-            resolve_normalized_module_file(modules, &normalized, request.importing_language)
-    {
-        return Some(file_id);
-    }
-    if request.importing_language == SourceLanguage::Rust.as_str()
-        && let Some(normalized) =
-            normalize_rust_module_path(modules, request.importing_path, request.specifier)
-        && let Some(file_id) =
-            resolve_normalized_module_file(modules, &normalized, request.importing_language)
-    {
+    if let Some(file_id) = resolve_language_module_file(modules, request) {
         return Some(file_id);
     }
     if let Some(normalized) =
@@ -13707,6 +14395,47 @@ fn resolve_module_file<'a>(
     resolve_framework_alias_file(modules, request)
 }
 
+/// Resolve a specifier through the importing language's own module path
+/// form (Slang root paths, WESL module paths, a Rust `crate` root or module
+/// path, game-script resource paths) before any relative or alias lookup.
+fn resolve_language_module_file<'a>(
+    modules: &'a ModulePathIndex,
+    request: ModuleResolutionRequest<'_>,
+) -> Option<&'a FileId> {
+    let language = request.importing_language;
+    if language == SourceLanguage::Wesl.as_str() {
+        return resolve_wesl_module_file(modules, request);
+    }
+    if language == SourceLanguage::Rust.as_str()
+        && request.specifier == "crate"
+        && let Some(file_id) = rust_crate_entry_file(modules, request.importing_path)
+    {
+        return Some(file_id);
+    }
+    let normalized = language_normalized_module_path(modules, request)?;
+    resolve_normalized_module_file(modules, &normalized, language)
+}
+
+/// The project-relative module path a language-specific specifier names, for
+/// the languages whose specifiers are not plain relative paths.
+fn language_normalized_module_path(
+    modules: &ModulePathIndex,
+    request: ModuleResolutionRequest<'_>,
+) -> Option<String> {
+    let language = request.importing_language;
+    if language == SourceLanguage::Slang.as_str() {
+        normalize_root_module_path(request.specifier)
+    } else if language == SourceLanguage::Rust.as_str() {
+        normalize_rust_module_path(modules, request.importing_path, request.specifier)
+    } else if SourceLanguage::from_stable_str(language)
+        .is_some_and(SourceLanguage::is_game_scripting)
+    {
+        normalize_game_script_module_path(request.importing_path, request.specifier)
+    } else {
+        None
+    }
+}
+
 enum ModuleResolutionAttempt<'a> {
     NotMatched,
     Resolved(&'a FileId),
@@ -13717,7 +14446,7 @@ fn resolve_compilation_unit_module<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> ModuleResolutionAttempt<'a> {
-    if !matches!(request.importing_language, "ada" | "vhdl") {
+    if !compilation_unit_language(request.importing_language) {
         return ModuleResolutionAttempt::NotMatched;
     }
     match compilation_unit_file(modules, request.specifier, request.importing_language) {
@@ -14433,7 +15162,22 @@ where
         &[] as &[ResolutionCandidate],
         ResolutionCandidateBucket::as_slice,
     );
-    if direct.iter().any(|candidate| {
+    if source.language == "objc" && direct_name.contains(':') {
+        // Objective-C methods are named by their full selector, so a keyword
+        // send names its native implementation exactly.
+        match select_objc_selector_method(ObjcSelectorQuery {
+            index,
+            request,
+            candidates: direct,
+            cancelled: &mut *cancelled,
+        })? {
+            ObjcSelectorMatch::Unique(candidate) => {
+                return Ok(Some(project_resolved_target(candidate)));
+            }
+            ObjcSelectorMatch::Ambiguous => return Ok(None),
+            ObjcSelectorMatch::Absent => {}
+        }
+    } else if direct.iter().any(|candidate| {
         index
             .modules
             .files
@@ -14457,40 +15201,7 @@ where
         })
         .map(|candidate| candidate.map(apple_bridge_target));
     }
-    let selector_candidates = swift_base_names_for_objc_selector(request.name);
-    if let Some(literal) = selector_candidates[0].as_deref() {
-        let candidates = index.candidates.get(literal).map_or(
-            &[] as &[ResolutionCandidate],
-            ResolutionCandidateBucket::as_slice,
-        );
-        let mut has_objc_declaration = false;
-        let exact = select_candidate(
-            candidates,
-            |candidate| {
-                let eligible = index
-                    .modules
-                    .files
-                    .get(&candidate.file_id)
-                    .is_some_and(|target| {
-                        target.language == "objc"
-                            && candidate.kind == SymbolKind::Method
-                            && candidate.visibility != Some(Visibility::Private)
-                            && !candidate.qualified_name.contains("::objc-swift-method::")
-                            && reference_kind_candidate(request.kind, candidate)
-                    });
-                has_objc_declaration |= eligible;
-                eligible
-            },
-            cancelled,
-        )?;
-        if let Some(candidate) = exact {
-            return Ok(Some(project_resolved_target(candidate)));
-        }
-        if has_objc_declaration {
-            return Ok(None);
-        }
-    }
-    for candidate_name in selector_candidates {
+    for candidate_name in swift_base_names_for_objc_selector(request.name) {
         let Some(candidate_name) = candidate_name else {
             continue;
         };
@@ -14510,6 +15221,156 @@ where
         }
     }
     Ok(None)
+}
+
+/// How an Objective-C keyword selector matched native method declarations.
+enum ObjcSelectorMatch<'candidate> {
+    Absent,
+    Ambiguous,
+    Unique(&'candidate ResolutionCandidate),
+}
+
+struct ObjcSelectorQuery<'context, 'request, 'candidate, Cancel> {
+    index: &'context ResolutionIndex,
+    request: &'context ResolutionRequest<'request>,
+    candidates: &'candidate [ResolutionCandidate],
+    cancelled: &'context mut Cancel,
+}
+
+/// Which Objective-C method declarations one selector lookup pass considers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ObjcMethodRole {
+    /// Methods a class (or its categories) declares or implements.
+    ClassMember,
+    /// Requirements a protocol declares for its conforming classes.
+    ProtocolRequirement,
+}
+
+/// The one non-private Objective-C method (never a bridge alias) declaring the
+/// sent selector. Class members are considered first: a definition wins over
+/// header declarations of the same class's method, and declarations of the
+/// selector in two classes abstain because the receiver's class is unknown. A
+/// protocol requirement never competes with them, since conforming classes
+/// implement it; it is the target only when no class declares the selector and
+/// exactly one protocol requires it.
+fn select_objc_selector_method<'candidate, Cancel>(
+    query: ObjcSelectorQuery<'_, '_, 'candidate, Cancel>,
+) -> Result<ObjcSelectorMatch<'candidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ObjcSelectorQuery {
+        index,
+        request,
+        candidates,
+        cancelled,
+    } = query;
+    for role in [
+        ObjcMethodRole::ClassMember,
+        ObjcMethodRole::ProtocolRequirement,
+    ] {
+        let selected = select_objc_selector_role(
+            ObjcSelectorQuery {
+                index,
+                request,
+                candidates,
+                cancelled: &mut *cancelled,
+            },
+            role,
+        )?;
+        if !matches!(selected, ObjcSelectorMatch::Absent) {
+            return Ok(selected);
+        }
+    }
+    Ok(ObjcSelectorMatch::Absent)
+}
+
+/// One [`select_objc_selector_method`] pass over the methods playing `role`:
+/// absent when none declares the selector, ambiguous when two containers do.
+fn select_objc_selector_role<'candidate, Cancel>(
+    query: ObjcSelectorQuery<'_, '_, 'candidate, Cancel>,
+    role: ObjcMethodRole,
+) -> Result<ObjcSelectorMatch<'candidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ObjcSelectorQuery {
+        index,
+        request,
+        candidates,
+        cancelled,
+    } = query;
+    let mut eligible = |candidate: &ResolutionCandidate| {
+        objc_native_method(index, request, candidate) == Some(role)
+    };
+    let mut declaring_method: Option<&str> = None;
+    for candidate in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if !eligible(candidate) {
+            continue;
+        }
+        match declaring_method {
+            None => declaring_method = Some(&candidate.qualified_name),
+            Some(method) if method != candidate.qualified_name => {
+                return Ok(ObjcSelectorMatch::Ambiguous);
+            }
+            Some(_) => {}
+        }
+    }
+    if declaring_method.is_none() {
+        return Ok(ObjcSelectorMatch::Absent);
+    }
+    let exact = select_candidate(candidates, &mut eligible, cancelled)?;
+    Ok(exact.map_or(ObjcSelectorMatch::Ambiguous, ObjcSelectorMatch::Unique))
+}
+
+/// The role of a non-private, non-landmark Objective-C method candidate the
+/// reference may target, or `None` for any other candidate.
+fn objc_native_method(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> Option<ObjcMethodRole> {
+    let method = index
+        .modules
+        .files
+        .get(&candidate.file_id)
+        .is_some_and(|target| {
+            target.language == SourceLanguage::ObjectiveC.as_str()
+                && candidate.kind == SymbolKind::Method
+                && candidate.visibility != Some(Visibility::Private)
+                && !framework_landmark_candidate(candidate)
+                && reference_kind_candidate(request.kind, candidate)
+        });
+    if !method {
+        return None;
+    }
+    Some(if objc_protocol_member(index, candidate) {
+        ObjcMethodRole::ProtocolRequirement
+    } else {
+        ObjcMethodRole::ClassMember
+    })
+}
+
+/// Whether an Objective-C method's container is a protocol. Classes and
+/// protocols are always top-level, so the container's qualified name is the
+/// method's first qualified-name segment (a selector may itself contain `::`).
+fn objc_protocol_member(index: &ResolutionIndex, candidate: &ResolutionCandidate) -> bool {
+    let (Some(parent_id), Some((container, _)), Some(file_ordinal)) = (
+        candidate.parent_symbol_id.as_ref(),
+        candidate.qualified_name.split_once("::"),
+        index.file_ordinals.get(&candidate.file_id),
+    ) else {
+        return false;
+    };
+    index.candidates.get(container).is_some_and(|containers| {
+        containers
+            .for_file(*file_ordinal)
+            .iter()
+            .any(|parent| &parent.symbol_id == parent_id && parent.kind == SymbolKind::Protocol)
+    })
 }
 
 fn select_apple_bridge_candidate<'candidate, Cancel>(
@@ -14754,6 +15615,8 @@ const FRAMEWORK_SCORE_CONVENTIONAL_COMPONENT: u8 = 105;
 const FRAMEWORK_SCORE_STRONG: u8 = 100;
 const FRAMEWORK_SCORE_NAMED_CONVENTION: u8 = 95;
 const FRAMEWORK_SCORE_EXACT_DIRECTORY: u8 = 90;
+/// A name and declaration-kind convention with no directory evidence.
+const FRAMEWORK_SCORE_KIND_CONVENTION: u8 = 85;
 const FRAMEWORK_SCORE_COMPONENT_FALLBACK: u8 = 80;
 const FRAMEWORK_SCORE_PHP_MODEL: u8 = 75;
 const FRAMEWORK_SCORE_MODEL: u8 = 70;
@@ -14831,7 +15694,19 @@ enum FrameworkCandidatePattern {
     TopLevelType,
     ClassOrInterface,
     Kinds(&'static [SymbolKind]),
+    /// One of the kinds, declared at file scope: a nested type is unreachable
+    /// by its bare name from another file. Component landmarks qualify.
+    TopLevelKinds(&'static [SymbolKind]),
 }
+
+/// The kinds [`FrameworkCandidatePattern::TopLevelType`] admits.
+const FRAMEWORK_TYPE_KINDS: &[SymbolKind] = &[
+    SymbolKind::Class,
+    SymbolKind::Struct,
+    SymbolKind::Interface,
+    SymbolKind::Component,
+    SymbolKind::Module,
+];
 
 impl FrameworkCandidatePattern {
     fn matches(&self, candidate: &ResolutionCandidate) -> bool {
@@ -14843,6 +15718,10 @@ impl FrameworkCandidatePattern {
                 matches!(candidate.kind, SymbolKind::Class | SymbolKind::Interface)
             }
             Self::Kinds(kinds) => kinds.contains(&candidate.kind),
+            Self::TopLevelKinds(kinds) => {
+                kinds.contains(&candidate.kind)
+                    && (candidate.top_level || candidate.kind == SymbolKind::Component)
+            }
         }
     }
 }
@@ -14850,15 +15729,20 @@ impl FrameworkCandidatePattern {
 struct FrameworkRule {
     name: FrameworkNamePattern,
     candidate: FrameworkCandidatePattern,
+    /// Conventional directories; [`ANY_DIRECTORY`] makes the rule kind-only.
     directories: &'static [&'static str],
     score: u8,
 }
+
+/// A rule whose name and candidate kind are evidence enough in any directory.
+const ANY_DIRECTORY: &[&str] = &[];
 
 impl FrameworkRule {
     fn matches(&self, input: &FrameworkConventionInput<'_>) -> bool {
         self.name.matches(input.reference_name)
             && self.candidate.matches(input.candidate)
-            && directory_has_any(&input.target.path, self.directories)
+            && (self.directories.is_empty()
+                || directory_has_any(&input.target.path, self.directories))
     }
 }
 
@@ -15014,33 +15898,79 @@ const PYTHON_FRAMEWORK_RULES: &[FrameworkRule] = &[
     },
 ];
 
+/// `SwiftUI`, `UIKit`, and Vapor naming conventions. A `ViewController` rule must
+/// precede the Vapor `Controller` rule that its suffix also matches.
 const SWIFT_FRAMEWORK_RULES: &[FrameworkRule] = &[
     FrameworkRule {
         name: FrameworkNamePattern::Suffixes(&["ViewController"]),
-        candidate: FrameworkCandidatePattern::TopLevelType,
-        directories: &["viewcontrollers", "controllers"],
+        candidate: FrameworkCandidatePattern::TopLevelKinds(FRAMEWORK_TYPE_KINDS),
+        directories: &[
+            "viewcontrollers",
+            "viewcontroller",
+            "controllers",
+            "screens",
+        ],
         score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
     },
     FrameworkRule {
         name: FrameworkNamePattern::Suffixes(&["View"]),
-        candidate: FrameworkCandidatePattern::Kinds(&[
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
             SymbolKind::Component,
             SymbolKind::Class,
             SymbolKind::Struct,
         ]),
-        directories: &["views", "screens"],
+        directories: &["views", "view", "screens", "components", "ui"],
         score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
     },
     FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Cell"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[SymbolKind::Class]),
+        directories: &[
+            "cells",
+            "cell",
+            "views",
+            "tableviewcells",
+            "collectionviewcells",
+        ],
+        score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
+    },
+    FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Delegate", "DataSource"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
+            SymbolKind::Interface,
+            SymbolKind::Protocol,
+        ]),
+        directories: ANY_DIRECTORY,
+        score: FRAMEWORK_SCORE_KIND_CONVENTION,
+    },
+    FrameworkRule {
         name: FrameworkNamePattern::Suffixes(&["ViewModel", "Store", "Manager"]),
-        candidate: FrameworkCandidatePattern::TopLevelType,
-        directories: &["viewmodels", "stores", "managers"],
+        candidate: FrameworkCandidatePattern::TopLevelKinds(FRAMEWORK_TYPE_KINDS),
+        directories: &["viewmodels", "viewmodel", "stores", "managers", "services"],
+        score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
+    },
+    FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Controller"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
+            SymbolKind::Class,
+            SymbolKind::Struct,
+        ]),
+        directories: &["controllers", "controller", "routes"],
+        score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
+    },
+    FrameworkRule {
+        name: FrameworkNamePattern::Suffixes(&["Middleware"]),
+        candidate: FrameworkCandidatePattern::TopLevelKinds(&[
+            SymbolKind::Class,
+            SymbolKind::Struct,
+        ]),
+        directories: &["middleware", "middlewares"],
         score: FRAMEWORK_SCORE_EXACT_DIRECTORY,
     },
     FrameworkRule {
         name: FrameworkNamePattern::PascalCase,
-        candidate: FrameworkCandidatePattern::TopLevelType,
-        directories: &["models", "model"],
+        candidate: FrameworkCandidatePattern::TopLevelKinds(FRAMEWORK_TYPE_KINDS),
+        directories: &["models", "model", "entities", "domain", "database"],
         score: FRAMEWORK_SCORE_MODEL,
     },
 ];
@@ -15204,14 +16134,7 @@ fn framework_rule_score(input: &FrameworkConventionInput<'_>, rules: &[Framework
 }
 
 fn framework_top_level_type(candidate: &ResolutionCandidate) -> bool {
-    matches!(
-        candidate.kind,
-        SymbolKind::Class
-            | SymbolKind::Struct
-            | SymbolKind::Interface
-            | SymbolKind::Component
-            | SymbolKind::Module
-    )
+    FRAMEWORK_TYPE_KINDS.contains(&candidate.kind)
 }
 
 fn framework_callable(candidate: &ResolutionCandidate) -> bool {
@@ -15791,7 +16714,12 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod javascript_parity;
+    mod pascal_units;
+    mod php_namespaces;
+    mod polyglot_parity;
     mod rust_receivers;
+    mod script_modules;
 
     use std::assert_matches;
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};
@@ -15864,26 +16792,46 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V20 changes only these digest domains; the independently frozen projections stay fixed.
+    // V21 changes these digest domains. The generic-family projection grows because its
+    // v1 corpora now extract v1's facts through dedicated families; the others stay fixed.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "1d3beeb0f840efb17a84516daf7acbc1ecad71768b0ceff4db8bdbb1c8a43ebe";
+        "f4cf68d3b4cadf80163f963013e06ecc5ca0d86f792acaba67b2abf83c285a96";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "f4e534285c01c8faea1c885afb08c9f9253286577d631c92751a3a86af4e6819";
+        "b741b40e646a8178af013b292a88285eb4e007f397e887caefc622fffa8a9efd";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
+    // Pascal now has a dedicated family: fixture.pas extracts its full structure
+    // (2 -> 9 symbols, the projection's +7) and its runtime calls (`SetLength`,
+    // `Length`, `High`) stay unresolved as external references. The SQL
+    // function body's `INSERT INTO box` now references and resolves to table
+    // `box`, as v1 recorded (the projection's +1 reference and +1 edge).
+    // ABAP declares classes and methods at their IMPLEMENTATION blocks, so
+    // fixture.abap's class and method move there (same counts, new spans,
+    // and the method now owns its body).
+    // Dart fixture.dart:6 now declares Box::Box, adding exactly its method,
+    // Box -> Box::Box containment edge, and symbol search document. Removing
+    // those three facts restores the previous dcf6c35b... digest exactly.
+    // Box::Box is concrete: declaration_only is false in the symbol and its
+    // document metadata. Restoring only those two booleans to true restores
+    // the intermediate 36d77193... digest exactly; all counts stay unchanged.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "f77a991e7c6b2e8df0794af6be859648fd1e084e0511f1fbf675acb363eb3f6f";
+        "fca1307d9daa8f86212a323289ec33fdffb7936c33575b32a7180d8eb285880d";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 220, 213, 64, 220);
+        (28, 260, 283, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
+    // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
+    // spans from its `IF` line and is named by its head line, and an LSX
+    // resource starts at its `<node>` tag (same projection, new identities).
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "461cec8cccf24f4374a440ca7c8884d547b82653a89427859197af63ff968573";
+        "00b7a35cdac9999435d22ff1eeda8a05be25b5279c01dfd1d92a77cb86ac0697";
+    // A Liquid `{% render %}` partner is a Component as well as an Import
+    // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (13, 49, 44, 32, 49);
+        (13, 50, 45, 32, 50);
     const CUSTOM_FAMILY_FIXTURES: [(&str, &str, SourceLanguage); CUSTOM_FAMILY_FILE_COUNT] = [
         (
             "force-app/main/default/aura/OrderPanel/OrderPanel.cmp",
@@ -17681,6 +18629,599 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             .targets("src/OrderCard.tsx", "OrderCard");
     }
 
+    const JVM_FRAMEWORK_BINDING_FIXTURES: [(&str, &str); 18] = [
+        (
+            "src/main/java/com/audit/AuditMapper.java",
+            "package com.audit;\npublic interface AuditMapper { void record(@Param(\"entry\") String entry); }\n",
+        ),
+        (
+            "generated/com/audit/AuditMapper.java",
+            "package com.audit;\npublic interface AuditMapper { void record(@Param(\"entry\") String entry); }\n",
+        ),
+        (
+            "src/main/java/AuditMapper.java",
+            "public interface AuditMapper { void record(@Param(\"entry\") String entry); }\n",
+        ),
+        (
+            "src/main/resources/mapper/AuditMapper.xml",
+            "<mapper namespace=\"com.audit.AuditMapper\"><insert id=\"record\">INSERT INTO audit VALUES (#{entry})</insert></mapper>\n",
+        ),
+        (
+            "src/main/java/OrderMapper.java",
+            "public interface OrderMapper { Order findOrder(String orderId); }\n",
+        ),
+        (
+            "force-app/main/default/triggers/AccountTrigger.trigger",
+            "trigger AccountTrigger on Account (before insert) {\n    for (Contact c : [SELECT Id FROM Contact]) { AccountService.load(); }\n}\n",
+        ),
+        (
+            "src/Person.vb",
+            "Public Class Person\n  Inherits BasePerson\n  Implements IGreeter, IDisposable\n  Public Sub Run()\n    Helper()\n  End Sub\nEnd Class\n",
+        ),
+        (
+            "src/main/java/com/example/OrderMapper.java",
+            "package com.example;\npublic interface OrderMapper { Order findOrder(@Param(\"orderId\") String orderId); }\n",
+        ),
+        (
+            "src/main/java/com/other/OrderMapper.java",
+            "package com.other;\npublic interface OrderMapper { Order findOrder(@Param(\"orderId\") String orderId); }\n",
+        ),
+        (
+            "src/main/resources/mapper/OrderMapper.xml",
+            "<mapper namespace=\"com.example.OrderMapper\"><select id=\"findOrder\">SELECT 1 WHERE id = #{orderId}</select></mapper>\n",
+        ),
+        (
+            "src/main/kotlin/UserMapper.kt",
+            "interface UserMapper {\n  fun findById(@Param(\"userId\") userId: Long): User\n}\n",
+        ),
+        (
+            "src/main/resources/mapper/UserMapper.xml",
+            "<mapper namespace=\"com.example.UserMapper\"><select id=\"findById\">SELECT 1 WHERE id = #{userId}</select></mapper>\n",
+        ),
+        (
+            "src/main/java/com/example/order/dao/impl/OrderAttributeDaoImpl.java",
+            "package com.example.order.dao.impl;\nimport com.example.order.dao.OrderAttributeDao;\npublic class OrderAttributeDaoImpl {\n  private static final String SQL_NS = OrderAttributeDao.class.getName() + \"Mapper\";\n  public void deleteByOrderId(String orderId) {\n    getSqlSessionTemplate().delete(SQL_NS + \".deleteByOrderId\", orderId);\n  }\n}\n",
+        ),
+        (
+            "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+            "<mapper namespace=\"com.example.order.dao.OrderAttributeDaoMapper\">\n  <delete id=\"deleteByOrderId\">DELETE FROM order_attribute WHERE order_id = #{orderId}</delete>\n</mapper>\n",
+        ),
+        (
+            "config/application.properties",
+            "feature.payments.enabled=true\napp.cache.ttl=60\n",
+        ),
+        (
+            "src/main/java/com/example/PaymentsAutoConfig.java",
+            "package com.example;\n@ConditionalOnProperty(prefix = \"feature.payments\", name = \"enabled\", havingValue = \"true\")\npublic class PaymentsAutoConfig {\n  @Value(\"${app.cache.ttl}\")\n  private int cacheTtl;\n}\n",
+        ),
+        (
+            "src/main/kotlin/Ext.kt",
+            "package com.demo\nclass Box\nfun Box.open(): Box = this\nfun String.shout(): String = this\nfun String.echo(): String = shout()\n",
+        ),
+        (
+            "src/main/kotlin/Other.kt",
+            "package com.demo\nfun String.loud(): String = shout()\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn jvm_framework_bindings_are_worker_count_invariant() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create JVM binding fixture: {error}"));
+        for (path, source) in JVM_FRAMEWORK_BINDING_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("JVM binding fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        for workers in [2, PARALLEL_WORKERS, 8, 16] {
+            let parallel = build(directory.path(), workers).await;
+            assert_eq!(
+                serial.facts().digest(),
+                parallel.facts().digest(),
+                "{workers} workers changed the JVM framework bindings"
+            );
+        }
+    }
+
+    fn jvm_binding_generation() -> CanonicalGenerationFacts {
+        let forward = build_capability_generation(&JVM_FRAMEWORK_BINDING_FIXTURES, false);
+        let reversed = build_capability_generation(&JVM_FRAMEWORK_BINDING_FIXTURES, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        forward
+    }
+
+    fn jvm_binding_edge(
+        facts: &CanonicalGenerationFacts,
+        (source, target): (&SymbolInput, &SymbolInput),
+        kind: EdgeKind,
+    ) -> bool {
+        facts.edges().iter().any(|edge| {
+            edge.source_symbol_id == source.symbol_id
+                && edge.target_symbol_id == target.symbol_id
+                && edge.kind == kind
+        })
+    }
+
+    fn jvm_binding_provenance<'facts>(
+        facts: &'facts CanonicalGenerationFacts,
+        reference_name: &str,
+    ) -> &'facts str {
+        facts
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == reference_name)
+            .map_or_else(
+                || panic!("missing reference {reference_name}"),
+                |reference| reference.resolution_provenance.as_str(),
+            )
+    }
+
+    #[test]
+    fn mybatis_bindings_link_packaged_mappers_parameters_and_template_ids() {
+        let forward = jvm_binding_generation();
+        let has_edge = |source: &SymbolInput, target: &SymbolInput, kind: EdgeKind| {
+            jvm_binding_edge(&forward, (source, target), kind)
+        };
+
+        // Packaged mapper interface <-> XML namespace with the same package.
+        let mapper = capability_symbol(
+            &forward,
+            "src/main/java/com/example/OrderMapper.java",
+            "com.example::OrderMapper::findOrder",
+        );
+        let other_mapper = capability_symbol(
+            &forward,
+            "src/main/java/com/other/OrderMapper.java",
+            "com.other::OrderMapper::findOrder",
+        );
+        let statement = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/OrderMapper.xml",
+            "OrderMapper::findOrder",
+        );
+        assert!(forward.edges().iter().any(|edge| {
+            edge.source_symbol_id == mapper.symbol_id
+                && edge.target_symbol_id == statement.symbol_id
+                && edge.kind == EdgeKind::References
+                && edge.provenance == MYBATIS_BRIDGE_PROVENANCE
+        }));
+        assert!(
+            !has_edge(other_mapper, statement, EdgeKind::References),
+            "a mapper in another package must not bind to com.example.OrderMapper"
+        );
+        let unpackaged = capability_symbol(
+            &forward,
+            "src/main/java/OrderMapper.java",
+            "OrderMapper::findOrder",
+        );
+        let confidence = |source: &SymbolInput| {
+            forward
+                .edges()
+                .iter()
+                .find(|edge| {
+                    edge.source_symbol_id == source.symbol_id
+                        && edge.target_symbol_id == statement.symbol_id
+                })
+                .map(|edge| edge.confidence)
+        };
+        assert_eq!(confidence(mapper), Some(EXACT_PROJECT_CONFIDENCE));
+        assert_eq!(
+            confidence(unpackaged),
+            Some(FRAMEWORK_CONVENTION_CONFIDENCE),
+            "package-erasing compatibility bindings are not exact"
+        );
+        // SqlSessionTemplate statement ids.
+        let dao = capability_symbol(
+            &forward,
+            "src/main/java/com/example/order/dao/impl/OrderAttributeDaoImpl.java",
+            "com.example.order.dao.impl::OrderAttributeDaoImpl::deleteByOrderId",
+        );
+        let delete = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+            "OrderAttributeDaoMapper::deleteByOrderId",
+        );
+        assert!(has_edge(dao, delete, EdgeKind::References));
+    }
+
+    fn duplicate_mybatis_index(count: usize) -> ResolutionIndex {
+        let source = r#"<mapper namespace="com.example.OrderMapper"><select id="findOrder">SELECT 1</select></mapper>"#;
+        let limits = SourceLimits::new(TEST_SOURCE_BYTES)
+            .unwrap_or_else(|error| panic!("invalid limits: {error}"));
+        let mut accumulator = NativeFactAccumulator::new(TEST_GENERATION_BYTES);
+        let mut extractor = NativeExtractor::new(SourceLanguage::Xml)
+            .unwrap_or_else(|error| panic!("missing XML grammar: {error}"));
+        for ordinal in 0..count {
+            let path = format!("mapper/OrderMapper{ordinal}.xml");
+            let snapshot =
+                cartograph_extract::SourceSnapshot::from_bytes(&path, source.as_bytes(), limits)
+                    .unwrap_or_else(|error| panic!("invalid snapshot: {error}"));
+            let file = extractor
+                .extract(&snapshot)
+                .unwrap_or_else(|error| panic!("XML extraction failed: {error}"));
+            accumulator
+                .push(file)
+                .unwrap_or_else(|_| panic!("corpus exceeded budget"));
+        }
+        mybatis_test_resolution_index(&accumulator, TEST_GENERATION_BYTES)
+    }
+
+    fn mybatis_test_resolution_index(
+        accumulator: &NativeFactAccumulator,
+        maximum_bytes: u64,
+    ) -> ResolutionIndex {
+        let mut budget = ResolveBudget::new(0, maximum_bytes)
+            .unwrap_or_else(|_| panic!("invalid resolve budget"));
+        build_resolution_index(
+            accumulator,
+            ResolutionIndexContext {
+                source_root: &test_source_root(),
+                budget: &mut budget,
+                cancelled: &mut || false,
+            },
+        )
+        .unwrap_or_else(|_| panic!("index exceeded budget"))
+    }
+
+    fn mixed_mybatis_alias_index(counts: (usize, usize)) -> ResolutionIndex {
+        const CORPUS_BYTES: u64 = 256 * 1024 * 1024;
+        let limits = SourceLimits::new(TEST_SOURCE_BYTES)
+            .unwrap_or_else(|error| panic!("invalid limits: {error}"));
+        let mut accumulator = NativeFactAccumulator::new(CORPUS_BYTES);
+        for (language, count) in [
+            (SourceLanguage::Java, counts.0),
+            (SourceLanguage::Php, counts.1),
+        ] {
+            let mut extractor = NativeExtractor::new(language)
+                .unwrap_or_else(|error| panic!("missing grammar: {error}"));
+            for ordinal in 0..count {
+                let (path, source) = mybatis_alias_fixture(language, ordinal);
+                let snapshot = cartograph_extract::SourceSnapshot::from_bytes(
+                    &path,
+                    source.as_bytes(),
+                    limits,
+                )
+                .unwrap_or_else(|error| panic!("invalid snapshot: {error}"));
+                let file = extractor
+                    .extract(&snapshot)
+                    .unwrap_or_else(|error| panic!("extraction failed: {error}"));
+                accumulator
+                    .push(file)
+                    .unwrap_or_else(|_| panic!("corpus exceeded budget"));
+            }
+        }
+        mybatis_test_resolution_index(&accumulator, CORPUS_BYTES)
+    }
+
+    fn mybatis_alias_fixture(language: SourceLanguage, ordinal: usize) -> (String, String) {
+        match language {
+            SourceLanguage::Java => (
+                format!("java/{ordinal}/OrderMapper.java"),
+                "public class OrderMapper { public void findOrder() {} }".to_owned(),
+            ),
+            SourceLanguage::Php => (
+                format!("php/OrderMapper{ordinal}.php"),
+                format!(
+                    "<?php namespace Ns{ordinal}; class OrderMapper {{ public static function findOrder() {{}} }}"
+                ),
+            ),
+            _ => panic!("unsupported fixture language"),
+        }
+    }
+
+    #[test]
+    fn qualified_mybatis_zero_xml_alias_selection_is_linear_and_cancellable() {
+        const JVM_COUNT: usize = 256;
+        const PHP_COUNT: usize = 10_000;
+        let index = mixed_mybatis_alias_index((JVM_COUNT, PHP_COUNT));
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing mapper bucket"))
+            .as_slice();
+        assert_eq!(candidates.len(), JVM_COUNT + PHP_COUNT);
+        for cancel_after in [usize::MAX, 8] {
+            let mut polls = 0;
+            let mut facts = GenerationFacts::default();
+            let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+                .unwrap_or_else(|_| panic!("invalid resolve budget"));
+            let result = append_mybatis_qualified_edges(
+                ResolutionMutation {
+                    index: &index,
+                    facts: &mut facts,
+                    budget: &mut budget,
+                    cancelled: &mut || {
+                        polls += 1;
+                        polls == cancel_after
+                    },
+                },
+                "OrderMapper::findOrder",
+                candidates,
+            );
+            assert_eq!(result.is_err(), cancel_after == 8);
+            assert!(polls <= candidates.len(), "selection work was {polls}");
+            assert_eq!(polls, cancel_after.min(candidates.len()));
+            assert_eq!(facts.edges, []);
+            assert_eq!(budget.charged_bytes, 0);
+        }
+    }
+
+    #[test]
+    fn qualified_mybatis_xml_target_selection_obeys_its_allocation_budget() {
+        let index = duplicate_mybatis_index(16);
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing statement bucket"))
+            .as_slice();
+        let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+            .unwrap_or_else(|_| panic!("invalid resolve budget"));
+        let targets = mybatis_xml_targets(
+            (&index, "OrderMapper::findOrder", candidates),
+            &mut budget,
+            &mut || false,
+        )
+        .unwrap_or_else(|_| panic!("target selection failed"));
+        assert_eq!(targets.len(), candidates.len());
+        assert_eq!(
+            budget.charged_bytes,
+            usize_to_u64(targets.capacity())
+                .saturating_mul(usize_to_u64(size_of::<&ResolutionCandidate>()))
+        );
+        let mut too_small =
+            ResolveBudget::new(0, 0).unwrap_or_else(|_| panic!("invalid resolve budget"));
+        assert!(
+            mybatis_xml_targets(
+                (&index, "OrderMapper::findOrder", candidates),
+                &mut too_small,
+                &mut || false
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn duplicate_mybatis_mappers_cancel_without_emitting_edges() {
+        let index = duplicate_mybatis_index(256);
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing statement bucket"))
+            .as_slice();
+        for packaged in [true, false] {
+            let mut facts = GenerationFacts::default();
+            let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+                .unwrap_or_else(|_| panic!("invalid resolve budget"));
+            let mut polls = 0;
+            let mutation = ResolutionMutation {
+                index: &index,
+                facts: &mut facts,
+                budget: &mut budget,
+                cancelled: &mut || {
+                    polls += 1;
+                    polls == 8
+                },
+            };
+            let result = if packaged {
+                append_mybatis_packaged_edges(mutation, "OrderMapper::findOrder", candidates)
+            } else {
+                append_mybatis_qualified_edges(mutation, "OrderMapper::findOrder", candidates)
+            };
+            assert_matches!(result, Err(StageItemFailure));
+            assert_eq!(polls, 8);
+            assert_eq!(facts.edges, []);
+        }
+    }
+
+    #[test]
+    fn duplicate_mybatis_mapper_parent_lookups_are_file_scoped() {
+        const COUNT: usize = 256;
+        let index = duplicate_mybatis_index(COUNT);
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing statement bucket"))
+            .as_slice();
+        assert_eq!(candidates.len(), COUNT);
+        let mut polls = 0;
+        for statement in candidates {
+            let name = mybatis_jvm_statement_name(&index, statement, &mut || {
+                polls += 1;
+                false
+            })
+            .unwrap_or_else(|_| panic!("name lookup failed"));
+            assert_eq!(name.as_deref(), Some("com.example::OrderMapper::findOrder"));
+        }
+        assert_eq!(
+            polls, COUNT,
+            "each parent lookup examines only its file's namespace"
+        );
+        let mut facts = GenerationFacts::default();
+        let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+            .unwrap_or_else(|_| panic!("invalid resolve budget"));
+        polls = 0;
+        assert!(
+            append_mybatis_packaged_edges(
+                ResolutionMutation {
+                    index: &index,
+                    facts: &mut facts,
+                    budget: &mut budget,
+                    cancelled: &mut || {
+                        polls += 1;
+                        false
+                    },
+                },
+                "OrderMapper::findOrder",
+                candidates
+            )
+            .is_ok()
+        );
+        assert_eq!(polls, COUNT * 2);
+        assert_eq!(facts.edges, []);
+    }
+
+    #[test]
+    fn mybatis_parameters_prefer_exact_packages_and_keep_ambiguity() {
+        let forward = jvm_binding_generation();
+        let has_edge = |source: &SymbolInput, target: &SymbolInput, kind: EdgeKind| {
+            jvm_binding_edge(&forward, (source, target), kind)
+        };
+        let statement = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/OrderMapper.xml",
+            "OrderMapper::findOrder",
+        );
+        let parameter = capability_symbol(
+            &forward,
+            "src/main/java/com/example/OrderMapper.java",
+            "com.example::OrderMapper::findOrder::orderId",
+        );
+        assert!(has_edge(statement, parameter, EdgeKind::References));
+        let other_parameter = capability_symbol(
+            &forward,
+            "src/main/java/com/other/OrderMapper.java",
+            "com.other::OrderMapper::findOrder::orderId",
+        );
+        assert!(!has_edge(statement, other_parameter, EdgeKind::References));
+
+        // An unpackaged Kotlin mapper keeps binding through the source-visible name.
+        let kotlin_parameter = capability_symbol(
+            &forward,
+            "src/main/kotlin/UserMapper.kt",
+            "UserMapper::findById::userId",
+        );
+        let user_statement = capability_symbol(
+            &forward,
+            "src/main/resources/mapper/UserMapper.xml",
+            "UserMapper::findById",
+        );
+        assert!(has_edge(
+            user_statement,
+            kotlin_parameter,
+            EdgeKind::References
+        ));
+
+        assert_eq!(
+            jvm_binding_provenance(&forward, "OrderMapper::findOrder::orderId"),
+            EXACT_PROJECT_PROVENANCE,
+            "packaged mapper parameters bind by exact package-qualified identity"
+        );
+        assert_eq!(
+            jvm_binding_provenance(&forward, "UserMapper::findById::userId"),
+            FRAMEWORK_CONVENTION_PROVENANCE,
+            "the unpackaged-mapper compatibility binding is not recorded as exact"
+        );
+        // Two packaged declarations are ambiguous; that ambiguity is kept
+        // rather than falling back to the unpackaged compatibility match.
+        let audit = forward
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == "AuditMapper::record::entry")
+            .unwrap_or_else(|| panic!("missing AuditMapper parameter reference"));
+        assert!(
+            audit.target_symbol_id.is_none(),
+            "ambiguous packaged parameters must not resolve: {audit:?}"
+        );
+    }
+
+    #[test]
+    fn spring_and_kotlin_bindings_link_configuration_keys_and_receivers() {
+        let forward = jvm_binding_generation();
+        let has_edge = |source: &SymbolInput, target: &SymbolInput, kind: EdgeKind| {
+            jvm_binding_edge(&forward, (source, target), kind)
+        };
+
+        // Spring configuration keys.
+        let config = capability_symbol(
+            &forward,
+            "src/main/java/com/example/PaymentsAutoConfig.java",
+            "com.example::PaymentsAutoConfig",
+        );
+        let enabled = capability_symbol(
+            &forward,
+            "config/application.properties",
+            "feature.payments.enabled",
+        );
+        assert!(has_edge(config, enabled, EdgeKind::References));
+        let field = capability_symbol(
+            &forward,
+            "src/main/java/com/example/PaymentsAutoConfig.java",
+            "com.example::PaymentsAutoConfig::cacheTtl",
+        );
+        let ttl = capability_symbol(&forward, "config/application.properties", "app.cache.ttl");
+        assert!(has_edge(field, ttl, EdgeKind::References));
+        assert!(!has_edge(config, ttl, EdgeKind::References));
+
+        // Kotlin extension functions are receiver-qualified and their bare
+        // implicit-receiver calls keep resolving in the same and other files.
+        let extension =
+            capability_symbol(&forward, "src/main/kotlin/Ext.kt", "com.demo::Box::open");
+        assert_eq!(extension.symbol_kind, SymbolKind::Function.as_str());
+        let shout = capability_symbol(
+            &forward,
+            "src/main/kotlin/Ext.kt",
+            "com.demo::String::shout",
+        );
+        let echo = capability_symbol(&forward, "src/main/kotlin/Ext.kt", "com.demo::String::echo");
+        let loud = capability_symbol(
+            &forward,
+            "src/main/kotlin/Other.kt",
+            "com.demo::String::loud",
+        );
+        assert!(has_edge(echo, shout, EdgeKind::Calls), "same-file call");
+        assert!(has_edge(loud, shout, EdgeKind::Calls), "cross-file call");
+    }
+
+    #[test]
+    fn kotlin_qualified_type_uses_and_extension_receivers_resolve() {
+        fn source_path(qualified_name: &str) -> &'static str {
+            if qualified_name.starts_with("r::") {
+                "src/main/kotlin/r/Result.kt"
+            } else {
+                "src/main/kotlin/q/Take.kt"
+            }
+        }
+        let forward = build_capability_generation(
+            &[
+                (
+                    "src/main/kotlin/r/Result.kt",
+                    "package r\nsealed class Result { class Success : Result() }\nfun handle(x: Result.Success) {}\n",
+                ),
+                (
+                    "src/main/kotlin/q/Take.kt",
+                    "package q\nimport r.Result\nclass Outer { class Nest }\nclass Box\nfun take(x: Result.Success) {}\nfun same(w: Outer.Nest, v: q.Outer) {}\nfun q.Box.peek() {}\n",
+                ),
+            ],
+            false,
+        );
+        let has_type_of = |source: &str, target: &str| {
+            let source = capability_symbol(&forward, source_path(source), source);
+            let target = capability_symbol(&forward, source_path(target), target);
+            jvm_binding_edge(&forward, (source, target), EdgeKind::TypeOf)
+        };
+        // Nested and sealed-subtype uses keep naming each written segment.
+        assert!(has_type_of("r::handle", "r::Result"));
+        assert!(has_type_of("q::take", "r::Result::Success"));
+        assert!(has_type_of("q::same", "q::Outer"));
+        // A written receiver path references its terminal type only.
+        assert!(has_type_of("q::q.Box::peek", "q::Box"));
+        assert!(
+            forward
+                .references()
+                .iter()
+                .all(|reference| reference.reference_name != "q.Box"),
+            "receiver path stored as one unresolvable dotted type: {:?}",
+            forward.references()
+        );
+    }
+
     #[test]
     fn framework_conventions_choose_one_unique_best_path_and_abstain_on_ties() {
         let preferred = [
@@ -17898,19 +19439,19 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let fixtures = [
             (
                 "ios/NativeDownloader.m",
-                "@implementation NativeDownloader\n- (void)downloadWithURL:(NSString *)url {}\n@end\n",
+                "#import <Foundation/Foundation.h>\n@implementation NativeDownloader\n- (void)downloadWithURL:(NSString *)url {}\n@end\n",
             ),
             (
                 "ios/SwiftCaller.swift",
-                "func invoke(_ downloader: NativeDownloader) { downloader.download(url: \"safe\") }\n",
+                "import Foundation\nfunc invoke(_ downloader: NativeDownloader) { downloader.download(url: \"safe\") }\n",
             ),
             (
                 "ios/SwiftPlayer.swift",
-                "class SwiftPlayer {\n  @objc func play(song: String) {}\n  @nonobjc func internalOnly() {}\n}\n",
+                "import Foundation\nclass SwiftPlayer {\n  @objc func play(song: String) {}\n  @nonobjc func internalOnly() {}\n}\n",
             ),
             (
                 "ios/ObjcCaller.m",
-                "@implementation ObjcCaller\n- (void)invoke:(SwiftPlayer *)player {\n  [player playWithSong:@\"safe\"];\n  [player internalOnly];\n}\n@end\n",
+                "#import <Foundation/Foundation.h>\n@implementation ObjcCaller\n- (void)invoke:(SwiftPlayer *)player {\n  [player playWithSong:@\"safe\"];\n  [player internalOnly];\n}\n@end\n",
             ),
         ];
         let forward = build_capability_generation(&fixtures, false);
@@ -17955,7 +19496,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
                 ),
                 (
                     "ios/Caller.m",
-                    "@implementation Caller\n- (void)run:(id)player { [player playWithSong:@\"safe\"]; }\n@end\n",
+                    "#import <Foundation/Foundation.h>\n@implementation Caller\n- (void)run:(id)player { [player playWithSong:@\"safe\"]; }\n@end\n",
                 ),
             ],
             false,
@@ -17978,6 +19519,498 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             .unwrap_or_else(|| panic!("missing exact ObjC target file"));
         assert_eq!(exact_target_file.normalized_path, "ios/NativePlayer.m");
         assert_ne!(exact_call.resolution_provenance, APPLE_BRIDGE_PROVENANCE);
+    }
+
+    #[test]
+    fn objc_keyword_selectors_imports_and_heritage_resolve_to_native_declarations() {
+        let fixtures = [
+            (
+                "ios/Player.h",
+                "#import <Foundation/Foundation.h>\n@interface Player : Base\n- (void)playWithSong:(NSString *)song volume:(int)volume;\n@end\n",
+            ),
+            (
+                "ios/Player.m",
+                "#import <Foundation/Foundation.h>\n#import \"Player.h\"\n@implementation Player\n- (void)playWithSong:(NSString *)song volume:(int)volume {}\n@end\n",
+            ),
+            (
+                "ios/Base.h",
+                "#import <Foundation/Foundation.h>\n@interface Base : NSObject\n@end\n",
+            ),
+            ("ios/Base.m", "@implementation Base\n@end\n"),
+            (
+                "ios/Caller.m",
+                "#import <UIKit/UIKit.h>\n#import \"Player.h\"\n@implementation Caller\n- (void)run:(Player *)player {\n  [player playWithSong:@\"safe\" volume:1];\n  [player playWithSong:@\"safe\"];\n}\n@end\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let definition = CapabilitySymbolQuery::new(&forward, "ios/Player.m")
+            .of_kind("Player::playWithSong:volume:", SymbolKind::Method);
+        let keyword_send =
+            capability_reference_in_file(&forward, "ios/Caller.m", "player.playWithSong:volume:");
+        assert_eq!(
+            keyword_send.target_symbol_id.as_ref(),
+            Some(&definition.symbol_id),
+            "a full-selector send resolves to the implementation, not the header"
+        );
+        assert_eq!(keyword_send.resolution_provenance, EXACT_PROJECT_PROVENANCE);
+        let partial_send = forward
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == "player.playWithSong:")
+            .unwrap_or_else(|| panic!("missing partial send: {:?}", forward.references()));
+        assert!(
+            partial_send.target_symbol_id.is_none(),
+            "a different selector must not resolve by its first keyword"
+        );
+
+        let base_definition =
+            CapabilitySymbolQuery::new(&forward, "ios/Base.m").of_kind("Base", SymbolKind::Class);
+        let header_player = CapabilitySymbolQuery::new(&forward, "ios/Player.h")
+            .of_kind("Player", SymbolKind::Class);
+        let extends = CapabilityReferenceQuery::new(&forward, header_player)
+            .named("Base", ReferenceKind::Extends);
+        assert_eq!(
+            extends.target_symbol_id.as_ref(),
+            Some(&base_definition.symbol_id)
+        );
+        assert!(forward.edges().iter().any(|edge| {
+            edge.source_symbol_id == header_player.symbol_id
+                && edge.target_symbol_id == base_definition.symbol_id
+                && edge.kind == EdgeKind::Extends
+        }));
+
+        let import = capability_reference_in_file(&forward, "ios/Player.m", "Player.h");
+        assert_eq!(import.resolution_provenance, QUOTED_INCLUDE_PROVENANCE);
+        assert!(import.target_symbol_id.is_some());
+    }
+
+    #[test]
+    fn swift_objc_bridge_prefers_the_implementation_alias_over_its_interface_declaration() {
+        let fixtures = [
+            (
+                "ios/Downloader.m",
+                "#import <Foundation/Foundation.h>\n@interface Downloader : NSObject\n- (void)downloadWithURL:(NSString *)url;\n@end\n@implementation Downloader\n- (void)downloadWithURL:(NSString *)url {}\n@end\n",
+            ),
+            (
+                "ios/Caller.swift",
+                "import Foundation\nfunc fetch(_ downloader: Downloader) { downloader.download(url: \"safe\") }\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        let aliases = forward
+            .symbols()
+            .iter()
+            .filter(|symbol| {
+                symbol
+                    .qualified_name
+                    .ends_with("::objc-swift-method::downloadWithURL:::download")
+                    || symbol
+                        .qualified_name
+                        .contains("::objc-swift-method::downloadWithURL:::download#")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(aliases.len(), 2, "one alias per declaration and definition");
+        let call = capability_reference_in_file(&forward, "ios/Caller.swift", "download");
+        let target = call
+            .target_symbol_id
+            .as_ref()
+            .and_then(|target| aliases.iter().find(|alias| &alias.symbol_id == target))
+            .unwrap_or_else(|| panic!("bridge abstained: {call:?}"));
+        assert!(!target.declaration_only);
+        assert_eq!(call.resolution_provenance, APPLE_BRIDGE_PROVENANCE);
+    }
+
+    /// Competing Swift declarations per name: one in its conventional directory.
+    const SWIFT_CONVENTION_FIXTURES: [(&str, &str); 15] = [
+        (
+            "Sources/TableViewCells/UserCell.swift",
+            "class UserCell {}\n",
+        ),
+        ("Sources/Generated/UserCell.swift", "class UserCell {}\n"),
+        (
+            "Sources/Protocols/ProfileDelegate.swift",
+            "protocol ProfileDelegate: AnyObject {}\n",
+        ),
+        (
+            "Sources/Legacy/ProfileDelegate.swift",
+            "class ProfileDelegate {}\n",
+        ),
+        ("Sources/UI/AvatarView.swift", "class AvatarView {}\n"),
+        (
+            "Sources/Generated/AvatarView.swift",
+            "class AvatarView {}\n",
+        ),
+        (
+            "Sources/App/Controllers/UserController.swift",
+            "struct UserController {}\n",
+        ),
+        (
+            "Sources/App/Other/UserController.swift",
+            "struct UserController {}\n",
+        ),
+        (
+            "Sources/App/Middleware/AuthMiddleware.swift",
+            "struct AuthMiddleware {}\n",
+        ),
+        (
+            "Sources/App/Other/AuthMiddleware.swift",
+            "struct AuthMiddleware {}\n",
+        ),
+        (
+            "Sources/App/Database/Account.swift",
+            "final class Account {}\n",
+        ),
+        (
+            "Sources/App/Other/Account.swift",
+            "final class Account {}\n",
+        ),
+        ("Sources/Cells/LeftCell.swift", "class LeftCell {}\n"),
+        ("Sources/Views/LeftCell.swift", "class LeftCell {}\n"),
+        (
+            "Sources/App/Screen.swift",
+            "class Screen: ProfileDelegate {\n  let cell: UserCell\n  let left: LeftCell\n  let avatar: AvatarView\n  func boot() { UserController(); AuthMiddleware(); Account() }\n}\n",
+        ),
+    ];
+
+    #[test]
+    fn swift_uikit_and_vapor_conventions_prefer_conventional_directories_and_kinds() {
+        let fixtures = SWIFT_CONVENTION_FIXTURES;
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        for (name, path, qualified_name) in [
+            (
+                "UserCell",
+                "Sources/TableViewCells/UserCell.swift",
+                "UserCell",
+            ),
+            (
+                "ProfileDelegate",
+                "Sources/Protocols/ProfileDelegate.swift",
+                "ProfileDelegate",
+            ),
+            ("AvatarView", "Sources/UI/AvatarView.swift", "AvatarView"),
+            (
+                "UserController",
+                "Sources/App/Controllers/UserController.swift",
+                "UserController",
+            ),
+            (
+                "AuthMiddleware",
+                "Sources/App/Middleware/AuthMiddleware.swift",
+                "AuthMiddleware",
+            ),
+            ("Account", "Sources/App/Database/Account.swift", "Account"),
+        ] {
+            let target = capability_symbol(&forward, path, qualified_name);
+            let reference = forward
+                .references()
+                .iter()
+                .find(|reference| reference.reference_name == name)
+                .unwrap_or_else(|| panic!("missing {name}: {:?}", forward.references()));
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name} did not prefer {path}"
+            );
+            assert_eq!(
+                reference.resolution_provenance,
+                FRAMEWORK_CONVENTION_PROVENANCE
+            );
+        }
+        let tied = forward
+            .references()
+            .iter()
+            .find(|reference| reference.reference_name == "LeftCell")
+            .unwrap_or_else(|| panic!("missing LeftCell: {:?}", forward.references()));
+        assert!(
+            tied.target_symbol_id.is_none(),
+            "two conventional cell directories must abstain"
+        );
+    }
+
+    #[test]
+    fn objc_selector_resolution_abstains_on_unary_and_shared_selectors_and_categories_do_not_define()
+     {
+        let fixtures = [
+            (
+                "ios/Left.m",
+                "@implementation Left\n- (void)play:(int)speed {}\n- (void)stop {}\n@end\n",
+            ),
+            (
+                "ios/Right.m",
+                "@implementation Right\n- (void)play:(int)speed {}\n@end\n",
+            ),
+            ("ios/Shape.m", "@implementation Shape\n@end\n"),
+            (
+                "ios/Shape+Extras.m",
+                "@implementation Shape (Extras)\n- (void)extra {}\n@end\n",
+            ),
+            (
+                "ios/Square.m",
+                "#import <Foundation/Foundation.h>\n@interface Square : Shape\n@end\n@implementation Square\n- (void)run:(Left *)left {\n  [left play:1];\n  [left stop];\n  [left act:2];\n}\n- (void)notify:(id)delegate {\n  [delegate feedDidFinish:1];\n  [delegate feedDidFail:2];\n}\n@end\n",
+            ),
+            (
+                "ios/Worker.m",
+                "#import <Foundation/Foundation.h>\n@protocol Loading\n- (void)load:(int)value;\n@end\n@implementation Worker\n- (void)load:(int)value {}\n- (void)run {\n  [self load:1];\n}\n@end\n",
+            ),
+            (
+                "ios/FeedDelegate.h",
+                "@protocol FeedDelegate\n- (void)feedDidFinish:(int)count;\n- (void)feedDidFail:(int)count;\n@end\n@protocol RetryDelegate\n- (void)feedDidFail:(int)count;\n@end\n",
+            ),
+            (
+                "ios/Declared.h",
+                "@interface Declared : NSObject\n- (void)act:(int)value;\n@end\n",
+            ),
+            (
+                "ios/Unrelated.m",
+                "@implementation Unrelated\n- (void)act:(int)value {}\n@end\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        for name in [
+            "left.play:",
+            "left.stop",
+            "left.act:",
+            "delegate.feedDidFail:",
+        ] {
+            let reference = capability_reference_in_file(&forward, "ios/Square.m", name);
+            assert!(
+                reference.target_symbol_id.is_none(),
+                "{name} must abstain: {reference:?}"
+            );
+        }
+        // A protocol requirement never competes with the one class that
+        // implements the selector, and is itself the target only when no
+        // class declares the selector and one protocol alone requires it.
+        for (path, name, target) in [
+            ("ios/Worker.m", "load:", "Worker::load:"),
+            (
+                "ios/Square.m",
+                "delegate.feedDidFinish:",
+                "FeedDelegate::feedDidFinish:",
+            ),
+        ] {
+            let reference = capability_reference_in_file(&forward, path, name);
+            let target = forward
+                .symbols()
+                .iter()
+                .find(|symbol| {
+                    symbol.qualified_name == target
+                        && symbol.symbol_kind == SymbolKind::Method.as_str()
+                })
+                .unwrap_or_else(|| panic!("missing {target}: {:?}", forward.symbols()));
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name}: {reference:?}"
+            );
+        }
+        let shape =
+            CapabilitySymbolQuery::new(&forward, "ios/Shape.m").of_kind("Shape", SymbolKind::Class);
+        let category = CapabilitySymbolQuery::new(&forward, "ios/Shape+Extras.m")
+            .of_kind("Shape", SymbolKind::Class);
+        assert!(category.declaration_only, "a category augments its class");
+        let square = CapabilitySymbolQuery::new(&forward, "ios/Square.m")
+            .of_kind("Square", SymbolKind::Class);
+        let extends =
+            CapabilityReferenceQuery::new(&forward, square).named("Shape", ReferenceKind::Extends);
+        assert_eq!(extends.target_symbol_id.as_ref(), Some(&shape.symbol_id));
+    }
+
+    #[test]
+    fn swift_unqualified_calls_resolve_to_the_enclosing_types_methods_only() {
+        let fixtures = [
+            (
+                "Sources/Feed.swift",
+                "struct Feed {\n  func helper() {}\n  func run() {\n    helper()\n    run()\n  }\n}\nstruct Other {\n  func helper() {}\n  func go() { helper() }\n}\nextension Feed {\n  func later() { helper() }\n}\nfunc outer() {\n  func inner() {}\n  inner()\n}\n",
+            ),
+            (
+                "Sources/Elsewhere.swift",
+                "struct Elsewhere {\n  func helper() {}\n}\n",
+            ),
+            (
+                "Sources/Bridged.swift",
+                "@objcMembers\nclass Bridged: NSObject {\n  func recur() { recur() }\n}\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        for (caller, callee, target) in [
+            ("Feed::run", "helper", "Feed::helper"),
+            ("Other::go", "helper", "Other::helper"),
+            ("Feed::later", "helper", "Feed::helper"),
+            ("outer", "inner", "outer::inner"),
+        ] {
+            let caller = capability_symbol(&forward, "Sources/Feed.swift", caller);
+            let target = capability_symbol(&forward, "Sources/Feed.swift", target);
+            let reference =
+                CapabilityReferenceQuery::new(&forward, caller).named(callee, ReferenceKind::Calls);
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{} -> {callee}",
+                caller.qualified_name
+            );
+        }
+        let run = capability_symbol(&forward, "Sources/Feed.swift", "Feed::run");
+        let recursion =
+            CapabilityReferenceQuery::new(&forward, run).named("run", ReferenceKind::Calls);
+        assert!(recursion.target_symbol_id.is_none());
+        let bridged = capability_symbol(&forward, "Sources/Bridged.swift", "Bridged::recur");
+        let bridged_recursion =
+            CapabilityReferenceQuery::new(&forward, bridged).named("recur", ReferenceKind::Calls);
+        assert!(
+            bridged_recursion.target_symbol_id.is_none(),
+            "implicit self never selects a synthetic bridge alias: {bridged_recursion:?}"
+        );
+    }
+
+    #[test]
+    fn turbo_module_specs_bridge_to_keyword_selector_implementations() {
+        let fixtures = [
+            (
+                "src/NativeCalculator.ts",
+                "interface Spec extends TurboModule {\n  multiply(a: number, b: number): number;\n}\nexport default TurboModuleRegistry.getEnforcing<Spec>('Calculator');\n",
+            ),
+            (
+                "ios/RCTCalculator.m",
+                "#import <React/RCTBridgeModule.h>\n@interface RCTCalculator : NSObject\n- (NSNumber *)multiply:(double)a b:(double)b;\n@end\n@implementation RCTCalculator\n- (NSNumber *)multiply:(double)a b:(double)b { return nil; }\n@end\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        let spec = capability_symbol(
+            &forward,
+            "src/NativeCalculator.ts",
+            "src/NativeCalculator.ts::turbo-module-spec-method::Calculator::multiply",
+        );
+        let implementation = forward
+            .symbols()
+            .iter()
+            .find(|symbol| {
+                symbol.qualified_name == "RCTCalculator::multiply:b:" && !symbol.declaration_only
+            })
+            .unwrap_or_else(|| panic!("missing native implementation: {:?}", forward.symbols()));
+        let bridges = forward
+            .edges()
+            .iter()
+            .filter(|edge| {
+                edge.source_symbol_id == spec.symbol_id
+                    && edge.provenance == TURBO_NATIVE_BRIDGE_PROVENANCE
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bridges.len(), 1, "{bridges:?}");
+        assert_eq!(bridges[0].target_symbol_id, implementation.symbol_id);
+    }
+
+    #[test]
+    fn swift_and_objc_framework_imports_never_hide_project_declarations() {
+        let fixtures = [
+            ("Sources/Api.swift", "public func fetchAll() {}\n"),
+            (
+                "Sources/Screen.swift",
+                "import Foundation\nimport UIKit\nfunc load() { fetchAll() }\n",
+            ),
+            ("ios/Util.m", "void LogEvent(int code) {}\n"),
+            (
+                "ios/Screen.m",
+                "#import <UIKit/UIKit.h>\n@implementation Screen\n- (void)show { LogEvent(1); }\n@end\n",
+            ),
+            ("src/util.c", "void log_event(int code) {}\n"),
+            (
+                "src/main.c",
+                "#include <stdio.h>\nint main(void) { log_event(1); return 0; }\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        for (caller_path, name, target_path) in [
+            ("Sources/Screen.swift", "fetchAll", "Sources/Api.swift"),
+            ("ios/Screen.m", "LogEvent", "ios/Util.m"),
+        ] {
+            let target = capability_symbol(&forward, target_path, name);
+            let reference = capability_reference_in_file(&forward, caller_path, name);
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name}: {reference:?}"
+            );
+            assert_eq!(reference.resolution_provenance, EXACT_PROJECT_PROVENANCE);
+        }
+        let c_call = capability_reference_in_file(&forward, "src/main.c", "log_event");
+        assert!(
+            c_call.target_symbol_id.is_none(),
+            "a C system include keeps vetoing project guesses: {c_call:?}"
+        );
+    }
+
+    #[test]
+    fn half_typed_objc_and_swift_declarations_never_fail_the_generation() {
+        let fixtures = [
+            ("ios/Empty.m", "@implementation\n@end\n"),
+            ("ios/Interface.m", "@interface\n@end\n@protocol\n@end\n"),
+            (
+                "ios/Half.m",
+                "@implementation Half\n- (void) {}\n- (void)kept {}\n@end\n",
+            ),
+            (
+                "Sources/Broken.swift",
+                "func () {}\nstruct S {\n  var : Int\n  func kept() {}\n}\nenum E {\n  case\n}\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+        capability_symbol(&forward, "ios/Half.m", "Half::kept");
+        capability_symbol(&forward, "Sources/Broken.swift", "S::kept");
+        assert!(
+            forward
+                .symbols()
+                .iter()
+                .all(|symbol| !symbol.qualified_name.ends_with("::")),
+            "{:?}",
+            forward.symbols()
+        );
+    }
+
+    #[test]
+    fn swift_backtick_escaped_declarations_resolve_from_their_uses() {
+        let fixtures = [(
+            "Sources/Keywords.swift",
+            "struct `Type` {\n  func `default`() {}\n  func run() { `default`() }\n}\nfunc `repeat`() {}\nfunc use(_ value: `Type`) {\n  `repeat`()\n}\n",
+        )];
+        let forward = build_capability_generation(&fixtures, false);
+        for (caller, name, kind, target) in [
+            ("use", "repeat", ReferenceKind::Calls, "repeat"),
+            ("use", "Type", ReferenceKind::TypeOf, "Type"),
+            (
+                "Type::run",
+                "default",
+                ReferenceKind::Calls,
+                "Type::default",
+            ),
+        ] {
+            let caller = capability_symbol(&forward, "Sources/Keywords.swift", caller);
+            let target = capability_symbol(&forward, "Sources/Keywords.swift", target);
+            let reference = CapabilityReferenceQuery::new(&forward, caller).named(name, kind);
+            assert_eq!(
+                reference.target_symbol_id.as_ref(),
+                Some(&target.symbol_id),
+                "{name}: {reference:?}"
+            );
+        }
     }
 
     #[test]
@@ -18198,6 +20231,194 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
     }
 
+    const COMPONENT_RESOLUTION_FIXTURES: [(&str, &str); 5] = [
+        (
+            "src/lib/format.ts",
+            "export function formatOrder() {}\nexport default function loadOrder() {}\n",
+        ),
+        (
+            "src/components/OrderPanel.vue",
+            "<script setup lang=\"ts\">\nimport loadOrder, { formatOrder } from '../lib/format';\nconst order = loadOrder();\n</script>\n<template><p>{{ formatOrder(order) }}</p><p>{{ missingHelper() }}</p></template>\n",
+        ),
+        (
+            "src/components/OrderBadge.svelte",
+            "<script lang=\"ts\">\nimport { formatOrder } from '../lib/format';\n</script>\n<span>{formatOrder()}</span>\n",
+        ),
+        ("src/layouts/Layout.astro", "<main><slot /></main>\n"),
+        (
+            "src/pages/orders.astro",
+            "---\nimport Layout from '../layouts/Layout.astro';\nimport { formatOrder } from '../lib/format';\n---\n<Layout><h1>{formatOrder()}</h1></Layout>\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn component_corpus_is_identical_for_every_worker_count() {
+        let directory =
+            tempdir().unwrap_or_else(|error| panic!("could not create component fixture: {error}"));
+        for (path, source) in COMPONENT_RESOLUTION_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("component fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        for workers in [2, 4, 8, 16] {
+            let parallel = build(directory.path(), workers).await;
+            assert_eq!(
+                serial.facts().digest(),
+                parallel.facts().digest(),
+                "{workers} workers"
+            );
+        }
+        let library = capability_file_symbol(serial.facts(), "src/lib/format.ts");
+        let module = capability_resolved_reference(
+            serial.facts(),
+            "src/pages/orders.astro",
+            ("../lib/format", ReferenceKind::Imports),
+        );
+        assert_eq!(module.target_symbol_id.as_ref(), Some(&library.symbol_id));
+    }
+
+    #[test]
+    fn component_scripts_and_template_expressions_resolve_through_their_imports() {
+        let forward = build_capability_generation(&COMPONENT_RESOLUTION_FIXTURES, false);
+        let reversed = build_capability_generation(&COMPONENT_RESOLUTION_FIXTURES, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let library = capability_file_symbol(&forward, "src/lib/format.ts");
+        let format_order = capability_symbol(&forward, "src/lib/format.ts", "formatOrder");
+        let load_order = capability_symbol(&forward, "src/lib/format.ts", "loadOrder");
+        let layout = capability_symbol(&forward, "src/layouts/Layout.astro", "Layout");
+        for path in [
+            "src/components/OrderPanel.vue",
+            "src/components/OrderBadge.svelte",
+            "src/pages/orders.astro",
+        ] {
+            let module = capability_resolved_reference(
+                &forward,
+                path,
+                ("../lib/format", ReferenceKind::Imports),
+            );
+            assert_eq!(
+                module.target_symbol_id.as_ref(),
+                Some(&library.symbol_id),
+                "{path}"
+            );
+            assert_eq!(
+                module.resolution_provenance, MODULE_IMPORT_PROVENANCE,
+                "{path}"
+            );
+            let call = capability_resolved_reference(
+                &forward,
+                path,
+                ("formatOrder", ReferenceKind::Calls),
+            );
+            assert_eq!(
+                call.target_symbol_id.as_ref(),
+                Some(&format_order.symbol_id),
+                "{path}"
+            );
+            assert_eq!(
+                call.resolution_provenance, IMPORT_BINDING_PROVENANCE,
+                "{path}"
+            );
+        }
+        let default_call = capability_resolved_reference(
+            &forward,
+            "src/components/OrderPanel.vue",
+            ("loadOrder", ReferenceKind::Calls),
+        );
+        assert_eq!(
+            default_call.target_symbol_id.as_ref(),
+            Some(&load_order.symbol_id)
+        );
+        let unimported = capability_resolved_reference(
+            &forward,
+            "src/components/OrderPanel.vue",
+            ("missingHelper", ReferenceKind::Calls),
+        );
+        assert_eq!(unimported.target_symbol_id, None);
+        let component_use = capability_resolved_reference(
+            &forward,
+            "src/pages/orders.astro",
+            ("Layout", ReferenceKind::References),
+        );
+        assert_eq!(
+            component_use.target_symbol_id.as_ref(),
+            Some(&layout.symbol_id)
+        );
+    }
+
+    #[test]
+    fn component_module_scope_exports_defaults_and_schemas_resolve() {
+        let fixtures = [
+            ("src/lib/helpers.ts", "export function assist() {}\n"),
+            (
+                "src/lib/Helpers.svelte",
+                "<script context=\"module\">\nexport * as helpers from './helpers';\nfunction tool() {}\nexport { tool };\n</script>\n",
+            ),
+            (
+                "src/components/Options.vue",
+                "<script>\nexport default {\n  name: 'Options',\n  methods: { save() {} },\n};\n</script>\n",
+            ),
+            (
+                "src/pages/use.vue",
+                "<script setup>\nimport Options from '../components/Options.vue';\n</script>\n<template><Options /></template>\n",
+            ),
+            (
+                "src/components/Form.svelte",
+                "<script lang=\"ts\">\nimport { z } from 'zod';\nconst UserSchema = z.object({ name: z.string() });\nfunction check() { return UserSchema.shape.name; }\n</script>\n",
+            ),
+        ];
+        let forward = build_capability_generation(&fixtures, false);
+        let reversed = build_capability_generation(&fixtures, true);
+        assert_eq!(forward.digest(), reversed.digest());
+
+        let options = capability_symbol(&forward, "src/components/Options.vue", "Options");
+        let options_use = capability_resolved_reference(
+            &forward,
+            "src/pages/use.vue",
+            ("Options", ReferenceKind::References),
+        );
+        assert_eq!(
+            options_use.target_symbol_id.as_ref(),
+            Some(&options.symbol_id),
+            "the options-API default export must not compete with the component"
+        );
+        let field = capability_symbol(&forward, "src/components/Form.svelte", "UserSchema::name");
+        let consumer = capability_resolved_reference(
+            &forward,
+            "src/components/Form.svelte",
+            ("name", ReferenceKind::References),
+        );
+        assert_eq!(consumer.target_symbol_id.as_ref(), Some(&field.symbol_id));
+        let tool = capability_symbol(&forward, "src/lib/Helpers.svelte", "tool");
+        assert!(tool.export.exported);
+        capability_symbol(&forward, "src/lib/Helpers.svelte", "helpers");
+    }
+
+    fn capability_resolved_reference<'facts>(
+        facts: &'facts CanonicalGenerationFacts,
+        path: &str,
+        (name, kind): (&str, ReferenceKind),
+    ) -> &'facts ReferenceInput {
+        let file_id = &capability_file_symbol(facts, path).file_id;
+        facts
+            .references()
+            .iter()
+            .find(|reference| {
+                &reference.file_id == file_id
+                    && reference.reference_name == name
+                    && reference.reference_kind == kind.as_str()
+            })
+            .unwrap_or_else(|| panic!("missing {kind:?} {name} in {path}"))
+    }
+
     #[test]
     fn php_framework_routes_resolve_controller_methods_and_classes_without_losing_source_labels() {
         let fixtures = [
@@ -18221,7 +20442,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let controller = capability_symbol(
             &forward,
             "app/Http/Controllers/OrderController.php",
-            "OrderController",
+            "App\\Http\\Controllers::OrderController",
         );
         let index =
             CapabilitySymbolQuery::new(&forward, "app/Http/Controllers/OrderController.php")
@@ -20212,6 +22433,195 @@ export function secondClone(value: number) {
         }
     }
 
+    const TERRAFORM_RESOLUTION_FIXTURES: [(&str, &str); 8] = [
+        (
+            "infra/main.tf",
+            "locals {\n  name = \"${var.prefix}-app\"\n}\nresource \"aws_instance\" \"web\" {\n  ami = data.aws_ami.ubuntu.id\n  tags = { Name = local.name }\n}\nresource \"aws_instance\" \"db\" {\n  ami  = aws_instance.web.ami\n  zone = var.missing\n  peer = aws_instance.db.id\n  logs = aws_s3_bucket.logs.arn\n  dup  = var.duplicated\n}\nmodule \"vpc\" {\n  source = \"../modules/vpc\"\n}\noutput \"vpc_id\" {\n  value = module.vpc.vpc_id\n}\n",
+        ),
+        (
+            "infra/variables.tf",
+            "variable \"prefix\" {\n  type = string\n}\nvariable \"duplicated\" {}\n",
+        ),
+        ("infra/more.tf", "variable \"duplicated\" {}\n"),
+        (
+            "infra/data.tf",
+            "data \"aws_ami\" \"ubuntu\" {}\ndata \"aws_s3_bucket\" \"logs\" {}\n",
+        ),
+        (
+            "infra/terraform.properties",
+            "var.missing=present-in-properties\n",
+        ),
+        (
+            "modules/vpc/variables.tf",
+            "variable \"prefix\" {\n  type = string\n}\n",
+        ),
+        (
+            "modules/vpc/main.tf",
+            "resource \"aws_vpc\" \"this\" {\n  tags = { Name = var.prefix }\n}\n",
+        ),
+        (
+            "modules/vpc/outputs.tf",
+            "output \"vpc_id\" { value = aws_vpc.this.id }\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn terraform_addresses_resolve_within_their_module_directory_only() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create Terraform resolver fixture: {error}"));
+        for (path, source) in TERRAFORM_RESOLUTION_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("Terraform fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        let parallel = build(directory.path(), PARALLEL_WORKERS).await;
+        assert_eq!(serial.facts().digest(), parallel.facts().digest());
+        let facts = ModuleResolverFacts {
+            facts: serial.facts(),
+        };
+        let local_name = facts.symbol("infra/main.tf", "local.name");
+        let web = facts.symbol("infra/main.tf", "aws_instance.web");
+        let db = facts.symbol("infra/main.tf", "aws_instance.db");
+        let output = facts.symbol("infra/main.tf", "output.vpc_id");
+        for (owner, name, target, provenance) in [
+            (
+                &local_name,
+                "var.prefix",
+                facts.symbol("infra/variables.tf", "var.prefix"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                &web,
+                "data.aws_ami.ubuntu",
+                facts.symbol("infra/data.tf", "data.aws_ami.ubuntu"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                &web,
+                "local.name",
+                local_name.clone(),
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                &db,
+                "aws_instance.web",
+                web.clone(),
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                &output,
+                "module.vpc",
+                facts.symbol("infra/main.tf", "module.vpc"),
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                &facts.symbol("modules/vpc/main.tf", "aws_vpc.this"),
+                "var.prefix",
+                facts.symbol("modules/vpc/variables.tf", "var.prefix"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                &facts.symbol("modules/vpc/outputs.tf", "output.vpc_id"),
+                "aws_vpc.this",
+                facts.symbol("modules/vpc/main.tf", "aws_vpc.this"),
+                EXACT_PROJECT_PROVENANCE,
+            ),
+        ] {
+            let reference = facts.reference(owner, name);
+            assert_eq!(reference.target_symbol_id.as_ref(), Some(&target), "{name}");
+            assert_eq!(reference.resolution_provenance, provenance, "{name}");
+        }
+        // A missing address is not satisfied by a same-named properties key,
+        // a data source's display name never stands in for a resource
+        // address, duplicated declarations stay ambiguous, and a block never
+        // resolves to itself.
+        for name in [
+            "var.missing",
+            "aws_s3_bucket.logs",
+            "var.duplicated",
+            "aws_instance.db",
+        ] {
+            let reference = facts.reference(&db, name);
+            assert_eq!(reference.target_symbol_id, None, "{name}");
+            assert_eq!(
+                reference.resolution_provenance, UNRESOLVED_PROVENANCE,
+                "{name}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn bg3_template_uuid_references_resolve_across_files_unless_ambiguous() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create BG3 resolver fixture: {error}"));
+        let template = |name: &str, uuid: &str| {
+            format!(
+                "<save><region id=\"Templates\"><node id=\"GameObjects\"><children><node id=\"GameObject\"><attribute id=\"UUID\" value=\"{uuid}\"/><attribute id=\"Name\" value=\"{name}\"/></node></children></node></region></save>\n"
+            )
+        };
+        for (path, source) in [
+            (
+                "Public/Mod/RootTemplates/Sword.lsx",
+                template("WPN_Sword", "11111111-1111-1111-1111-111111111111"),
+            ),
+            (
+                "Public/Mod/RootTemplates/ShieldA.lsx",
+                template("ARM_Shield_A", "55555555-5555-5555-5555-555555555555"),
+            ),
+            (
+                "Public/Mod/RootTemplates/ShieldB.lsx",
+                template("ARM_Shield_B", "55555555-5555-5555-5555-555555555555"),
+            ),
+            (
+                "Public/Mod/RootTemplates/Items.lsx",
+                "<save><region id=\"Templates\"><node id=\"GameObject\"><attribute id=\"Name\" value=\"MAG_Sword\"/><attribute id=\"ParentTemplateId\" value=\"11111111-1111-1111-1111-111111111111\"/><attribute id=\"ShieldTemplateId\" value=\"55555555-5555-5555-5555-555555555555\"/></node></region></save>\n".to_owned(),
+            ),
+        ] {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("BG3 fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        let parallel = build(directory.path(), PARALLEL_WORKERS).await;
+        assert_eq!(serial.facts().digest(), parallel.facts().digest());
+        let facts = ModuleResolverFacts {
+            facts: serial.facts(),
+        };
+        let item = facts.symbol(
+            "Public/Mod/RootTemplates/Items.lsx",
+            "Public/Mod/RootTemplates/Items.lsx::Templates::MAG_Sword",
+        );
+        let parent = facts.reference(&item, "11111111-1111-1111-1111-111111111111");
+        assert_eq!(
+            parent.target_symbol_id.as_ref(),
+            Some(&facts.symbol(
+                "Public/Mod/RootTemplates/Sword.lsx",
+                "11111111-1111-1111-1111-111111111111"
+            ))
+        );
+        assert_eq!(parent.resolution_provenance, EXACT_PROJECT_PROVENANCE);
+        let duplicated = facts.reference(&item, "55555555-5555-5555-5555-555555555555");
+        assert_eq!(
+            duplicated.target_symbol_id, None,
+            "duplicate UUIDs stay ambiguous"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn ada_and_vhdl_units_resolve_by_declared_name_not_filename_guessing() {
         let directory = tempdir()
@@ -20344,6 +22754,119 @@ export function secondClone(value: number) {
             .unwrap_or_else(|| panic!("missing ambiguous VHDL import"));
         assert!(import.target_symbol_id.is_none());
         assert_eq!(import.resolution_provenance, UNRESOLVED_IMPORT_PROVENANCE);
+    }
+
+    const BORROWED_LANGUAGE_FIXTURES: [(&str, &str); 7] = [
+        ("clj/demo/util.clj", "(ns demo.util)\n(defn helper [x] x)\n"),
+        (
+            "clj/demo/core.clj",
+            "(ns demo.core\n  (:require [demo.util :refer [helper]]))\n(defn- local [x] x)\n(defn greet [n] (local (helper n)))\n",
+        ),
+        (
+            "lisp/util.lisp",
+            "(defpackage :demo.util (:use :cl))\n(in-package :demo.util)\n(defun twice (x) x)\n",
+        ),
+        (
+            "lisp/core.lisp",
+            "(defpackage :demo.core (:use :cl) (:import-from :demo.util #:twice))\n(in-package :demo.core)\n(defun run (n) (twice n))\n",
+        ),
+        ("res/Utils.res", "let shout = (x) => x\n"),
+        (
+            "res/App.res",
+            "open Utils\nlet local = (x) => x\nlet run = () => local(shout(1))\n",
+        ),
+        (
+            "sol/Vault.sol",
+            "contract Vault {\n  function helper(uint a) private returns (uint) { return a; }\n  function deposit(uint a) public returns (uint) { return helper(a); }\n  function apply(function(uint) internal pure returns (uint) helper, uint a) internal pure returns (uint) { return helper(a); }\n}\n",
+        ),
+    ];
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn borrowed_language_calls_resolve_through_lexical_and_project_rules() {
+        let directory = tempdir()
+            .unwrap_or_else(|error| panic!("could not create borrowed-language fixture: {error}"));
+        for (path, source) in BORROWED_LANGUAGE_FIXTURES {
+            let target = directory.path().join(path);
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .unwrap_or_else(|| panic!("borrowed-language fixture had no parent: {path}")),
+            )
+            .unwrap_or_else(|error| panic!("could not create {path} parent: {error}"));
+            fs::write(target, source)
+                .unwrap_or_else(|error| panic!("could not write {path}: {error}"));
+        }
+
+        let serial = build(directory.path(), SERIAL_WORKERS).await;
+        let parallel = build(directory.path(), PARALLEL_WORKERS).await;
+        assert_eq!(serial.facts().digest(), parallel.facts().digest());
+        let facts = ModuleResolverFacts {
+            facts: serial.facts(),
+        };
+        for (caller_path, caller, name, target_path, target, provenance) in [
+            (
+                "clj/demo/core.clj",
+                "greet",
+                "local",
+                "clj/demo/core.clj",
+                "local",
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            // Explicitly referred and imported names bind nothing, so they
+            // resolve through the project-wide rule like v1's by-name lookup.
+            (
+                "clj/demo/core.clj",
+                "greet",
+                "helper",
+                "clj/demo/util.clj",
+                "helper",
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                "lisp/core.lisp",
+                "run",
+                "twice",
+                "lisp/util.lisp",
+                "twice",
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                "res/App.res",
+                "run",
+                "local",
+                "res/App.res",
+                "local",
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+            (
+                "res/App.res",
+                "run",
+                "shout",
+                "res/Utils.res",
+                "shout",
+                EXACT_PROJECT_PROVENANCE,
+            ),
+            (
+                "sol/Vault.sol",
+                "Vault::deposit",
+                "helper",
+                "sol/Vault.sol",
+                "Vault::helper",
+                EXACT_SAME_FILE_PROVENANCE,
+            ),
+        ] {
+            let call = facts.reference(&facts.symbol(caller_path, caller), name);
+            assert_eq!(
+                call.target_symbol_id.as_ref(),
+                Some(&facts.symbol(target_path, target)),
+                "{caller_path}:{caller} -> {name}"
+            );
+            assert_eq!(call.resolution_provenance, provenance, "{caller}->{name}");
+        }
+        // A parameter that shadows a contract member stays unresolved instead
+        // of reaching the same-named member.
+        let shadowed = facts.reference(&facts.symbol("sol/Vault.sol", "Vault::apply"), "helper");
+        assert_eq!(shadowed.target_symbol_id, None, "Vault::apply -> helper");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

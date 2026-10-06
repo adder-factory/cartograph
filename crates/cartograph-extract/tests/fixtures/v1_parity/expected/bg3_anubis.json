@@ -1,0 +1,442 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "bg3_anubis",
+  "files": [
+    "Mods/Demo/Scripts/anubis/config/Guard.anc",
+    "Mods/Demo/Scripts/anubis/node/Guard.ann",
+    "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+    "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann"
+  ],
+  "symbols": [
+    {
+      "file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "kind": "file",
+      "name": "Guard.anc",
+      "qualified_name": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "kind": "resource",
+      "name": "Guard",
+      "qualified_name": "game.configs.Guard",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "file",
+      "name": "Guard.ann",
+      "qualified_name": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "start_line": 1,
+      "end_line": 35
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "module",
+      "name": "Guard",
+      "qualified_name": "game.states.Guard",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "method",
+      "name": "GuardAction",
+      "qualified_name": "Guard::GuardAction",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "method",
+      "name": "callback:Valid",
+      "qualified_name": "Guard::callback:Valid:8",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "method",
+      "name": "GuardAction.Cower",
+      "qualified_name": "Guard::GuardAction.Cower",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "method",
+      "name": "Wander",
+      "qualified_name": "Guard::Wander",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "method",
+      "name": "callback:OnLeave",
+      "qualified_name": "Guard::callback:OnLeave:23",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "method",
+      "name": "event:EnteredTrigger",
+      "qualified_name": "Guard::event:EnteredTrigger:27",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "file",
+      "name": "GuardWander.ann",
+      "qualified_name": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "start_line": 1,
+      "end_line": 31
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "module",
+      "name": "GuardWander",
+      "qualified_name": "game.states.GuardWander",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "method",
+      "name": "nodes",
+      "qualified_name": "GuardWander::nodes",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "method",
+      "name": "callback:CanEnter",
+      "qualified_name": "GuardWander::callback:CanEnter:8",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "method",
+      "name": "callback:OnEnter",
+      "qualified_name": "GuardWander::callback:OnEnter:11",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "method",
+      "name": "callback:OnFinished",
+      "qualified_name": "GuardWander::callback:OnFinished:14",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "method",
+      "name": "event:Alarm",
+      "qualified_name": "GuardWander::event:Alarm:18",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "file",
+      "name": "DefaultCharacter.ann",
+      "qualified_name": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "start_line": 1,
+      "end_line": 16
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "module",
+      "name": "DefaultCharacter",
+      "qualified_name": "game.states.DefaultCharacter",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "method",
+      "name": "Idle",
+      "qualified_name": "DefaultCharacter::Idle",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "method",
+      "name": "callback:OnUpdate",
+      "qualified_name": "DefaultCharacter::callback:OnUpdate:7",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "method",
+      "name": "callback:OnFailed",
+      "qualified_name": "DefaultCharacter::callback:OnFailed:10",
+      "start_line": 10,
+      "end_line": 10
+    }
+  ],
+  "edges": [
+    {
+      "file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "target_kind": "resource",
+      "target": "game.configs.Guard",
+      "target_file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "game.configs.Guard",
+      "target_kind": "resource",
+      "target": "game.configs.Guard",
+      "target_file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "game.configs.Guard",
+      "target_kind": "module",
+      "target": "game.states.Guard",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": 5
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/config/Guard.anc",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "game.configs.Guard",
+      "target_kind": "module",
+      "target": "game.states.GuardWander",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": 6
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "Guard::GuardAction",
+      "target_kind": "method",
+      "target": "Guard::callback:Valid:8",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "Guard::Wander",
+      "target_kind": "method",
+      "target": "Guard::callback:OnLeave:23",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "target_kind": "module",
+      "target": "game.states.Guard",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.Guard",
+      "target_kind": "method",
+      "target": "Guard::GuardAction",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.Guard",
+      "target_kind": "method",
+      "target": "Guard::GuardAction.Cower",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.Guard",
+      "target_kind": "method",
+      "target": "Guard::Wander",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.Guard",
+      "target_kind": "method",
+      "target": "Guard::event:EnteredTrigger:27",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "game.states.Guard",
+      "target_kind": "module",
+      "target": "game.states.Guard",
+      "target_file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/Guard.ann",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "Guard::Wander",
+      "target_kind": "module",
+      "target": "game.states.GuardWander",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": 19
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "GuardWander::nodes",
+      "target_kind": "method",
+      "target": "GuardWander::callback:CanEnter:8",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "GuardWander::nodes",
+      "target_kind": "method",
+      "target": "GuardWander::callback:OnEnter:11",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "GuardWander::nodes",
+      "target_kind": "method",
+      "target": "GuardWander::callback:OnFinished:14",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "target_kind": "module",
+      "target": "game.states.GuardWander",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.GuardWander",
+      "target_kind": "method",
+      "target": "GuardWander::event:Alarm:18",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.GuardWander",
+      "target_kind": "method",
+      "target": "GuardWander::nodes",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "game.states.GuardWander",
+      "target_kind": "module",
+      "target": "game.states.GuardWander",
+      "target_file": "Mods/Demo/Scripts/anubis/node/GuardWander.ann",
+      "line": 1
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "DefaultCharacter::Idle",
+      "target_kind": "method",
+      "target": "DefaultCharacter::callback:OnFailed:10",
+      "target_file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "DefaultCharacter::Idle",
+      "target_kind": "method",
+      "target": "DefaultCharacter::callback:OnUpdate:7",
+      "target_file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "target_kind": "module",
+      "target": "game.states.DefaultCharacter",
+      "target_file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "game.states.DefaultCharacter",
+      "target_kind": "method",
+      "target": "DefaultCharacter::Idle",
+      "target_file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "game.states.DefaultCharacter",
+      "target_kind": "module",
+      "target": "game.states.DefaultCharacter",
+      "target_file": "Mods/Demo/Scripts/anubis/roots/DefaultCharacter.ann",
+      "line": 1
+    }
+  ],
+  "unresolved": []
+}

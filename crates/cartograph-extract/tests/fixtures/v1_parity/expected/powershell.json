@@ -1,0 +1,587 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "powershell",
+  "files": [
+    "Modules/Greeting/Greeting.psd1",
+    "Modules/Greeting/Helpers.psm1",
+    "scripts/Sample.ps1"
+  ],
+  "symbols": [
+    {
+      "file": "Modules/Greeting/Greeting.psd1",
+      "kind": "file",
+      "name": "Greeting.psd1",
+      "qualified_name": "Modules/Greeting/Greeting.psd1",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "file",
+      "name": "Helpers.psm1",
+      "qualified_name": "Modules/Greeting/Helpers.psm1",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "import",
+      "name": "System.Text",
+      "qualified_name": "System.Text",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "variable",
+      "name": "DefaultGreeting",
+      "qualified_name": "DefaultGreeting",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "variable",
+      "name": "script:Counter",
+      "qualified_name": "script:Counter",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "function",
+      "name": "Format-Greeting",
+      "qualified_name": "Format-Greeting",
+      "start_line": 6,
+      "end_line": 15
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "function",
+      "name": "Get-Timestamp",
+      "qualified_name": "Get-Timestamp",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "file",
+      "name": "Sample.ps1",
+      "qualified_name": "scripts/Sample.ps1",
+      "start_line": 1,
+      "end_line": 62
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "import",
+      "name": "../Modules/Greeting/Helpers.psm1",
+      "qualified_name": "../Modules/Greeting/Helpers.psm1",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "import",
+      "name": "System.Net.Http",
+      "qualified_name": "System.Net.Http",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "import",
+      "name": "System.Collections.Generic",
+      "qualified_name": "System.Collections.Generic",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "enum",
+      "name": "Mood",
+      "qualified_name": "Mood",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "enum_member",
+      "name": "Happy",
+      "qualified_name": "Mood::Happy",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "enum_member",
+      "name": "Grumpy",
+      "qualified_name": "Mood::Grumpy",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "class",
+      "name": "Greeter",
+      "qualified_name": "Greeter",
+      "start_line": 10,
+      "end_line": 32
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "field",
+      "name": "Name",
+      "qualified_name": "Greeter::Name",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "field",
+      "name": "Mood",
+      "qualified_name": "Greeter::Mood",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "field",
+      "name": "Instances",
+      "qualified_name": "Greeter::Instances",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "method",
+      "name": "Greeter",
+      "qualified_name": "Greeter::Greeter",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "Greeter::Greet",
+      "start_line": 20,
+      "end_line": 22
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "method",
+      "name": "Log",
+      "qualified_name": "Greeter::Log",
+      "start_line": 24,
+      "end_line": 27
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "method",
+      "name": "Stamp",
+      "qualified_name": "Greeter::Stamp",
+      "start_line": 29,
+      "end_line": 31
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "class",
+      "name": "LoudGreeter",
+      "qualified_name": "LoudGreeter",
+      "start_line": 34,
+      "end_line": 41
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "method",
+      "name": "LoudGreeter",
+      "qualified_name": "LoudGreeter::LoudGreeter",
+      "start_line": 35,
+      "end_line": 36
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "LoudGreeter::Greet",
+      "start_line": 38,
+      "end_line": 40
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "variable",
+      "name": "Config",
+      "qualified_name": "Config",
+      "start_line": 43,
+      "end_line": 43
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "variable",
+      "name": "Names",
+      "qualified_name": "Names",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "function",
+      "name": "Invoke-Main",
+      "qualified_name": "Invoke-Main",
+      "start_line": 46,
+      "end_line": 54
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "function",
+      "name": "Invoke-Cleanup",
+      "qualified_name": "Invoke-Cleanup",
+      "start_line": 56,
+      "end_line": 58
+    }
+  ],
+  "edges": [
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Modules/Greeting/Helpers.psm1",
+      "target_kind": "variable",
+      "target": "DefaultGreeting",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": null
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Modules/Greeting/Helpers.psm1",
+      "target_kind": "function",
+      "target": "Format-Greeting",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": null
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Modules/Greeting/Helpers.psm1",
+      "target_kind": "function",
+      "target": "Get-Timestamp",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": null
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Modules/Greeting/Helpers.psm1",
+      "target_kind": "import",
+      "target": "System.Text",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": null
+    },
+    {
+      "file": "Modules/Greeting/Helpers.psm1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Modules/Greeting/Helpers.psm1",
+      "target_kind": "variable",
+      "target": "script:Counter",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::Greet",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::Greeter",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "field",
+      "target": "Greeter::Instances",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::Log",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "field",
+      "target": "Greeter::Mood",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "field",
+      "target": "Greeter::Name",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Greeter",
+      "target_kind": "method",
+      "target": "Greeter::Stamp",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "LoudGreeter",
+      "target_kind": "method",
+      "target": "LoudGreeter::Greet",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "LoudGreeter",
+      "target_kind": "method",
+      "target": "LoudGreeter::LoudGreeter",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Mood",
+      "target_kind": "enum_member",
+      "target": "Mood::Grumpy",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Mood",
+      "target_kind": "enum_member",
+      "target": "Mood::Happy",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "import",
+      "target": "../Modules/Greeting/Helpers.psm1",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "variable",
+      "target": "Config",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "class",
+      "target": "Greeter",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "function",
+      "target": "Invoke-Cleanup",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "function",
+      "target": "Invoke-Main",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "class",
+      "target": "LoudGreeter",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "enum",
+      "target": "Mood",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "variable",
+      "target": "Names",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "import",
+      "target": "System.Collections.Generic",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "import",
+      "target": "System.Net.Http",
+      "target_file": "scripts/Sample.ps1",
+      "line": null
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Greeter::Greet",
+      "target_kind": "function",
+      "target": "Format-Greeting",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": 21
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Greeter::Log",
+      "target_kind": "method",
+      "target": "Greeter::Stamp",
+      "target_file": "scripts/Sample.ps1",
+      "line": 26
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Greeter::Stamp",
+      "target_kind": "function",
+      "target": "Get-Timestamp",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": 30
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "LoudGreeter::Greet",
+      "target_kind": "function",
+      "target": "Format-Greeting",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": 39
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Invoke-Main",
+      "target_kind": "method",
+      "target": "Greeter::Log",
+      "target_file": "scripts/Sample.ps1",
+      "line": 51
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Invoke-Main",
+      "target_kind": "function",
+      "target": "Invoke-Cleanup",
+      "target_file": "scripts/Sample.ps1",
+      "line": 53
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "function",
+      "target": "Invoke-Main",
+      "target_file": "scripts/Sample.ps1",
+      "line": 60
+    },
+    {
+      "file": "scripts/Sample.ps1",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "scripts/Sample.ps1",
+      "target_kind": "function",
+      "target": "Format-Greeting",
+      "target_file": "Modules/Greeting/Helpers.psm1",
+      "line": 61
+    }
+  ],
+  "unresolved": []
+}

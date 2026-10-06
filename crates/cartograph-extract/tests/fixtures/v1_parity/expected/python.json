@@ -1,0 +1,2570 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "python",
+  "files": [
+    "app/__init__.py",
+    "app/graph.py",
+    "app/models.py",
+    "app/services.py",
+    "app/sub/__init__.py",
+    "app/sub/deep.py",
+    "app/urls.py",
+    "app/utils.py",
+    "app/views.py",
+    "requirements.txt"
+  ],
+  "symbols": [
+    {
+      "file": "app/__init__.py",
+      "kind": "file",
+      "name": "__init__.py",
+      "qualified_name": "app/__init__.py",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "app/__init__.py",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "file",
+      "name": "graph.py",
+      "qualified_name": "app/graph.py",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "import",
+      "name": "neug",
+      "qualified_name": "neug",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "import",
+      "name": "neug",
+      "qualified_name": "neug",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "import",
+      "name": "neug",
+      "qualified_name": "neug",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "variable",
+      "name": "db",
+      "qualified_name": "db",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "resource",
+      "name": "neug:database:shop",
+      "qualified_name": "app/graph.py#neug:database:shop",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "variable",
+      "name": "catalog",
+      "qualified_name": "catalog",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "resource",
+      "name": "neug:graph:catalog",
+      "qualified_name": "app/graph.py#neug:graph:catalog",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "variable",
+      "name": "person",
+      "qualified_name": "person",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "resource",
+      "name": "neug:vertex:User",
+      "qualified_name": "app/graph.py#neug:vertex:User",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "variable",
+      "name": "owns",
+      "qualified_name": "owns",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "resource",
+      "name": "neug:relationship:OWNS",
+      "qualified_name": "app/graph.py#neug:relationship:OWNS",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "variable",
+      "name": "product",
+      "qualified_name": "product",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "resource",
+      "name": "neug:node:Product",
+      "qualified_name": "app/graph.py#neug:node:Product",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "variable",
+      "name": "again",
+      "qualified_name": "again",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "app/models.py",
+      "kind": "file",
+      "name": "models.py",
+      "qualified_name": "app/models.py",
+      "start_line": 1,
+      "end_line": 110
+    },
+    {
+      "file": "app/models.py",
+      "kind": "import",
+      "name": "abc",
+      "qualified_name": "abc",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/models.py",
+      "kind": "import",
+      "name": "typing",
+      "qualified_name": "typing",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/models.py",
+      "kind": "import",
+      "name": "abc",
+      "qualified_name": "abc",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/models.py",
+      "kind": "import",
+      "name": "dataclasses",
+      "qualified_name": "dataclasses",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/models.py",
+      "kind": "import",
+      "name": "typing",
+      "qualified_name": "typing",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/models.py",
+      "kind": "variable",
+      "name": "T",
+      "qualified_name": "T",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/models.py",
+      "kind": "variable",
+      "name": "MAX_SIZE",
+      "qualified_name": "MAX_SIZE",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/models.py",
+      "kind": "variable",
+      "name": "DEFAULT_NAME",
+      "qualified_name": "DEFAULT_NAME",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/models.py",
+      "kind": "variable",
+      "name": "config",
+      "qualified_name": "config",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Registry",
+      "qualified_name": "Registry",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "register",
+      "qualified_name": "Registry::register",
+      "start_line": 14,
+      "end_line": 15
+    },
+    {
+      "file": "app/models.py",
+      "kind": "variable",
+      "name": "registry",
+      "qualified_name": "registry",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Renderer",
+      "qualified_name": "Renderer",
+      "start_line": 21,
+      "end_line": 22
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "Renderer::render",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Drawable",
+      "qualified_name": "Drawable",
+      "start_line": 25,
+      "end_line": 26
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "draw",
+      "qualified_name": "Drawable::draw",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Shape",
+      "qualified_name": "Shape",
+      "start_line": 29,
+      "end_line": 31
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "area",
+      "qualified_name": "Shape::area",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Solid",
+      "qualified_name": "Solid",
+      "start_line": 34,
+      "end_line": 35
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "MyProtocol",
+      "qualified_name": "MyProtocol",
+      "start_line": 38,
+      "end_line": 39
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Base",
+      "qualified_name": "Base",
+      "start_line": 42,
+      "end_line": 49
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "__init__",
+      "qualified_name": "Base::__init__",
+      "start_line": 45,
+      "end_line": 46
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "Base::describe",
+      "start_line": 48,
+      "end_line": 49
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Box",
+      "qualified_name": "Box",
+      "start_line": 52,
+      "end_line": 53
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 57,
+      "end_line": 81
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "__init__",
+      "qualified_name": "User::__init__",
+      "start_line": 61,
+      "end_line": 63
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "User::build",
+      "start_line": 66,
+      "end_line": 67
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "anonymous",
+      "qualified_name": "User::anonymous",
+      "start_line": 70,
+      "end_line": 71
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "label",
+      "qualified_name": "User::label",
+      "start_line": 74,
+      "end_line": 75
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "refresh",
+      "qualified_name": "User::refresh",
+      "start_line": 77,
+      "end_line": 78
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "User::load",
+      "start_line": 80,
+      "end_line": 81
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Repo",
+      "qualified_name": "Repo",
+      "start_line": 84,
+      "end_line": 97
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "__init__",
+      "qualified_name": "Repo::__init__",
+      "start_line": 85,
+      "end_line": 86
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "Repo::save",
+      "start_line": 88,
+      "end_line": 91
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "Repo::find",
+      "start_line": 93,
+      "end_line": 94
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "validate",
+      "qualified_name": "Repo::validate",
+      "start_line": 96,
+      "end_line": 97
+    },
+    {
+      "file": "app/models.py",
+      "kind": "class",
+      "name": "Circle",
+      "qualified_name": "Circle",
+      "start_line": 100,
+      "end_line": 105
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "area",
+      "qualified_name": "Circle::area",
+      "start_line": 101,
+      "end_line": 102
+    },
+    {
+      "file": "app/models.py",
+      "kind": "method",
+      "name": "render",
+      "qualified_name": "Circle::render",
+      "start_line": 104,
+      "end_line": 105
+    },
+    {
+      "file": "app/models.py",
+      "kind": "function",
+      "name": "make_user",
+      "qualified_name": "make_user",
+      "start_line": 108,
+      "end_line": 109
+    },
+    {
+      "file": "app/services.py",
+      "kind": "file",
+      "name": "services.py",
+      "qualified_name": "app/services.py",
+      "start_line": 1,
+      "end_line": 53
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": "app.models",
+      "qualified_name": "app.models",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": "app.sub.deep",
+      "qualified_name": "app.sub.deep",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": "app.models",
+      "qualified_name": "app.models",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": "app.utils",
+      "qualified_name": "app.utils",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": "app",
+      "qualified_name": "app",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": ".models",
+      "qualified_name": ".models",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": ".",
+      "qualified_name": ".",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": ".",
+      "qualified_name": ".",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": ".sub",
+      "qualified_name": ".sub",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": ".sub",
+      "qualified_name": ".sub",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "app/services.py",
+      "kind": "import",
+      "name": "typing",
+      "qualified_name": "typing",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "app/services.py",
+      "kind": "class",
+      "name": "Local",
+      "qualified_name": "Local",
+      "start_line": 14,
+      "end_line": 15
+    },
+    {
+      "file": "app/services.py",
+      "kind": "class",
+      "name": "UserService",
+      "qualified_name": "UserService",
+      "start_line": 18,
+      "end_line": 45
+    },
+    {
+      "file": "app/services.py",
+      "kind": "method",
+      "name": "__init__",
+      "qualified_name": "UserService::__init__",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "app/services.py",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "UserService::create",
+      "start_line": 25,
+      "end_line": 31
+    },
+    {
+      "file": "app/services.py",
+      "kind": "method",
+      "name": "notify",
+      "qualified_name": "UserService::notify",
+      "start_line": 33,
+      "end_line": 40
+    },
+    {
+      "file": "app/services.py",
+      "kind": "method",
+      "name": "batch",
+      "qualified_name": "UserService::batch",
+      "start_line": 42,
+      "end_line": 45
+    },
+    {
+      "file": "app/services.py",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 48,
+      "end_line": 52
+    },
+    {
+      "file": "app/sub/__init__.py",
+      "kind": "file",
+      "name": "__init__.py",
+      "qualified_name": "app/sub/__init__.py",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "app/sub/__init__.py",
+      "kind": "function",
+      "name": "initf",
+      "qualified_name": "initf",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "app/sub/deep.py",
+      "kind": "file",
+      "name": "deep.py",
+      "qualified_name": "app/sub/deep.py",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "app/sub/deep.py",
+      "kind": "function",
+      "name": "deep",
+      "qualified_name": "deep",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "file",
+      "name": "urls.py",
+      "qualified_name": "app/urls.py",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "import",
+      "name": "django.urls",
+      "qualified_name": "django.urls",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "import",
+      "name": "app",
+      "qualified_name": "app",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "variable",
+      "name": "urlpatterns",
+      "qualified_name": "urlpatterns",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "route",
+      "name": "dashboard/",
+      "qualified_name": "app/urls.py::route:dashboard/",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "route",
+      "name": "users/<int:pk>/",
+      "qualified_name": "app/urls.py::route:users/<int:pk>/",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "file",
+      "name": "utils.py",
+      "qualified_name": "app/utils.py",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "import",
+      "name": "json",
+      "qualified_name": "json",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "import",
+      "name": "os",
+      "qualified_name": "os",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "import",
+      "name": "sys",
+      "qualified_name": "sys",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "import",
+      "name": "numpy",
+      "qualified_name": "numpy",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "function",
+      "name": "_private_run",
+      "qualified_name": "_private_run",
+      "start_line": 6,
+      "end_line": 7
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "run",
+      "start_line": 10,
+      "end_line": 11
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "function",
+      "name": "compute",
+      "qualified_name": "compute",
+      "start_line": 14,
+      "end_line": 18
+    },
+    {
+      "file": "app/views.py",
+      "kind": "file",
+      "name": "views.py",
+      "qualified_name": "app/views.py",
+      "start_line": 1,
+      "end_line": 41
+    },
+    {
+      "file": "app/views.py",
+      "kind": "import",
+      "name": "flask",
+      "qualified_name": "flask",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "app/views.py",
+      "kind": "import",
+      "name": "fastapi",
+      "qualified_name": "fastapi",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "app/views.py",
+      "kind": "import",
+      "name": "app.services",
+      "qualified_name": "app.services",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/views.py",
+      "kind": "import",
+      "name": "app.models",
+      "qualified_name": "app.models",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/views.py",
+      "kind": "variable",
+      "name": "app",
+      "qualified_name": "app",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/views.py",
+      "kind": "variable",
+      "name": "bp",
+      "qualified_name": "bp",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/views.py",
+      "kind": "variable",
+      "name": "router",
+      "qualified_name": "router",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/views.py",
+      "kind": "variable",
+      "name": "api",
+      "qualified_name": "api",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/views.py",
+      "kind": "route",
+      "name": "/home",
+      "qualified_name": "app/views.py::route:/home",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "app/views.py",
+      "kind": "function",
+      "name": "home",
+      "qualified_name": "home",
+      "start_line": 13,
+      "end_line": 14
+    },
+    {
+      "file": "app/views.py",
+      "kind": "route",
+      "name": "/users",
+      "qualified_name": "app/views.py::route:/users",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "app/views.py",
+      "kind": "function",
+      "name": "list_users",
+      "qualified_name": "list_users",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "app/views.py",
+      "kind": "route",
+      "name": "/u2",
+      "qualified_name": "app/views.py::route:/u2",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "app/views.py",
+      "kind": "function",
+      "name": "create_user",
+      "qualified_name": "create_user",
+      "start_line": 24,
+      "end_line": 25
+    },
+    {
+      "file": "app/views.py",
+      "kind": "route",
+      "name": "GET /items",
+      "qualified_name": "app/views.py::GET:/items",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "app/views.py",
+      "kind": "function",
+      "name": "get_items",
+      "qualified_name": "get_items",
+      "start_line": 29,
+      "end_line": 30
+    },
+    {
+      "file": "app/views.py",
+      "kind": "route",
+      "name": "POST /items",
+      "qualified_name": "app/views.py::POST:/items",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "app/views.py",
+      "kind": "function",
+      "name": "create_item",
+      "qualified_name": "create_item",
+      "start_line": 34,
+      "end_line": 35
+    },
+    {
+      "file": "app/views.py",
+      "kind": "route",
+      "name": "DELETE /items/{item_id}",
+      "qualified_name": "app/views.py::DELETE:/items/{item_id}",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "app/views.py",
+      "kind": "function",
+      "name": "delete_item",
+      "qualified_name": "delete_item",
+      "start_line": 39,
+      "end_line": 40
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/__init__.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/__init__.py",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "app/__init__.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "variable",
+      "target": "again",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "variable",
+      "target": "catalog",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "variable",
+      "target": "db",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "import",
+      "target": "neug",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "import",
+      "target": "neug",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "import",
+      "target": "neug",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "variable",
+      "target": "owns",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "variable",
+      "target": "person",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "variable",
+      "target": "product",
+      "target_file": "app/graph.py",
+      "line": null
+    },
+    {
+      "file": "app/graph.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/graph.py",
+      "target_kind": "import",
+      "target": "neug",
+      "target_file": "app/graph.py",
+      "line": 3
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Base",
+      "target_kind": "method",
+      "target": "Base::__init__",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Base",
+      "target_kind": "method",
+      "target": "Base::describe",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Circle",
+      "target_kind": "method",
+      "target": "Circle::area",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Circle",
+      "target_kind": "method",
+      "target": "Circle::render",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Drawable",
+      "target_kind": "method",
+      "target": "Drawable::draw",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Registry",
+      "target_kind": "method",
+      "target": "Registry::register",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Renderer",
+      "target_kind": "method",
+      "target": "Renderer::render",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Repo",
+      "target_kind": "method",
+      "target": "Repo::__init__",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Repo",
+      "target_kind": "method",
+      "target": "Repo::find",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Repo",
+      "target_kind": "method",
+      "target": "Repo::save",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Repo",
+      "target_kind": "method",
+      "target": "Repo::validate",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Shape",
+      "target_kind": "method",
+      "target": "Shape::area",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::__init__",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::anonymous",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::build",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::label",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::load",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::refresh",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Box",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Circle",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "variable",
+      "target": "DEFAULT_NAME",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Drawable",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "variable",
+      "target": "MAX_SIZE",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "MyProtocol",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Registry",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Renderer",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Shape",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "Solid",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "variable",
+      "target": "T",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "abc",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "abc",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "variable",
+      "target": "config",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "dataclasses",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "function",
+      "target": "make_user",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "variable",
+      "target": "registry",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/models.py",
+      "line": null
+    },
+    {
+      "file": "app/models.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "abc",
+      "target_file": "app/models.py",
+      "line": 3
+    },
+    {
+      "file": "app/models.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "dataclasses",
+      "target_file": "app/models.py",
+      "line": 4
+    },
+    {
+      "file": "app/models.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models.py",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/models.py",
+      "line": 5
+    },
+    {
+      "file": "app/models.py",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Renderer",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/models.py",
+      "line": 21
+    },
+    {
+      "file": "app/models.py",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Drawable",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/models.py",
+      "line": 25
+    },
+    {
+      "file": "app/models.py",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Shape",
+      "target_kind": "import",
+      "target": "abc",
+      "target_file": "app/models.py",
+      "line": 29
+    },
+    {
+      "file": "app/models.py",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "Shape::area",
+      "target_kind": "import",
+      "target": "abc",
+      "target_file": "app/models.py",
+      "line": 30
+    },
+    {
+      "file": "app/models.py",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Solid",
+      "target_kind": "import",
+      "target": "abc",
+      "target_file": "app/models.py",
+      "line": 34
+    },
+    {
+      "file": "app/models.py",
+      "kind": "type_of",
+      "source_kind": "class",
+      "source": "Box",
+      "target_kind": "variable",
+      "target": "T",
+      "target_file": "app/models.py",
+      "line": 53
+    },
+    {
+      "file": "app/models.py",
+      "kind": "decorates",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "import",
+      "target": "dataclasses",
+      "target_file": "app/models.py",
+      "line": 56
+    },
+    {
+      "file": "app/models.py",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "app/models.py",
+      "line": 57
+    },
+    {
+      "file": "app/models.py",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "MyProtocol",
+      "target_file": "app/models.py",
+      "line": 57
+    },
+    {
+      "file": "app/models.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::build",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 67
+    },
+    {
+      "file": "app/models.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::anonymous",
+      "target_kind": "method",
+      "target": "User::build",
+      "target_file": "app/models.py",
+      "line": 71
+    },
+    {
+      "file": "app/models.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::label",
+      "target_kind": "method",
+      "target": "Base::describe",
+      "target_file": "app/models.py",
+      "line": 75
+    },
+    {
+      "file": "app/models.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::refresh",
+      "target_kind": "method",
+      "target": "User::load",
+      "target_file": "app/models.py",
+      "line": 78
+    },
+    {
+      "file": "app/models.py",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Repo::save",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 88
+    },
+    {
+      "file": "app/models.py",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Repo::save",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 88
+    },
+    {
+      "file": "app/models.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Repo::save",
+      "target_kind": "method",
+      "target": "Repo::validate",
+      "target_file": "app/models.py",
+      "line": 90
+    },
+    {
+      "file": "app/models.py",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Repo::find",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 93
+    },
+    {
+      "file": "app/models.py",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Repo::validate",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 96
+    },
+    {
+      "file": "app/models.py",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "Circle",
+      "target_kind": "class",
+      "target": "Renderer",
+      "target_file": "app/models.py",
+      "line": 100
+    },
+    {
+      "file": "app/models.py",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "Circle",
+      "target_kind": "class",
+      "target": "Shape",
+      "target_file": "app/models.py",
+      "line": 100
+    },
+    {
+      "file": "app/models.py",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "make_user",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 108
+    },
+    {
+      "file": "app/models.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "make_user",
+      "target_kind": "method",
+      "target": "User::build",
+      "target_file": "app/models.py",
+      "line": 109
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::__init__",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::batch",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::create",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::notify",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".models",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".sub",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".sub",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "class",
+      "target": "Local",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app.models",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app.models",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app.sub.deep",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app.utils",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/services.py",
+      "line": null
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app.models",
+      "target_file": "app/services.py",
+      "line": 3
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app.utils",
+      "target_file": "app/services.py",
+      "line": 4
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "app",
+      "target_file": "app/services.py",
+      "line": 5
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".models",
+      "target_file": "app/services.py",
+      "line": 6
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".",
+      "target_file": "app/services.py",
+      "line": 7
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": ".sub",
+      "target_file": "app/services.py",
+      "line": 9
+    },
+    {
+      "file": "app/services.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services.py",
+      "target_kind": "import",
+      "target": "typing",
+      "target_file": "app/services.py",
+      "line": 11
+    },
+    {
+      "file": "app/services.py",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "app/models.py",
+      "line": 18
+    },
+    {
+      "file": "app/services.py",
+      "kind": "type_of",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "app/models.py",
+      "line": 19
+    },
+    {
+      "file": "app/services.py",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::__init__",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "app/models.py",
+      "line": 21
+    },
+    {
+      "file": "app/services.py",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 25
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "function",
+      "target": "make_user",
+      "target_file": "app/models.py",
+      "line": 26
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "function",
+      "target": "make_user",
+      "target_file": "app/models.py",
+      "line": 27
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "method",
+      "target": "Repo::save",
+      "target_file": "app/models.py",
+      "line": 28
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "method",
+      "target": "UserService::notify",
+      "target_file": "app/services.py",
+      "line": 30
+    },
+    {
+      "file": "app/services.py",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 33
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "app/utils.py",
+      "line": 34
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "app/utils.py",
+      "line": 35
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "_private_run",
+      "target_file": "app/utils.py",
+      "line": 36
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "app/__init__.py",
+      "line": 37
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "initf",
+      "target_file": "app/sub/__init__.py",
+      "line": 38
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "deep",
+      "target_file": "app/sub/deep.py",
+      "line": 39
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::notify",
+      "target_kind": "function",
+      "target": "deep",
+      "target_file": "app/sub/deep.py",
+      "line": 40
+    },
+    {
+      "file": "app/services.py",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::batch",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models.py",
+      "line": 42
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::batch",
+      "target_kind": "class",
+      "target": "Local",
+      "target_file": "app/services.py",
+      "line": 43
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::batch",
+      "target_kind": "method",
+      "target": "Registry::register",
+      "target_file": "app/models.py",
+      "line": 44
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::batch",
+      "target_kind": "method",
+      "target": "UserService::create",
+      "target_file": "app/services.py",
+      "line": 45
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "app/models.py",
+      "line": 49
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "app/services.py",
+      "line": 49
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "method",
+      "target": "UserService::create",
+      "target_file": "app/services.py",
+      "line": 50
+    },
+    {
+      "file": "app/services.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "method",
+      "target": "User::anonymous",
+      "target_file": "app/models.py",
+      "line": 51
+    },
+    {
+      "file": "app/sub/__init__.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/sub/__init__.py",
+      "target_kind": "function",
+      "target": "initf",
+      "target_file": "app/sub/__init__.py",
+      "line": null
+    },
+    {
+      "file": "app/sub/deep.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/sub/deep.py",
+      "target_kind": "function",
+      "target": "deep",
+      "target_file": "app/sub/deep.py",
+      "line": null
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/urls.py",
+      "target_kind": "import",
+      "target": "app",
+      "target_file": "app/urls.py",
+      "line": null
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/urls.py",
+      "target_kind": "import",
+      "target": "django.urls",
+      "target_file": "app/urls.py",
+      "line": null
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/urls.py",
+      "target_kind": "variable",
+      "target": "urlpatterns",
+      "target_file": "app/urls.py",
+      "line": null
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/urls.py",
+      "target_kind": "import",
+      "target": "django.urls",
+      "target_file": "app/urls.py",
+      "line": 1
+    },
+    {
+      "file": "app/urls.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/urls.py",
+      "target_kind": "import",
+      "target": "app",
+      "target_file": "app/urls.py",
+      "line": 2
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "function",
+      "target": "_private_run",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "function",
+      "target": "compute",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "import",
+      "target": "json",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "import",
+      "target": "numpy",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "import",
+      "target": "os",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/utils.py",
+      "target_kind": "import",
+      "target": "sys",
+      "target_file": "app/utils.py",
+      "line": null
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "import",
+      "target": "json",
+      "target_file": "app/utils.py",
+      "line": 11
+    },
+    {
+      "file": "app/utils.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "compute",
+      "target_kind": "import",
+      "target": "numpy",
+      "target_file": "app/utils.py",
+      "line": 18
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "variable",
+      "target": "api",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "variable",
+      "target": "app",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "app.models",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "app.services",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "variable",
+      "target": "bp",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "function",
+      "target": "create_item",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "function",
+      "target": "create_user",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "function",
+      "target": "delete_item",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "fastapi",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "flask",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "function",
+      "target": "get_items",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "function",
+      "target": "home",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "function",
+      "target": "list_users",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "variable",
+      "target": "router",
+      "target_file": "app/views.py",
+      "line": null
+    },
+    {
+      "file": "app/views.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "flask",
+      "target_file": "app/views.py",
+      "line": 1
+    },
+    {
+      "file": "app/views.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "fastapi",
+      "target_file": "app/views.py",
+      "line": 2
+    },
+    {
+      "file": "app/views.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "app.services",
+      "target_file": "app/views.py",
+      "line": 3
+    },
+    {
+      "file": "app/views.py",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/views.py",
+      "target_kind": "import",
+      "target": "app.models",
+      "target_file": "app/views.py",
+      "line": 4
+    },
+    {
+      "file": "app/views.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "list_users",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "app/models.py",
+      "line": 19
+    },
+    {
+      "file": "app/views.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "list_users",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "app/services.py",
+      "line": 19
+    },
+    {
+      "file": "app/views.py",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "list_users",
+      "target_kind": "method",
+      "target": "UserService::batch",
+      "target_file": "app/services.py",
+      "line": 20
+    }
+  ],
+  "unresolved": []
+}

@@ -1,0 +1,927 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "ocaml",
+  "files": [
+    "app/main.ml",
+    "lib/registry.ml",
+    "lib/shapes.ml"
+  ],
+  "symbols": [
+    {
+      "file": "app/main.ml",
+      "kind": "file",
+      "name": "main.ml",
+      "qualified_name": "app/main.ml",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "function",
+      "name": "run",
+      "qualified_name": "run",
+      "start_line": 5,
+      "end_line": 10
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "file",
+      "name": "registry.ml",
+      "qualified_name": "lib/registry.ml",
+      "start_line": 1,
+      "end_line": 46
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "interface",
+      "name": "STORE",
+      "qualified_name": "STORE",
+      "start_line": 2,
+      "end_line": 5
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "type_alias",
+      "name": "key",
+      "qualified_name": "STORE.key",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "module",
+      "name": "StringMap",
+      "qualified_name": "StringMap",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "module",
+      "name": "Registry",
+      "qualified_name": "Registry",
+      "start_line": 9,
+      "end_line": 15
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "function",
+      "name": "register",
+      "qualified_name": "Registry.register",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "function",
+      "name": "lookup",
+      "qualified_name": "Registry.lookup",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "module",
+      "name": "MakeStore",
+      "qualified_name": "MakeStore",
+      "start_line": 17,
+      "end_line": 20
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "type_alias",
+      "name": "key",
+      "qualified_name": "MakeStore.key",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "function",
+      "name": "find",
+      "qualified_name": "MakeStore.find",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "class",
+      "name": "counter",
+      "qualified_name": "counter",
+      "start_line": 22,
+      "end_line": 29
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "method",
+      "name": "incr",
+      "qualified_name": "counter.incr",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "method",
+      "name": "get",
+      "qualified_name": "counter.get",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "method",
+      "name": "reset",
+      "qualified_name": "counter.reset",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "method",
+      "name": "set",
+      "qualified_name": "counter.set",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "class",
+      "name": "printable",
+      "qualified_name": "printable",
+      "start_line": 31,
+      "end_line": 33
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "function",
+      "name": "make_counter",
+      "qualified_name": "make_counter",
+      "start_line": 35,
+      "end_line": 38
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "enum_member",
+      "name": "Not_registered",
+      "qualified_name": "Not_registered",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "function",
+      "name": "require",
+      "qualified_name": "require",
+      "start_line": 42,
+      "end_line": 45
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "file",
+      "name": "shapes.ml",
+      "qualified_name": "lib/shapes.ml",
+      "start_line": 1,
+      "end_line": 40
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "type_alias",
+      "name": "point",
+      "qualified_name": "point",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "field",
+      "name": "x",
+      "qualified_name": "point.x",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "field",
+      "name": "y",
+      "qualified_name": "point.y",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "type_alias",
+      "name": "shape",
+      "qualified_name": "shape",
+      "start_line": 8,
+      "end_line": 11
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "Circle",
+      "qualified_name": "shape.Circle",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "Rect",
+      "qualified_name": "shape.Rect",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "Poly",
+      "qualified_name": "shape.Poly",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "type_alias",
+      "name": "color",
+      "qualified_name": "color",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "`Red",
+      "qualified_name": "color.`Red",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "`Green",
+      "qualified_name": "color.`Green",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "`Blue",
+      "qualified_name": "color.`Blue",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "type_alias",
+      "name": "tagged",
+      "qualified_name": "tagged",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "enum_member",
+      "name": "Tagged",
+      "qualified_name": "tagged.Tagged",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "square",
+      "qualified_name": "square",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "area",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "describe",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "total",
+      "qualified_name": "total",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "+:",
+      "qualified_name": "+:",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "shift",
+      "qualified_name": "shift",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "c_sqrt",
+      "qualified_name": "c_sqrt",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "print_all",
+      "qualified_name": "print_all",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "function",
+      "name": "log_area",
+      "qualified_name": "log_area",
+      "start_line": 39,
+      "end_line": 39
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/main.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/main.ml",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "app/main.ml",
+      "line": null
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "Registry.register",
+      "target_file": "lib/registry.ml",
+      "line": 6
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "print_all",
+      "target_file": "lib/shapes.ml",
+      "line": 7
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "log_area",
+      "target_file": "lib/shapes.ml",
+      "line": 8
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "make_counter",
+      "target_file": "lib/registry.ml",
+      "line": 9
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "run",
+      "target_kind": "function",
+      "target": "total",
+      "target_file": "lib/shapes.ml",
+      "line": 10
+    },
+    {
+      "file": "app/main.ml",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "app/main.ml",
+      "target_kind": "function",
+      "target": "run",
+      "target_file": "app/main.ml",
+      "line": 12
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "MakeStore",
+      "target_kind": "function",
+      "target": "MakeStore.find",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "MakeStore",
+      "target_kind": "type_alias",
+      "target": "MakeStore.key",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Registry",
+      "target_kind": "function",
+      "target": "Registry.lookup",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Registry",
+      "target_kind": "function",
+      "target": "Registry.register",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "STORE",
+      "target_kind": "type_alias",
+      "target": "STORE.key",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "counter",
+      "target_kind": "method",
+      "target": "counter.get",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "counter",
+      "target_kind": "method",
+      "target": "counter.incr",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "counter",
+      "target_kind": "method",
+      "target": "counter.reset",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "counter",
+      "target_kind": "method",
+      "target": "counter.set",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "module",
+      "target": "MakeStore",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "enum_member",
+      "target": "Not_registered",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "module",
+      "target": "Registry",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "interface",
+      "target": "STORE",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "module",
+      "target": "StringMap",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "class",
+      "target": "counter",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "function",
+      "target": "make_counter",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "class",
+      "target": "printable",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.ml",
+      "target_kind": "function",
+      "target": "require",
+      "target_file": "lib/registry.ml",
+      "line": null
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "counter.reset",
+      "target_kind": "method",
+      "target": "counter.set",
+      "target_file": "lib/registry.ml",
+      "line": 27
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "make_counter",
+      "target_kind": "method",
+      "target": "counter.incr",
+      "target_file": "lib/registry.ml",
+      "line": 37
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "make_counter",
+      "target_kind": "method",
+      "target": "counter.get",
+      "target_file": "lib/registry.ml",
+      "line": 38
+    },
+    {
+      "file": "lib/registry.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "require",
+      "target_kind": "function",
+      "target": "Registry.lookup",
+      "target_file": "lib/registry.ml",
+      "line": 43
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "color",
+      "target_kind": "enum_member",
+      "target": "color.`Blue",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "color",
+      "target_kind": "enum_member",
+      "target": "color.`Green",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "color",
+      "target_kind": "enum_member",
+      "target": "color.`Red",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "+:",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "c_sqrt",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "type_alias",
+      "target": "color",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "describe",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "log_area",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "type_alias",
+      "target": "point",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "print_all",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "type_alias",
+      "target": "shape",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "shift",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "type_alias",
+      "target": "tagged",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.ml",
+      "target_kind": "function",
+      "target": "total",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "point",
+      "target_kind": "field",
+      "target": "point.x",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "point",
+      "target_kind": "field",
+      "target": "point.y",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "shape",
+      "target_kind": "enum_member",
+      "target": "shape.Circle",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "shape",
+      "target_kind": "enum_member",
+      "target": "shape.Poly",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "shape",
+      "target_kind": "enum_member",
+      "target": "shape.Rect",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "tagged",
+      "target_kind": "enum_member",
+      "target": "tagged.Tagged",
+      "target_file": "lib/shapes.ml",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "area",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "lib/shapes.ml",
+      "line": 21
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "describe",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "lib/shapes.ml",
+      "line": 25
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "total",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "lib/shapes.ml",
+      "line": 27
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "shift",
+      "target_kind": "function",
+      "target": "+:",
+      "target_file": "lib/shapes.ml",
+      "line": 33
+    },
+    {
+      "file": "lib/shapes.ml",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "log_area",
+      "target_kind": "function",
+      "target": "describe",
+      "target_file": "lib/shapes.ml",
+      "line": 39
+    }
+  ],
+  "unresolved": []
+}

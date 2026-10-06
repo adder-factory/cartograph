@@ -11,6 +11,32 @@ use super::{
     },
 };
 
+mod go_members;
+mod go_named_types;
+mod go_reads;
+mod import_index;
+mod parameter_bindings;
+mod python_members;
+mod qualified_path;
+mod rust_attributes;
+mod rust_members;
+mod rust_reads;
+
+pub(super) use rust_reads::bound_by_enclosing_scope as rust_constant_bound_by_enclosing_scope;
+mod type_targets;
+
+/// Per-file lookup state of the polyglot walk, so that per-occurrence
+/// questions (is this name a parameter, an import?) stay constant-time.
+#[derive(Default)]
+pub(super) struct PolyglotIndex {
+    /// Names each enclosing scope's parameters bind, computed once per scope.
+    parameter_bindings: parameter_bindings::ParameterBindings,
+    /// How the file's imports bind each local name.
+    imports: import_index::ImportIndex,
+    /// The file's package-level Go map, slice, and array type names.
+    go_container_types: go_named_types::GoContainerTypes,
+}
+
 const RUST_PARAMETER_UNWRAP: SingleChildUnwrap = SingleChildUnwrap::new(
     rust_parameter_identifier,
     &["captured_pattern", "mut_pattern", "reference_pattern"],
@@ -32,6 +58,7 @@ struct CallableDeclaration<'tree> {
     kind: SymbolKind,
     exported: bool,
     async_symbol: bool,
+    static_member: bool,
     visibility: Option<Visibility>,
 }
 
@@ -122,6 +149,10 @@ struct RustNamespaceBinding<'tree> {
     re_export: bool,
 }
 
+/// Bytes that can only enter a Go or Python dotted callee through a comment
+/// (`/*..*/` or `//` in Go, `#` in Python), which its lookup name drops.
+const LAYOUT_COMMENT_BYTES: [u8; 2] = *b"/#";
+
 const MAX_RUST_USE_DEPTH: usize = 64;
 const RUST_PATH_SEPARATOR: &str = "::";
 
@@ -153,22 +184,107 @@ pub(super) fn capture_usage(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
-    match (builder.context.snapshot.language(), node.kind()) {
-        (SourceLanguage::Rust | SourceLanguage::Go, "call_expression")
-        | (SourceLanguage::Python, "call") => {
-            references::capture_invocation(builder, node, references::InvocationKind::Call)
-        }
-        (SourceLanguage::Rust, "field_expression")
-        | (SourceLanguage::Go, "selector_expression") => {
-            references::capture_member_field(builder, node, "field")
-        }
-        (SourceLanguage::Rust, "scoped_identifier") => capture_rust_value_path(builder, node),
-        (SourceLanguage::Python, "attribute") => {
-            references::capture_member_field(builder, node, "attribute")
-        }
-        (SourceLanguage::Rust, "macro_invocation") => rust_macro::capture_invocation(builder, node),
+    match builder.context.snapshot.language() {
+        SourceLanguage::Rust => capture_rust_usage(builder, node),
+        SourceLanguage::Go => capture_go_usage(builder, node),
+        SourceLanguage::Python => capture_python_usage(builder, node),
         _ => Ok(()),
     }
+}
+
+fn capture_rust_usage(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    match node.kind() {
+        "call_expression" => {
+            references::capture_invocation(builder, node, references::InvocationKind::Call)
+        }
+        "field_expression" => references::capture_member_field(builder, node, "field"),
+        "scoped_identifier" => capture_rust_value_path(builder, node),
+        "macro_invocation" => rust_macro::capture_invocation(builder, node),
+        "macro_definition" => rust_macro::record_definition(builder, node),
+        "struct_expression" => rust_members::capture_struct_expression(builder, node),
+        "identifier" => rust_reads::capture_constant_read(builder, node),
+        _ => Ok(()),
+    }
+}
+
+fn capture_go_usage(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    match node.kind() {
+        "call_expression" => {
+            if go_members::capture_cgo_call(builder, node)?
+                || capture_layout_path_call(builder, node)?
+            {
+                return Ok(());
+            }
+            references::capture_invocation(builder, node, references::InvocationKind::Call)
+        }
+        "selector_expression" => references::capture_member_field(builder, node, "field"),
+        "composite_literal" => go_members::capture_composite_literal(builder, node),
+        "identifier" => go_reads::capture_constant_read(builder, node),
+        _ => Ok(()),
+    }
+}
+
+fn capture_python_usage(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    match node.kind() {
+        "call" => {
+            if capture_layout_path_call(builder, node)? {
+                return Ok(());
+            }
+            references::capture_invocation(builder, node, references::InvocationKind::Call)
+        }
+        "attribute" => references::capture_member_field(builder, node, "attribute"),
+        _ => Ok(()),
+    }
+}
+
+/// Record a call whose callee is a plain dotted path written with layout or a
+/// comment inside it (`r. POST(..)`, `obj .method(..)`) under its lookup name
+/// (`r.POST`), the name the same call written without layout carries, so a
+/// member name never keeps the whitespace before it. Returns whether the call
+/// was recorded; any other callee, including one too wide for a durable name,
+/// is left to the general invocation capture.
+fn capture_layout_path_call(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    call: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let Some(callee) = call.child_by_field_name("function").filter(|callee| {
+        matches!(callee.kind(), "selector_expression" | "attribute")
+            && callee.end_byte().saturating_sub(callee.start_byte())
+                <= references::MAX_DURABLE_REFERENCE_NAME_BYTES
+    }) else {
+        return Ok(false);
+    };
+    let has_layout = builder
+        .context
+        .text(callee)
+        .trim()
+        .bytes()
+        .any(|byte| byte.is_ascii_whitespace() || LAYOUT_COMMENT_BYTES.contains(&byte));
+    if !has_layout {
+        return Ok(false);
+    }
+    let Some(name) = qualified_path::lookup_name(builder, callee)? else {
+        return Ok(false);
+    };
+    references::push_reference(
+        builder,
+        PendingReference {
+            owner: builder.owners.last().cloned(),
+            name,
+            kind: ReferenceKind::Calls,
+            node: callee,
+        },
+    )?;
+    Ok(true)
 }
 
 fn visit_rust_declaration(
@@ -176,10 +292,42 @@ fn visit_rust_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
-    if visit_rust_standard_declaration(builder, node, depth)? {
-        return Ok(true);
+    let emitted_before = builder.facts.symbols.len();
+    let visited = if visit_rust_standard_declaration(builder, node, depth)? {
+        true
+    } else {
+        rust_members::capture_field_types(builder, node)?;
+        visit_rust_special_declaration(builder, node, depth)?
+    };
+    if visited {
+        capture_rust_item_attributes(builder, node, emitted_before)?;
     }
-    visit_rust_special_declaration(builder, node, depth)
+    Ok(visited)
+}
+
+/// Record the outer attributes of an item as decorating the symbol its visit
+/// emitted first; an item that declared no symbol, or only an import (an
+/// out-of-line `mod name;`), has nothing for them to decorate.
+fn capture_rust_item_attributes(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    emitted_before: usize,
+) -> Result<(), ExtractError> {
+    if !rust_attributes::decorates_item(node.kind()) {
+        return Ok(());
+    }
+    let Some(owner) = symbol_emitted_since(builder, emitted_before, node) else {
+        return Ok(());
+    };
+    let declares_import = builder
+        .facts
+        .symbols
+        .get(emitted_before)
+        .is_some_and(|symbol| symbol.kind == SymbolKind::Import);
+    if declares_import {
+        return Ok(());
+    }
+    rust_attributes::capture_item_attributes(builder, node, &owner)
 }
 
 #[derive(Clone, Copy)]
@@ -202,7 +350,7 @@ fn visit_rust_standard_declaration(
     let visibility = rust_visibility(builder, node);
     match kind {
         RustDeclarationKind::Container(kind) => {
-            visit_named_container(
+            let owner = visit_named_container(
                 builder,
                 ContainerDeclaration {
                     node,
@@ -212,6 +360,9 @@ fn visit_rust_standard_declaration(
                     visibility,
                 },
             )?;
+            if kind == SymbolKind::Trait {
+                rust_members::capture_supertraits(builder, node, &owner)?;
+            }
         }
         RustDeclarationKind::Leaf(kind) => visit_leaf_declaration(
             builder,
@@ -314,6 +465,7 @@ fn visit_rust_callable(
             kind,
             exported: visibility.is_some(),
             async_symbol: rust_async(node),
+            static_member: false,
             visibility,
         },
     )
@@ -326,31 +478,60 @@ fn visit_python_declaration(
 ) -> Result<bool, ExtractError> {
     match node.kind() {
         "class_definition" => visit_python_class(builder, node, depth)?,
-        "function_definition" => {
-            let kind = if is_python_class_member(node) {
-                SymbolKind::Method
-            } else {
-                SymbolKind::Function
-            };
-            let exported = node
-                .child_by_field_name("name")
-                .is_some_and(|name| python_exported(builder, name));
-            visit_callable(
-                builder,
-                CallableDeclaration {
-                    node,
-                    depth,
-                    kind,
-                    exported,
-                    async_symbol: has_child_kind(node, "async"),
-                    visibility: None,
-                },
-            )?;
-        }
+        "function_definition" => visit_python_function(builder, node, depth)?,
+        "assignment" => return python_members::visit_assignment(builder, node, depth),
         "import_statement" | "import_from_statement" => visit_python_import(builder, node)?,
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+fn visit_python_function(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    depth: usize,
+) -> Result<(), ExtractError> {
+    let kind = if is_python_class_member(node) {
+        SymbolKind::Method
+    } else {
+        SymbolKind::Function
+    };
+    let exported = node
+        .child_by_field_name("name")
+        .is_some_and(|name| python_exported(builder, name));
+    let emitted_before = builder.facts.symbols.len();
+    visit_callable(
+        builder,
+        CallableDeclaration {
+            node,
+            depth,
+            kind,
+            exported,
+            async_symbol: has_child_kind(node, "async"),
+            static_member: python_members::is_static_method(builder, node),
+            visibility: None,
+        },
+    )?;
+    let Some(owner) = symbol_emitted_since(builder, emitted_before, node) else {
+        return Ok(());
+    };
+    python_members::capture_decorators(builder, node, &owner)
+}
+
+/// The symbol a declaration visit emitted for `node`: the first symbol pushed
+/// since `emitted_before` whose span starts at the declaration.
+fn symbol_emitted_since(
+    builder: &ExtractionBuilder<'_, '_>,
+    emitted_before: usize,
+    node: Node<'_>,
+) -> Option<SymbolId> {
+    let start = u64::try_from(node.start_byte()).ok()?;
+    builder
+        .facts
+        .symbols
+        .get(emitted_before)
+        .filter(|symbol| symbol.span.start_byte() == start)
+        .map(|symbol| symbol.id.clone())
 }
 
 fn visit_go_declaration(
@@ -358,6 +539,9 @@ fn visit_go_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
+    if go_members::visit_declaration(builder, node, depth)? {
+        return Ok(true);
+    }
     match node.kind() {
         "package_clause" => {
             visit_go_package(builder, node)?;
@@ -374,6 +558,7 @@ fn visit_go_declaration(
                     kind: SymbolKind::Function,
                     exported,
                     async_symbol: false,
+                    static_member: false,
                     visibility: None,
                 },
             )?;
@@ -391,6 +576,7 @@ fn visit_go_declaration(
                     kind: SymbolKind::Method,
                     exported,
                     async_symbol: false,
+                    static_member: false,
                     visibility: None,
                 },
             )?;
@@ -497,7 +683,8 @@ fn visit_python_class(
             visibility: None,
         },
     )?;
-    capture_python_heritage(builder, node, &id)
+    capture_python_heritage(builder, node, &id)?;
+    python_members::capture_decorators(builder, node, &id)
 }
 
 fn capture_python_heritage(
@@ -511,12 +698,13 @@ fn capture_python_heritage(
     for target in named_children(superclasses)
         .filter(|target| matches!(target.kind(), "identifier" | "attribute"))
     {
+        let kind = python_members::base_reference_kind(builder.context.text(target));
         emit_node_reference(
             builder,
             PolyglotNodeReference {
                 owner: Some(owner.clone()),
                 node: target,
-                kind: ReferenceKind::Extends,
+                kind,
             },
         )?;
     }
@@ -591,7 +779,7 @@ fn emit_callable_symbol(
         signature: builder.context.callable_signature(input.declaration.node)?,
         export: crate::SymbolExportFlags::new(input.declaration.exported, false),
         async_symbol: input.declaration.async_symbol,
-        static_member: false,
+        static_member: input.declaration.static_member,
         visibility: input.declaration.visibility,
     };
     builder.emit_symbol(pending)
@@ -1141,7 +1329,8 @@ fn capture_rust_value_path(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
-    if rust_value_path_named_elsewhere(node) {
+    if rust_value_path_named_elsewhere(node) || rust_members::names_instantiated_type(builder, node)
+    {
         return Ok(());
     }
     emit_node_reference(
@@ -1366,6 +1555,9 @@ fn visit_go_imports(
             continue;
         };
         let module_specifier = builder.context.owned_unquoted_text(path_node)?;
+        if super::specifier_safety::specifier_may_carry_credential(&module_specifier) {
+            continue;
+        }
         let local_name = match specifier.child_by_field_name("name") {
             Some(alias) => builder.context.owned_text(alias)?,
             None => module_specifier
@@ -1487,6 +1679,7 @@ fn visit_go_method(
                 kind: SymbolKind::Method,
                 exported,
                 async_symbol: false,
+                static_member: false,
                 visibility: None,
             },
             owner: receiver.symbol,

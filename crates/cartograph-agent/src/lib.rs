@@ -36,7 +36,8 @@ use cartograph_db::{
     HistoryRefreshReport, IssueHistoryRefreshReport, LeaseError, LeaseRequest, LeaseTarget,
     MigrationError, NativeGenerationSpillPolicy, NativeParseCacheRetentionPolicy,
     NativeParseCacheRetentionReport, NativeParseCacheRetentionRequest, NewGeneration, NewProject,
-    PostRetentionMaintenancePolicy, ProjectSnapshot, SpilledGenerationContents, StagedGeneration,
+    PostRetentionMaintenancePolicy, ProjectLease, ProjectSnapshot, SpilledGenerationContents,
+    StagedGeneration,
 };
 use cartograph_domain::{
     ContentDigest, GenerationDigestVersion, NormalizedPath, ProjectId, ProjectOperation,
@@ -1550,10 +1551,7 @@ async fn maintain_generation_retention(
     project_id: &ProjectId,
     contract: &ContentDigest,
 ) -> GenerationRetentionStatus {
-    let Ok(policy) = GenerationRetentionPolicy::new(
-        AUTOMATIC_RETENTION_KEEP_SUPERSEDED,
-        AUTOMATIC_RETENTION_MAXIMUM_DELETIONS,
-    ) else {
+    let Some(policy) = automatic_retention_policy() else {
         return GenerationRetentionStatus::Deferred {
             reason: "invalid_policy",
             retryable: false,
@@ -1561,32 +1559,9 @@ async fn maintain_generation_retention(
             next_action: "upgrade_or_reconfigure_cartograph",
         };
     };
-    let target = LeaseTarget::new(project_id.clone(), ProjectOperation::Migration, None);
-    let lease = match runtime
-        .database
-        .acquire_lease_bounded(
-            LeaseRequest::new(target, process_owner(), AUTOMATIC_RETENTION_LEASE_DURATION),
-            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
-        )
-        .await
-    {
+    let lease = match acquire_retention_lease(runtime, project_id).await {
         Ok(lease) => lease,
-        Err(LeaseError::Busy) => {
-            return GenerationRetentionStatus::Deferred {
-                reason: "project_busy",
-                retryable: true,
-                unlock_applicable: false,
-                next_action: "retry_after_the_active_writer_completes",
-            };
-        }
-        Err(_) => {
-            return GenerationRetentionStatus::Deferred {
-                reason: "lease_unavailable",
-                retryable: true,
-                unlock_applicable: true,
-                next_action: "inspect_leases_then_retry",
-            };
-        }
+        Err(error) => return retention_lease_deferral(&error),
     };
     let fence = lease.fence();
     let report = runtime
@@ -1637,6 +1612,48 @@ async fn maintain_generation_retention(
             recorded,
         },
     )
+}
+
+/// Acquire the short migration lease automatic retention runs under.
+async fn acquire_retention_lease(
+    runtime: &ProjectRuntime,
+    project_id: &ProjectId,
+) -> Result<ProjectLease, LeaseError> {
+    let target = LeaseTarget::new(project_id.clone(), ProjectOperation::Migration, None);
+    runtime
+        .database
+        .acquire_lease_bounded(
+            LeaseRequest::new(target, process_owner(), AUTOMATIC_RETENTION_LEASE_DURATION),
+            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
+        )
+        .await
+}
+
+/// Why retention must wait for a later attempt when its lease is unavailable.
+const fn retention_lease_deferral(error: &LeaseError) -> GenerationRetentionStatus {
+    match error {
+        LeaseError::Busy => GenerationRetentionStatus::Deferred {
+            reason: "project_busy",
+            retryable: true,
+            unlock_applicable: false,
+            next_action: "retry_after_the_active_writer_completes",
+        },
+        _ => GenerationRetentionStatus::Deferred {
+            reason: "lease_unavailable",
+            retryable: true,
+            unlock_applicable: true,
+            next_action: "inspect_leases_then_retry",
+        },
+    }
+}
+
+/// The fixed bounded policy automatic retention applies after a publication.
+fn automatic_retention_policy() -> Option<GenerationRetentionPolicy> {
+    GenerationRetentionPolicy::new(
+        AUTOMATIC_RETENTION_KEEP_SUPERSEDED,
+        AUTOMATIC_RETENTION_MAXIMUM_DELETIONS,
+    )
+    .ok()
 }
 
 #[derive(Clone, Copy)]
@@ -2254,6 +2271,32 @@ impl ProjectRuntime {
             .await
     }
 
+    /// Create the index supervisor sized for the pipeline's largest stage
+    /// reservation and bind it to the project's cancellation: the cancellation
+    /// can stop it directly, and a watcher task cancels it once cancellation
+    /// fires. The watcher is aborted when the returned guard drops.
+    fn start_cancellable_index_supervisor(
+        &self,
+        pipeline: &NativePipelineConfig,
+        cancellation: &ProjectCancellation,
+    ) -> Result<(IndexerSupervisor, AbortTaskOnDrop), ProjectError> {
+        let maximum_stage_reservation = pipeline
+            .maximum_stage_reservation_bytes()
+            .map_err(|_| ProjectError::InvalidOptions)?;
+        let supervisor = IndexerSupervisor::new(
+            self.database.clone(),
+            supervisor_config(maximum_stage_reservation.max(DEFAULT_MAX_SUPERVISOR_BYTES)),
+        );
+        cancellation.attach_index_supervisor(supervisor.clone());
+        let cancellation_supervisor = supervisor.clone();
+        let cancellation_signal = cancellation.clone();
+        let cancellation_task = AbortTaskOnDrop::new(tokio::spawn(async move {
+            cancellation_signal.cancelled().await;
+            let _cancellation_was_new = cancellation_supervisor.cancel();
+        }));
+        Ok((supervisor, cancellation_task))
+    }
+
     fn prepare_index_publication(
         &self,
         pending: PendingIndex,
@@ -2289,20 +2332,8 @@ impl ProjectRuntime {
             },
             index_policy,
         )?;
-        let maximum_stage_reservation = pipeline
-            .maximum_stage_reservation_bytes()
-            .map_err(|_| ProjectError::InvalidOptions)?;
-        let supervisor = IndexerSupervisor::new(
-            self.database.clone(),
-            supervisor_config(maximum_stage_reservation.max(DEFAULT_MAX_SUPERVISOR_BYTES)),
-        );
-        cancellation.attach_index_supervisor(supervisor.clone());
-        let cancellation_supervisor = supervisor.clone();
-        let cancellation_signal = cancellation.clone();
-        let cancellation_task = AbortTaskOnDrop::new(tokio::spawn(async move {
-            cancellation_signal.cancelled().await;
-            let _cancellation_was_new = cancellation_supervisor.cancel();
-        }));
+        let (supervisor, cancellation_task) =
+            self.start_cancellable_index_supervisor(&pipeline, &cancellation)?;
         let request = SupervisorRequest::new(target, process_owner(), DEFAULT_LEASE_DURATION);
         let parse_cache = NativeParseCache::new(self.database.clone(), project_id.clone())
             .with_reads(parse_cache_reads);
@@ -2986,7 +3017,7 @@ impl ProjectSourcePolicy {
     }
 }
 
-/// Observed corpus size and overlay state one storage selection weighs.
+/// Observed corpus size and generation bound one storage selection weighs.
 #[derive(Clone, Copy)]
 struct GenerationStorageSignals {
     files: usize,

@@ -1,11 +1,14 @@
 # Verification and benchmark evidence
 
 [Documentation home](../../README.md) · [Project overview](../../../README.md) ·
-[Architecture](../ARCHITECTURE.md) · [Performance tuning](../../PERF-TUNING.md)
+[Architecture](../ARCHITECTURE.md) · [Performance tuning](../../PERF-TUNING.md) ·
+[Changelog](../../RELEASES.md)
 
 These records answer different questions. Read the evidence boundary on each
 page before comparing numbers across corpora, versions, machines, or retrieval
 tasks.
+
+## Records
 
 | Record | What it answers | Evidence status |
 | --- | --- | --- |
@@ -25,7 +28,9 @@ tasks.
 - Follow each page's reproduction command rather than reconstructing a command
   from a result table.
 
-Current release qualification also includes strict Rust gates, PostgreSQL live
-fault suites, platform archive smokes, Sonar, independent review, checksums,
-signed tags, and GitHub provenance. Those release gates complement these
-benchmarks; they do not make a historical measurement current.
+> [!NOTE]
+> Current release qualification also includes strict Rust gates, PostgreSQL live
+> fault suites, platform archive smokes, Sonar, independent review, checksums,
+> signed tags, and GitHub provenance. Those release gates complement these
+> benchmarks; they do not make a historical measurement current. See
+> [release evidence](../ARCHITECTURE.md#release-evidence).

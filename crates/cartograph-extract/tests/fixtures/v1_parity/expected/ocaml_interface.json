@@ -1,0 +1,516 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "ocaml_interface",
+  "files": [
+    "lib/registry.mli",
+    "lib/shapes.mli"
+  ],
+  "symbols": [
+    {
+      "file": "lib/registry.mli",
+      "kind": "file",
+      "name": "registry.mli",
+      "qualified_name": "lib/registry.mli",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "interface",
+      "name": "STORE",
+      "qualified_name": "STORE",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "type_alias",
+      "name": "key",
+      "qualified_name": "STORE.key",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "function",
+      "name": "find",
+      "qualified_name": "STORE.find",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "function",
+      "name": "mem",
+      "qualified_name": "STORE.mem",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "module",
+      "name": "Registry",
+      "qualified_name": "Registry",
+      "start_line": 7,
+      "end_line": 10
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "function",
+      "name": "register",
+      "qualified_name": "Registry.register",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "function",
+      "name": "lookup",
+      "qualified_name": "Registry.lookup",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "module",
+      "name": "MakeStore",
+      "qualified_name": "MakeStore",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "class",
+      "name": "counter",
+      "qualified_name": "counter",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "class",
+      "name": "printable",
+      "qualified_name": "printable",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "function",
+      "name": "make_counter",
+      "qualified_name": "make_counter",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "function",
+      "name": "require",
+      "qualified_name": "require",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "file",
+      "name": "shapes.mli",
+      "qualified_name": "lib/shapes.mli",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "type_alias",
+      "name": "point",
+      "qualified_name": "point",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "field",
+      "name": "x",
+      "qualified_name": "point.x",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "field",
+      "name": "y",
+      "qualified_name": "point.y",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "type_alias",
+      "name": "shape",
+      "qualified_name": "shape",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "enum_member",
+      "name": "Circle",
+      "qualified_name": "shape.Circle",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "enum_member",
+      "name": "Rect",
+      "qualified_name": "shape.Rect",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "type_alias",
+      "name": "color",
+      "qualified_name": "color",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "enum_member",
+      "name": "`Red",
+      "qualified_name": "color.`Red",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "enum_member",
+      "name": "`Green",
+      "qualified_name": "color.`Green",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "type_alias",
+      "name": "t",
+      "qualified_name": "t",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "function",
+      "name": "square",
+      "qualified_name": "square",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "area",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "function",
+      "name": "describe",
+      "qualified_name": "describe",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "function",
+      "name": "c_sqrt",
+      "qualified_name": "c_sqrt",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "enum_member",
+      "name": "Invalid_shape",
+      "qualified_name": "Invalid_shape",
+      "start_line": 23,
+      "end_line": 23
+    }
+  ],
+  "edges": [
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Registry",
+      "target_kind": "function",
+      "target": "Registry.lookup",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Registry",
+      "target_kind": "function",
+      "target": "Registry.register",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "STORE",
+      "target_kind": "function",
+      "target": "STORE.find",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "STORE",
+      "target_kind": "type_alias",
+      "target": "STORE.key",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "STORE",
+      "target_kind": "function",
+      "target": "STORE.mem",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "module",
+      "target": "MakeStore",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "module",
+      "target": "Registry",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "interface",
+      "target": "STORE",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "class",
+      "target": "counter",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "function",
+      "target": "make_counter",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "class",
+      "target": "printable",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/registry.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/registry.mli",
+      "target_kind": "function",
+      "target": "require",
+      "target_file": "lib/registry.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "color",
+      "target_kind": "enum_member",
+      "target": "color.`Green",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "color",
+      "target_kind": "enum_member",
+      "target": "color.`Red",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "enum_member",
+      "target": "Invalid_shape",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "function",
+      "target": "c_sqrt",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "type_alias",
+      "target": "color",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "function",
+      "target": "describe",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "type_alias",
+      "target": "point",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "type_alias",
+      "target": "shape",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/shapes.mli",
+      "target_kind": "type_alias",
+      "target": "t",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "point",
+      "target_kind": "field",
+      "target": "point.x",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "point",
+      "target_kind": "field",
+      "target": "point.y",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "shape",
+      "target_kind": "enum_member",
+      "target": "shape.Circle",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    },
+    {
+      "file": "lib/shapes.mli",
+      "kind": "contains",
+      "source_kind": "type_alias",
+      "source": "shape",
+      "target_kind": "enum_member",
+      "target": "shape.Rect",
+      "target_file": "lib/shapes.mli",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

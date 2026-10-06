@@ -34,9 +34,17 @@ const CORPUS_NAME: &str = "cartograph-v1-real-typescript-v1";
 const CORPUS_FINGERPRINT_DOMAIN: &[u8] = b"cartograph-v2-native-real-corpus-v1";
 const EXPECTED_CORPUS_FINGERPRINT: &str =
     "ab91088c482ed36d31759382283342654ce6958be4e601429b8181da531c5fc1";
-// V20 changes the digest domain; corpus bytes, facts, ranking, and memory bounds stay fixed.
+// JavaScript/TypeScript parity facts (class fields, def-use, decorators, constant reads,
+// binding tables, body type consumers), callback-binding shadowing of value references, and
+// module value targets no longer hidden by member or other-scope namesakes change the facts;
+// the final per-file parity fixes add five resolved references and their edges; V21 changes
+// the digest domain. Dynamic-import fixes preserve 33 previously skipped import() load
+// references in destructured initializers: 11 in cartograph-llm-service.ts, one each in
+// extraction-phases.ts, index.ts, and llm-setup-plan.ts, and 19 in mcp/tools/admin.ts.
+// All 33 are unresolved Imports facts; symbols, edges, documents, corpus bytes, and
+// ranking identities stay fixed. The added facts also raise modeled retention budgets.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "99eb226517b2ecd1c13f7404a2fb28e4df33f96c08bac7830f95f3aaf59dccd2";
+    "ee7b5082dda0972286551fef18a479de293d41f8d8022d4261f03477221e66ac";
 const EXPECTED_BM25_DOCUMENT_IDS: [&str; 5] = [
     "5471dbfc-3ba3-87dd-8861-1ce1dd51ed32",
     "78f1eb97-24b2-8a80-ad44-6dd679456592",
@@ -53,14 +61,15 @@ const EXPECTED_TAGS_BM25_DOCUMENT_IDS: [&str; 6] = [
     "72da0535-5a0c-830b-a9ec-ab9948bceb6e",
 ];
 const EXPECTED_FILES: i64 = 34;
-const EXPECTED_SYMBOLS: i64 = 6_336;
-const EXPECTED_EDGES: i64 = 8_945;
-const EXPECTED_REFERENCES: i64 = 16_237;
+const EXPECTED_SYMBOLS: i64 = 6_362;
+const EXPECTED_EDGES: i64 = 11_211;
+const EXPECTED_REFERENCES: i64 = 21_320;
 const EXPECTED_NUMERICAL_SITES: i64 = 0;
-const EXPECTED_DOCUMENTS: i64 = 6_336;
-const EXPECTED_EDGE_KINDS: [&str; 10] = [
+const EXPECTED_DOCUMENTS: i64 = 6_362;
+const EXPECTED_EDGE_KINDS: [&str; 11] = [
     "calls",
     "contains",
+    "def_use",
     "exports",
     "extends",
     "field_access",
@@ -71,11 +80,11 @@ const EXPECTED_EDGE_KINDS: [&str; 10] = [
     "type_of",
 ];
 const EXPECTED_SOURCE_BYTES: u64 = 1_052_564;
-const EXPECTED_RESOLVED_REFERENCES: u64 = 2_825;
-const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_424;
-const EXPECTED_MODELED_GENERATION_BYTES: u64 = 19_759_486;
-const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 110_953_985;
-const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 141_573_768;
+const EXPECTED_RESOLVED_REFERENCES: u64 = 7_820;
+const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_512;
+const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_856_272;
+const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 116_931_331;
+const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_571_266;
 const CORPUS_QUERY: &str = "detectSecretsHandling";
 const TAGS_CORPUS_QUERY: &str = "tagscanary";
 const LIVE_SECRET_SENTINEL: &str = "sk_live_secret";

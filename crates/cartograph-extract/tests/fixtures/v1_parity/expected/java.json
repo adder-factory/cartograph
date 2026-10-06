@@ -1,0 +1,3615 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "java",
+  "files": [
+    "android/src/main/java/com/acme/rn/StoreModule.java",
+    "js/store.js",
+    "package.json",
+    "pom.xml",
+    "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+    "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+    "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+    "src/main/java/com/acme/shop/model/Order.java",
+    "src/main/java/com/acme/shop/service/OrderService.java",
+    "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+    "src/main/java/com/acme/shop/web/OrderController.java",
+    "src/main/resources/application.properties",
+    "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+    "src/main/resources/mapper/OrderMapper.xml",
+    "src/test/java/com/acme/shop/service/OrderServiceTest.java"
+  ],
+  "symbols": [
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "file",
+      "name": "StoreModule.java",
+      "qualified_name": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "start_line": 1,
+      "end_line": 23
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "import",
+      "name": "com.facebook.react.bridge.ReactApplicationContext",
+      "qualified_name": "com.facebook.react.bridge.ReactApplicationContext",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "import",
+      "name": "com.facebook.react.bridge.ReactContextBaseJavaModule",
+      "qualified_name": "com.facebook.react.bridge.ReactContextBaseJavaModule",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "import",
+      "name": "com.facebook.react.bridge.ReactMethod",
+      "qualified_name": "com.facebook.react.bridge.ReactMethod",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "class",
+      "name": "StoreModule",
+      "qualified_name": "StoreModule",
+      "start_line": 7,
+      "end_line": 22
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "method",
+      "name": "StoreModule",
+      "qualified_name": "StoreModule::StoreModule",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "method",
+      "name": "getName",
+      "qualified_name": "StoreModule::getName",
+      "start_line": 10,
+      "end_line": 11
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "StoreModule::save",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "method",
+      "name": "syncGet",
+      "qualified_name": "StoreModule::syncGet",
+      "start_line": 18,
+      "end_line": 19
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "method",
+      "name": "persist",
+      "qualified_name": "StoreModule::persist",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "js/store.js",
+      "kind": "file",
+      "name": "store.js",
+      "qualified_name": "js/store.js",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "js/store.js",
+      "kind": "import",
+      "name": "react-native",
+      "qualified_name": "react-native",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "js/store.js",
+      "kind": "function",
+      "name": "saveAll",
+      "qualified_name": "saveAll",
+      "start_line": 3,
+      "end_line": 6
+    },
+    {
+      "file": "package.json",
+      "kind": "file",
+      "name": "package.json",
+      "qualified_name": "package.json",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "file",
+      "name": "PaymentsAutoConfig.java",
+      "qualified_name": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "import",
+      "name": "org.springframework.beans.factory.annotation.Value",
+      "qualified_name": "org.springframework.beans.factory.annotation.Value",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "import",
+      "name": "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+      "qualified_name": "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "import",
+      "name": "org.springframework.context.annotation.Bean",
+      "qualified_name": "org.springframework.context.annotation.Bean",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "import",
+      "name": "org.springframework.context.annotation.Configuration",
+      "qualified_name": "org.springframework.context.annotation.Configuration",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "class",
+      "name": "PaymentsAutoConfig",
+      "qualified_name": "PaymentsAutoConfig",
+      "start_line": 8,
+      "end_line": 21
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "field",
+      "name": "url",
+      "qualified_name": "PaymentsAutoConfig::url",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "field",
+      "name": "pageLabel",
+      "qualified_name": "PaymentsAutoConfig::pageLabel",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "method",
+      "name": "paymentsClient",
+      "qualified_name": "PaymentsAutoConfig::paymentsClient",
+      "start_line": 17,
+      "end_line": 20
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "class",
+      "name": "PaymentsClient",
+      "qualified_name": "PaymentsClient",
+      "start_line": 23,
+      "end_line": 27
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "field",
+      "name": "endpoint",
+      "qualified_name": "PaymentsClient::endpoint",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "method",
+      "name": "PaymentsClient",
+      "qualified_name": "PaymentsClient::PaymentsClient",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "kind": "file",
+      "name": "FooConverter.java",
+      "qualified_name": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "kind": "class",
+      "name": "FooConverter",
+      "qualified_name": "FooConverter",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "kind": "method",
+      "name": "convert",
+      "qualified_name": "FooConverter::convert",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "file",
+      "name": "OrderMapper.java",
+      "qualified_name": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "start_line": 1,
+      "end_line": 31
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "import",
+      "name": "com.acme.shop.model.Order",
+      "qualified_name": "com.acme.shop.model.Order",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "import",
+      "name": "org.apache.ibatis.annotations.Mapper",
+      "qualified_name": "org.apache.ibatis.annotations.Mapper",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "import",
+      "name": "org.apache.ibatis.annotations.Param",
+      "qualified_name": "org.apache.ibatis.annotations.Param",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "import",
+      "name": "org.mybatis.spring.SqlSessionTemplate",
+      "qualified_name": "org.mybatis.spring.SqlSessionTemplate",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "interface",
+      "name": "OrderMapper",
+      "qualified_name": "OrderMapper",
+      "start_line": 8,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "method",
+      "name": "findOrder",
+      "qualified_name": "OrderMapper::findOrder",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "parameter",
+      "name": "orderId",
+      "qualified_name": "OrderMapper::findOrder::orderId",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "method",
+      "name": "deleteOrder",
+      "qualified_name": "OrderMapper::deleteOrder",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "parameter",
+      "name": "orderId",
+      "qualified_name": "OrderMapper::deleteOrder::orderId",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "class",
+      "name": "OrderAttributeDaoImpl",
+      "qualified_name": "OrderAttributeDaoImpl",
+      "start_line": 15,
+      "end_line": 28
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "field",
+      "name": "SQL_NS",
+      "qualified_name": "OrderAttributeDaoImpl::SQL_NS",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "field",
+      "name": "sqlSessionTemplate",
+      "qualified_name": "OrderAttributeDaoImpl::sqlSessionTemplate",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "method",
+      "name": "deleteByOrderId",
+      "qualified_name": "OrderAttributeDaoImpl::deleteByOrderId",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "method",
+      "name": "findAttr",
+      "qualified_name": "OrderAttributeDaoImpl::findAttr",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "method",
+      "name": "getSqlSessionTemplate",
+      "qualified_name": "OrderAttributeDaoImpl::getSqlSessionTemplate",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "interface",
+      "name": "OrderAttributeDao",
+      "qualified_name": "OrderAttributeDao",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "file",
+      "name": "Order.java",
+      "qualified_name": "src/main/java/com/acme/shop/model/Order.java",
+      "start_line": 1,
+      "end_line": 79
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "import",
+      "name": "java.util.List",
+      "qualified_name": "java.util.List",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "import",
+      "name": "java.util.ArrayList",
+      "qualified_name": "java.util.ArrayList",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "class",
+      "name": "Order",
+      "qualified_name": "Order",
+      "start_line": 6,
+      "end_line": 31
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "MAX_LINES",
+      "qualified_name": "Order::MAX_LINES",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "Order::id",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "status",
+      "qualified_name": "Order::status",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "lines",
+      "qualified_name": "Order::lines",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "Order",
+      "qualified_name": "Order::Order",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "getId",
+      "qualified_name": "Order::getId",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "getStatus",
+      "qualified_name": "Order::getStatus",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "addLine",
+      "qualified_name": "Order::addLine",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "validate",
+      "qualified_name": "Order::validate",
+      "start_line": 26,
+      "end_line": 30
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "enum",
+      "name": "OrderStatus",
+      "qualified_name": "OrderStatus",
+      "start_line": 33,
+      "end_line": 45
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "enum_member",
+      "name": "NEW",
+      "qualified_name": "OrderStatus::NEW",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "enum_member",
+      "name": "PAID",
+      "qualified_name": "OrderStatus::PAID",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "enum_member",
+      "name": "SHIPPED",
+      "qualified_name": "OrderStatus::SHIPPED",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "label",
+      "qualified_name": "OrderStatus::label",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "OrderStatus",
+      "qualified_name": "OrderStatus::OrderStatus",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "OrderStatus",
+      "qualified_name": "OrderStatus::OrderStatus",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "label",
+      "qualified_name": "OrderStatus::label",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "class",
+      "name": "OrderBuilder",
+      "qualified_name": "OrderBuilder",
+      "start_line": 47,
+      "end_line": 58
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "OrderBuilder::id",
+      "start_line": 48,
+      "end_line": 48
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "OrderBuilder::create",
+      "start_line": 50,
+      "end_line": 50
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "withId",
+      "qualified_name": "OrderBuilder::withId",
+      "start_line": 52,
+      "end_line": 55
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "OrderBuilder::build",
+      "start_line": 57,
+      "end_line": 57
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "class",
+      "name": "Committer",
+      "qualified_name": "Committer",
+      "start_line": 60,
+      "end_line": 66
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field",
+      "name": "order",
+      "qualified_name": "Committer::order",
+      "start_line": 61,
+      "end_line": 61
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "Committer",
+      "qualified_name": "Committer::Committer",
+      "start_line": 63,
+      "end_line": 63
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "commit",
+      "qualified_name": "Committer::commit",
+      "start_line": 65,
+      "end_line": 65
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "class",
+      "name": "OrderFactory",
+      "qualified_name": "OrderFactory",
+      "start_line": 68,
+      "end_line": 78
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "make",
+      "qualified_name": "OrderFactory::make",
+      "start_line": 69,
+      "end_line": 72
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "method",
+      "name": "direct",
+      "qualified_name": "OrderFactory::direct",
+      "start_line": 74,
+      "end_line": 77
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "file",
+      "name": "OrderService.java",
+      "qualified_name": "src/main/java/com/acme/shop/service/OrderService.java",
+      "start_line": 1,
+      "end_line": 74
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "import",
+      "name": "com.acme.shop.model.Order",
+      "qualified_name": "com.acme.shop.model.Order",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "import",
+      "name": "com.acme.shop.service.converter.FooConverter",
+      "qualified_name": "com.acme.shop.service.converter.FooConverter",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "import",
+      "name": "org.springframework.stereotype.Service",
+      "qualified_name": "org.springframework.stereotype.Service",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "import",
+      "name": "org.springframework.transaction.annotation.Transactional",
+      "qualified_name": "org.springframework.transaction.annotation.Transactional",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "import",
+      "name": "java.util",
+      "qualified_name": "java.util",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "interface",
+      "name": "Port",
+      "qualified_name": "Port",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "name",
+      "qualified_name": "Port::name",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "interface",
+      "name": "OrderPort",
+      "qualified_name": "OrderPort",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "OrderPort::find",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "class",
+      "name": "BaseService",
+      "qualified_name": "BaseService",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "BaseService::load",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "class",
+      "name": "OrderService",
+      "qualified_name": "OrderService",
+      "start_line": 21,
+      "end_line": 63
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "field",
+      "name": "orderRepository",
+      "qualified_name": "OrderService::orderRepository",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "field",
+      "name": "fooConverter",
+      "qualified_name": "OrderService::fooConverter",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "field",
+      "name": "cache",
+      "qualified_name": "OrderService::cache",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "OrderService",
+      "qualified_name": "OrderService::OrderService",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "name",
+      "qualified_name": "OrderService::name",
+      "start_line": 31,
+      "end_line": 32
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "OrderService::find",
+      "start_line": 34,
+      "end_line": 43
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "OrderService::load",
+      "start_line": 45,
+      "end_line": 51
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "OrderService::audit",
+      "start_line": 53,
+      "end_line": 55
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "track",
+      "qualified_name": "OrderService::track",
+      "start_line": 57,
+      "end_line": 59
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "compareTo",
+      "qualified_name": "OrderService::compareTo",
+      "start_line": 61,
+      "end_line": 62
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "interface",
+      "name": "OrderRepository",
+      "qualified_name": "OrderRepository",
+      "start_line": 65,
+      "end_line": 67
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "findById",
+      "qualified_name": "OrderRepository::findById",
+      "start_line": 66,
+      "end_line": 66
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "class",
+      "name": "Helper",
+      "qualified_name": "Helper",
+      "start_line": 69,
+      "end_line": 73
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "Helper::log",
+      "start_line": 70,
+      "end_line": 72
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "kind": "file",
+      "name": "FooConverter.java",
+      "qualified_name": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "kind": "class",
+      "name": "FooConverter",
+      "qualified_name": "FooConverter",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "kind": "method",
+      "name": "convert",
+      "qualified_name": "FooConverter::convert",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "file",
+      "name": "OrderController.java",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java",
+      "start_line": 1,
+      "end_line": 48
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "import",
+      "name": "com.acme.shop.model.Order",
+      "qualified_name": "com.acme.shop.model.Order",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "import",
+      "name": "com.acme.shop.service.OrderService",
+      "qualified_name": "com.acme.shop.service.OrderService",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "import",
+      "name": "org.springframework.beans.factory.annotation.Value",
+      "qualified_name": "org.springframework.beans.factory.annotation.Value",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "import",
+      "name": "org.springframework.web.bind.annotation",
+      "qualified_name": "org.springframework.web.bind.annotation",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "import",
+      "name": "java.util.Objects.requireNonNull",
+      "qualified_name": "java.util.Objects.requireNonNull",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "class",
+      "name": "OrderController",
+      "qualified_name": "OrderController",
+      "start_line": 9,
+      "end_line": 47
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "route",
+      "name": "BASE /api/orders",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java::BASE:/api/orders",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "field",
+      "name": "cacheTtl",
+      "qualified_name": "OrderController::cacheTtl",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "field",
+      "name": "orderService",
+      "qualified_name": "OrderController::orderService",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "method",
+      "name": "OrderController",
+      "qualified_name": "OrderController::OrderController",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "route",
+      "name": "GET /{id}",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java::GET:/{id}",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "OrderController::show",
+      "start_line": 21,
+      "end_line": 24
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "OrderController::show::id",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "route",
+      "name": "POST /create",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java::POST:/create",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "OrderController::create",
+      "start_line": 26,
+      "end_line": 31
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "OrderController::create::id",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "route",
+      "name": "GET /legacy",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java::GET:/legacy",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "method",
+      "name": "legacy",
+      "qualified_name": "OrderController::legacy",
+      "start_line": 33,
+      "end_line": 37
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "route",
+      "name": "POST /legacy-post",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java::POST:/legacy-post",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "route",
+      "name": "DELETE /{id}",
+      "qualified_name": "src/main/java/com/acme/shop/web/OrderController.java::DELETE:/{id}",
+      "start_line": 39,
+      "end_line": 39
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "method",
+      "name": "remove",
+      "qualified_name": "OrderController::remove",
+      "start_line": 39,
+      "end_line": 42
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "parameter",
+      "name": "id",
+      "qualified_name": "OrderController::remove::id",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "OrderController::describe",
+      "start_line": 44,
+      "end_line": 46
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "file",
+      "name": "application.properties",
+      "qualified_name": "src/main/resources/application.properties",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "constant",
+      "name": "app.cache.ttl",
+      "qualified_name": "app.cache.ttl",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "constant",
+      "name": "feature.payments.enabled",
+      "qualified_name": "feature.payments.enabled",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "constant",
+      "name": "feature.payments.url",
+      "qualified_name": "feature.payments.url",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "constant",
+      "name": "orders.page-size",
+      "qualified_name": "orders.page-size",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "kind": "file",
+      "name": "OrderAttributeDaoMapper.xml",
+      "qualified_name": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "kind": "method",
+      "name": "deleteByOrderId",
+      "qualified_name": "OrderAttributeDaoMapper::deleteByOrderId",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "kind": "method",
+      "name": "findAttr",
+      "qualified_name": "OrderAttributeDaoMapper::findAttr",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "file",
+      "name": "OrderMapper.xml",
+      "qualified_name": "src/main/resources/mapper/OrderMapper.xml",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "type_alias",
+      "name": "OrderResult",
+      "qualified_name": "OrderMapper::OrderResult",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "method",
+      "name": "orderColumns",
+      "qualified_name": "OrderMapper::orderColumns",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "method",
+      "name": "findOrder",
+      "qualified_name": "OrderMapper::findOrder",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "method",
+      "name": "deleteOrder",
+      "qualified_name": "OrderMapper::deleteOrder",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "file",
+      "name": "OrderServiceTest.java",
+      "qualified_name": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "import",
+      "name": "org.junit.jupiter.api.Test",
+      "qualified_name": "org.junit.jupiter.api.Test",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "import",
+      "name": "org.junit.jupiter.api.Assertions.assertEquals",
+      "qualified_name": "org.junit.jupiter.api.Assertions.assertEquals",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "class",
+      "name": "OrderServiceTest",
+      "qualified_name": "OrderServiceTest",
+      "start_line": 6,
+      "end_line": 12
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "method",
+      "name": "namesTheService",
+      "qualified_name": "OrderServiceTest::namesTheService",
+      "start_line": 7,
+      "end_line": 11
+    }
+  ],
+  "edges": [
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "StoreModule",
+      "target_kind": "method",
+      "target": "StoreModule::StoreModule",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "StoreModule",
+      "target_kind": "method",
+      "target": "StoreModule::getName",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "StoreModule",
+      "target_kind": "method",
+      "target": "StoreModule::persist",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "StoreModule",
+      "target_kind": "method",
+      "target": "StoreModule::save",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "StoreModule",
+      "target_kind": "method",
+      "target": "StoreModule::syncGet",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "class",
+      "target": "StoreModule",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "import",
+      "target": "com.facebook.react.bridge.ReactApplicationContext",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "import",
+      "target": "com.facebook.react.bridge.ReactContextBaseJavaModule",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "import",
+      "target": "com.facebook.react.bridge.ReactMethod",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": null
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "import",
+      "target": "com.facebook.react.bridge.ReactApplicationContext",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": 3
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "import",
+      "target": "com.facebook.react.bridge.ReactContextBaseJavaModule",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": 4
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "target_kind": "import",
+      "target": "com.facebook.react.bridge.ReactMethod",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": 5
+    },
+    {
+      "file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "StoreModule::save",
+      "target_kind": "method",
+      "target": "StoreModule::persist",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": 15
+    },
+    {
+      "file": "js/store.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/store.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/store.js",
+      "line": null
+    },
+    {
+      "file": "js/store.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "js/store.js",
+      "target_kind": "function",
+      "target": "saveAll",
+      "target_file": "js/store.js",
+      "line": null
+    },
+    {
+      "file": "js/store.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "js/store.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/store.js",
+      "line": 1
+    },
+    {
+      "file": "js/store.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "js/store.js",
+      "target_kind": "import",
+      "target": "react-native",
+      "target_file": "js/store.js",
+      "line": 1
+    },
+    {
+      "file": "js/store.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "saveAll",
+      "target_kind": "method",
+      "target": "StoreModule::save",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": 4
+    },
+    {
+      "file": "js/store.js",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "saveAll",
+      "target_kind": "method",
+      "target": "StoreModule::syncGet",
+      "target_file": "android/src/main/java/com/acme/rn/StoreModule.java",
+      "line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PaymentsAutoConfig",
+      "target_kind": "field",
+      "target": "PaymentsAutoConfig::pageLabel",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PaymentsAutoConfig",
+      "target_kind": "method",
+      "target": "PaymentsAutoConfig::paymentsClient",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PaymentsAutoConfig",
+      "target_kind": "field",
+      "target": "PaymentsAutoConfig::url",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PaymentsClient",
+      "target_kind": "method",
+      "target": "PaymentsClient::PaymentsClient",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "PaymentsClient",
+      "target_kind": "field",
+      "target": "PaymentsClient::endpoint",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "class",
+      "target": "PaymentsAutoConfig",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "class",
+      "target": "PaymentsClient",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.beans.factory.annotation.Value",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.context.annotation.Bean",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.context.annotation.Configuration",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.beans.factory.annotation.Value",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.context.annotation.Bean",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "target_kind": "import",
+      "target": "org.springframework.context.annotation.Configuration",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "references",
+      "source_kind": "class",
+      "source": "PaymentsAutoConfig",
+      "target_kind": "constant",
+      "target": "feature.payments.enabled",
+      "target_file": "src/main/resources/application.properties",
+      "line": 8
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "references",
+      "source_kind": "field",
+      "source": "PaymentsAutoConfig::url",
+      "target_kind": "constant",
+      "target": "feature.payments.url",
+      "target_file": "src/main/resources/application.properties",
+      "line": 12
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "references",
+      "source_kind": "field",
+      "source": "PaymentsAutoConfig::pageLabel",
+      "target_kind": "constant",
+      "target": "orders.page-size",
+      "target_file": "src/main/resources/application.properties",
+      "line": 15
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "PaymentsAutoConfig::paymentsClient",
+      "target_kind": "class",
+      "target": "PaymentsClient",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 18
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "PaymentsAutoConfig::paymentsClient",
+      "target_kind": "class",
+      "target": "PaymentsClient",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 19
+    },
+    {
+      "file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "PaymentsClient::PaymentsClient",
+      "target_kind": "field",
+      "target": "PaymentsClient::endpoint",
+      "target_file": "src/main/java/com/acme/shop/config/PaymentsAutoConfig.java",
+      "line": 26
+    },
+    {
+      "file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooConverter",
+      "target_kind": "method",
+      "target": "FooConverter::convert",
+      "target_file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "target_kind": "class",
+      "target": "FooConverter",
+      "target_file": "src/main/java/com/acme/shop/dao/converter/FooConverter.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderAttributeDaoImpl",
+      "target_kind": "field",
+      "target": "OrderAttributeDaoImpl::SQL_NS",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderAttributeDaoImpl",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoImpl::deleteByOrderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderAttributeDaoImpl",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoImpl::findAttr",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderAttributeDaoImpl",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoImpl::getSqlSessionTemplate",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderAttributeDaoImpl",
+      "target_kind": "field",
+      "target": "OrderAttributeDaoImpl::sqlSessionTemplate",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "OrderMapper",
+      "target_kind": "method",
+      "target": "OrderMapper::deleteOrder",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "OrderMapper",
+      "target_kind": "parameter",
+      "target": "OrderMapper::deleteOrder::orderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "OrderMapper",
+      "target_kind": "method",
+      "target": "OrderMapper::findOrder",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "OrderMapper",
+      "target_kind": "parameter",
+      "target": "OrderMapper::findOrder::orderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "OrderMapper::deleteOrder",
+      "target_kind": "parameter",
+      "target": "OrderMapper::deleteOrder::orderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "OrderMapper::findOrder",
+      "target_kind": "parameter",
+      "target": "OrderMapper::findOrder::orderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "interface",
+      "target": "OrderAttributeDao",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "class",
+      "target": "OrderAttributeDaoImpl",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "interface",
+      "target": "OrderMapper",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.model.Order",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Mapper",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "org.mybatis.spring.SqlSessionTemplate",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderAttributeDaoImpl::deleteByOrderId",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoMapper::deleteByOrderId",
+      "target_file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderAttributeDaoImpl::findAttr",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoMapper::findAttr",
+      "target_file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderMapper::deleteOrder",
+      "target_kind": "method",
+      "target": "OrderMapper::deleteOrder",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderMapper::findOrder",
+      "target_kind": "method",
+      "target": "OrderMapper::findOrder",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.model.Order",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Mapper",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "org.apache.ibatis.annotations.Param",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "target_kind": "import",
+      "target": "org.mybatis.spring.SqlSessionTemplate",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderMapper::findOrder",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 10
+    },
+    {
+      "file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderAttributeDaoImpl::deleteByOrderId",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoImpl::getSqlSessionTemplate",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 20
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::Committer",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::commit",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "field",
+      "target": "Committer::order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "field",
+      "target": "Order::MAX_LINES",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::addLine",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::getId",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::getStatus",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "field",
+      "target": "Order::id",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "field",
+      "target": "Order::lines",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "field",
+      "target": "Order::status",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::validate",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "method",
+      "target": "OrderBuilder::build",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "method",
+      "target": "OrderBuilder::create",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "field",
+      "target": "OrderBuilder::id",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderBuilder",
+      "target_kind": "method",
+      "target": "OrderBuilder::withId",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderFactory",
+      "target_kind": "method",
+      "target": "OrderFactory::direct",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderFactory",
+      "target_kind": "method",
+      "target": "OrderFactory::make",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::NEW",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "method",
+      "target": "OrderStatus::OrderStatus",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "method",
+      "target": "OrderStatus::OrderStatus",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::PAID",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::SHIPPED",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "field",
+      "target": "OrderStatus::label",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "OrderStatus",
+      "target_kind": "method",
+      "target": "OrderStatus::label",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "class",
+      "target": "OrderBuilder",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "class",
+      "target": "OrderFactory",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "enum",
+      "target": "OrderStatus",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "import",
+      "target": "java.util.ArrayList",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "import",
+      "target": "java.util.List",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "import",
+      "target": "java.util.List",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/model/Order.java",
+      "target_kind": "import",
+      "target": "java.util.ArrayList",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Order::Order",
+      "target_kind": "field",
+      "target": "Order::id",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Order::Order",
+      "target_kind": "field",
+      "target": "Order::status",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 14
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Order::Order",
+      "target_kind": "enum_member",
+      "target": "OrderStatus::NEW",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 14
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Order::getStatus",
+      "target_kind": "enum",
+      "target": "OrderStatus",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 19
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Order::addLine",
+      "target_kind": "method",
+      "target": "Order::validate",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 23
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "OrderStatus::OrderStatus",
+      "target_kind": "method",
+      "target": "OrderStatus::label",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 42
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderBuilder::create",
+      "target_kind": "class",
+      "target": "OrderBuilder",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 50
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderBuilder::create",
+      "target_kind": "class",
+      "target": "OrderBuilder",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 50
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderBuilder::withId",
+      "target_kind": "class",
+      "target": "OrderBuilder",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 52
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "OrderBuilder::withId",
+      "target_kind": "field",
+      "target": "OrderBuilder::id",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 53
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderBuilder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 57
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderBuilder::build",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 57
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderBuilder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 57
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "Committer::Committer",
+      "target_kind": "field",
+      "target": "Committer::order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 63
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Committer::Committer",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 63
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Committer::commit",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 65
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderFactory::make",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 69
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderFactory::make",
+      "target_kind": "method",
+      "target": "OrderBuilder::create",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 70
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderFactory::make",
+      "target_kind": "method",
+      "target": "OrderBuilder::withId",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 71
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderFactory::direct",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 74
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderFactory::direct",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 74
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderFactory::direct",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 75
+    },
+    {
+      "file": "src/main/java/com/acme/shop/model/Order.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderFactory::direct",
+      "target_kind": "method",
+      "target": "Committer::commit",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 76
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseService",
+      "target_kind": "method",
+      "target": "BaseService::load",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Helper",
+      "target_kind": "method",
+      "target": "Helper::log",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "OrderPort",
+      "target_kind": "method",
+      "target": "OrderPort::find",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "OrderRepository",
+      "target_kind": "method",
+      "target": "OrderRepository::findById",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::OrderService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::audit",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "field",
+      "target": "OrderService::cache",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::compareTo",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::find",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "field",
+      "target": "OrderService::fooConverter",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::load",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::name",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "field",
+      "target": "OrderService::orderRepository",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::track",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "Port",
+      "target_kind": "method",
+      "target": "Port::name",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "class",
+      "target": "BaseService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "class",
+      "target": "Helper",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "interface",
+      "target": "OrderPort",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "interface",
+      "target": "OrderRepository",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "class",
+      "target": "OrderService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "interface",
+      "target": "Port",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.model.Order",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.service.converter.FooConverter",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "java.util",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "org.springframework.stereotype.Service",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "org.springframework.transaction.annotation.Transactional",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.model.Order",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.service.converter.FooConverter",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "org.springframework.stereotype.Service",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "org.springframework.transaction.annotation.Transactional",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_kind": "import",
+      "target": "java.util",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "extends",
+      "source_kind": "interface",
+      "source": "OrderPort",
+      "target_kind": "interface",
+      "target": "Port",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderPort::find",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 14
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "class",
+      "target": "BaseService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 22
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "OrderService",
+      "target_kind": "interface",
+      "target": "OrderPort",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 22
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::OrderService",
+      "target_kind": "interface",
+      "target": "OrderRepository",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 27
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "OrderService::OrderService",
+      "target_kind": "field",
+      "target": "OrderService::orderRepository",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 28
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderService::find",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 36
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::find",
+      "target_kind": "method",
+      "target": "FooConverter::convert",
+      "target_file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "line": 37
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::find",
+      "target_kind": "method",
+      "target": "OrderService::load",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 42
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderService::load",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 46
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::load",
+      "target_kind": "method",
+      "target": "OrderRepository::findById",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 47
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::load",
+      "target_kind": "method",
+      "target": "OrderService::audit",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 48
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::load",
+      "target_kind": "method",
+      "target": "OrderService::track",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 49
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::audit",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 53
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::audit",
+      "target_kind": "method",
+      "target": "Helper::log",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 54
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::audit",
+      "target_kind": "method",
+      "target": "Order::getId",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 54
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::track",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 57
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::track",
+      "target_kind": "method",
+      "target": "Order::addLine",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 58
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderService::compareTo",
+      "target_kind": "class",
+      "target": "OrderService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 62
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderRepository::findById",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 66
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FooConverter",
+      "target_kind": "method",
+      "target": "FooConverter::convert",
+      "target_file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "target_kind": "class",
+      "target": "FooConverter",
+      "target_file": "src/main/java/com/acme/shop/service/converter/FooConverter.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "method",
+      "target": "OrderController::OrderController",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "field",
+      "target": "OrderController::cacheTtl",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "method",
+      "target": "OrderController::create",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "parameter",
+      "target": "OrderController::create::id",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "method",
+      "target": "OrderController::describe",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "method",
+      "target": "OrderController::legacy",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "field",
+      "target": "OrderController::orderService",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "method",
+      "target": "OrderController::remove",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "parameter",
+      "target": "OrderController::remove::id",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "method",
+      "target": "OrderController::show",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderController",
+      "target_kind": "parameter",
+      "target": "OrderController::show::id",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "OrderController::create",
+      "target_kind": "parameter",
+      "target": "OrderController::create::id",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "OrderController::remove",
+      "target_kind": "parameter",
+      "target": "OrderController::remove::id",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "method",
+      "source": "OrderController::show",
+      "target_kind": "parameter",
+      "target": "OrderController::show::id",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "class",
+      "target": "OrderController",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.model.Order",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.service.OrderService",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "java.util.Objects.requireNonNull",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "org.springframework.beans.factory.annotation.Value",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": null
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.model.Order",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 3
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "com.acme.shop.service.OrderService",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 4
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "org.springframework.beans.factory.annotation.Value",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 5
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "org.springframework.web.bind.annotation",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 6
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main/java/com/acme/shop/web/OrderController.java",
+      "target_kind": "import",
+      "target": "java.util.Objects.requireNonNull",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 7
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "references",
+      "source_kind": "field",
+      "source": "OrderController::cacheTtl",
+      "target_kind": "constant",
+      "target": "app.cache.ttl",
+      "target_file": "src/main/resources/application.properties",
+      "line": 13
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "OrderController::OrderController",
+      "target_kind": "class",
+      "target": "OrderService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 17
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "field_access",
+      "source_kind": "method",
+      "source": "OrderController::OrderController",
+      "target_kind": "field",
+      "target": "OrderController::orderService",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 18
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderController::show",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 22
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderController::show",
+      "target_kind": "method",
+      "target": "OrderService::find",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 23
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderController::create",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 27
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderController::create",
+      "target_kind": "class",
+      "target": "Order",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 28
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderController::create",
+      "target_kind": "method",
+      "target": "Order::addLine",
+      "target_file": "src/main/java/com/acme/shop/model/Order.java",
+      "line": 29
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderController::legacy",
+      "target_kind": "method",
+      "target": "OrderController::describe",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 36
+    },
+    {
+      "file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderController::remove",
+      "target_kind": "method",
+      "target": "OrderController::describe",
+      "target_file": "src/main/java/com/acme/shop/web/OrderController.java",
+      "line": 41
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/application.properties",
+      "target_kind": "constant",
+      "target": "app.cache.ttl",
+      "target_file": "src/main/resources/application.properties",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/application.properties",
+      "target_kind": "constant",
+      "target": "feature.payments.enabled",
+      "target_file": "src/main/resources/application.properties",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/application.properties",
+      "target_kind": "constant",
+      "target": "feature.payments.url",
+      "target_file": "src/main/resources/application.properties",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/application.properties",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/application.properties",
+      "target_kind": "constant",
+      "target": "orders.page-size",
+      "target_file": "src/main/resources/application.properties",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoMapper::deleteByOrderId",
+      "target_file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "target_kind": "method",
+      "target": "OrderAttributeDaoMapper::findAttr",
+      "target_file": "src/main/resources/mapper/OrderAttributeDaoMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/OrderMapper.xml",
+      "target_kind": "type_alias",
+      "target": "OrderMapper::OrderResult",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/OrderMapper.xml",
+      "target_kind": "method",
+      "target": "OrderMapper::deleteOrder",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/OrderMapper.xml",
+      "target_kind": "method",
+      "target": "OrderMapper::findOrder",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main/resources/mapper/OrderMapper.xml",
+      "target_kind": "method",
+      "target": "OrderMapper::orderColumns",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": null
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderMapper::findOrder",
+      "target_kind": "type_alias",
+      "target": "OrderMapper::OrderResult",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": 8
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderMapper::findOrder",
+      "target_kind": "parameter",
+      "target": "OrderMapper::findOrder::orderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 9
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderMapper::findOrder",
+      "target_kind": "method",
+      "target": "OrderMapper::orderColumns",
+      "target_file": "src/main/resources/mapper/OrderMapper.xml",
+      "line": 9
+    },
+    {
+      "file": "src/main/resources/mapper/OrderMapper.xml",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "OrderMapper::deleteOrder",
+      "target_kind": "parameter",
+      "target": "OrderMapper::deleteOrder::orderId",
+      "target_file": "src/main/java/com/acme/shop/mapper/OrderMapper.java",
+      "line": 12
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "OrderServiceTest",
+      "target_kind": "method",
+      "target": "OrderServiceTest::namesTheService",
+      "target_file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "line": null
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "target_kind": "class",
+      "target": "OrderServiceTest",
+      "target_file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "line": null
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "target_kind": "import",
+      "target": "org.junit.jupiter.api.Assertions.assertEquals",
+      "target_file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "line": null
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "target_kind": "import",
+      "target": "org.junit.jupiter.api.Test",
+      "target_file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "line": null
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "tests",
+      "source_kind": "file",
+      "source": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "target_kind": "file",
+      "target": "src/main/java/com/acme/shop/service/OrderService.java",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": null
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "target_kind": "import",
+      "target": "org.junit.jupiter.api.Test",
+      "target_file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "line": 3
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "target_kind": "import",
+      "target": "org.junit.jupiter.api.Assertions.assertEquals",
+      "target_file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "line": 4
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderServiceTest::namesTheService",
+      "target_kind": "class",
+      "target": "OrderService",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 9
+    },
+    {
+      "file": "src/test/java/com/acme/shop/service/OrderServiceTest.java",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderServiceTest::namesTheService",
+      "target_kind": "method",
+      "target": "OrderService::name",
+      "target_file": "src/main/java/com/acme/shop/service/OrderService.java",
+      "line": 10
+    }
+  ],
+  "unresolved": []
+}

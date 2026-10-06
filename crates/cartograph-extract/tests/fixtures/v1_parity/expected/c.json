@@ -1,0 +1,1347 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "c",
+  "files": [
+    "include/geometry.h",
+    "src/geometry.c",
+    "src/main.c",
+    "src/util/strbuf.c",
+    "src/util/strbuf.h",
+    "src/video/video.c"
+  ],
+  "symbols": [
+    {
+      "file": "include/geometry.h",
+      "kind": "file",
+      "name": "geometry.h",
+      "qualified_name": "include/geometry.h",
+      "start_line": 1,
+      "end_line": 51
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "constant",
+      "name": "GEOMETRY_H",
+      "qualified_name": "GEOMETRY_H",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "import",
+      "name": "stddef.h",
+      "qualified_name": "stddef.h",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "constant",
+      "name": "GEOM_VERSION",
+      "qualified_name": "GEOM_VERSION",
+      "start_line": 6,
+      "end_line": 7
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "constant",
+      "name": "MAX_POINTS",
+      "qualified_name": "MAX_POINTS",
+      "start_line": 7,
+      "end_line": 8
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "constant",
+      "name": "HAVE_FAST_MATH",
+      "qualified_name": "HAVE_FAST_MATH",
+      "start_line": 8,
+      "end_line": 9
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "type_alias",
+      "name": "u32",
+      "qualified_name": "u32",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "struct",
+      "name": "Point",
+      "qualified_name": "Point",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "struct",
+      "name": "Polygon",
+      "qualified_name": "Polygon",
+      "start_line": 18,
+      "end_line": 22
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "type_alias",
+      "name": "Polygon",
+      "qualified_name": "Polygon",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum",
+      "name": "Shape",
+      "qualified_name": "Shape",
+      "start_line": 26,
+      "end_line": 30
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum_member",
+      "name": "SHAPE_NONE",
+      "qualified_name": "Shape::SHAPE_NONE",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum_member",
+      "name": "SHAPE_POINT",
+      "qualified_name": "Shape::SHAPE_POINT",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum_member",
+      "name": "SHAPE_POLY",
+      "qualified_name": "Shape::SHAPE_POLY",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum",
+      "name": "Color",
+      "qualified_name": "Color",
+      "start_line": 32,
+      "end_line": 35
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum_member",
+      "name": "COLOR_RED",
+      "qualified_name": "Color::COLOR_RED",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "enum_member",
+      "name": "COLOR_GREEN",
+      "qualified_name": "Color::COLOR_GREEN",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "variable",
+      "name": "g_polygon_count",
+      "qualified_name": "g_polygon_count",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "file",
+      "name": "geometry.c",
+      "qualified_name": "src/geometry.c",
+      "start_line": 1,
+      "end_line": 62
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "import",
+      "name": "stdio.h",
+      "qualified_name": "stdio.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "import",
+      "name": "stdlib.h",
+      "qualified_name": "stdlib.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "import",
+      "name": "../include/geometry.h",
+      "qualified_name": "../include/geometry.h",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "import",
+      "name": "util/strbuf.h",
+      "qualified_name": "util/strbuf.h",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "constant",
+      "name": "API_EXPORT",
+      "qualified_name": "API_EXPORT",
+      "start_line": 6,
+      "end_line": 7
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "constant",
+      "name": "AX_API",
+      "qualified_name": "AX_API",
+      "start_line": 7,
+      "end_line": 8
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "point_make",
+      "qualified_name": "point_make",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "point_dot",
+      "qualified_name": "point_dot",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "polygon_new",
+      "qualified_name": "polygon_new",
+      "start_line": 21,
+      "end_line": 27
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "polygon_free",
+      "qualified_name": "polygon_free",
+      "start_line": 29,
+      "end_line": 32
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "polygon_area",
+      "qualified_name": "polygon_area",
+      "start_line": 34,
+      "end_line": 40
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "api_describe",
+      "qualified_name": "api_describe",
+      "start_line": 42,
+      "end_line": 47
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "AX_Init",
+      "qualified_name": "AX_Init",
+      "start_line": 49,
+      "end_line": 51
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "type_alias",
+      "name": "(*visit_fn)",
+      "qualified_name": "(*visit_fn)",
+      "start_line": 53,
+      "end_line": 53
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "function",
+      "name": "visit_all",
+      "qualified_name": "visit_all",
+      "start_line": 55,
+      "end_line": 61
+    },
+    {
+      "file": "src/main.c",
+      "kind": "file",
+      "name": "main.c",
+      "qualified_name": "src/main.c",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "src/main.c",
+      "kind": "import",
+      "name": "stdio.h",
+      "qualified_name": "stdio.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/main.c",
+      "kind": "import",
+      "name": "../include/geometry.h",
+      "qualified_name": "../include/geometry.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/main.c",
+      "kind": "function",
+      "name": "print_point",
+      "qualified_name": "print_point",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "src/main.c",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 8,
+      "end_line": 21
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "file",
+      "name": "strbuf.c",
+      "qualified_name": "src/util/strbuf.c",
+      "start_line": 1,
+      "end_line": 22
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "import",
+      "name": "stdlib.h",
+      "qualified_name": "stdlib.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "import",
+      "name": "string.h",
+      "qualified_name": "string.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "import",
+      "name": "strbuf.h",
+      "qualified_name": "strbuf.h",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "function",
+      "name": "grow",
+      "qualified_name": "grow",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "function",
+      "name": "strbuf_new",
+      "qualified_name": "strbuf_new",
+      "start_line": 9,
+      "end_line": 14
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "function",
+      "name": "strbuf_append",
+      "qualified_name": "strbuf_append",
+      "start_line": 16,
+      "end_line": 21
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "file",
+      "name": "strbuf.h",
+      "qualified_name": "src/util/strbuf.h",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "constant",
+      "name": "STRBUF_H",
+      "qualified_name": "STRBUF_H",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "import",
+      "name": "stddef.h",
+      "qualified_name": "stddef.h",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "struct",
+      "name": "strbuf",
+      "qualified_name": "strbuf",
+      "start_line": 6,
+      "end_line": 9
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "file",
+      "name": "video.c",
+      "qualified_name": "src/video/video.c",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "import",
+      "name": "util/strbuf.h",
+      "qualified_name": "util/strbuf.h",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "import",
+      "name": "geometry.h",
+      "qualified_name": "geometry.h",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "type_alias",
+      "name": "AX_S32",
+      "qualified_name": "AX_S32",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "constant",
+      "name": "AX_VOID",
+      "qualified_name": "AX_VOID",
+      "start_line": 5,
+      "end_line": 6
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "variable",
+      "name": "AX_S32",
+      "qualified_name": "AX_S32",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "function",
+      "name": "AX_VIN_Init",
+      "qualified_name": "AX_VIN_Init",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "struct",
+      "name": "frame",
+      "qualified_name": "frame",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "function",
+      "name": "frame_pixels",
+      "qualified_name": "frame_pixels",
+      "start_line": 16,
+      "end_line": 20
+    }
+  ],
+  "edges": [
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::COLOR_GREEN",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::COLOR_RED",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Shape",
+      "target_kind": "enum_member",
+      "target": "Shape::SHAPE_NONE",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Shape",
+      "target_kind": "enum_member",
+      "target": "Shape::SHAPE_POINT",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Shape",
+      "target_kind": "enum_member",
+      "target": "Shape::SHAPE_POLY",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "enum",
+      "target": "Color",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "constant",
+      "target": "GEOMETRY_H",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "constant",
+      "target": "GEOM_VERSION",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "constant",
+      "target": "HAVE_FAST_MATH",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "constant",
+      "target": "MAX_POINTS",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "struct",
+      "target": "Point",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "struct",
+      "target": "Polygon",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "type_alias",
+      "target": "Polygon",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "enum",
+      "target": "Shape",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "variable",
+      "target": "g_polygon_count",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "import",
+      "target": "stddef.h",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "type_alias",
+      "target": "u32",
+      "target_file": "include/geometry.h",
+      "line": null
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "include/geometry.h",
+      "target_kind": "import",
+      "target": "stddef.h",
+      "target_file": "include/geometry.h",
+      "line": 4
+    },
+    {
+      "file": "include/geometry.h",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "Polygon",
+      "target_kind": "struct",
+      "target": "Point",
+      "target_file": "include/geometry.h",
+      "line": 19
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "type_alias",
+      "target": "(*visit_fn)",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "import",
+      "target": "../include/geometry.h",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "constant",
+      "target": "API_EXPORT",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "constant",
+      "target": "AX_API",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "AX_Init",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "api_describe",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "point_dot",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "point_make",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "polygon_area",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "polygon_free",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "polygon_new",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "import",
+      "target": "stdio.h",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "import",
+      "target": "stdlib.h",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "import",
+      "target": "util/strbuf.h",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "function",
+      "target": "visit_all",
+      "target_file": "src/geometry.c",
+      "line": null
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "import",
+      "target": "stdio.h",
+      "target_file": "src/geometry.c",
+      "line": 1
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "import",
+      "target": "stdlib.h",
+      "target_file": "src/geometry.c",
+      "line": 2
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "file",
+      "target": "include/geometry.h",
+      "target_file": "include/geometry.h",
+      "line": 3
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/geometry.c",
+      "target_kind": "file",
+      "target": "src/util/strbuf.h",
+      "target_file": "src/util/strbuf.h",
+      "line": 4
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "point_make",
+      "target_kind": "struct",
+      "target": "Point",
+      "target_file": "include/geometry.h",
+      "line": 12
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "polygon_new",
+      "target_kind": "struct",
+      "target": "Polygon",
+      "target_file": "include/geometry.h",
+      "line": 21
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "api_describe",
+      "target_kind": "constant",
+      "target": "API_EXPORT",
+      "target_file": "src/geometry.c",
+      "line": 42
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "api_describe",
+      "target_kind": "function",
+      "target": "strbuf_new",
+      "target_file": "src/util/strbuf.c",
+      "line": 43
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "api_describe",
+      "target_kind": "function",
+      "target": "strbuf_append",
+      "target_file": "src/util/strbuf.c",
+      "line": 44
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "AX_Init",
+      "target_kind": "constant",
+      "target": "AX_API",
+      "target_file": "src/geometry.c",
+      "line": 49
+    },
+    {
+      "file": "src/geometry.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "AX_Init",
+      "target_kind": "function",
+      "target": "polygon_area",
+      "target_file": "src/geometry.c",
+      "line": 50
+    },
+    {
+      "file": "src/main.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.c",
+      "target_kind": "import",
+      "target": "../include/geometry.h",
+      "target_file": "src/main.c",
+      "line": null
+    },
+    {
+      "file": "src/main.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.c",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "src/main.c",
+      "line": null
+    },
+    {
+      "file": "src/main.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.c",
+      "target_kind": "function",
+      "target": "print_point",
+      "target_file": "src/main.c",
+      "line": null
+    },
+    {
+      "file": "src/main.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/main.c",
+      "target_kind": "import",
+      "target": "stdio.h",
+      "target_file": "src/main.c",
+      "line": null
+    },
+    {
+      "file": "src/main.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main.c",
+      "target_kind": "import",
+      "target": "stdio.h",
+      "target_file": "src/main.c",
+      "line": 1
+    },
+    {
+      "file": "src/main.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/main.c",
+      "target_kind": "file",
+      "target": "include/geometry.h",
+      "target_file": "include/geometry.h",
+      "line": 2
+    },
+    {
+      "file": "src/main.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "polygon_new",
+      "target_file": "src/geometry.c",
+      "line": 11
+    },
+    {
+      "file": "src/main.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "point_make",
+      "target_file": "src/geometry.c",
+      "line": 12
+    },
+    {
+      "file": "src/main.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "point_dot",
+      "target_file": "src/geometry.c",
+      "line": 14
+    },
+    {
+      "file": "src/main.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "print_point",
+      "target_file": "src/main.c",
+      "line": 17
+    },
+    {
+      "file": "src/main.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "polygon_area",
+      "target_file": "src/geometry.c",
+      "line": 18
+    },
+    {
+      "file": "src/main.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "polygon_free",
+      "target_file": "src/geometry.c",
+      "line": 19
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "function",
+      "target": "grow",
+      "target_file": "src/util/strbuf.c",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "import",
+      "target": "stdlib.h",
+      "target_file": "src/util/strbuf.c",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "import",
+      "target": "strbuf.h",
+      "target_file": "src/util/strbuf.c",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "function",
+      "target": "strbuf_append",
+      "target_file": "src/util/strbuf.c",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "function",
+      "target": "strbuf_new",
+      "target_file": "src/util/strbuf.c",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "import",
+      "target": "string.h",
+      "target_file": "src/util/strbuf.c",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "import",
+      "target": "stdlib.h",
+      "target_file": "src/util/strbuf.c",
+      "line": 1
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "import",
+      "target": "string.h",
+      "target_file": "src/util/strbuf.c",
+      "line": 2
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/util/strbuf.c",
+      "target_kind": "import",
+      "target": "strbuf.h",
+      "target_file": "src/util/strbuf.c",
+      "line": 3
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "strbuf_new",
+      "target_kind": "struct",
+      "target": "strbuf",
+      "target_file": "src/util/strbuf.h",
+      "line": 9
+    },
+    {
+      "file": "src/util/strbuf.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "strbuf_append",
+      "target_kind": "function",
+      "target": "grow",
+      "target_file": "src/util/strbuf.c",
+      "line": 18
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.h",
+      "target_kind": "constant",
+      "target": "STRBUF_H",
+      "target_file": "src/util/strbuf.h",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.h",
+      "target_kind": "import",
+      "target": "stddef.h",
+      "target_file": "src/util/strbuf.h",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util/strbuf.h",
+      "target_kind": "struct",
+      "target": "strbuf",
+      "target_file": "src/util/strbuf.h",
+      "line": null
+    },
+    {
+      "file": "src/util/strbuf.h",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/util/strbuf.h",
+      "target_kind": "import",
+      "target": "stddef.h",
+      "target_file": "src/util/strbuf.h",
+      "line": 4
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "type_alias",
+      "target": "AX_S32",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "variable",
+      "target": "AX_S32",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "function",
+      "target": "AX_VIN_Init",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "constant",
+      "target": "AX_VOID",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "struct",
+      "target": "frame",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "function",
+      "target": "frame_pixels",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "import",
+      "target": "geometry.h",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "import",
+      "target": "util/strbuf.h",
+      "target_file": "src/video/video.c",
+      "line": null
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "file",
+      "target": "src/util/strbuf.h",
+      "target_file": "src/util/strbuf.h",
+      "line": 1
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/video/video.c",
+      "target_kind": "import",
+      "target": "geometry.h",
+      "target_file": "src/video/video.c",
+      "line": 2
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "frame_pixels",
+      "target_kind": "function",
+      "target": "strbuf_new",
+      "target_file": "src/util/strbuf.c",
+      "line": 17
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "frame_pixels",
+      "target_kind": "function",
+      "target": "strbuf_append",
+      "target_file": "src/util/strbuf.c",
+      "line": 18
+    },
+    {
+      "file": "src/video/video.c",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "frame_pixels",
+      "target_kind": "function",
+      "target": "AX_VIN_Init",
+      "target_file": "src/video/video.c",
+      "line": 19
+    }
+  ],
+  "unresolved": [
+    {
+      "file": "include/geometry.h",
+      "kind": "type_of",
+      "name": "Polygon",
+      "line": 21
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+game.configs.Guard = Config{
+  root = StateRef{game.roots.DefaultCharacter,
+    genericBehaviours = StateRef{game.states.CrimesHumanoid},
+    combat = StateRef{game.states.AlarmGuard_Combat},
+    idle = StateRef{game.states.Guard},
+    wander = StateRef{game.states.GuardWander},
+  }
+}

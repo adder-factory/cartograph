@@ -1,0 +1,484 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "vbnet",
+  "files": [
+    "src/Billing/Models.vb",
+    "src/Billing/Program.vb"
+  ],
+  "symbols": [
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "file",
+      "name": "Models.vb",
+      "qualified_name": "src/Billing/Models.vb",
+      "start_line": 1,
+      "end_line": 45
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "import",
+      "name": "System.Collections.Generic",
+      "qualified_name": "System.Collections.Generic",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "interface",
+      "name": "IGreeter",
+      "qualified_name": "IGreeter",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "IGreeter::Greet",
+      "start_line": 6,
+      "end_line": 7
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "class",
+      "name": "Person",
+      "qualified_name": "Person",
+      "start_line": 20,
+      "end_line": 44
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "field",
+      "name": "Implements",
+      "qualified_name": "Person::Implements",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "field",
+      "name": "IGreeter",
+      "qualified_name": "Person::IGreeter",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "field",
+      "name": "_name",
+      "qualified_name": "Person::_name",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "field",
+      "name": "Count",
+      "qualified_name": "Person::Count",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "property",
+      "name": "Nickname",
+      "qualified_name": "Person::Nickname",
+      "start_line": 25,
+      "end_line": 26
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "method",
+      "name": "Greet",
+      "qualified_name": "Person::Greet",
+      "start_line": 32,
+      "end_line": 35
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "method",
+      "name": "Helper",
+      "qualified_name": "Person::Helper",
+      "start_line": 36,
+      "end_line": 39
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "method",
+      "name": "Create",
+      "qualified_name": "Person::Create",
+      "start_line": 40,
+      "end_line": 43
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "file",
+      "name": "Program.vb",
+      "qualified_name": "src/Billing/Program.vb",
+      "start_line": 1,
+      "end_line": 38
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "import",
+      "name": "System",
+      "qualified_name": "System",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "import",
+      "name": "Billing",
+      "qualified_name": "Billing",
+      "start_line": 2,
+      "end_line": 3
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "function",
+      "name": "Main",
+      "qualified_name": "Main",
+      "start_line": 7,
+      "end_line": 14
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "function",
+      "name": "Add",
+      "qualified_name": "Add",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "function",
+      "name": "Report",
+      "qualified_name": "Report",
+      "start_line": 19,
+      "end_line": 22
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "function",
+      "name": "Process",
+      "qualified_name": "Process",
+      "start_line": 23,
+      "end_line": 26
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "class",
+      "name": "C",
+      "qualified_name": "C",
+      "start_line": 28,
+      "end_line": 38
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "field",
+      "name": "x",
+      "qualified_name": "C::x",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "method",
+      "name": "F",
+      "qualified_name": "C::F",
+      "start_line": 31,
+      "end_line": 34
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "method",
+      "name": "Helper",
+      "qualified_name": "C::Helper",
+      "start_line": 35,
+      "end_line": 37
+    }
+  ],
+  "edges": [
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "IGreeter",
+      "target_kind": "method",
+      "target": "IGreeter::Greet",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "field",
+      "target": "Person::Count",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "method",
+      "target": "Person::Create",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "method",
+      "target": "Person::Greet",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "method",
+      "target": "Person::Helper",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "field",
+      "target": "Person::IGreeter",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "field",
+      "target": "Person::Implements",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "property",
+      "target": "Person::Nickname",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Person",
+      "target_kind": "field",
+      "target": "Person::_name",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Models.vb",
+      "target_kind": "interface",
+      "target": "IGreeter",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Models.vb",
+      "target_kind": "class",
+      "target": "Person",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Models.vb",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Models.vb",
+      "target_kind": "import",
+      "target": "System.Collections.Generic",
+      "target_file": "src/Billing/Models.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Billing/Models.vb",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Billing/Models.vb",
+      "line": 1
+    },
+    {
+      "file": "src/Billing/Models.vb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Billing/Models.vb",
+      "target_kind": "import",
+      "target": "System.Collections.Generic",
+      "target_file": "src/Billing/Models.vb",
+      "line": 2
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "C",
+      "target_kind": "method",
+      "target": "C::F",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "C",
+      "target_kind": "method",
+      "target": "C::Helper",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "C",
+      "target_kind": "field",
+      "target": "C::x",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "function",
+      "target": "Add",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "import",
+      "target": "Billing",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "class",
+      "target": "C",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "function",
+      "target": "Main",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "function",
+      "target": "Process",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "function",
+      "target": "Report",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Billing/Program.vb",
+      "line": null
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "import",
+      "target": "System",
+      "target_file": "src/Billing/Program.vb",
+      "line": 1
+    },
+    {
+      "file": "src/Billing/Program.vb",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/Billing/Program.vb",
+      "target_kind": "import",
+      "target": "Billing",
+      "target_file": "src/Billing/Program.vb",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

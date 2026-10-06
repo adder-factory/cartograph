@@ -1,0 +1,1370 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "scala",
+  "files": [
+    "app/controllers/Users.scala",
+    "app/models/User.scala",
+    "app/services/UserService.scala",
+    "build.sbt",
+    "conf/routes",
+    "scripts/seed.sc"
+  ],
+  "symbols": [
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "file",
+      "name": "Users.scala",
+      "qualified_name": "app/controllers/Users.scala",
+      "start_line": 1,
+      "end_line": 25
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "import",
+      "name": "javax",
+      "qualified_name": "javax",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "import",
+      "name": "play",
+      "qualified_name": "play",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "import",
+      "name": "services",
+      "qualified_name": "services",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "class",
+      "name": "Users",
+      "qualified_name": "Users",
+      "start_line": 7,
+      "end_line": 17
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "Users::show",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "Users::create",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "class",
+      "name": "HomeController",
+      "qualified_name": "HomeController",
+      "start_line": 19,
+      "end_line": 24
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "method",
+      "name": "index",
+      "qualified_name": "HomeController::index",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "file",
+      "name": "User.scala",
+      "qualified_name": "app/models/User.scala",
+      "start_line": 1,
+      "end_line": 59
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "import",
+      "name": "java",
+      "qualified_name": "java",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "type_alias",
+      "name": "UserId",
+      "qualified_name": "UserId",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "constant",
+      "name": "DefaultName",
+      "qualified_name": "DefaultName",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "variable",
+      "name": "created",
+      "qualified_name": "created",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "trait",
+      "name": "Named",
+      "qualified_name": "Named",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "displayName",
+      "qualified_name": "Named::displayName",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "trait",
+      "name": "Audited",
+      "qualified_name": "Audited",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "Audited::audit",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "class",
+      "name": "Entity",
+      "qualified_name": "Entity",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 20,
+      "end_line": 27
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "field",
+      "name": "createdAt",
+      "qualified_name": "User::createdAt",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "field",
+      "name": "email",
+      "qualified_name": "User::email",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "displayName",
+      "qualified_name": "User::displayName",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "rename",
+      "qualified_name": "User::rename",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 29,
+      "end_line": 34
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "User::create",
+      "start_line": 30,
+      "end_line": 33
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 36,
+      "end_line": 39
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "enum_member",
+      "name": "Admin",
+      "qualified_name": "Role::Admin",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "enum_member",
+      "name": "Member",
+      "qualified_name": "Role::Member",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "enum_member",
+      "name": "Guest",
+      "qualified_name": "Role::Guest",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "class",
+      "name": "UserBuilder",
+      "qualified_name": "UserBuilder",
+      "start_line": 45,
+      "end_line": 54
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "field",
+      "name": "current",
+      "qualified_name": "UserBuilder::current",
+      "start_line": 46,
+      "end_line": 46
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "withId",
+      "qualified_name": "UserBuilder::withId",
+      "start_line": 48,
+      "end_line": 51
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "UserBuilder::build",
+      "start_line": 53,
+      "end_line": 53
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "class",
+      "name": "Committer",
+      "qualified_name": "Committer",
+      "start_line": 56,
+      "end_line": 58
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "method",
+      "name": "commit",
+      "qualified_name": "Committer::commit",
+      "start_line": 57,
+      "end_line": 57
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "file",
+      "name": "UserService.scala",
+      "qualified_name": "app/services/UserService.scala",
+      "start_line": 1,
+      "end_line": 32
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "import",
+      "name": "models",
+      "qualified_name": "models",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "import",
+      "name": "models",
+      "qualified_name": "models",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "import",
+      "name": "scala",
+      "qualified_name": "scala",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "import",
+      "name": "javax",
+      "qualified_name": "javax",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "class",
+      "name": "UserRepository",
+      "qualified_name": "UserRepository",
+      "start_line": 8,
+      "end_line": 14
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "field",
+      "name": "store",
+      "qualified_name": "UserRepository::store",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "find",
+      "qualified_name": "UserRepository::find",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "save",
+      "qualified_name": "UserRepository::save",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "class",
+      "name": "UserService",
+      "qualified_name": "UserService",
+      "start_line": 16,
+      "end_line": 31
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "UserService::load",
+      "start_line": 17,
+      "end_line": 22
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "UserService::build",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "UserService::helper",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "track",
+      "qualified_name": "UserService::track",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "method",
+      "name": "roleOf",
+      "qualified_name": "UserService::roleOf",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "conf/routes",
+      "kind": "file",
+      "name": "routes",
+      "qualified_name": "conf/routes",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "conf/routes",
+      "kind": "route",
+      "name": "GET /",
+      "qualified_name": "conf/routes::GET:/",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "conf/routes",
+      "kind": "route",
+      "name": "GET /users/:id",
+      "qualified_name": "conf/routes::GET:/users/:id",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "conf/routes",
+      "kind": "route",
+      "name": "POST /users",
+      "qualified_name": "conf/routes::POST:/users",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "file",
+      "name": "seed.sc",
+      "qualified_name": "scripts/seed.sc",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "import",
+      "name": "models",
+      "qualified_name": "models",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "function",
+      "name": "seed",
+      "qualified_name": "seed",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "constant",
+      "name": "seeded",
+      "qualified_name": "seeded",
+      "start_line": 5,
+      "end_line": 5
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HomeController",
+      "target_kind": "method",
+      "target": "HomeController::index",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Users",
+      "target_kind": "method",
+      "target": "Users::create",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Users",
+      "target_kind": "method",
+      "target": "Users::show",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "class",
+      "target": "HomeController",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "class",
+      "target": "Users",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "import",
+      "target": "javax",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "import",
+      "target": "play",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "import",
+      "target": "services",
+      "target_file": "app/controllers/Users.scala",
+      "line": null
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "import",
+      "target": "javax",
+      "target_file": "app/controllers/Users.scala",
+      "line": 3
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "import",
+      "target": "play",
+      "target_file": "app/controllers/Users.scala",
+      "line": 4
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/controllers/Users.scala",
+      "target_kind": "import",
+      "target": "services",
+      "target_file": "app/controllers/Users.scala",
+      "line": 5
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Users::show",
+      "target_kind": "method",
+      "target": "UserService::load",
+      "target_file": "app/services/UserService.scala",
+      "line": 10
+    },
+    {
+      "file": "app/controllers/Users.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Users::create",
+      "target_kind": "method",
+      "target": "UserService::build",
+      "target_file": "app/services/UserService.scala",
+      "line": 15
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "trait",
+      "source": "Audited",
+      "target_kind": "method",
+      "target": "Audited::audit",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Committer",
+      "target_kind": "method",
+      "target": "Committer::commit",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "trait",
+      "source": "Named",
+      "target_kind": "method",
+      "target": "Named::displayName",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::Admin",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::Guest",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::Member",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::createdAt",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::displayName",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::email",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::rename",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserBuilder",
+      "target_kind": "method",
+      "target": "UserBuilder::build",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserBuilder",
+      "target_kind": "field",
+      "target": "UserBuilder::current",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserBuilder",
+      "target_kind": "method",
+      "target": "UserBuilder::withId",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "trait",
+      "target": "Audited",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "constant",
+      "target": "DefaultName",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "class",
+      "target": "Entity",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "trait",
+      "target": "Named",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "class",
+      "target": "UserBuilder",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "variable",
+      "target": "created",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "import",
+      "target": "java",
+      "target_file": "app/models/User.scala",
+      "line": null
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/models/User.scala",
+      "target_kind": "import",
+      "target": "java",
+      "target_file": "app/models/User.scala",
+      "line": 3
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "extends",
+      "source_kind": "trait",
+      "source": "Audited",
+      "target_kind": "trait",
+      "target": "Named",
+      "target_file": "app/models/User.scala",
+      "line": 14
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "class",
+      "target": "Entity",
+      "target_file": "app/models/User.scala",
+      "line": 20
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "User::rename",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 26
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "User::create",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 30
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "User::create",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "app/models/User.scala",
+      "line": 30
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserBuilder::withId",
+      "target_kind": "class",
+      "target": "UserBuilder",
+      "target_file": "app/models/User.scala",
+      "line": 48
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserBuilder::withId",
+      "target_kind": "type_alias",
+      "target": "UserId",
+      "target_file": "app/models/User.scala",
+      "line": 48
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserBuilder::build",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "app/models/User.scala",
+      "line": 53
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserBuilder::build",
+      "target_kind": "class",
+      "target": "Committer",
+      "target_file": "app/models/User.scala",
+      "line": 53
+    },
+    {
+      "file": "app/models/User.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "Committer::commit",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 57
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepository",
+      "target_kind": "method",
+      "target": "UserRepository::find",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepository",
+      "target_kind": "method",
+      "target": "UserRepository::save",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepository",
+      "target_kind": "field",
+      "target": "UserRepository::store",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::build",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::helper",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::load",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::roleOf",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::track",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "class",
+      "target": "UserRepository",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "javax",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "scala",
+      "target_file": "app/services/UserService.scala",
+      "line": null
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "app/services/UserService.scala",
+      "line": 3
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "scala",
+      "target_file": "app/services/UserService.scala",
+      "line": 5
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "app/services/UserService.scala",
+      "target_kind": "import",
+      "target": "javax",
+      "target_file": "app/services/UserService.scala",
+      "line": 6
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserRepository::find",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 11
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserRepository::save",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 13
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 17
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "app/models/User.scala",
+      "line": 18
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "UserRepository::find",
+      "target_file": "app/services/UserService.scala",
+      "line": 18
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "UserService::helper",
+      "target_file": "app/services/UserService.scala",
+      "line": 19
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "UserService::track",
+      "target_file": "app/services/UserService.scala",
+      "line": 20
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "UserService::build",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 24
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::helper",
+      "target_kind": "method",
+      "target": "UserRepository::save",
+      "target_file": "app/services/UserService.scala",
+      "line": 26
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::helper",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 26
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::track",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 28
+    },
+    {
+      "file": "app/services/UserService.scala",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "UserService::roleOf",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 30
+    },
+    {
+      "file": "conf/routes",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "conf/routes::GET:/",
+      "target_kind": "method",
+      "target": "HomeController::index",
+      "target_file": "app/controllers/Users.scala",
+      "line": 2
+    },
+    {
+      "file": "conf/routes",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "conf/routes::GET:/users/:id",
+      "target_kind": "method",
+      "target": "Users::show",
+      "target_file": "app/controllers/Users.scala",
+      "line": 3
+    },
+    {
+      "file": "conf/routes",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "conf/routes::POST:/users",
+      "target_kind": "method",
+      "target": "Users::create",
+      "target_file": "app/controllers/Users.scala",
+      "line": 4
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/seed.sc",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "scripts/seed.sc",
+      "line": null
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/seed.sc",
+      "target_kind": "function",
+      "target": "seed",
+      "target_file": "scripts/seed.sc",
+      "line": null
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "scripts/seed.sc",
+      "target_kind": "constant",
+      "target": "seeded",
+      "target_file": "scripts/seed.sc",
+      "line": null
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "scripts/seed.sc",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "scripts/seed.sc",
+      "line": 1
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seed",
+      "target_kind": "method",
+      "target": "User::create",
+      "target_file": "app/models/User.scala",
+      "line": 3
+    },
+    {
+      "file": "scripts/seed.sc",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "seed",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "app/models/User.scala",
+      "line": 3
+    }
+  ],
+  "unresolved": []
+}

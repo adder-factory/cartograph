@@ -1,0 +1,1227 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "hcl",
+  "files": [
+    "infra/extra.tofu",
+    "infra/main.tf",
+    "infra/modules/network/main.tf",
+    "infra/outputs.tf",
+    "infra/terraform.tfvars",
+    "infra/variables.tf",
+    "tools/build.hcl"
+  ],
+  "symbols": [
+    {
+      "file": "infra/extra.tofu",
+      "kind": "file",
+      "name": "extra.tofu",
+      "qualified_name": "infra/extra.tofu",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "infra/extra.tofu",
+      "kind": "resource",
+      "name": "null_resource.tofu_only",
+      "qualified_name": "null_resource.tofu_only",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "file",
+      "name": "main.tf",
+      "qualified_name": "infra/main.tf",
+      "start_line": 1,
+      "end_line": 99
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "module",
+      "name": "terraform",
+      "qualified_name": "terraform",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "namespace",
+      "name": "aws",
+      "qualified_name": "provider.aws",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "name",
+      "qualified_name": "local.name",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "full_name",
+      "qualified_name": "local.full_name",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "tags",
+      "qualified_name": "local.tags",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "upper_ids",
+      "qualified_name": "local.upper_ids",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "labelled",
+      "qualified_name": "local.labelled",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "enabled",
+      "qualified_name": "local.enabled",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "constant",
+      "name": "mixed",
+      "qualified_name": "local.mixed",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "resource",
+      "name": "aws_ami.ubuntu",
+      "qualified_name": "data.aws_ami.ubuntu",
+      "start_line": 22,
+      "end_line": 25
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "resource",
+      "name": "aws_caller_identity.current",
+      "qualified_name": "data.aws_caller_identity.current",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "resource",
+      "name": "aws_instance.web",
+      "qualified_name": "aws_instance.web",
+      "start_line": 29,
+      "end_line": 41
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "resource",
+      "name": "aws_s3_bucket.logs",
+      "qualified_name": "aws_s3_bucket.logs",
+      "start_line": 43,
+      "end_line": 46
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "resource",
+      "name": "aws_s3_bucket.assets",
+      "qualified_name": "aws_s3_bucket.assets",
+      "start_line": 48,
+      "end_line": 50
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "resource",
+      "name": "aws_s3_bucket_versioning.v",
+      "qualified_name": "aws_s3_bucket_versioning.v",
+      "start_line": 52,
+      "end_line": 60
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "module",
+      "name": "vpc",
+      "qualified_name": "module.vpc",
+      "start_line": 66,
+      "end_line": 70
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "module",
+      "name": "registry",
+      "qualified_name": "module.registry",
+      "start_line": 72,
+      "end_line": 74
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "module",
+      "name": "dynamic_src",
+      "qualified_name": "module.dynamic_src",
+      "start_line": 76,
+      "end_line": 78
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "module",
+      "name": "expr_src",
+      "qualified_name": "module.expr_src",
+      "start_line": 80,
+      "end_line": 82
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "module",
+      "name": "no_src",
+      "qualified_name": "module.no_src",
+      "start_line": 84,
+      "end_line": 86
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "namespace",
+      "name": "health",
+      "qualified_name": "check.health",
+      "start_line": 88,
+      "end_line": 93
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "file",
+      "name": "main.tf",
+      "qualified_name": "infra/modules/network/main.tf",
+      "start_line": 1,
+      "end_line": 26
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "variable",
+      "name": "region",
+      "qualified_name": "var.region",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "variable",
+      "name": "cidr",
+      "qualified_name": "var.cidr",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "resource",
+      "name": "aws_vpc.this",
+      "qualified_name": "aws_vpc.this",
+      "start_line": 9,
+      "end_line": 12
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "resource",
+      "name": "aws_subnet.private",
+      "qualified_name": "aws_subnet.private",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "export",
+      "name": "vpc_id",
+      "qualified_name": "output.vpc_id",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "export",
+      "name": "subnet_id",
+      "qualified_name": "output.subnet_id",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "export",
+      "name": "bucket_id",
+      "qualified_name": "output.bucket_id",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "file",
+      "name": "outputs.tf",
+      "qualified_name": "infra/outputs.tf",
+      "start_line": 1,
+      "end_line": 24
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "export",
+      "name": "bucket_arn",
+      "qualified_name": "output.bucket_arn",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "export",
+      "name": "vpc_id",
+      "qualified_name": "output.vpc_id",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "export",
+      "name": "account_id",
+      "qualified_name": "output.account_id",
+      "start_line": 13,
+      "end_line": 15
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "export",
+      "name": "short_data",
+      "qualified_name": "output.short_data",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "export",
+      "name": "ids",
+      "qualified_name": "output.ids",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "infra/terraform.tfvars",
+      "kind": "file",
+      "name": "terraform.tfvars",
+      "qualified_name": "infra/terraform.tfvars",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "file",
+      "name": "variables.tf",
+      "qualified_name": "infra/variables.tf",
+      "start_line": 1,
+      "end_line": 38
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "region",
+      "qualified_name": "var.region",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "prefix",
+      "qualified_name": "var.prefix",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "bucket_prefix",
+      "qualified_name": "var.bucket_prefix",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "environment",
+      "qualified_name": "var.environment",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "subnets",
+      "qualified_name": "var.subnets",
+      "start_line": 19,
+      "end_line": 21
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "input",
+      "qualified_name": "var.input",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "maps",
+      "qualified_name": "var.maps",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "variable",
+      "name": "versioning_status",
+      "qualified_name": "var.versioning_status",
+      "start_line": 31,
+      "end_line": 34
+    },
+    {
+      "file": "tools/build.hcl",
+      "kind": "file",
+      "name": "build.hcl",
+      "qualified_name": "tools/build.hcl",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "tools/build.hcl",
+      "kind": "namespace",
+      "name": "app",
+      "qualified_name": "target.app",
+      "start_line": 2,
+      "end_line": 6
+    },
+    {
+      "file": "tools/build.hcl",
+      "kind": "namespace",
+      "name": "default",
+      "qualified_name": "group.default",
+      "start_line": 8,
+      "end_line": 10
+    }
+  ],
+  "edges": [
+    {
+      "file": "infra/extra.tofu",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/extra.tofu",
+      "target_kind": "resource",
+      "target": "null_resource.tofu_only",
+      "target_file": "infra/extra.tofu",
+      "line": null
+    },
+    {
+      "file": "infra/extra.tofu",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "null_resource.tofu_only",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket.assets",
+      "target_file": "infra/main.tf",
+      "line": 3
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "resource",
+      "target": "aws_instance.web",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket.assets",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket.logs",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket_versioning.v",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "namespace",
+      "target": "check.health",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "resource",
+      "target": "data.aws_ami.ubuntu",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "resource",
+      "target": "data.aws_caller_identity.current",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.enabled",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.full_name",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.labelled",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.mixed",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.name",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.tags",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "constant",
+      "target": "local.upper_ids",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "module",
+      "target": "module.dynamic_src",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "module",
+      "target": "module.expr_src",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "module",
+      "target": "module.no_src",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "module",
+      "target": "module.registry",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "module",
+      "target": "module.vpc",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "namespace",
+      "target": "provider.aws",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/main.tf",
+      "target_kind": "module",
+      "target": "terraform",
+      "target_file": "infra/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "namespace",
+      "source": "provider.aws",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": 9
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.name",
+      "target_kind": "variable",
+      "target": "var.prefix",
+      "target_file": "infra/variables.tf",
+      "line": 13
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.full_name",
+      "target_kind": "variable",
+      "target": "var.bucket_prefix",
+      "target_file": "infra/variables.tf",
+      "line": 14
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.full_name",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": 14
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.tags",
+      "target_kind": "constant",
+      "target": "local.name",
+      "target_file": "infra/main.tf",
+      "line": 15
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.tags",
+      "target_kind": "variable",
+      "target": "var.environment",
+      "target_file": "infra/variables.tf",
+      "line": 15
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.upper_ids",
+      "target_kind": "variable",
+      "target": "var.subnets",
+      "target_file": "infra/variables.tf",
+      "line": 16
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.labelled",
+      "target_kind": "variable",
+      "target": "var.input",
+      "target_file": "infra/variables.tf",
+      "line": 17
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.enabled",
+      "target_kind": "variable",
+      "target": "var.maps",
+      "target_file": "infra/variables.tf",
+      "line": 18
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.mixed",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": 19
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "constant",
+      "source": "local.mixed",
+      "target_kind": "variable",
+      "target": "var.subnets",
+      "target_file": "infra/variables.tf",
+      "line": 19
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_instance.web",
+      "target_kind": "resource",
+      "target": "data.aws_ami.ubuntu",
+      "target_file": "infra/main.tf",
+      "line": 31
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_instance.web",
+      "target_kind": "module",
+      "target": "module.vpc",
+      "target_file": "infra/main.tf",
+      "line": 32
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_instance.web",
+      "target_kind": "constant",
+      "target": "local.name",
+      "target_file": "infra/main.tf",
+      "line": 34
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_s3_bucket.logs",
+      "target_kind": "constant",
+      "target": "local.full_name",
+      "target_file": "infra/main.tf",
+      "line": 44
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_s3_bucket.logs",
+      "target_kind": "constant",
+      "target": "local.tags",
+      "target_file": "infra/main.tf",
+      "line": 45
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_s3_bucket.assets",
+      "target_kind": "constant",
+      "target": "local.name",
+      "target_file": "infra/main.tf",
+      "line": 49
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_s3_bucket_versioning.v",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket.logs",
+      "target_file": "infra/main.tf",
+      "line": 53
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_s3_bucket_versioning.v",
+      "target_kind": "variable",
+      "target": "var.versioning_status",
+      "target_file": "infra/variables.tf",
+      "line": 55
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_s3_bucket_versioning.v",
+      "target_kind": "constant",
+      "target": "local.tags",
+      "target_file": "infra/main.tf",
+      "line": 57
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "module.vpc",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": 68
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "module.vpc",
+      "target_kind": "constant",
+      "target": "local.full_name",
+      "target_file": "infra/main.tf",
+      "line": 69
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "module.dynamic_src",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": 77
+    },
+    {
+      "file": "infra/main.tf",
+      "kind": "references",
+      "source_kind": "module",
+      "source": "module.expr_src",
+      "target_kind": "constant",
+      "target": "local.name",
+      "target_file": "infra/main.tf",
+      "line": 81
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/modules/network/main.tf",
+      "target_kind": "resource",
+      "target": "aws_subnet.private",
+      "target_file": "infra/modules/network/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/modules/network/main.tf",
+      "target_kind": "resource",
+      "target": "aws_vpc.this",
+      "target_file": "infra/modules/network/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/modules/network/main.tf",
+      "target_kind": "export",
+      "target": "output.subnet_id",
+      "target_file": "infra/modules/network/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/modules/network/main.tf",
+      "target_kind": "export",
+      "target": "output.vpc_id",
+      "target_file": "infra/modules/network/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/modules/network/main.tf",
+      "target_kind": "variable",
+      "target": "var.cidr",
+      "target_file": "infra/modules/network/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/modules/network/main.tf",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/modules/network/main.tf",
+      "line": null
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_vpc.this",
+      "target_kind": "variable",
+      "target": "var.cidr",
+      "target_file": "infra/modules/network/main.tf",
+      "line": 10
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_vpc.this",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": 11
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_subnet.private",
+      "target_kind": "resource",
+      "target": "aws_vpc.this",
+      "target_file": "infra/modules/network/main.tf",
+      "line": 15
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "aws_subnet.private",
+      "target_kind": "variable",
+      "target": "var.cidr",
+      "target_file": "infra/modules/network/main.tf",
+      "line": 16
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.vpc_id",
+      "target_kind": "resource",
+      "target": "aws_vpc.this",
+      "target_file": "infra/modules/network/main.tf",
+      "line": 20
+    },
+    {
+      "file": "infra/modules/network/main.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.subnet_id",
+      "target_kind": "resource",
+      "target": "aws_subnet.private",
+      "target_file": "infra/modules/network/main.tf",
+      "line": 24
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/outputs.tf",
+      "target_kind": "export",
+      "target": "output.account_id",
+      "target_file": "infra/outputs.tf",
+      "line": null
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/outputs.tf",
+      "target_kind": "export",
+      "target": "output.bucket_arn",
+      "target_file": "infra/outputs.tf",
+      "line": null
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/outputs.tf",
+      "target_kind": "export",
+      "target": "output.bucket_id",
+      "target_file": "infra/outputs.tf",
+      "line": null
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/outputs.tf",
+      "target_kind": "export",
+      "target": "output.ids",
+      "target_file": "infra/outputs.tf",
+      "line": null
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/outputs.tf",
+      "target_kind": "export",
+      "target": "output.short_data",
+      "target_file": "infra/outputs.tf",
+      "line": null
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/outputs.tf",
+      "target_kind": "export",
+      "target": "output.vpc_id",
+      "target_file": "infra/outputs.tf",
+      "line": null
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.bucket_id",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket.logs",
+      "target_file": "infra/main.tf",
+      "line": 2
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.bucket_arn",
+      "target_kind": "resource",
+      "target": "aws_s3_bucket.logs",
+      "target_file": "infra/main.tf",
+      "line": 6
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.vpc_id",
+      "target_kind": "module",
+      "target": "module.vpc",
+      "target_file": "infra/main.tf",
+      "line": 10
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.account_id",
+      "target_kind": "resource",
+      "target": "data.aws_caller_identity.current",
+      "target_file": "infra/main.tf",
+      "line": 14
+    },
+    {
+      "file": "infra/outputs.tf",
+      "kind": "references",
+      "source_kind": "export",
+      "source": "output.ids",
+      "target_kind": "variable",
+      "target": "var.subnets",
+      "target_file": "infra/variables.tf",
+      "line": 22
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.bucket_prefix",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.environment",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.input",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.maps",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.prefix",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.region",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.subnets",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "infra/variables.tf",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "infra/variables.tf",
+      "target_kind": "variable",
+      "target": "var.versioning_status",
+      "target_file": "infra/variables.tf",
+      "line": null
+    },
+    {
+      "file": "tools/build.hcl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tools/build.hcl",
+      "target_kind": "namespace",
+      "target": "group.default",
+      "target_file": "tools/build.hcl",
+      "line": null
+    },
+    {
+      "file": "tools/build.hcl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "tools/build.hcl",
+      "target_kind": "namespace",
+      "target": "target.app",
+      "target_file": "tools/build.hcl",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

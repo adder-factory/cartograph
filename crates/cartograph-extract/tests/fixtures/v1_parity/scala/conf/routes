@@ -1,0 +1,5 @@
+# Routes
+GET     /                       controllers.HomeController.index
+GET     /users/:id              controllers.Users.show(id: Long)
+POST    /users                  controllers.Users.create()
+->      /admin                  admin.Routes

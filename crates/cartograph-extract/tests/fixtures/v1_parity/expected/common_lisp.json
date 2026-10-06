@@ -1,0 +1,683 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "common_lisp",
+  "files": [
+    "demo.asd",
+    "src/core.lisp",
+    "src/legacy.cl",
+    "src/package.lisp",
+    "src/util.lisp"
+  ],
+  "symbols": [
+    {
+      "file": "demo.asd",
+      "kind": "file",
+      "name": "demo.asd",
+      "qualified_name": "demo.asd",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "file",
+      "name": "core.lisp",
+      "qualified_name": "src/core.lisp",
+      "start_line": 1,
+      "end_line": 39
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "namespace",
+      "name": "demo.core",
+      "qualified_name": "demo.core",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "import",
+      "name": "asdf",
+      "qualified_name": "asdf",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "import",
+      "name": "uiop",
+      "qualified_name": "uiop",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "import",
+      "name": "demo.util",
+      "qualified_name": "demo.util",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "constant",
+      "name": "*default-name*",
+      "qualified_name": "*default-name*",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "function",
+      "name": "greet",
+      "qualified_name": "greet",
+      "start_line": 10,
+      "end_line": 11
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "function",
+      "name": "with-log",
+      "qualified_name": "with-log",
+      "start_line": 13,
+      "end_line": 14
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "class",
+      "name": "user",
+      "qualified_name": "user",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "class",
+      "name": "my-error",
+      "qualified_name": "my-error",
+      "start_line": 20,
+      "end_line": 21
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "function",
+      "name": "describe-user",
+      "qualified_name": "describe-user",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "function",
+      "name": "describe-user",
+      "qualified_name": "describe-user",
+      "start_line": 25,
+      "end_line": 26
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "function",
+      "name": "area",
+      "qualified_name": "area",
+      "start_line": 28,
+      "end_line": 30
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 32,
+      "end_line": 38
+    },
+    {
+      "file": "src/legacy.cl",
+      "kind": "file",
+      "name": "legacy.cl",
+      "qualified_name": "src/legacy.cl",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "src/legacy.cl",
+      "kind": "namespace",
+      "name": "demo.core",
+      "qualified_name": "demo.core",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/legacy.cl",
+      "kind": "function",
+      "name": "legacy-entry",
+      "qualified_name": "legacy-entry",
+      "start_line": 3,
+      "end_line": 4
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "file",
+      "name": "package.lisp",
+      "qualified_name": "src/package.lisp",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "namespace",
+      "name": "demo.util",
+      "qualified_name": "demo.util",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "import",
+      "name": "cl",
+      "qualified_name": "demo.util::cl",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "namespace",
+      "name": "demo.core",
+      "qualified_name": "demo.core",
+      "start_line": 5,
+      "end_line": 8
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "import",
+      "name": "cl",
+      "qualified_name": "demo.core::cl",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "import",
+      "name": "alexandria",
+      "qualified_name": "demo.core::alexandria",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "import",
+      "name": "demo.util",
+      "qualified_name": "demo.core::demo.util",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "file",
+      "name": "util.lisp",
+      "qualified_name": "src/util.lisp",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "namespace",
+      "name": "demo.util",
+      "qualified_name": "demo.util",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "constant",
+      "name": "*counter*",
+      "qualified_name": "*counter*",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "constant",
+      "name": "+max-level+",
+      "qualified_name": "+max-level+",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "function",
+      "name": "helper",
+      "qualified_name": "helper",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "function",
+      "name": "clamp",
+      "qualified_name": "clamp",
+      "start_line": 11,
+      "end_line": 12
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "struct",
+      "name": "point",
+      "qualified_name": "point",
+      "start_line": 14,
+      "end_line": 16
+    }
+  ],
+  "edges": [
+    {
+      "file": "demo.asd",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "demo.asd",
+      "target_kind": "import",
+      "target": "demo.core::alexandria",
+      "target_file": "src/package.lisp",
+      "line": 3
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "constant",
+      "target": "*default-name*",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "function",
+      "target": "area",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "import",
+      "target": "asdf",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "namespace",
+      "target": "demo.core",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "import",
+      "target": "demo.util",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "function",
+      "target": "describe-user",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "function",
+      "target": "describe-user",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "class",
+      "target": "my-error",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "import",
+      "target": "uiop",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "class",
+      "target": "user",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "function",
+      "target": "with-log",
+      "target_file": "src/core.lisp",
+      "line": null
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "import",
+      "target": "asdf",
+      "target_file": "src/core.lisp",
+      "line": 3
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "import",
+      "target": "uiop",
+      "target_file": "src/core.lisp",
+      "line": 4
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "src/core.lisp",
+      "target_kind": "import",
+      "target": "demo.util",
+      "target_file": "src/core.lisp",
+      "line": 6
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "greet",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "src/util.lisp",
+      "line": 11
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "greet",
+      "target_file": "src/core.lisp",
+      "line": 34
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "with-log",
+      "target_file": "src/core.lisp",
+      "line": 34
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "describe-user",
+      "target_file": "src/core.lisp",
+      "line": 35
+    },
+    {
+      "file": "src/core.lisp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "clamp",
+      "target_file": "src/util.lisp",
+      "line": 37
+    },
+    {
+      "file": "src/legacy.cl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/legacy.cl",
+      "target_kind": "namespace",
+      "target": "demo.core",
+      "target_file": "src/legacy.cl",
+      "line": null
+    },
+    {
+      "file": "src/legacy.cl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/legacy.cl",
+      "target_kind": "function",
+      "target": "legacy-entry",
+      "target_file": "src/legacy.cl",
+      "line": null
+    },
+    {
+      "file": "src/legacy.cl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "legacy-entry",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "src/core.lisp",
+      "line": 4
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "demo.core",
+      "target_kind": "import",
+      "target": "demo.core::alexandria",
+      "target_file": "src/package.lisp",
+      "line": null
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "demo.core",
+      "target_kind": "import",
+      "target": "demo.core::cl",
+      "target_file": "src/package.lisp",
+      "line": null
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "demo.core",
+      "target_kind": "import",
+      "target": "demo.core::demo.util",
+      "target_file": "src/package.lisp",
+      "line": null
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "contains",
+      "source_kind": "namespace",
+      "source": "demo.util",
+      "target_kind": "import",
+      "target": "demo.util::cl",
+      "target_file": "src/package.lisp",
+      "line": null
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/package.lisp",
+      "target_kind": "namespace",
+      "target": "demo.core",
+      "target_file": "src/package.lisp",
+      "line": null
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/package.lisp",
+      "target_kind": "namespace",
+      "target": "demo.util",
+      "target_file": "src/package.lisp",
+      "line": null
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "imports",
+      "source_kind": "namespace",
+      "source": "demo.util",
+      "target_kind": "import",
+      "target": "demo.util::cl",
+      "target_file": "src/package.lisp",
+      "line": 2
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "imports",
+      "source_kind": "namespace",
+      "source": "demo.core",
+      "target_kind": "import",
+      "target": "demo.core::alexandria",
+      "target_file": "src/package.lisp",
+      "line": 6
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "imports",
+      "source_kind": "namespace",
+      "source": "demo.core",
+      "target_kind": "import",
+      "target": "demo.core::cl",
+      "target_file": "src/package.lisp",
+      "line": 6
+    },
+    {
+      "file": "src/package.lisp",
+      "kind": "imports",
+      "source_kind": "namespace",
+      "source": "demo.core",
+      "target_kind": "import",
+      "target": "demo.core::demo.util",
+      "target_file": "src/package.lisp",
+      "line": 7
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util.lisp",
+      "target_kind": "constant",
+      "target": "*counter*",
+      "target_file": "src/util.lisp",
+      "line": null
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util.lisp",
+      "target_kind": "constant",
+      "target": "+max-level+",
+      "target_file": "src/util.lisp",
+      "line": null
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util.lisp",
+      "target_kind": "function",
+      "target": "clamp",
+      "target_file": "src/util.lisp",
+      "line": null
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util.lisp",
+      "target_kind": "namespace",
+      "target": "demo.util",
+      "target_file": "src/util.lisp",
+      "line": null
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util.lisp",
+      "target_kind": "function",
+      "target": "helper",
+      "target_file": "src/util.lisp",
+      "line": null
+    },
+    {
+      "file": "src/util.lisp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/util.lisp",
+      "target_kind": "struct",
+      "target": "point",
+      "target_file": "src/util.lisp",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

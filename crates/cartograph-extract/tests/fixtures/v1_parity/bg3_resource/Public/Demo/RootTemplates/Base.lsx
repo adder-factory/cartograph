@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<save>
+  <region id="Templates">
+    <node id="GameObjects">
+      <children>
+        <node id="GameObject">
+          <attribute id="UUID" type="FixedString" value="22222222-2222-2222-2222-222222222222" />
+          <attribute id="Name" type="LSString" value="BASE_Sword" />
+          <attribute id="Type" type="FixedString" value="item" />
+        </node>
+        <node id="GameObject">
+          <attribute id="UUID" type="FixedString" value="33333333-3333-3333-3333-333333333333" />
+          <attribute id="NameFS" type="FixedString" value="TAG_Weapon_Blade" />
+        </node>
+      </children>
+    </node>
+  </region>
+</save>
