@@ -1,6 +1,8 @@
 mod file_path_resolution;
 mod javascript_config;
 mod javascript_exports;
+mod javascript_framework_resolution;
+mod javascript_member_resolution;
 mod javascript_modules;
 mod javascript_packages;
 mod pascal_resolution;
@@ -44,8 +46,9 @@ use cartograph_extract::{
     CloneTokenCount, CloneTokenProfile, Containment, DEFAULT_MAXIMUM_AST_DEPTH,
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
     EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
-    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, LEXICAL_SCOPE_RESOLUTION_PREFIX,
-    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
+    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, JavascriptMemberCallContext,
+    JavascriptMemberReceiver, LEXICAL_SCOPE_RESOLUTION_PREFIX, MAXIMUM_AST_DEPTH,
+    MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
     PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
     RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
     SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
@@ -4778,6 +4781,7 @@ struct NativeFileFacts {
     symbols: Vec<NativeSymbolFacts>,
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
+    javascript_member_calls: Vec<JavascriptMemberCallContext>,
     numerical_sites: Vec<ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
     has_inline_tests: bool,
@@ -4798,6 +4802,7 @@ impl NativeFileFacts {
             symbols,
             containments,
             references,
+            javascript_member_calls,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4825,6 +4830,7 @@ impl NativeFileFacts {
             symbols: normalized_symbols,
             containments,
             references,
+            javascript_member_calls,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4839,6 +4845,7 @@ impl NativeFileFacts {
             .saturating_add(vector_capacity_bytes(&self.symbols))
             .saturating_add(vector_capacity_bytes(&self.containments))
             .saturating_add(vector_capacity_bytes(&self.references))
+            .saturating_add(vector_capacity_bytes(&self.javascript_member_calls))
             .saturating_add(vector_capacity_bytes(&self.numerical_sites))
             .saturating_add(vector_capacity_bytes(&self.import_bindings))
             .saturating_add(usize_to_u64(self.test_search_text.capacity()));
@@ -4865,6 +4872,11 @@ impl NativeFileFacts {
                         .as_ref()
                         .map_or(0, String::capacity),
                 ));
+        }
+        for call in &self.javascript_member_calls {
+            if let JavascriptMemberReceiver::Constructor(name) = &call.receiver {
+                bytes = bytes.saturating_add(usize_to_u64(name.capacity()));
+            }
         }
         for site in &self.numerical_sites {
             bytes = bytes
@@ -5229,6 +5241,8 @@ struct TypeScriptPathMapping {
 
 #[derive(Default)]
 struct ResolutionIndex {
+    javascript_members: javascript_member_resolution::JavascriptMemberIndex,
+    javascript_frameworks: javascript_framework_resolution::JavascriptFrameworkIndex,
     candidates: CandidateMap,
     candidate_order: Vec<String>,
     default_exports: DefaultExportMap,
@@ -10141,11 +10155,13 @@ struct RustWorkspacePackageInsertInput<'packages, 'budget> {
 }
 
 fn index_resolution_file_metadata<Cancel>(
-    input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
+    mut input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
 ) -> Result<(), StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    javascript_member_resolution::index_file(&mut input)?;
+    javascript_framework_resolution::index_file(&mut input)?;
     let ResolutionIndexFileInput {
         index,
         file,
@@ -10304,11 +10320,12 @@ fn rust_crate_identifier(package_name: &str) -> Option<String> {
 }
 
 fn index_resolution_file_symbols<Cancel>(
-    input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
+    mut input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
 ) -> Result<(), StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    javascript_member_resolution::index_static_members(&mut input)?;
     let ResolutionIndexFileInput {
         index,
         file,
@@ -10339,6 +10356,7 @@ where
             },
             budget,
         )?;
+        let visibility = javascript_member_resolution::candidate_visibility(index, symbol);
         push_symbol_candidates(
             &mut index.candidates,
             ResolutionCandidateInsertion {
@@ -10347,6 +10365,7 @@ where
                 parent_symbol_id: parent_symbol_id.as_ref(),
                 file_ordinal,
                 language: &file.file.language,
+                visibility,
             },
             budget,
         )?;
@@ -10960,6 +10979,9 @@ where
         import_binding_scratch,
     } = query;
     let lookup = ReferenceLookup::classify(reference);
+    let binding_name =
+        javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
+            .unwrap_or(lookup.lookup_name);
     let mut resolution = if lookup.rust_macro_name.is_some() {
         ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
     } else if let Some(sql) = lookup.embedded_sql {
@@ -10993,7 +11015,7 @@ where
                     file_path: &context.identity.path,
                     language: &context.identity.language,
                     import_bindings: import_binding_scratch
-                        .select(context.import_bindings, lookup.lookup_name)
+                        .select(context.import_bindings, binding_name)
                         .with_fallback_blocked(lookup.python_import_fenced),
                     owner: reference.owner.as_ref(),
                     name: lookup.lookup_name,
@@ -11049,6 +11071,7 @@ impl ResolutionOutput<'_> {
             symbols,
             containments,
             references,
+            javascript_member_calls: _,
             numerical_sites,
             import_bindings,
             has_inline_tests: _,
@@ -11402,6 +11425,7 @@ struct ResolutionCandidateInsertion<'a> {
     parent_symbol_id: Option<&'a SymbolId>,
     file_ordinal: u64,
     language: &'a str,
+    visibility: Option<Visibility>,
 }
 
 #[derive(Clone, Copy)]
@@ -11683,6 +11707,7 @@ fn push_candidate(
         parent_symbol_id,
         file_ordinal,
         language,
+        visibility,
     } = insertion;
     if !candidates.contains_key(key) {
         budget.charge(
@@ -11702,6 +11727,7 @@ fn push_candidate(
             parent_symbol_id,
             file_ordinal,
             language,
+            visibility,
         },
         budget,
     )?;
@@ -11712,7 +11738,7 @@ fn push_candidate(
         qualified_name: try_clone_text(&symbol.input.qualified_name)?,
         signature: try_clone_text(&symbol.input.signature)?,
         kind: symbol.kind,
-        visibility: symbol.visibility,
+        visibility,
         implementation: symbol.implementation,
         export: symbol.export,
         top_level: symbol.input.qualified_name == symbol.name,
@@ -11735,6 +11761,7 @@ struct CandidateReservationInput<'a> {
     parent_symbol_id: Option<&'a SymbolId>,
     file_ordinal: u64,
     language: &'a str,
+    visibility: Option<Visibility>,
 }
 
 fn reserve_candidate_insertion(
@@ -11747,13 +11774,14 @@ fn reserve_candidate_insertion(
         parent_symbol_id: _,
         file_ordinal,
         language,
+        visibility,
     } = input;
     let candidate_index = bucket.candidates.len();
     let new_file_range = bucket
         .by_file
         .last()
         .is_none_or(|range| range.file_ordinal != file_ordinal);
-    let globally_visible = symbol.export.exported || symbol.visibility == Some(Visibility::Public);
+    let globally_visible = symbol.export.exported || visibility == Some(Visibility::Public);
     let new_language_bucket =
         !globally_visible && !bucket.non_visible_by_language.contains_key(language);
     let retained = candidate_reservation_bytes(input, new_file_range, new_language_bucket);
@@ -11793,6 +11821,7 @@ fn candidate_reservation_bytes(
         parent_symbol_id,
         file_ordinal: _,
         language,
+        visibility: _,
     } = input;
     let file_range_bytes = if new_file_range {
         usize_to_u64(size_of::<ResolutionCandidateRange>())
@@ -12398,6 +12427,9 @@ where
         return Ok(resolution);
     }
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = javascript_member_resolution::guard(index, request, cancelled)? {
         return Ok(resolution);
     }
     if let Some(target) = resolve_lexical(index, request, cancelled)? {
@@ -15042,7 +15074,7 @@ where
             cancelled,
         });
     }
-    Ok(None)
+    javascript_framework_resolution::resolve(index, request, cancelled)
 }
 
 struct ProjectResolutionQuery<'context, 'request, Cancel> {
@@ -15055,11 +15087,14 @@ struct ProjectResolutionQuery<'context, 'request, Cancel> {
 }
 
 fn resolve_project_candidates<Cancel>(
-    query: ProjectResolutionQuery<'_, '_, Cancel>,
+    mut query: ProjectResolutionQuery<'_, '_, Cancel>,
 ) -> Result<Option<ResolvedTarget>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(resolution) = javascript_member_resolution::resolve_project(&mut query)? {
+        return Ok(resolution.target);
+    }
     let ProjectResolutionQuery {
         index,
         source,
@@ -16211,20 +16246,7 @@ fn directory_has_any(path: &str, names: &[&str]) -> bool {
 }
 
 fn is_middleware_convention(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "auth"
-            | "authenticate"
-            | "authorization"
-            | "cors"
-            | "helmet"
-            | "logger"
-            | "errorhandler"
-            | "notfound"
-    ) || name.starts_with("validate")
-        || name.starts_with("sanitize")
-        || name.starts_with("rateLimit")
-        || name.ends_with("Middleware")
+    javascript_framework_resolution::middleware_name(name)
 }
 
 fn project_scope_matches(
@@ -16722,6 +16744,7 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod javascript_members;
     mod javascript_modules;
     mod javascript_parity;
     mod pascal_units;

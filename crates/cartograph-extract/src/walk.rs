@@ -34,6 +34,7 @@ mod generic_family;
 mod graphql_family;
 mod hcl_family;
 mod javascript_bindings;
+mod javascript_call_context;
 mod javascript_decorators;
 mod javascript_members;
 mod javascript_owners;
@@ -305,6 +306,7 @@ fn finish_extraction(
         symbols: builder.facts.symbols,
         containments: builder.facts.containments,
         references: builder.facts.references,
+        javascript_member_calls: builder.facts.javascript_member_calls,
         numerical_sites: builder.facts.numerical_sites,
         import_bindings: builder.facts.import_bindings,
         has_inline_tests,
@@ -619,6 +621,7 @@ struct ExtractionFacts {
     symbols: Vec<ExtractedSymbol>,
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
+    javascript_member_calls: Vec<crate::JavascriptMemberCallContext>,
     numerical_sites: Vec<crate::ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
 }

@@ -378,6 +378,7 @@ pub(crate) fn extract(
         symbols: facts.symbols,
         containments: facts.containments,
         references,
+        javascript_member_calls: Vec::new(),
         numerical_sites: Vec::new(),
         import_bindings: Vec::new(),
         has_inline_tests: false,
