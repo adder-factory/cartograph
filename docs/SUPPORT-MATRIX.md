@@ -574,7 +574,7 @@ emits and where it deliberately stops.
 | C# | ASP.NET route/controller patterns |
 | Dart / Flutter | `MaterialApp.routes` and `GoRoute(path:)` route nodes with widget references |
 | Swift / Apple | SwiftUI views and `@main` App entry landmarks; Vapor routes; UIKit (`ViewController`, `View`, `Cell`, `Delegate`/`DataSource`) and Vapor (`Controller`, `Middleware`, model) naming conventions that prefer the conventional directory and kind when a name matches several declarations; Swift/Objective-C bridge edges |
-| React Native / Expo | Legacy bridge, TurboModules, Expo Modules, Fabric/Paper view components and native implementation edges |
+| React Native / Expo | Legacy bridge, TurboModules, Expo Modules, Fabric/Paper view components and native implementation edges; each export belongs to the module or class that declares it (Objective-C categories and Swift extensions included), and in a file that registers several modules a declaration outside every module definition is left unattributed |
 | Salesforce | LWC `@salesforce/apex` imports, LWC/Aura component refs, Aura client/server actions, Visualforce controller/actions |
 
 Framework resolvers run only when the project looks like it uses that
