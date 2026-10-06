@@ -1,0 +1,1909 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "dart",
+  "files": [
+    "lib/app.dart",
+    "lib/main.dart",
+    "lib/models/user.dart",
+    "lib/router.dart",
+    "lib/screens/screens.dart",
+    "lib/services/user_service.dart",
+    "lib/utils/helpers.dart"
+  ],
+  "symbols": [
+    {
+      "file": "lib/app.dart",
+      "kind": "file",
+      "name": "app.dart",
+      "qualified_name": "lib/app.dart",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "import",
+      "name": "package:flutter/material.dart",
+      "qualified_name": "package:flutter/material.dart",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "import",
+      "name": "screens/screens.dart",
+      "qualified_name": "screens/screens.dart",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "class",
+      "name": "App",
+      "qualified_name": "App",
+      "start_line": 4,
+      "end_line": 16
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "App::build",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "route",
+      "name": "/",
+      "qualified_name": "lib/app.dart#/",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "route",
+      "name": "/settings",
+      "qualified_name": "lib/app.dart#/settings",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "file",
+      "name": "main.dart",
+      "qualified_name": "lib/main.dart",
+      "start_line": 1,
+      "end_line": 13
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "import",
+      "name": "package:flutter/material.dart",
+      "qualified_name": "package:flutter/material.dart",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "import",
+      "name": "package:go_router/go_router.dart",
+      "qualified_name": "package:go_router/go_router.dart",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "import",
+      "name": "app.dart",
+      "qualified_name": "app.dart",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "import",
+      "name": "router.dart",
+      "qualified_name": "router.dart",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "import",
+      "name": "services/user_service.dart",
+      "qualified_name": "services/user_service.dart",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "file",
+      "name": "user.dart",
+      "qualified_name": "lib/models/user.dart",
+      "start_line": 1,
+      "end_line": 77
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "import",
+      "name": "dart:convert",
+      "qualified_name": "dart:convert",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "import",
+      "name": "../utils/helpers.dart",
+      "qualified_name": "../utils/helpers.dart",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "type_alias",
+      "name": "Callback",
+      "qualified_name": "Callback",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "enum",
+      "name": "Color",
+      "qualified_name": "Color",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "enum_member",
+      "name": "red",
+      "qualified_name": "Color::red",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "enum_member",
+      "name": "green",
+      "qualified_name": "Color::green",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "enum_member",
+      "name": "blue",
+      "qualified_name": "Color::blue",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "enum",
+      "name": "Role",
+      "qualified_name": "Role",
+      "start_line": 8,
+      "end_line": 9
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "enum_member",
+      "name": "admin",
+      "qualified_name": "Role::admin",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "class",
+      "name": "Logger",
+      "qualified_name": "Logger",
+      "start_line": 16,
+      "end_line": 20
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "Logger::log",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "class",
+      "name": "StrX",
+      "qualified_name": "StrX",
+      "start_line": 22,
+      "end_line": 24
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "shout",
+      "qualified_name": "StrX::shout",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "class",
+      "name": "Repo",
+      "qualified_name": "Repo",
+      "start_line": 26,
+      "end_line": 28
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "function",
+      "name": "findById",
+      "qualified_name": "Repo::findById",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "class",
+      "name": "Base",
+      "qualified_name": "Base",
+      "start_line": 30,
+      "end_line": 32
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "init",
+      "qualified_name": "Base::init",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "class",
+      "name": "User",
+      "qualified_name": "User",
+      "start_line": 34,
+      "end_line": 63
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "User::name",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "field",
+      "name": "_age",
+      "qualified_name": "User::_age",
+      "start_line": 36,
+      "end_line": 36
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "field",
+      "name": "role",
+      "qualified_name": "User::role",
+      "start_line": 38,
+      "end_line": 38
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "User",
+      "qualified_name": "User::User",
+      "start_line": 44,
+      "end_line": 44
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "age",
+      "qualified_name": "User::age",
+      "start_line": 48,
+      "end_line": 48
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "age",
+      "qualified_name": "User::age",
+      "start_line": 50,
+      "end_line": 50
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "display",
+      "qualified_name": "User::display",
+      "start_line": 54,
+      "end_line": 54
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "_validate",
+      "qualified_name": "User::_validate",
+      "start_line": 58,
+      "end_line": 58
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "anonymous",
+      "qualified_name": "User::anonymous",
+      "start_line": 60,
+      "end_line": 60
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "toJson",
+      "qualified_name": "User::toJson",
+      "start_line": 62,
+      "end_line": 62
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "class",
+      "name": "UserRepo",
+      "qualified_name": "UserRepo",
+      "start_line": 65,
+      "end_line": 76
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "field",
+      "name": "_cache",
+      "qualified_name": "UserRepo::_cache",
+      "start_line": 66,
+      "end_line": 66
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "findById",
+      "qualified_name": "UserRepo::findById",
+      "start_line": 69,
+      "end_line": 69
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "method",
+      "name": "_privateMethod",
+      "qualified_name": "UserRepo::_privateMethod",
+      "start_line": 75,
+      "end_line": 75
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "file",
+      "name": "router.dart",
+      "qualified_name": "lib/router.dart",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "import",
+      "name": "package:go_router/go_router.dart",
+      "qualified_name": "package:go_router/go_router.dart",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "import",
+      "name": "screens/screens.dart",
+      "qualified_name": "screens/screens.dart",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "route",
+      "name": "/",
+      "qualified_name": "lib/router.dart#/",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "route",
+      "name": "/profile",
+      "qualified_name": "lib/router.dart#/profile",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "file",
+      "name": "screens.dart",
+      "qualified_name": "lib/screens/screens.dart",
+      "start_line": 1,
+      "end_line": 51
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "import",
+      "name": "package:flutter/material.dart",
+      "qualified_name": "package:flutter/material.dart",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "class",
+      "name": "HomeScreen",
+      "qualified_name": "HomeScreen",
+      "start_line": 3,
+      "end_line": 18
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "field",
+      "name": "title",
+      "qualified_name": "HomeScreen::title",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "HomeScreen::build",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "class",
+      "name": "SettingsScreen",
+      "qualified_name": "SettingsScreen",
+      "start_line": 20,
+      "end_line": 25
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "method",
+      "name": "createState",
+      "qualified_name": "SettingsScreen::createState",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "class",
+      "name": "_SettingsState",
+      "qualified_name": "_SettingsState",
+      "start_line": 27,
+      "end_line": 36
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "field",
+      "name": "enabled",
+      "qualified_name": "_SettingsState::enabled",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "method",
+      "name": "_toggle",
+      "qualified_name": "_SettingsState::_toggle",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "_SettingsState::build",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "class",
+      "name": "ProfileScreen",
+      "qualified_name": "ProfileScreen",
+      "start_line": 38,
+      "end_line": 43
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "ProfileScreen::build",
+      "start_line": 42,
+      "end_line": 42
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "class",
+      "name": "DetailsScreen",
+      "qualified_name": "DetailsScreen",
+      "start_line": 45,
+      "end_line": 50
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "DetailsScreen::build",
+      "start_line": 49,
+      "end_line": 49
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "file",
+      "name": "user_service.dart",
+      "qualified_name": "lib/services/user_service.dart",
+      "start_line": 1,
+      "end_line": 39
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "import",
+      "name": "dart:async",
+      "qualified_name": "dart:async",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "import",
+      "name": "package:http/http.dart",
+      "qualified_name": "package:http/http.dart",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "import",
+      "name": "../models/user.dart",
+      "qualified_name": "../models/user.dart",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "import",
+      "name": "../utils/helpers.dart",
+      "qualified_name": "../utils/helpers.dart",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "import",
+      "name": "../models/user.dart",
+      "qualified_name": "../models/user.dart",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "class",
+      "name": "UserService",
+      "qualified_name": "UserService",
+      "start_line": 7,
+      "end_line": 32
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "field",
+      "name": "repo",
+      "qualified_name": "UserService::repo",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "field",
+      "name": "client",
+      "qualified_name": "UserService::client",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "UserService::load",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "method",
+      "name": "greet",
+      "qualified_name": "UserService::greet",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "UserService::create",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "function",
+      "name": "runService",
+      "qualified_name": "runService",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "file",
+      "name": "helpers.dart",
+      "qualified_name": "lib/utils/helpers.dart",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "function",
+      "name": "formatName",
+      "qualified_name": "formatName",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "function",
+      "name": "delay",
+      "qualified_name": "delay",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "function",
+      "name": "_clamp",
+      "qualified_name": "_clamp",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "function",
+      "name": "retries",
+      "qualified_name": "retries",
+      "start_line": 14,
+      "end_line": 14
+    }
+  ],
+  "edges": [
+    {
+      "file": "lib/app.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "App",
+      "target_kind": "method",
+      "target": "App::build",
+      "target_file": "lib/app.dart",
+      "line": null
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/app.dart",
+      "target_kind": "class",
+      "target": "App",
+      "target_file": "lib/app.dart",
+      "line": null
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/app.dart",
+      "target_kind": "import",
+      "target": "package:flutter/material.dart",
+      "target_file": "lib/app.dart",
+      "line": null
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/app.dart",
+      "target_kind": "import",
+      "target": "screens/screens.dart",
+      "target_file": "lib/app.dart",
+      "line": null
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/app.dart",
+      "target_kind": "import",
+      "target": "package:flutter/material.dart",
+      "target_file": "lib/app.dart",
+      "line": 1
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/app.dart",
+      "target_kind": "file",
+      "target": "lib/screens/screens.dart",
+      "target_file": "lib/screens/screens.dart",
+      "line": 2
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "lib/app.dart#/",
+      "target_kind": "class",
+      "target": "HomeScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": 10
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "App::build",
+      "target_kind": "class",
+      "target": "HomeScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": 11
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "lib/app.dart#/settings",
+      "target_kind": "class",
+      "target": "SettingsScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": 11
+    },
+    {
+      "file": "lib/app.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "App::build",
+      "target_kind": "class",
+      "target": "SettingsScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": 12
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "app.dart",
+      "target_file": "lib/main.dart",
+      "line": null
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "lib/main.dart",
+      "line": null
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "package:flutter/material.dart",
+      "target_file": "lib/main.dart",
+      "line": null
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "package:go_router/go_router.dart",
+      "target_file": "lib/main.dart",
+      "line": null
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "router.dart",
+      "target_file": "lib/main.dart",
+      "line": null
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "services/user_service.dart",
+      "target_file": "lib/main.dart",
+      "line": null
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "package:flutter/material.dart",
+      "target_file": "lib/main.dart",
+      "line": 1
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "package:go_router/go_router.dart",
+      "target_file": "lib/main.dart",
+      "line": 2
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "app.dart",
+      "target_file": "lib/main.dart",
+      "line": 3
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "import",
+      "target": "router.dart",
+      "target_file": "lib/main.dart",
+      "line": 4
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/main.dart",
+      "target_kind": "file",
+      "target": "lib/services/user_service.dart",
+      "target_file": "lib/services/user_service.dart",
+      "line": 5
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "runService",
+      "target_file": "lib/services/user_service.dart",
+      "line": 10
+    },
+    {
+      "file": "lib/main.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "class",
+      "target": "App",
+      "target_file": "lib/app.dart",
+      "line": 11
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Base",
+      "target_kind": "method",
+      "target": "Base::init",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::blue",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::green",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::red",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Logger",
+      "target_kind": "method",
+      "target": "Logger::log",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Repo",
+      "target_kind": "function",
+      "target": "Repo::findById",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Role",
+      "target_kind": "enum_member",
+      "target": "Role::admin",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "StrX",
+      "target_kind": "method",
+      "target": "StrX::shout",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::User",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::_age",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::_validate",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::age",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::age",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::anonymous",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::display",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::name",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "field",
+      "target": "User::role",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "User",
+      "target_kind": "method",
+      "target": "User::toJson",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "field",
+      "target": "UserRepo::_cache",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "method",
+      "target": "UserRepo::_privateMethod",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "method",
+      "target": "UserRepo::findById",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "import",
+      "target": "../utils/helpers.dart",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "type_alias",
+      "target": "Callback",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "enum",
+      "target": "Color",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "class",
+      "target": "Logger",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "enum",
+      "target": "Role",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "class",
+      "target": "StrX",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "import",
+      "target": "dart:convert",
+      "target_file": "lib/models/user.dart",
+      "line": null
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "import",
+      "target": "dart:convert",
+      "target_file": "lib/models/user.dart",
+      "line": 1
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/models/user.dart",
+      "target_kind": "file",
+      "target": "lib/utils/helpers.dart",
+      "target_file": "lib/utils/helpers.dart",
+      "line": 2
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::User",
+      "target_kind": "method",
+      "target": "User::User",
+      "target_file": "lib/models/user.dart",
+      "line": 45
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "User::age",
+      "target_kind": "method",
+      "target": "User::_validate",
+      "target_file": "lib/models/user.dart",
+      "line": 51
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "lib/models/user.dart",
+      "line": 65
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "UserRepo",
+      "target_kind": "class",
+      "target": "Repo",
+      "target_file": "lib/models/user.dart",
+      "line": 65
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserRepo::findById",
+      "target_kind": "method",
+      "target": "Logger::log",
+      "target_file": "lib/models/user.dart",
+      "line": 70
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserRepo::findById",
+      "target_kind": "method",
+      "target": "Base::init",
+      "target_file": "lib/models/user.dart",
+      "line": 71
+    },
+    {
+      "file": "lib/models/user.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserRepo::findById",
+      "target_kind": "method",
+      "target": "User::anonymous",
+      "target_file": "lib/models/user.dart",
+      "line": 72
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/router.dart",
+      "target_kind": "import",
+      "target": "package:go_router/go_router.dart",
+      "target_file": "lib/router.dart",
+      "line": null
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/router.dart",
+      "target_kind": "import",
+      "target": "screens/screens.dart",
+      "target_file": "lib/router.dart",
+      "line": null
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/router.dart",
+      "target_kind": "import",
+      "target": "package:go_router/go_router.dart",
+      "target_file": "lib/router.dart",
+      "line": 1
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/router.dart",
+      "target_kind": "file",
+      "target": "lib/screens/screens.dart",
+      "target_file": "lib/screens/screens.dart",
+      "line": 2
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "lib/router.dart#/",
+      "target_kind": "class",
+      "target": "HomeScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": 5
+    },
+    {
+      "file": "lib/router.dart",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "lib/router.dart#/profile",
+      "target_kind": "class",
+      "target": "ProfileScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": 12
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "DetailsScreen",
+      "target_kind": "method",
+      "target": "DetailsScreen::build",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HomeScreen",
+      "target_kind": "method",
+      "target": "HomeScreen::build",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HomeScreen",
+      "target_kind": "field",
+      "target": "HomeScreen::title",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ProfileScreen",
+      "target_kind": "method",
+      "target": "ProfileScreen::build",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "SettingsScreen",
+      "target_kind": "method",
+      "target": "SettingsScreen::createState",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "_SettingsState",
+      "target_kind": "method",
+      "target": "_SettingsState::_toggle",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "_SettingsState",
+      "target_kind": "method",
+      "target": "_SettingsState::build",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "_SettingsState",
+      "target_kind": "field",
+      "target": "_SettingsState::enabled",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "class",
+      "target": "DetailsScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "class",
+      "target": "HomeScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "class",
+      "target": "ProfileScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "class",
+      "target": "SettingsScreen",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "class",
+      "target": "_SettingsState",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "import",
+      "target": "package:flutter/material.dart",
+      "target_file": "lib/screens/screens.dart",
+      "line": null
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/screens/screens.dart",
+      "target_kind": "import",
+      "target": "package:flutter/material.dart",
+      "target_file": "lib/screens/screens.dart",
+      "line": 1
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "SettingsScreen::createState",
+      "target_kind": "class",
+      "target": "_SettingsState",
+      "target_file": "lib/screens/screens.dart",
+      "line": 24
+    },
+    {
+      "file": "lib/screens/screens.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "_SettingsState::build",
+      "target_kind": "method",
+      "target": "_SettingsState::_toggle",
+      "target_file": "lib/screens/screens.dart",
+      "line": 35
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::client",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::create",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::greet",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "method",
+      "target": "UserService::load",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "field",
+      "target": "UserService::repo",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "../models/user.dart",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "../models/user.dart",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "../utils/helpers.dart",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "dart:async",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "package:http/http.dart",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "function",
+      "target": "runService",
+      "target_file": "lib/services/user_service.dart",
+      "line": null
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "dart:async",
+      "target_file": "lib/services/user_service.dart",
+      "line": 1
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "import",
+      "target": "package:http/http.dart",
+      "target_file": "lib/services/user_service.dart",
+      "line": 2
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "file",
+      "target": "lib/models/user.dart",
+      "target_file": "lib/models/user.dart",
+      "line": 3
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "lib/services/user_service.dart",
+      "target_kind": "file",
+      "target": "lib/utils/helpers.dart",
+      "target_file": "lib/utils/helpers.dart",
+      "line": 4
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "function",
+      "target": "delay",
+      "target_file": "lib/utils/helpers.dart",
+      "line": 14
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "UserRepo::findById",
+      "target_file": "lib/models/user.dart",
+      "line": 15
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::load",
+      "target_kind": "method",
+      "target": "User::display",
+      "target_file": "lib/models/user.dart",
+      "line": 16
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::greet",
+      "target_kind": "method",
+      "target": "UserService::load",
+      "target_file": "lib/services/user_service.dart",
+      "line": 21
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::greet",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "lib/utils/helpers.dart",
+      "line": 22
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::greet",
+      "target_kind": "method",
+      "target": "StrX::shout",
+      "target_file": "lib/models/user.dart",
+      "line": 23
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "instantiates",
+      "source_kind": "class",
+      "source": "UserService",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "lib/models/user.dart",
+      "line": 28
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "class",
+      "target": "User",
+      "target_file": "lib/models/user.dart",
+      "line": 28
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "UserService::create",
+      "target_kind": "method",
+      "target": "User::toJson",
+      "target_file": "lib/models/user.dart",
+      "line": 29
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "runService",
+      "target_kind": "class",
+      "target": "UserRepo",
+      "target_file": "lib/models/user.dart",
+      "line": 35
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "runService",
+      "target_kind": "class",
+      "target": "UserService",
+      "target_file": "lib/services/user_service.dart",
+      "line": 35
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "runService",
+      "target_kind": "method",
+      "target": "UserService::greet",
+      "target_file": "lib/services/user_service.dart",
+      "line": 36
+    },
+    {
+      "file": "lib/services/user_service.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "runService",
+      "target_kind": "function",
+      "target": "retries",
+      "target_file": "lib/utils/helpers.dart",
+      "line": 37
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils/helpers.dart",
+      "target_kind": "function",
+      "target": "_clamp",
+      "target_file": "lib/utils/helpers.dart",
+      "line": null
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils/helpers.dart",
+      "target_kind": "function",
+      "target": "delay",
+      "target_file": "lib/utils/helpers.dart",
+      "line": null
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils/helpers.dart",
+      "target_kind": "function",
+      "target": "formatName",
+      "target_file": "lib/utils/helpers.dart",
+      "line": null
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "lib/utils/helpers.dart",
+      "target_kind": "function",
+      "target": "retries",
+      "target_file": "lib/utils/helpers.dart",
+      "line": null
+    },
+    {
+      "file": "lib/utils/helpers.dart",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "retries",
+      "target_kind": "function",
+      "target": "_clamp",
+      "target_file": "lib/utils/helpers.dart",
+      "line": 14
+    }
+  ],
+  "unresolved": []
+}

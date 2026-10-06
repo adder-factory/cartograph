@@ -80,9 +80,10 @@ const CUDA_UNICODE_DIGEST_V18_MIGRATION_VERSION: i64 = 44;
 const GENERATION_FACT_COUNTS_MIGRATION_VERSION: i64 = 45;
 const RUST_MACRO_REFERENCES_DIGEST_V19_MIGRATION_VERSION: i64 = 46;
 const RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION: i64 = 47;
-const LATEST_MIGRATION_VERSION: i64 = RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION;
-const LATER_MIGRATION_COUNT: u64 = 46;
-const EXPECTED_MIGRATIONS: [i64; 47] = [
+const LANGUAGE_PARITY_DIGEST_V21_MIGRATION_VERSION: i64 = 48;
+const LATEST_MIGRATION_VERSION: i64 = LANGUAGE_PARITY_DIGEST_V21_MIGRATION_VERSION;
+const LATER_MIGRATION_COUNT: u64 = 47;
+const EXPECTED_MIGRATIONS: [i64; 48] = [
     INITIAL_MIGRATION_VERSION,
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
@@ -130,8 +131,9 @@ const EXPECTED_MIGRATIONS: [i64; 47] = [
     GENERATION_FACT_COUNTS_MIGRATION_VERSION,
     RUST_MACRO_REFERENCES_DIGEST_V19_MIGRATION_VERSION,
     RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION,
+    LANGUAGE_PARITY_DIGEST_V21_MIGRATION_VERSION,
 ];
-const EXPECTED_V1_UPGRADE_MIGRATIONS: [i64; 46] = [
+const EXPECTED_V1_UPGRADE_MIGRATIONS: [i64; 47] = [
     OPERATION_LEASES_MIGRATION_VERSION,
     COMPLETE_EDGE_KINDS_MIGRATION_VERSION,
     REFERENCE_EVIDENCE_MIGRATION_VERSION,
@@ -178,6 +180,7 @@ const EXPECTED_V1_UPGRADE_MIGRATIONS: [i64; 46] = [
     GENERATION_FACT_COUNTS_MIGRATION_VERSION,
     RUST_MACRO_REFERENCES_DIGEST_V19_MIGRATION_VERSION,
     RUST_TURBOFISH_CALLS_DIGEST_V20_MIGRATION_VERSION,
+    LANGUAGE_PARITY_DIGEST_V21_MIGRATION_VERSION,
 ];
 
 static SCHEMA_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -220,8 +223,8 @@ const QUEUED_LOCK_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(10);
 const QUEUED_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const CONTENDED_READER_ROUNDS: usize = 3;
 const MIGRATION_RESUME_TIMEOUT: Duration = Duration::from_secs(20);
-/// Digest versions admitted before migration 47 added version 20.
-const PRE_V20_DIGEST_CONSTRAINT: &str = "CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19))";
+/// Digest versions admitted before migration 48 added version 21.
+const PRE_V21_DIGEST_CONSTRAINT: &str = "CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20))";
 
 #[tokio::test]
 #[ignore = "requires an explicit PostgreSQL 18 + pinned ParadeDB test database"]
@@ -342,16 +345,16 @@ async fn assert_concurrent_migrator_is_a_busy_schema(
     );
 }
 
-/// Undo migration 47 exactly: restore the pre-V20 digest constraint and drop
+/// Undo migration 48 exactly: restore the pre-V21 digest constraint and drop
 /// its ledger row, leaving an otherwise valid schema one version behind.
 async fn roll_back_latest_migration(pool: &sqlx_postgres::PgPool, schema: &str) {
     let constraint = format!(
         r#"ALTER TABLE "{schema}"."index_generations"
             DROP CONSTRAINT index_generations_digest_version_check,
-            ADD CONSTRAINT index_generations_digest_version_check {PRE_V20_DIGEST_CONSTRAINT}"#
+            ADD CONSTRAINT index_generations_digest_version_check {PRE_V21_DIGEST_CONSTRAINT}"#
     );
     if let Err(error) = query(AssertSqlSafe(constraint)).execute(pool).await {
-        panic!("could not restore the pre-V20 digest constraint: {error}");
+        panic!("could not restore the pre-V21 digest constraint: {error}");
     }
     let ledger = format!(r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#);
     let deleted = query(AssertSqlSafe(ledger))

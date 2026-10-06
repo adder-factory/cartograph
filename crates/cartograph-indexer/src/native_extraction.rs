@@ -700,6 +700,9 @@ mod tests {
                 cartograph_extract::DiagnosticCode::NestingLimitExceeded => {
                     "nesting_limit_exceeded"
                 }
+                cartograph_extract::DiagnosticCode::OptionalFactsOmitted => {
+                    "optional_facts_omitted"
+                }
             };
             hash_text(hasher, code);
             match diagnostic.span {

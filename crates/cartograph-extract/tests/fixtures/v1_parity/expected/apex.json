@@ -1,0 +1,1256 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "apex",
+  "files": [
+    "force-app/main/default/classes/AccountService.cls",
+    "force-app/main/default/classes/AccountServiceTest.cls",
+    "force-app/main/default/classes/BaseService.cls",
+    "force-app/main/default/classes/EmailNotifier.cls",
+    "force-app/main/default/classes/Formatter.cls",
+    "force-app/main/default/lwc/accountCard/accountCard.js",
+    "force-app/main/default/lwc/accountList/accountList.html",
+    "force-app/main/default/lwc/accountList/accountList.js",
+    "force-app/main/default/triggers/AccountTrigger.trigger",
+    "sfdx-project.json"
+  ],
+  "symbols": [
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "class",
+      "name": "AccountService",
+      "qualified_name": "AccountService",
+      "start_line": 1,
+      "end_line": 66
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "file",
+      "name": "AccountService.cls",
+      "qualified_name": "force-app/main/default/classes/AccountService.cls",
+      "start_line": 1,
+      "end_line": 67
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "enum",
+      "name": "Mode",
+      "qualified_name": "AccountService::Mode",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "enum_member",
+      "name": "FAST",
+      "qualified_name": "AccountService::Mode::FAST",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "enum_member",
+      "name": "SLOW",
+      "qualified_name": "AccountService::Mode::SLOW",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "field",
+      "name": "LIMIT_ROWS",
+      "qualified_name": "AccountService::LIMIT_ROWS",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "field",
+      "name": "a",
+      "qualified_name": "AccountService::a",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "field",
+      "name": "b",
+      "qualified_name": "AccountService::b",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "field",
+      "name": "label",
+      "qualified_name": "AccountService::label",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "field",
+      "name": "mode",
+      "qualified_name": "AccountService::mode",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "interface",
+      "name": "Notifier",
+      "qualified_name": "AccountService::Notifier",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "notify",
+      "qualified_name": "AccountService::Notifier::notify",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "class",
+      "name": "Result",
+      "qualified_name": "AccountService::Result",
+      "start_line": 13,
+      "end_line": 16
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "AccountService::Result::count",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "Result",
+      "qualified_name": "AccountService::Result::Result",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "AccountService",
+      "qualified_name": "AccountService::AccountService",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "listAccounts",
+      "qualified_name": "AccountService::listAccounts",
+      "start_line": 22,
+      "end_line": 25
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "contactsFor",
+      "qualified_name": "AccountService::contactsFor",
+      "start_line": 27,
+      "end_line": 31
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "search",
+      "qualified_name": "AccountService::search",
+      "start_line": 33,
+      "end_line": 35
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "load",
+      "qualified_name": "AccountService::load",
+      "start_line": 37,
+      "end_line": 45
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "helper",
+      "qualified_name": "AccountService::helper",
+      "start_line": 47,
+      "end_line": 49
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "audit",
+      "qualified_name": "AccountService::audit",
+      "start_line": 51,
+      "end_line": 53
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "execute",
+      "qualified_name": "AccountService::execute",
+      "start_line": 55,
+      "end_line": 57
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "start",
+      "qualified_name": "AccountService::start",
+      "start_line": 59,
+      "end_line": 61
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "execute",
+      "qualified_name": "AccountService::execute",
+      "start_line": 63,
+      "end_line": 63
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "method",
+      "name": "finish",
+      "qualified_name": "AccountService::finish",
+      "start_line": 65,
+      "end_line": 65
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "class",
+      "name": "AccountServiceTest",
+      "qualified_name": "AccountServiceTest",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "file",
+      "name": "AccountServiceTest.cls",
+      "qualified_name": "force-app/main/default/classes/AccountServiceTest.cls",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "method",
+      "name": "loadsAccounts",
+      "qualified_name": "AccountServiceTest::loadsAccounts",
+      "start_line": 3,
+      "end_line": 8
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "class",
+      "name": "BaseService",
+      "qualified_name": "BaseService",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "file",
+      "name": "BaseService.cls",
+      "qualified_name": "force-app/main/default/classes/BaseService.cls",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "field",
+      "name": "calls",
+      "qualified_name": "BaseService::calls",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "BaseService::log",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "class",
+      "name": "EmailNotifier",
+      "qualified_name": "EmailNotifier",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "file",
+      "name": "EmailNotifier.cls",
+      "qualified_name": "force-app/main/default/classes/EmailNotifier.cls",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "method",
+      "name": "notify",
+      "qualified_name": "EmailNotifier::notify",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "method",
+      "name": "execute",
+      "qualified_name": "EmailNotifier::execute",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "class",
+      "name": "Formatter",
+      "qualified_name": "Formatter",
+      "start_line": 1,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "file",
+      "name": "Formatter.cls",
+      "qualified_name": "force-app/main/default/classes/Formatter.cls",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "method",
+      "name": "format",
+      "qualified_name": "Formatter::format",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "method",
+      "name": "isBlank",
+      "qualified_name": "Formatter::isBlank",
+      "start_line": 6,
+      "end_line": 9
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "file",
+      "name": "accountCard.js",
+      "qualified_name": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "import",
+      "name": "lwc",
+      "qualified_name": "lwc",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "component",
+      "name": "accountCard",
+      "qualified_name": "force-app/main/default/lwc/accountCard/accountCard.js::accountCard",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "class",
+      "name": "AccountCard",
+      "qualified_name": "AccountCard",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "AccountCard::<anonymous>",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.html",
+      "kind": "file",
+      "name": "accountList.html",
+      "qualified_name": "force-app/main/default/lwc/accountList/accountList.html",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "file",
+      "name": "accountList.js",
+      "qualified_name": "force-app/main/default/lwc/accountList/accountList.js",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "import",
+      "name": "lwc",
+      "qualified_name": "lwc",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "import",
+      "name": "@salesforce/apex/AccountService.listAccounts",
+      "qualified_name": "@salesforce/apex/AccountService.listAccounts",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "import",
+      "name": "@salesforce/apex/AccountService.contactsFor",
+      "qualified_name": "@salesforce/apex/AccountService.contactsFor",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "component",
+      "name": "accountList",
+      "qualified_name": "force-app/main/default/lwc/accountList/accountList.js::accountList",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "class",
+      "name": "AccountList",
+      "qualified_name": "AccountList",
+      "start_line": 5,
+      "end_line": 11
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "method",
+      "name": "<anonymous>",
+      "qualified_name": "AccountList::<anonymous>",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "method",
+      "name": "connectedCallback",
+      "qualified_name": "AccountList::connectedCallback",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "kind": "file",
+      "name": "AccountTrigger.trigger",
+      "qualified_name": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "kind": "function",
+      "name": "AccountTrigger",
+      "qualified_name": "AccountTrigger",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "sfdx-project.json",
+      "kind": "file",
+      "name": "sfdx-project.json",
+      "qualified_name": "sfdx-project.json",
+      "start_line": 1,
+      "end_line": 2
+    }
+  ],
+  "edges": [
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::AccountService",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "field",
+      "target": "AccountService::LIMIT_ROWS",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "enum",
+      "target": "AccountService::Mode",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "interface",
+      "target": "AccountService::Notifier",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "class",
+      "target": "AccountService::Result",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "field",
+      "target": "AccountService::a",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::audit",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "field",
+      "target": "AccountService::b",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::contactsFor",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::execute",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::execute",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::finish",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::helper",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "field",
+      "target": "AccountService::label",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::listAccounts",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::load",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "field",
+      "target": "AccountService::mode",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::search",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "method",
+      "target": "AccountService::start",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "AccountService::Mode",
+      "target_kind": "enum_member",
+      "target": "AccountService::Mode::FAST",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "AccountService::Mode",
+      "target_kind": "enum_member",
+      "target": "AccountService::Mode::SLOW",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "interface",
+      "source": "AccountService::Notifier",
+      "target_kind": "method",
+      "target": "AccountService::Notifier::notify",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService::Result",
+      "target_kind": "method",
+      "target": "AccountService::Result::Result",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountService::Result",
+      "target_kind": "field",
+      "target": "AccountService::Result::count",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/AccountService.cls",
+      "target_kind": "class",
+      "target": "AccountService",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "AccountService",
+      "target_kind": "class",
+      "target": "BaseService",
+      "target_file": "force-app/main/default/classes/BaseService.cls",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "AccountService::load",
+      "target_kind": "class",
+      "target": "AccountService::Result",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 37
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountService::load",
+      "target_kind": "method",
+      "target": "AccountService::helper",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 40
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountService::load",
+      "target_kind": "method",
+      "target": "AccountService::audit",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 41
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountService::load",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": 42
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountService::load",
+      "target_kind": "method",
+      "target": "BaseService::log",
+      "target_file": "force-app/main/default/classes/BaseService.cls",
+      "line": 43
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "AccountService::load",
+      "target_kind": "class",
+      "target": "AccountService::Result",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 44
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountService::helper",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": 48
+    },
+    {
+      "file": "force-app/main/default/classes/AccountService.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountService::execute",
+      "target_kind": "method",
+      "target": "AccountService::load",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 56
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountServiceTest",
+      "target_kind": "method",
+      "target": "AccountServiceTest::loadsAccounts",
+      "target_file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/AccountServiceTest.cls",
+      "target_kind": "class",
+      "target": "AccountServiceTest",
+      "target_file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "AccountServiceTest::loadsAccounts",
+      "target_kind": "class",
+      "target": "AccountService",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 5
+    },
+    {
+      "file": "force-app/main/default/classes/AccountServiceTest.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountServiceTest::loadsAccounts",
+      "target_kind": "method",
+      "target": "AccountService::load",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 6
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseService",
+      "target_kind": "field",
+      "target": "BaseService::calls",
+      "target_file": "force-app/main/default/classes/BaseService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseService",
+      "target_kind": "method",
+      "target": "BaseService::log",
+      "target_file": "force-app/main/default/classes/BaseService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/BaseService.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/BaseService.cls",
+      "target_kind": "class",
+      "target": "BaseService",
+      "target_file": "force-app/main/default/classes/BaseService.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "EmailNotifier",
+      "target_kind": "method",
+      "target": "EmailNotifier::execute",
+      "target_file": "force-app/main/default/classes/EmailNotifier.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "EmailNotifier",
+      "target_kind": "method",
+      "target": "EmailNotifier::notify",
+      "target_file": "force-app/main/default/classes/EmailNotifier.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/EmailNotifier.cls",
+      "target_kind": "class",
+      "target": "EmailNotifier",
+      "target_file": "force-app/main/default/classes/EmailNotifier.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "EmailNotifier::notify",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/classes/EmailNotifier.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "EmailNotifier::execute",
+      "target_kind": "method",
+      "target": "EmailNotifier::notify",
+      "target_file": "force-app/main/default/classes/EmailNotifier.cls",
+      "line": 7
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Formatter",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Formatter",
+      "target_kind": "method",
+      "target": "Formatter::isBlank",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/classes/Formatter.cls",
+      "target_kind": "class",
+      "target": "Formatter",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/classes/Formatter.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Formatter::isBlank",
+      "target_kind": "method",
+      "target": "Formatter::isBlank",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": 8
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountCard",
+      "target_kind": "method",
+      "target": "AccountCard::<anonymous>",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "target_kind": "class",
+      "target": "AccountCard",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "AccountCard",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "AccountCard::<anonymous>",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": 4
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.html",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.html",
+      "target_kind": "component",
+      "target": "force-app/main/default/lwc/accountCard/accountCard.js::accountCard",
+      "target_file": "force-app/main/default/lwc/accountCard/accountCard.js",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountList",
+      "target_kind": "method",
+      "target": "AccountList::<anonymous>",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "AccountList",
+      "target_kind": "method",
+      "target": "AccountList::connectedCallback",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "import",
+      "target": "@salesforce/apex/AccountService.contactsFor",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "import",
+      "target": "@salesforce/apex/AccountService.listAccounts",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "class",
+      "target": "AccountList",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": 1
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "method",
+      "target": "AccountService::listAccounts",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 2
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "force-app/main/default/lwc/accountList/accountList.js",
+      "target_kind": "method",
+      "target": "AccountService::contactsFor",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 3
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "AccountList",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": 5
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "decorates",
+      "source_kind": "method",
+      "source": "AccountList::<anonymous>",
+      "target_kind": "import",
+      "target": "lwc",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": 6
+    },
+    {
+      "file": "force-app/main/default/lwc/accountList/accountList.js",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "AccountList::connectedCallback",
+      "target_kind": "import",
+      "target": "@salesforce/apex/AccountService.contactsFor",
+      "target_file": "force-app/main/default/lwc/accountList/accountList.js",
+      "line": 9
+    },
+    {
+      "file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "target_kind": "function",
+      "target": "AccountTrigger",
+      "target_file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "line": null
+    },
+    {
+      "file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "AccountTrigger",
+      "target_kind": "class",
+      "target": "AccountService",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 2
+    },
+    {
+      "file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "AccountTrigger",
+      "target_kind": "method",
+      "target": "AccountService::load",
+      "target_file": "force-app/main/default/classes/AccountService.cls",
+      "line": 4
+    },
+    {
+      "file": "force-app/main/default/triggers/AccountTrigger.trigger",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "AccountTrigger",
+      "target_kind": "method",
+      "target": "Formatter::format",
+      "target_file": "force-app/main/default/classes/Formatter.cls",
+      "line": 6
+    }
+  ],
+  "unresolved": []
+}

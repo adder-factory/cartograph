@@ -1,0 +1,5 @@
+<aura:component>
+    <aura:attribute name="record" type="Opportunity"/>
+    <aura:attribute name="tags" type="String[]"/>
+    <p>{!v.record.Name}</p>
+</aura:component>

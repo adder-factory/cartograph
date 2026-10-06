@@ -24,6 +24,9 @@ pub const RUST_MACRO_RESOLUTION_PREFIX: &str = "cartograph.rust-macro::";
 ///
 /// The suffix is an enclosing nominal implementation type and member, or only the member
 /// when the syntax cannot prove a nominal type. Neither form permits global name guessing.
+/// Pascal reuses the same contract for implicit-`Self`, nested-routine, unit-routine, and
+/// in-file type-qualified calls: `Type::Member` (or `self::Routine` for a top-level routine)
+/// resolves only by exact same-file qualified name.
 #[doc(hidden)]
 pub const RUST_SELF_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.rust-self::";
 
@@ -34,6 +37,16 @@ pub const RUST_SELF_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.rust-self::";
 #[doc(hidden)]
 pub const TYPE_QUERY_VALUE_RESOLUTION_PREFIX: &str = "cartograph.type-query-value::";
 
+/// Internal lookup marker for a JavaScript-family bare value read the extractor bound to a
+/// nested lexical declaration whose qualified name another symbol of the file shares.
+///
+/// The suffix is the source-visible name. The indexer resolves it only by walking the
+/// reference owner's enclosing scopes outward, never by exact same-file qualified name (which
+/// could bind the namesake, or an embedded component script's same-named file component) and
+/// never through imports or project names.
+#[doc(hidden)]
+pub const LEXICAL_SCOPE_RESOLUTION_PREFIX: &str = "cartograph.lexical-scope::";
+
 /// Internal lookup marker for a static SQL-literal table reference.
 ///
 /// The suffix is `<operation>::<qualified-table>`. The persisted reference keeps only the
@@ -41,6 +54,26 @@ pub const TYPE_QUERY_VALUE_RESOLUTION_PREFIX: &str = "cartograph.type-query-valu
 /// retain read/write/DDL provenance on the resulting graph edge.
 #[doc(hidden)]
 pub const EMBEDDED_SQL_RESOLUTION_PREFIX: &str = "cartograph.embedded-sql::";
+
+/// Internal lookup marker for a PHP name the extractor resolved at compile time.
+///
+/// The suffix is `<intent>::<key>`: the intent (`class`, `function`, `function-fallback`,
+/// `member`, or `constant`) names the PHP symbol space (`adapted-class` is `class` for a trait
+/// used with an `as`/`insteadof` adaptation block), and the key is the exact candidate
+/// qualified name (`App\Models::User::find`). The persisted reference keeps the
+/// source-visible name; the indexer resolves the key by exact qualified name only and never
+/// falls back to short-name matching. `function-fallback` additionally tries the global
+/// function when no namespaced function of that name exists, as PHP does at runtime.
+/// `dispatch-class` and `dispatch-member` name the declaration in the statically known class
+/// of `static::` or `$this->`, which runtime dispatch can replace; `returned-member` keys
+/// `Class::factory::member` name a factory method and the member called on the object it
+/// returns, followed only through the factory's declared return type (`own-returned-member`
+/// when the call is inside the factory's own class, so a non-public factory is accessible);
+/// and `abstain` marks a
+/// static name whose target cannot be determined exactly. Class, function, and method names
+/// match ignoring ASCII case, as in PHP; constant names match exactly.
+#[doc(hidden)]
+pub const PHP_EXACT_RESOLUTION_PREFIX: &str = "cartograph.php-exact::";
 
 /// Complete storage-independent output for one native source-file extraction.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,6 +416,11 @@ pub enum DiagnosticCode {
     /// A defensive AST nesting limit was reached. The file remains in the
     /// generation as recoverably partial while its untrusted subtree is omitted.
     NestingLimitExceeded,
+    /// Optional enrichment facts (package bindings, struct fields, constant
+    /// reads, literal instantiations, declared-type uses, supertraits, and
+    /// decorators or bridge facts) exceeded their output or work budget and
+    /// were omitted. The file's ordinary declarations and calls are complete.
+    OptionalFactsOmitted,
 }
 
 /// Bounded diagnostic that never embeds source text or project paths.

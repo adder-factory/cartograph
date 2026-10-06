@@ -11,6 +11,12 @@ use super::{
 };
 
 const MAX_SIGNATURE_BYTES: usize = 512;
+/// Command-name node kinds that spell the invoked command statically: a bare
+/// word or a Bash/Zsh `$name` variable. Any other form, such as a command
+/// substitution, a quoted string or a `${...}` expansion, can embed argument
+/// literals, so the command abstains and its inner commands are captured on
+/// their own. Fish spells `$name` differently; see [`is_static_command_name`].
+const STATIC_COMMAND_NAME_KINDS: [&str; 2] = ["word", "simple_expansion"];
 
 pub(super) fn visit_declaration(
     builder: &mut ExtractionBuilder<'_, '_>,
@@ -75,11 +81,12 @@ fn visit_bash_declaration(
             Ok(true)
         }
         "declaration_command" => {
-            visit_bash_declaration_command(builder, node)?;
+            visit_bash_declaration_command(builder, node, depth)?;
             Ok(true)
         }
         "variable_assignment" => {
             visit_bash_assignment(builder, node, None)?;
+            visit_assigned_value(builder, node, depth)?;
             Ok(true)
         }
         "command" => match shell_command_name(builder, node)?.as_deref() {
@@ -93,21 +100,41 @@ fn visit_bash_declaration(
     }
 }
 
+/// Declare the variables of an `export`/`readonly`/`declare` command and walk
+/// every assigned value for the commands it runs. A `local` variable is a
+/// function-private temporary and declares nothing, but the commands in its
+/// value, such as `local branch=$(current_branch)`, are still calls.
 fn visit_bash_declaration_command(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
+    depth: usize,
 ) -> Result<(), ExtractError> {
     let modifier = node
         .child(0)
         .map(|child| builder.context.text(child).trim().to_ascii_lowercase())
         .unwrap_or_default();
-    if modifier == "local" {
-        return Ok(());
-    }
+    let declares = modifier != "local";
+    let assignment_depth = depth.saturating_add(1);
     for assignment in named_children(node).filter(|child| child.kind() == "variable_assignment") {
-        visit_bash_assignment(builder, assignment, Some(modifier.as_str()))?;
+        if declares {
+            visit_bash_assignment(builder, assignment, Some(modifier.as_str()))?;
+        }
+        visit_assigned_value(builder, assignment, assignment_depth)?;
     }
     Ok(())
+}
+
+/// Walk the value of one assignment so the commands of a command substitution
+/// (`name=$(command)`) are captured as calls of the enclosing scope.
+fn visit_assigned_value(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    assignment: Node<'_>,
+    depth: usize,
+) -> Result<(), ExtractError> {
+    match assignment.child_by_field_name("value") {
+        Some(value) => builder.visit(value, depth.saturating_add(1)),
+        None => Ok(()),
+    }
 }
 
 fn visit_bash_assignment(
@@ -719,7 +746,20 @@ fn shell_command_name(
         return Ok(None);
     };
     let leaf = named_children(name).next().unwrap_or(name);
+    if !is_static_command_name(name, leaf) {
+        return Ok(None);
+    }
     builder.context.owned_text(leaf).map(Some)
+}
+
+/// Whether `leaf`, the first named child of a command's `name`, spells the
+/// command statically. Fish has no `command_name` wrapper: its `$name` command
+/// is a `variable_expansion` whose first named child is the bare
+/// `variable_name` (a `$list[1]` index is a later sibling), so that leaf names
+/// the command without any argument text.
+fn is_static_command_name(name: Node<'_>, leaf: Node<'_>) -> bool {
+    STATIC_COMMAND_NAME_KINDS.contains(&leaf.kind())
+        || (name.kind() == "variable_expansion" && leaf.kind() == "variable_name")
 }
 
 fn shell_command_arguments(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
@@ -822,6 +862,7 @@ fn literal_shell_text(raw: &str) -> Option<&str> {
         .or_else(|| raw.strip_circumfix('\'', '\''))
         .unwrap_or(raw);
     (!unquoted.is_empty()
+        && !super::specifier_safety::specifier_may_carry_credential(unquoted)
         && !unquoted.contains('$')
         && !unquoted.contains('(')
         && !unquoted.contains('`'))

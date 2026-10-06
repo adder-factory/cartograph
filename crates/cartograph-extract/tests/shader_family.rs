@@ -1,5 +1,6 @@
 //! Shader-family extraction contracts for WGSL, WESL, Slang, and Metal.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
@@ -8,6 +9,70 @@ use cartograph_extract::{
 };
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
+
+#[test]
+fn wesl_import_operands_screen_credentials_before_branch_and_alias_projection() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        for source in [
+            format!("import {value}::lib;\n"),
+            format!("import package::{{{value}::lib, safe}};\n"),
+            format!("import package::lib as {value};\n"),
+        ] {
+            let file = extract("main.wesl", &source);
+            credential_support::assert_no_credentials(&file);
+            assert_eq!(file.import_bindings.len(), 0);
+            assert!(
+                file.references
+                    .iter()
+                    .all(|reference| reference.kind != ReferenceKind::Imports)
+            );
+        }
+    }
+    credential_support::assert_screened("main.wesl", "import @VALUE@;\n", "token::lib");
+    let file = extract("main.wesl", "import token::lib as password;\n");
+    assert!(file.references.iter().any(
+        |reference| reference.name == "token::lib" && reference.kind == ReferenceKind::Imports
+    ));
+    assert!(file.import_bindings.iter().any(
+        |binding| binding.module_specifier == "token::lib" && binding.local_name == "password"
+    ));
+}
+
+#[test]
+fn wgsl_module_directives_screen_credentials_before_name_normalization() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        for source in [
+            format!("#import {value}\n"),
+            format!("#import \"{value}\"\n"),
+            format!("#define_import_path {value}\n"),
+        ] {
+            let file = extract("main.wgsl", &source);
+            credential_support::assert_no_credentials(&file);
+            assert!(
+                file.symbols.iter().all(|symbol| {
+                    !matches!(symbol.kind, SymbolKind::Import | SymbolKind::Module)
+                })
+            );
+        }
+    }
+    for template in ["#import @VALUE@\n", "#define_import_path @VALUE@\n"] {
+        credential_support::assert_screened("main.wgsl", template, "token::lib");
+    }
+    let file = extract(
+        "main.wgsl",
+        "#define_import_path token::lib\n#import password::key\n",
+    );
+    assert!(
+        file.symbols
+            .iter()
+            .any(|symbol| { symbol.kind == SymbolKind::Module && symbol.name == "token::lib" })
+    );
+    assert!(
+        file.symbols
+            .iter()
+            .any(|symbol| { symbol.kind == SymbolKind::Import && symbol.name == "password::key" })
+    );
+}
 
 #[test]
 fn wgsl_extracts_stage_entry_points_bindings_structs_and_module_imports() {

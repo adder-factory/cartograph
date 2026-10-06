@@ -15,6 +15,22 @@ const MAX_FIELDS_PER_SCHEMA: usize = 512;
 const MAX_ENUM_MEMBERS_PER_FIELD: usize = 128;
 const MAX_ZOD_NESTING: usize = 8;
 const MAX_SCHEMA_NAME_BYTES: usize = 512;
+/// Longest literal word with non-ASCII letters admitted as part of a name.
+const MAX_UNICODE_LITERAL_WORD_CHARS: usize = 24;
+/// Authorization schemes whose following word is a credential (`Bearer
+/// <token>`); a multi-word literal containing one never becomes a name.
+const AUTHORIZATION_SCHEME_WORDS: &[&str] = &["bearer"];
+/// Provider token prefixes that never become part of a literal-derived name.
+const CREDENTIAL_PREFIXES: &[&str] = &[
+    "sk_live_",
+    "sk_test_",
+    "ghp_",
+    "github_pat_",
+    "xoxb_",
+    "xoxp_",
+    "akia",
+    "asia",
+];
 
 #[derive(Default)]
 struct ScanBudget {
@@ -226,7 +242,7 @@ fn scan_zod_declarations(
         {
             scan.budget.admit_candidate()?;
             let name = builder.context.owned_text(name_node)?;
-            if safe_schema_name(&name, false) {
+            if safe_identifier_name(&name) {
                 scan.consumed_objects
                     .insert((object.start_byte(), object.end_byte()));
                 let (struct_id, fields) = emit_zod_schema(
@@ -362,7 +378,7 @@ fn emit_zod_field(
         return Ok(());
     };
     let field_name = builder.context.owned_unquoted_text(key)?;
-    if !safe_schema_name(&field_name, false) || !fields.insert(field_name.clone()) {
+    if !safe_object_key_name(key, &field_name) || !fields.insert(field_name.clone()) {
         return Ok(());
     }
     let leaf = zod_leaf_type(value, builder.context.source());
@@ -488,7 +504,7 @@ fn emit_zod_enum_members(
                     return Err(ExtractError::OutputLimit);
                 }
                 let member = builder.context.owned_unquoted_text(element)?;
-                if !safe_schema_name(&member, true) || !seen.insert(member.clone()) {
+                if !safe_literal_name(&member) || !seen.insert(member.clone()) {
                     continue;
                 }
                 emit_schema_symbol(
@@ -521,7 +537,6 @@ fn scan_zod_inline(
         let object_key = (object.start_byte(), object.end_byte());
         if !scan.consumed_objects.contains(&object_key)
             && let Some((name_node, name)) = inline_zod_schema_name(builder, walk.node)?
-            && safe_schema_name(&name, false)
         {
             scan.budget.admit_candidate()?;
             scan.consumed_objects.insert(object_key);
@@ -567,7 +582,7 @@ fn inline_zod_schema_name<'tree>(
                 return Ok(None);
             };
             let name = builder.context.owned_unquoted_text(key)?;
-            return Ok(Some((node, name)));
+            return Ok(safe_object_key_name(key, &name).then_some((node, name)));
         }
         if node.kind() == "variable_declarator" {
             return Ok(None);
@@ -783,7 +798,7 @@ fn emit_pydantic_model(
         return Ok(());
     };
     let name = builder.context.owned_text(name_node)?;
-    if !safe_schema_name(&name, false) {
+    if !safe_identifier_name(&name) {
         return Ok(());
     }
     let struct_id = emit_schema_symbol(
@@ -823,7 +838,7 @@ fn emit_pydantic_model(
                     continue;
                 }
                 let field_name = builder.context.owned_text(left)?;
-                if !safe_schema_name(&field_name, false) || !fields.insert(field_name.clone()) {
+                if !safe_identifier_name(&field_name) || !fields.insert(field_name.clone()) {
                     continue;
                 }
                 let signature = safe_type_signature(builder, annotation)?;
@@ -883,7 +898,7 @@ fn safe_type_signature(
         .split(['[', '<', '(', ' ', '\t', '\r', '\n'])
         .next()
         .unwrap_or_default();
-    if !safe_schema_name(head.rsplit('.').next().unwrap_or_default(), false) {
+    if !safe_identifier_name(head.rsplit('.').next().unwrap_or_default()) {
         return Ok(None);
     }
     Ok(Some(format!("{head}[...]")))
@@ -938,7 +953,7 @@ fn emit_pydantic_literal_members(
             return Err(ExtractError::OutputLimit);
         }
         let member = builder.context.owned_unquoted_text(node)?;
-        if !safe_schema_name(&member, true) || !members.insert(member.clone()) {
+        if !safe_literal_name(&member) || !members.insert(member.clone()) {
             continue;
         }
         emit_schema_symbol(
@@ -1090,7 +1105,7 @@ fn typeof_identifier<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tre
             descendants(candidate, 0).find(|child| child.kind() == "identifier")
             && source
                 .get(identifier.start_byte()..identifier.end_byte())
-                .is_some_and(|name| safe_schema_name(name, false))
+                .is_some_and(safe_identifier_name)
         {
             return Some(identifier);
         }
@@ -1119,32 +1134,113 @@ fn zod_shape_reference<'tree>(
     Some((schema, field))
 }
 
-fn safe_schema_name(value: &str, literal: bool) -> bool {
-    if value.is_empty()
-        || value.len() > MAX_SCHEMA_NAME_BYTES
-        || value.bytes().any(|byte| byte.is_ascii_control())
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'$'))
-    {
+/// Whether a name copied from identifier syntax — a model, field, or schema
+/// variable name, or an unquoted object key — may become a symbol name:
+/// bounded, non-empty, and made of (Unicode) alphanumerics and the
+/// separators `_ - . $`, so identifiers such as `naïve` survive.
+fn safe_identifier_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_SCHEMA_NAME_BYTES
+        && value.chars().all(is_identifier_name_character)
+}
+
+/// Whether a name copied from a source string literal — a quoted key, an
+/// enum value, a `Literal[...]` member, a quoted class field, a contract
+/// property — may become a symbol name.
+///
+/// Besides the identifier characters it admits single inner spaces
+/// (`"content type"`, `"c d"`) but no other punctuation, so a connection URI,
+/// user info, or an e-mail address (`:`, `/`, `@`) never forms a name and no
+/// name contains the `::` qualifier separator. Every word must be
+/// search-safe — no credential word, provider token prefix, high-entropy or
+/// numeric token — and a multi-word literal that names an authorization
+/// scheme (`Bearer abc123`) is a credential.
+pub(super) fn safe_literal_name(value: &str) -> bool {
+    value.len() <= MAX_SCHEMA_NAME_BYTES
+        && !super::specifier_safety::specifier_may_carry_credential(value)
+        && value.trim() == value
+        && !value.contains("  ")
+        && value
+            .chars()
+            .any(|character| character.is_alphanumeric() || matches!(character, '_' | '$'))
+        && value
+            .chars()
+            .all(|character| character == ' ' || is_identifier_name_character(character))
+        && literal_words_are_search_safe(value)
+}
+
+/// Whether the name of an object key may become a symbol name.
+///
+/// An unquoted key is identifier syntax. A quoted key is a source literal:
+/// an ASCII identifier-shaped one (`"content-type"`, `"200"`, `"password"`)
+/// names a field exactly like the unquoted key, so it keeps that rule, but no
+/// word of it may start with a provider token prefix and it may not pair an
+/// authorization scheme with a credential (`"Bearer-abc123"`). Any other
+/// quoted key (`"x y"`, `"café"`) must be a safe literal name.
+fn safe_object_key_name(key: Node<'_>, name: &str) -> bool {
+    if super::specifier_safety::specifier_may_carry_credential(name) {
         return false;
     }
-    if !literal {
-        return true;
+    if key.kind() != "string" {
+        return safe_identifier_name(name);
     }
-    let lower = value.to_ascii_lowercase();
-    declaration_value_is_search_safe(value)
-        && ![
-            "sk_live_",
-            "sk_test_",
-            "ghp_",
-            "github_pat_",
-            "xoxb_",
-            "xoxp_",
-            "akia",
-            "asia",
-        ]
-        .into_iter()
+    if name.is_ascii() && safe_identifier_name(name) {
+        !literal_words(name).any(has_credential_prefix) && !names_authorization(name)
+    } else {
+        safe_literal_name(name)
+    }
+}
+
+/// The words of a name: its runs of alphanumerics and underscores.
+fn literal_words(value: &str) -> impl Iterator<Item = &str> {
+    value
+        .split(|character: char| !(character.is_alphanumeric() || character == '_'))
+        .filter(|word| !word.is_empty())
+}
+
+/// Whether a multi-word name names an authorization scheme, whose following
+/// word is a credential (`Bearer abc123`).
+fn names_authorization(value: &str) -> bool {
+    literal_words(value).nth(1).is_some()
+        && literal_words(value).any(|word| {
+            AUTHORIZATION_SCHEME_WORDS
+                .iter()
+                .any(|scheme| word.eq_ignore_ascii_case(scheme))
+        })
+}
+
+/// A (Unicode) alphanumeric or one of the separators `_ - . $`.
+fn is_identifier_name_character(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | '$')
+}
+
+/// Every word of a literal-derived name is search-safe, and the name does
+/// not name an authorization scheme with its credential.
+fn literal_words_are_search_safe(value: &str) -> bool {
+    literal_words(value).all(literal_word_is_search_safe) && !names_authorization(value)
+}
+
+/// One literal word. Its ASCII letters must not start with a provider token
+/// prefix and must pass the shared declaration-value classifier (credential
+/// words, provider prefixes, high-entropy and numeric tokens), so interleaved
+/// Unicode cannot hide a token. A word with non-ASCII letters must also be
+/// short and numeral-free.
+fn literal_word_is_search_safe(word: &str) -> bool {
+    if word.is_ascii() {
+        return !has_credential_prefix(word) && declaration_value_is_search_safe(word);
+    }
+    let ascii = word.chars().filter(char::is_ascii).collect::<String>();
+    word.chars().count() <= MAX_UNICODE_LITERAL_WORD_CHARS
+        && !word.chars().any(char::is_numeric)
+        && !has_credential_prefix(&ascii)
+        && (ascii.is_empty() || declaration_value_is_search_safe(&ascii))
+}
+
+/// Whether a word starts with a provider token prefix, ignoring ASCII case.
+fn has_credential_prefix(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    CREDENTIAL_PREFIXES
+        .iter()
         .any(|prefix| lower.starts_with(prefix))
 }
 

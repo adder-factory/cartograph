@@ -4,9 +4,9 @@
 [Configuration](../CONFIGURATION.md) · [V2 architecture](../v2/ARCHITECTURE.md)
 
 - **Status:** Accepted for Cartograph v2
-- **Last reviewed:** 2026-07-24
-- **Scope:** Optional embedding, reranking, summary, classification, ask, and
-  local-chat providers.
+- **Last reviewed:** 2026-10-04
+- **Scope:** Optional embedding, reranking, summary, classification, ask,
+  local-chat, and decision (Jev) providers.
 
 ## Context
 
@@ -31,10 +31,22 @@ reused across models.
   configured with absolute model paths and loopback endpoints.
 - MLX, Ollama, LM Studio, vLLM, LocalAI, and other OpenAI-compatible servers are
   supported as externally managed endpoints.
-- Chat tiers also support the Anthropic Messages API and a bounded local Claude
-  CLI bridge. Embedding/reranker tiers remain OpenAI-compatible HTTP.
-- Credentials resolve from named environment variables. Legacy inline keys are
-  readable only for migration compatibility and are never returned.
+- Each tier names one provider:
+
+  | Provider | Tiers | Boundary |
+  | --- | --- | --- |
+  | `openai-compat` | All chat tiers, embedding, and reranker | OpenAI-compatible HTTP, including the external endpoints above |
+  | `anthropic-api` | Chat tiers | Anthropic Messages API |
+  | `claude-bridge` | Chat tiers | Bounded local Claude CLI bridge |
+  | `cli-bridge` | Chat tiers | Generic bounded local CLI bridge: an operator-chosen executable with a bounded argv template, never a shell |
+  | `typesafe` | Decision tier only | Typesafe's typed, parallel Jev decision API for bounded retrieval planning |
+
+  Embedding/reranker tiers remain OpenAI-compatible HTTP, and the decision tier
+  accepts only `typesafe`.
+- Credentials resolve from a named environment variable (`apiKeyEnv`) or a
+  shell-free credential command (`apiKeyCommand`). The bridge providers take no
+  credential. Legacy inline keys are readable only for migration compatibility
+  and are never returned.
 - Structural summaries, exact/BM25 retrieval, graph, review, roles, and
   affected-test selection remain model-free. Optional failures are explicit
   readiness/fallback states.

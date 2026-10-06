@@ -3,12 +3,17 @@
 [Documentation home](README.md) · [CLI reference](CLI-REFERENCE.md) ·
 [MCP usage](MCP-USAGE.md) · [Project overview](../README.md)
 
-Last release audit: 2026-10-04 (`v2.1.39`).
+Last release audit: 2026-10-06 (`v2.1.40`).
 
 Cartograph exposes one native Rust feature surface through human CLI commands
 and 36 bounded MCP tools. Shared schemas generate ordinary CLI adapters where
 possible; hand-curated family commands retain deliberate positional and
 subcommand shapes.
+
+**On this page:** [Public MCP tools](#public-mcp-tools) ·
+[Family mappings](#family-mappings) ·
+[Intentional CLI-only operations](#intentional-cli-only-operations) ·
+[Verification](#verification)
 
 The v1.1.33 public contracts are frozen in:
 
@@ -42,9 +47,22 @@ tests_for          trace_to_culprits    verify
 
 <!-- CARTOGRAPH_MCP_TOOLS_END -->
 
-Each appears on the wire with the `cartograph_` prefix. Profiles (`coding`,
-`core`, `full`, `read-only`, and `review`) deliberately expose subsets; a
-hidden tool cannot be called by name.
+Each appears on the wire with the `cartograph_` prefix.
+
+### Profile membership
+
+Profiles deliberately bound the surface; a hidden tool cannot be called by name.
+Only `cartograph_admin` is profile-restricted:
+
+| Profile | Advertised tools |
+| --- | --- |
+| `full` | All 36 |
+| `core` (default) | All 36 |
+| `coding` | The 35 tools other than `cartograph_admin` |
+| `review` | The 35 tools other than `cartograph_admin` |
+| `read-only` | The 35 tools other than `cartograph_admin`; `serve` also refuses mutating call branches |
+
+See [MCP profiles](MCP-USAGE.md#profiles) for the intended use of each.
 
 ## Family mappings
 
@@ -70,7 +88,14 @@ retention, embedding-readiness, SCIP, and agent-workflow operations.
 - `serve` is the MCP transport itself.
 - `install`, `uninstall`, and `install-hooks` mutate host/repository setup.
 - `db` owns local database lifecycle and destructive confirmation boundaries.
-- `llm setup/smoke` and `backend` are operator configuration/process checks.
+- `llm setup/smoke/install/migrate-credentials` and `backend` are operator
+  configuration/process checks. MCP `cartograph_admin` covers tier planning and
+  application through `llm-plan`/`llm-apply` and the model download (with an
+  optional config write) of `llm install` through `install-models`;
+  `llm migrate-credentials` has no MCP action.
+- `export` writes capped JSON, DOT, Mermaid, or Cytoscape graph artifacts; MCP
+  has no export tool, while graph and SCIP interchange data remain available
+  through `cartograph_graph` and the `cartograph_admin` `scip-export` action.
 - `doctor`, `guide`, `mcp-budget`, `completions`, and `upgrade` are operator
   workflows; MCP uses admin/playbook/status equivalents where appropriate.
 - `sync-if-dirty` is the Git-hook compatibility entry point.
@@ -78,33 +103,40 @@ retention, embedding-readiness, SCIP, and agent-workflow operations.
 
 These do not hide a coding capability from MCP. Long MCP admin operations use
 bounded jobs with explicit status/cancel instead of blocking transport.
-Biomarker reads are non-mutating on both surfaces; the explicit
-`biomarkers-refresh` admin action is dry-run-first and requires confirmation to
-compute the generation-fenced relation. Its `databaseQueryTimeoutMs` field and
-generated `--database-query-timeout-ms` flag control the same inner PostgreSQL
-statement timeout through 30 minutes; `timeoutMs` is retained only as an
-exclusive legacy alias. Generated CLI execution extends its caller deadline
-beyond the selected statement timeout. Dead-code statement timeouts use the
-same typed error on CLI and MCP, while digest preserves successful sections and
-labels an incomplete section independently.
-Non-recoverable file-local index errors share the same typed project-relative
-path and fixed reason across both surfaces: direct CLI JSON uses
-`error.file_failure`, while admin job status uses `fileFailure`. A failed
-cleanup of the attempt's own staging generation is the same secondary
-`code`/`message` object beside the primary failure: `error.cleanup_failure` in
-direct CLI JSON and `cleanupFailure` in admin job status. A SCIP import whose
-overlay restore also failed adds the same-shaped `overlayRollbackFailure` to
-that one job status, which CLI `admin scip-import` and MCP `scip-import` share.
-Invalid spans and non-cancelled parser stops instead publish an empty partial
-file with a stable degraded reason. Generation-capacity failures name
-`maxGenerationBytes`, its Cartograph-process scope, and a bounded next action in
-direct CLI output and MCP `failureDetail`. Text rendering escapes control
-characters, and neither surface accepts arbitrary parser/driver text at that
-boundary.
-Auto-sync status additionally exposes its cross-revision capacity failure count,
-circuit state, and the same limit/scope/next action. `serve --no-auto-sync`
-provides the CLI process-lifetime recovery boundary; it does not mutate the MCP
-authorization profile or create a task-local tool mode.
+
+### Shared contracts across both surfaces
+
+| Contract | Direct CLI JSON or output | MCP and admin job status |
+| --- | --- | --- |
+| Biomarker refresh inner PostgreSQL statement timeout, through 30 minutes | Generated `--database-query-timeout-ms` flag | `databaseQueryTimeoutMs` field |
+| Exclusive legacy timeout alias | `--timeout-ms` | `timeoutMs` |
+| Non-recoverable file-local index error | `error.file_failure` | `fileFailure` |
+| Failed cleanup of the attempt's own staging generation | `error.cleanup_failure` | `cleanupFailure` |
+| SCIP import whose overlay restore also failed | The same-shaped (`code`/`message`) `overlayRollbackFailure` in the one job status that CLI `admin scip-import` shares | The same `overlayRollbackFailure` in the MCP `scip-import` job status |
+| Generation-capacity failure | Direct CLI output | `failureDetail` |
+
+- Biomarker reads are non-mutating on both surfaces; the explicit
+  `biomarkers-refresh` admin action is dry-run-first and requires confirmation
+  to compute the generation-fenced relation. Generated CLI execution extends its
+  caller deadline beyond the selected statement timeout.
+- Dead-code statement timeouts use the same typed error on CLI and MCP, while
+  digest preserves successful sections and labels an incomplete section
+  independently.
+- Non-recoverable file-local index errors share the same typed project-relative
+  path and fixed reason across both surfaces. A failed staging cleanup is the
+  same secondary `code`/`message` object beside the primary failure, and the
+  SCIP overlay restore failure is one shared job status.
+- Invalid spans and non-cancelled parser stops instead publish an empty partial
+  file with a stable degraded reason.
+- Generation-capacity failures name `maxGenerationBytes`, its Cartograph-process
+  scope, and a bounded next action.
+- Text rendering escapes control characters, and neither surface accepts
+  arbitrary parser/driver text at that boundary.
+- Auto-sync status additionally exposes its cross-revision capacity failure
+  count, circuit state, and the same limit/scope/next action.
+- `serve --no-auto-sync` provides the CLI process-lifetime recovery boundary; it
+  does not mutate the MCP authorization profile or create a task-local tool
+  mode.
 
 ## Verification
 

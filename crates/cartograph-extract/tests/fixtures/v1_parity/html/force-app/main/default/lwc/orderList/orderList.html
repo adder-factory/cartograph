@@ -1,0 +1,5 @@
+<template>
+  <template for:each={orders} for:item="order">
+    <c-order-card key={order.id} order={order}></c-order-card>
+  </template>
+</template>

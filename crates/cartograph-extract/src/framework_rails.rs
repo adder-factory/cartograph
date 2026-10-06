@@ -3,13 +3,20 @@ use cartograph_domain::{SourceLanguage, SymbolKind};
 use crate::{
     ExtractError,
     framework::{
-        FrameworkBuilder, FrameworkRouteInput, LandmarkInput, Quoted,
-        quoted_literal_after as quoted_after, skip_ascii_whitespace,
+        FrameworkBuilder, FrameworkRouteInput, LandmarkInput, Quoted, quoted_literal_after,
+        skip_ascii_whitespace,
     },
     source_lines::physical_lines,
 };
 
 const MAX_ROUTE_BYTES: usize = 1_024;
+
+/// Screen source literals before scoped-path or controller normalization.
+fn quoted_after(value: &str, from: usize) -> Option<Quoted<'_>> {
+    quoted_literal_after(value, from).filter(|quoted| {
+        !crate::walk::specifier_safety::specifier_may_carry_credential(quoted.value)
+    })
+}
 const MAX_SCOPE_DEPTH: usize = 32;
 
 pub(crate) fn scan(

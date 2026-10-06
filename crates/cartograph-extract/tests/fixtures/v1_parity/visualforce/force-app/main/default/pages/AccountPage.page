@@ -1,0 +1,13 @@
+<apex:page controller="AccountController" extensions="AccountExtension, ns.Helper">
+    <!-- <apex:commandButton action="{!legacySave}"/> -->
+    <apex:form>
+        <apex:inputField value="{!account.Name}"/>
+        <span>{!account.Name}</span>
+        <apex:commandButton action="{!save}" value="Save"/>
+        <apex:commandButton action="{! cancel }" value="Cancel"/>
+        <apex:commandLink action="{!refresh}" value="Refresh"/>
+        <apex:actionFunction name="doRun" action="{!run}"/>
+    </apex:form>
+    <c:AccountCard record="{!account}"/>
+    <c:report-summary/>
+</apex:page>

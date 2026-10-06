@@ -1,17 +1,43 @@
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
+use std::collections::{BTreeMap, BTreeSet};
+
+use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
 
 use super::{
-    ExtractionBuilder, PendingReference, PendingSymbol, references,
+    ExtractionBuilder, PendingReference, PendingSymbol,
+    javascript_bindings::{BindingMatch, scan_bound_names},
+    references, require_aliases,
+    specifier_safety::specifier_may_carry_credential,
     syntax::{descendants_including_root, has_child_kind, named_children, span_for},
 };
+
+/// `import()` takes a specifier and an optional import-attributes object.
+const MAX_DYNAMIC_IMPORT_ARGUMENTS: usize = 2;
+/// Parentheses, assertions, and awaits followed around one dynamic import.
+const MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH: usize = 8;
+/// Members of the promise returned by `import()`, before it is awaited.
+const DYNAMIC_IMPORT_PROMISE_METHODS: [&str; 3] = ["then", "catch", "finally"];
+/// Local name of the binding an inline import type creates. It is not a
+/// JavaScript identifier, so no ordinary reference name equals or extends it.
+const INLINE_IMPORT_TYPE_LOCAL_NAME: &str = "import()";
+/// Deepest member chain followed to the root of a write target.
+const MAX_MEMBER_WRITE_DEPTH: usize = 64;
+/// Most nodes of one assignment or loop target scanned for `createRequire`
+/// alias writes.
+const MAX_ALIAS_TARGET_NODES: usize = 4 * crate::MAXIMUM_AST_DEPTH;
 
 struct CommonJsRequire<'tree> {
     call: Node<'tree>,
     selected_member: Option<Node<'tree>>,
     module_specifier: String,
+}
+
+#[derive(Clone, Copy)]
+struct ImportDestructuringInput<'module> {
+    module_specifier: &'module str,
+    excluded_members: &'module [&'module str],
 }
 
 pub(super) struct ExportAlias<'tree> {
@@ -27,16 +53,68 @@ pub(super) struct CommonJsShadowing {
     require: bool,
     module: bool,
     exports: bool,
+    /// Top-level bindings created by the Node.js `createRequire(..)`, which
+    /// load modules exactly like `require`.
+    require_aliases: BTreeSet<String>,
+    /// Factory and module locals every alias was proven through.
+    require_fences: BTreeSet<String>,
+    /// How often each alias, and each factory or module local the aliases
+    /// were proven through, is bound or written anywhere in the file.
+    alias_bindings: BTreeMap<String, usize>,
+    /// The aliases that still prove a `require` call once every binding and
+    /// write of the file has been counted.
+    proven_aliases: BTreeSet<String>,
 }
 
 impl CommonJsShadowing {
     fn record(&mut self, name: &str) {
-        match name.trim() {
+        let name = name.trim();
+        match name {
             "require" => self.require = true,
             "module" => self.module = true,
             "exports" => self.exports = true,
             _ => {}
         }
+        if let Some(bindings) = self.alias_bindings.get_mut(name) {
+            *bindings = bindings.saturating_add(1);
+        }
+    }
+
+    /// Whether any binding in the file may shadow the global `require`.
+    pub(super) const fn shadows_require(&self) -> bool {
+        self.require
+    }
+
+    /// Whether `name` is a proven `createRequire` alias.
+    fn is_require_alias(&self, name: &str) -> bool {
+        self.proven_aliases.contains(name)
+    }
+
+    /// Settle the aliases once every binding and write is counted: an alias
+    /// proves `require` only when its name and every factory and module local
+    /// are each bound exactly once and never written. Any second binding (a
+    /// parameter, a local, a loop variable, a class expression name) or write
+    /// may replace one of them, so the file-wide model conservatively stops
+    /// treating it as `require`.
+    fn settle_aliases(&mut self) {
+        let fences_hold = self
+            .require_fences
+            .iter()
+            .all(|fence| self.bound_once(fence));
+        self.proven_aliases = if fences_hold {
+            self.require_aliases
+                .iter()
+                .filter(|alias| self.bound_once(alias))
+                .cloned()
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
+    }
+
+    /// Whether a tracked alias or fence name is bound exactly once.
+    fn bound_once(&self, name: &str) -> bool {
+        self.alias_bindings.get(name) == Some(&1)
     }
 }
 
@@ -48,6 +126,21 @@ pub(super) fn collect_explicit_exports(
         return Ok(());
     }
     collect_commonjs_shadowing(builder, root)?;
+    let collected = require_aliases::collect(builder, root)?;
+    if !collected.aliases.is_empty() {
+        for name in collected.aliases.iter().chain(&collected.fences) {
+            builder
+                .commonjs_shadowing
+                .alias_bindings
+                .insert(name.clone(), 0);
+        }
+        builder.commonjs_shadowing.require_aliases = collected.aliases;
+        builder.commonjs_shadowing.require_fences = collected.fences;
+        // A second binding pass counts how often each alias and fence name is
+        // bound or written; it runs only for files that create an alias.
+        collect_commonjs_shadowing(builder, root)?;
+        builder.commonjs_shadowing.settle_aliases();
+    }
     for node in descendants_including_root(root) {
         builder.context.ensure_active()?;
         match node.kind() {
@@ -68,8 +161,9 @@ fn collect_commonjs_shadowing(
     for node in descendants_including_root(root) {
         builder.context.ensure_active()?;
         match node.kind() {
-            "variable_declarator" | "class_declaration" => {
-                record_binding_field(builder, node, "name")?;
+            "variable_declarator" => record_binding_field(builder, node, "name")?,
+            "class_declaration" | "abstract_class_declaration" | "class" => {
+                record_class_name(builder, node);
             }
             "function_declaration"
             | "generator_function_declaration"
@@ -79,10 +173,96 @@ fn collect_commonjs_shadowing(
             | "arrow_function" => record_callable_bindings(builder, node)?,
             "import_statement" => record_binding_tree(builder, node)?,
             "catch_clause" => record_binding_field(builder, node, "parameter")?,
+            "for_in_statement"
+            | "assignment_expression"
+            | "augmented_assignment_expression"
+            | "update_expression" => {
+                record_alias_rebinding(builder, node);
+            }
+            "unary_expression" if is_delete(builder, node) => record_alias_rebinding(builder, node),
             _ => {}
         }
     }
     Ok(())
+}
+
+/// A `createRequire` alias, or the factory or module local it was proven
+/// through, rebound by a loop variable (`for (const load of ..)`) or written
+/// (`load = other`, `load++`, `delete Module.createRequire`,
+/// `({ createRequire } = other)`) no longer proves a
+/// `require` call; a member write (`load.cache = ..`) leaves it intact. Only
+/// alias counts change: the `require`/`module`/`exports` model keeps its
+/// established binding rules. A target too large to scan invalidates every
+/// alias.
+fn record_alias_rebinding(builder: &mut ExtractionBuilder<'_, '_>, node: Node<'_>) {
+    if builder.commonjs_shadowing.alias_bindings.is_empty() {
+        return;
+    }
+    let Some(target) = node
+        .child_by_field_name("left")
+        .or_else(|| node.child_by_field_name("argument"))
+    else {
+        return;
+    };
+    let source = builder.context.snapshot.source();
+    let shadowing = &mut builder.commonjs_shadowing;
+    // A write through a module-object fence (`Module.createRequire = fake`)
+    // replaces the factory every alias was proven through.
+    if let Some(root) =
+        member_write_root(target).and_then(|root| source.get(root.start_byte()..root.end_byte()))
+        && shadowing.require_fences.contains(root)
+        && let Some(bindings) = shadowing.alias_bindings.get_mut(root)
+    {
+        *bindings = bindings.saturating_add(1);
+    }
+    let aliases = &mut shadowing.alias_bindings;
+    let mut budget = MAX_ALIAS_TARGET_NODES;
+    let outcome = scan_bound_names(target, &mut budget, |bound| {
+        let name = source
+            .get(bound.start_byte()..bound.end_byte())
+            .unwrap_or_default();
+        if let Some(bindings) = aliases.get_mut(name) {
+            *bindings = bindings.saturating_add(1);
+        }
+        false
+    });
+    if outcome == BindingMatch::Exhausted {
+        for bindings in aliases.values_mut() {
+            *bindings = bindings.saturating_add(1);
+        }
+    }
+}
+
+/// The identifier at the root of a member or subscript write target
+/// (`Module` in `Module.createRequire = ..`).
+fn member_write_root(target: Node<'_>) -> Option<Node<'_>> {
+    let mut current = target;
+    for _ in 0..MAX_MEMBER_WRITE_DEPTH {
+        match current.kind() {
+            "member_expression" | "subscript_expression" => {
+                current = current.child_by_field_name("object")?;
+            }
+            "identifier" if current.id() != target.id() => return Some(current),
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// A class name binds like any other name (a TypeScript class name is a
+/// `type_identifier`, which binding trees do not record).
+fn record_class_name(builder: &mut ExtractionBuilder<'_, '_>, class: Node<'_>) {
+    if let Some(name) = class.child_by_field_name("name") {
+        builder
+            .commonjs_shadowing
+            .record(builder.context.text(name));
+    }
+}
+
+/// Whether a unary expression deletes its operand (`delete Module.createRequire`).
+fn is_delete(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> bool {
+    node.child_by_field_name("operator")
+        .is_some_and(|operator| builder.context.text(operator) == "delete")
 }
 
 fn record_callable_bindings(
@@ -136,15 +316,12 @@ pub(super) fn capture_commonjs_require(
     if !is_javascript_family(builder.context.snapshot.language()) {
         return Ok(());
     }
-    if builder.commonjs_shadowing.require {
-        return Ok(());
-    }
     let Some(require) = parse_commonjs_require(builder, value)? else {
         return Ok(());
     };
-    if !capture_commonjs_binding(builder, name_node, &require)? {
-        return Ok(());
-    }
+    // The module is loaded even when the binding shape (an array pattern, or a
+    // destructured member selection) has no modeled import binding.
+    capture_commonjs_binding(builder, name_node, &require)?;
     emit_commonjs_module_reference(builder, require)
 }
 
@@ -156,7 +333,7 @@ pub(super) fn capture_dynamic_import_binding(
     if !is_javascript_family(builder.context.snapshot.language()) {
         return Ok(());
     }
-    let Some((call, selected_member)) = dynamic_import_binding_shape(value) else {
+    let Some((call, selected_member)) = dynamic_import_binding_shape(builder, value) else {
         return Ok(());
     };
     let Some(source) = dynamic_import_source(builder, call) else {
@@ -183,9 +360,27 @@ pub(super) fn capture_dynamic_import_binding(
             })?;
         }
         "object_pattern" if selected_member.is_none() => {
-            capture_commonjs_destructuring(builder, name_node, &module_specifier)?;
+            capture_import_destructuring(
+                builder,
+                name_node,
+                ImportDestructuringInput {
+                    module_specifier: &module_specifier,
+                    excluded_members: if dynamic_import_is_awaited(call) {
+                        &[]
+                    } else {
+                        &DYNAMIC_IMPORT_PROMISE_METHODS
+                    },
+                },
+            )?;
+            // Static destructuring skips the initializer's ordinary walk, so
+            // retain the module load even when every selected name is excluded.
+            capture_dynamic_import(builder, call)?;
         }
-        _ => {}
+        _ => {
+            // Other patterns also skip their initializer walk once the value
+            // is classified as a static import. Keep its site-level facts.
+            capture_dynamic_import(builder, call)?;
+        }
     }
     Ok(())
 }
@@ -197,18 +392,20 @@ pub(super) fn is_static_module_binding_value(
     if !is_javascript_family(builder.context.snapshot.language()) {
         return false;
     }
-    let commonjs = !builder.commonjs_shadowing.require
-        && value
-            .and_then(commonjs_require_shape)
-            .is_some_and(|(call, _)| commonjs_require_source(builder, call).is_some());
+    let commonjs = value
+        .and_then(commonjs_require_shape)
+        .is_some_and(|(call, _)| commonjs_require_source(builder, call).is_some());
     commonjs
-        || dynamic_import_binding_shape(value)
+        || dynamic_import_binding_shape(builder, value)
             .is_some_and(|(call, _)| dynamic_import_source(builder, call).is_some())
 }
 
-fn dynamic_import_binding_shape(value: Option<Node<'_>>) -> Option<(Node<'_>, Option<Node<'_>>)> {
+fn dynamic_import_binding_shape<'tree>(
+    builder: &ExtractionBuilder<'_, '_>,
+    value: Option<Node<'tree>>,
+) -> Option<(Node<'tree>, Option<Node<'tree>>)> {
     let mut node = value?;
-    for _ in 0..8 {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
         match node.kind() {
             "await_expression"
             | "as_expression"
@@ -216,15 +413,14 @@ fn dynamic_import_binding_shape(value: Option<Node<'_>>) -> Option<(Node<'_>, Op
             | "type_assertion"
             | "parenthesized_expression"
             | "non_null_expression" => {
-                node = node
-                    .child_by_field_name("expression")
-                    .or_else(|| node.child_by_field_name("value"))
-                    .or_else(|| node.named_child(0))?;
+                node = expression_wrapper_value(node)?;
             }
             "member_expression" => {
                 let object = node.child_by_field_name("object")?;
                 let property = node.child_by_field_name("property")?;
-                return dynamic_import_source_node(object).map(|call| (call, Some(property)));
+                let call = unwrapped_dynamic_import_call(object)?;
+                let member = dynamic_import_selected_member(builder, call)?;
+                return (member == property).then_some((call, Some(member)));
             }
             "call_expression" => {
                 return dynamic_import_source_node(node).map(|call| (call, None));
@@ -235,9 +431,34 @@ fn dynamic_import_binding_shape(value: Option<Node<'_>>) -> Option<(Node<'_>, Op
     None
 }
 
+fn unwrapped_dynamic_import_call(mut node: Node<'_>) -> Option<Node<'_>> {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
+        match node.kind() {
+            "await_expression"
+            | "as_expression"
+            | "satisfies_expression"
+            | "type_assertion"
+            | "parenthesized_expression"
+            | "non_null_expression" => {
+                node = expression_wrapper_value(node)?;
+            }
+            _ => return dynamic_import_source_node(node),
+        }
+    }
+    None
+}
+
 fn dynamic_import_source_node(call: Node<'_>) -> Option<Node<'_>> {
     let function = call.child_by_field_name("function")?;
     (call.kind() == "call_expression" && function.kind() == "import").then_some(call)
+}
+
+fn expression_wrapper_value(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("expression")
+        .or_else(|| node.child_by_field_name("value"))
+        .or_else(|| {
+            named_children(node).find(|child| !child.is_extra() && child.kind() != "type_arguments")
+        })
 }
 
 fn parse_commonjs_require<'tree>(
@@ -276,28 +497,127 @@ fn commonjs_require_source<'tree>(
     builder: &ExtractionBuilder<'_, '_>,
     call: Node<'tree>,
 ) -> Option<Node<'tree>> {
-    if call.kind() != "call_expression" {
-        return None;
-    }
-    let function = call.child_by_field_name("function")?;
-    if builder.context.text(function).trim() != "require" {
+    if call.kind() != "call_expression" || !is_require_callee(builder, call) {
         return None;
     }
     let arguments = call.child_by_field_name("arguments")?;
     if arguments.named_child_count() != 1 {
         return None;
     }
-    arguments
-        .named_child(0)
-        .filter(|child| child.kind() == "string")
+    screened_import_source(builder, arguments.named_child(0)?)
+}
+
+/// Record the module loaded by a `require(..)` (or `createRequire` alias)
+/// call that is not a recognized variable binding, such as
+/// `function load() { require('./polyfill') }`, owned by the enclosing symbol.
+///
+/// Bound forms (`const x = require('./m')`) are recorded by
+/// [`capture_commonjs_require`]; the call reference itself is kept by the
+/// generic call extractor.
+pub(super) fn capture_require_import(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    call: Node<'_>,
+) -> Result<(), ExtractError> {
+    if !is_javascript_family(builder.context.snapshot.language())
+        || is_static_commonjs_binding_call(builder, call)
+    {
+        return Ok(());
+    }
+    let Some(source) = commonjs_require_source(builder, call) else {
+        return Ok(());
+    };
+    let module_specifier = builder.context.owned_unquoted_text(source)?;
+    references::push_reference(
+        builder,
+        PendingReference {
+            owner: builder.owners.last().cloned(),
+            name: module_specifier,
+            kind: ReferenceKind::Imports,
+            node: call,
+        },
+    )
+}
+
+fn is_require_callee(builder: &ExtractionBuilder<'_, '_>, call: Node<'_>) -> bool {
+    let Some(function) = call
+        .child_by_field_name("function")
+        .filter(|function| function.kind() == "identifier")
+    else {
+        return false;
+    };
+    let callee = builder.context.text(function).trim();
+    (callee == "require" && !builder.commonjs_shadowing.require)
+        || builder.commonjs_shadowing.is_require_alias(callee)
+}
+
+/// Record the module facts of `import('..')` calls that sit in type
+/// annotations the walker never visits (parameter, return, and class-field
+/// types such as `opts?: import('./opts').Options`), owned by the annotated
+/// symbol.
+///
+/// The member binding uses [`INLINE_IMPORT_TYPE_LOCAL_NAME`], which no source
+/// identifier can spell: only the span-exact type reference at the member
+/// resolves through it, so an inline import type never captures, or makes
+/// ambiguous, an ordinary use of the same name elsewhere in the file.
+pub(super) fn capture_type_position_imports(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    root: Node<'_>,
+    owner: &SymbolId,
+) -> Result<(), ExtractError> {
+    if !is_javascript_family(builder.context.snapshot.language()) {
+        return Ok(());
+    }
+    for node in descendants_including_root(root) {
+        builder.context.ensure_active()?;
+        if node.kind() == "call_expression"
+            && node
+                .child_by_field_name("function")
+                .is_some_and(|function| function.kind() == "import")
+        {
+            capture_inline_import_type(builder, node, owner)?;
+        }
+    }
+    Ok(())
+}
+
+/// One inline `import('./m').Name` type: the owned module import and the
+/// site-only binding of `Name`.
+fn capture_inline_import_type(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    call: Node<'_>,
+    owner: &SymbolId,
+) -> Result<(), ExtractError> {
+    let Some(source) = dynamic_import_source(builder, call) else {
+        return Ok(());
+    };
+    let module_specifier = builder.context.owned_unquoted_text(source)?;
+    references::push_reference(
+        builder,
+        PendingReference {
+            owner: Some(owner.clone()),
+            name: module_specifier.clone(),
+            kind: ReferenceKind::Imports,
+            node: call,
+        },
+    )?;
+    let Some(member) = dynamic_import_selected_member(builder, call) else {
+        return Ok(());
+    };
+    let imported_name = builder.context.owned_unquoted_text(member)?;
+    builder.emit_import_binding(ExtractedImportBinding {
+        kind: ImportBindingKind::Named,
+        module_specifier,
+        imported_name,
+        local_name: INLINE_IMPORT_TYPE_LOCAL_NAME.to_owned(),
+        span: span_for(member)?,
+    })
 }
 
 pub(super) fn is_static_commonjs_binding_call(
     builder: &ExtractionBuilder<'_, '_>,
     call: Node<'_>,
 ) -> bool {
-    if builder.commonjs_shadowing.require
-        || !is_javascript_family(builder.context.snapshot.language())
+    if !is_javascript_family(builder.context.snapshot.language())
         || commonjs_require_source(builder, call).is_none()
     {
         return false;
@@ -339,13 +659,15 @@ pub(super) fn capture_dynamic_import(
     references::push_reference(
         builder,
         PendingReference {
-            owner: None,
+            owner: builder.owners.last().cloned(),
             name: module_specifier.clone(),
             kind: ReferenceKind::Imports,
             node: call,
         },
     )?;
-    if dynamic_import_selected_member(call).is_none() && react_lazy_default_import(builder, call) {
+    if dynamic_import_selected_member(builder, call).is_none()
+        && react_lazy_default_import(builder, call)
+    {
         let imported_name = "default".to_owned();
         builder.emit_import_binding(ExtractedImportBinding {
             kind: ImportBindingKind::Default,
@@ -355,18 +677,34 @@ pub(super) fn capture_dynamic_import(
             span: span_for(call)?,
         })?;
         emit_imported_name_reference(builder, imported_name, call)?;
-    } else if let Some(member) = dynamic_import_selected_member(call) {
+    } else if let Some(member) = dynamic_import_selected_member(builder, call) {
         let imported_name = builder.context.owned_unquoted_text(member)?;
+        // A type-position member (`type T = import('./m').Name`) is an inline
+        // import type: like the unwalked annotations, its binding is site-only.
+        let local_name = if is_inline_import_type(member) {
+            INLINE_IMPORT_TYPE_LOCAL_NAME.to_owned()
+        } else {
+            imported_name.clone()
+        };
         builder.emit_import_binding(ExtractedImportBinding {
             kind: ImportBindingKind::Named,
             module_specifier,
             imported_name: imported_name.clone(),
-            local_name: imported_name.clone(),
+            local_name,
             span: span_for(member)?,
         })?;
         emit_imported_name_reference(builder, imported_name, member)?;
     }
     Ok(true)
+}
+
+/// Whether a selected `import()` member sits in a type position.
+fn is_inline_import_type(member: Node<'_>) -> bool {
+    member.parent().is_some_and(|selection| {
+        selection
+            .parent()
+            .is_some_and(|holder| references::holds_type_at(holder, selection))
+    })
 }
 
 fn react_lazy_default_import(builder: &ExtractionBuilder<'_, '_>, call: Node<'_>) -> bool {
@@ -415,23 +753,50 @@ fn dynamic_import_source<'tree>(
 ) -> Option<Node<'tree>> {
     dynamic_import_source_node(call)?;
     let arguments = call.child_by_field_name("arguments")?;
-    if arguments.named_child_count() != 1 {
+    // `import(specifier, { with: { type: 'json' } })` carries import attributes
+    // in an optional second argument; the specifier is always the first.
+    let mut values = named_children(arguments).filter(|child| !child.is_extra());
+    let value = values.next()?;
+    if values.take(MAX_DYNAMIC_IMPORT_ARGUMENTS).count() >= MAX_DYNAMIC_IMPORT_ARGUMENTS {
         return None;
     }
-    static_dynamic_import_source(arguments.named_child(0)?)
-        .filter(|source| !builder.context.text(*source).trim().is_empty())
+    screened_import_source(builder, value)
 }
 
-fn dynamic_import_selected_member(call: Node<'_>) -> Option<Node<'_>> {
+/// Static, type, dynamic, and `CommonJS` loads share an escape-free specifier.
+/// Escapes require decoding before an exact module identity can be established.
+pub(super) fn screened_import_source<'tree>(
+    builder: &ExtractionBuilder<'_, '_>,
+    value: Node<'tree>,
+) -> Option<Node<'tree>> {
+    static_dynamic_import_source(value).filter(|source| {
+        let module = super::syntax::unquote(builder.context.text(*source));
+        !module.is_empty() && import_literal_is_safe(module)
+    })
+}
+
+/// A literal import name is kept in its source spelling unless that spelling
+/// carries a credential.
+pub(super) fn import_literal_is_safe(value: &str) -> bool {
+    !specifier_may_carry_credential(value)
+}
+
+fn dynamic_import_selected_member<'tree>(
+    builder: &ExtractionBuilder<'_, '_>,
+    call: Node<'tree>,
+) -> Option<Node<'tree>> {
     let mut expression = call;
-    for _ in 0..8 {
+    let awaited = dynamic_import_is_awaited(call);
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
         let parent = expression.parent()?;
         if parent.kind() == "member_expression" && field_matches(parent, "object", expression) {
             return parent.child_by_field_name("property").filter(|property| {
                 matches!(
                     property.kind(),
                     "identifier" | "property_identifier" | "type_identifier"
-                )
+                ) && (awaited
+                    || is_inline_import_type(*property)
+                    || !DYNAMIC_IMPORT_PROMISE_METHODS.contains(&builder.context.text(*property)))
             });
         }
         if matches!(
@@ -451,8 +816,30 @@ fn dynamic_import_selected_member(call: Node<'_>) -> Option<Node<'_>> {
     None
 }
 
-fn static_dynamic_import_source(mut node: Node<'_>) -> Option<Node<'_>> {
-    for _ in 0..8 {
+/// An await outside a member access awaits that member, not the import promise.
+fn dynamic_import_is_awaited(mut expression: Node<'_>) -> bool {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
+        let Some(parent) = expression.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "await_expression" => return true,
+            "as_expression"
+            | "satisfies_expression"
+            | "type_assertion"
+            | "parenthesized_expression"
+            | "non_null_expression" => expression = parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// The static specifier of a module-loading call argument: a string or a
+/// template without substitutions, possibly wrapped in a cast or
+/// parentheses.
+pub(super) fn static_dynamic_import_source(mut node: Node<'_>) -> Option<Node<'_>> {
+    for _ in 0..MAX_DYNAMIC_IMPORT_WRAPPER_DEPTH {
         match node.kind() {
             "string" => return Some(node),
             "template_string" => {
@@ -463,10 +850,7 @@ fn static_dynamic_import_source(mut node: Node<'_>) -> Option<Node<'_>> {
             | "type_assertion"
             | "parenthesized_expression"
             | "non_null_expression" => {
-                node = node
-                    .child_by_field_name("expression")
-                    .or_else(|| node.child_by_field_name("value"))
-                    .or_else(|| node.named_child(0))?;
+                node = expression_wrapper_value(node)?;
             }
             _ => return None,
         }
@@ -498,17 +882,21 @@ fn capture_commonjs_binding(
     builder: &mut ExtractionBuilder<'_, '_>,
     name_node: Node<'_>,
     require: &CommonJsRequire<'_>,
-) -> Result<bool, ExtractError> {
+) -> Result<(), ExtractError> {
     match name_node.kind() {
         "identifier" | "property_identifier" => {
-            capture_commonjs_identifier_binding(builder, name_node, require)?;
+            capture_commonjs_identifier_binding(builder, name_node, require)
         }
-        "object_pattern" if require.selected_member.is_none() => {
-            capture_commonjs_destructuring(builder, name_node, &require.module_specifier)?;
-        }
-        _ => return Ok(false),
+        "object_pattern" if require.selected_member.is_none() => capture_import_destructuring(
+            builder,
+            name_node,
+            ImportDestructuringInput {
+                module_specifier: &require.module_specifier,
+                excluded_members: &[],
+            },
+        ),
+        _ => Ok(()),
     }
-    Ok(true)
 }
 
 fn capture_commonjs_identifier_binding(
@@ -553,10 +941,10 @@ fn emit_commonjs_module_reference(
     )
 }
 
-fn capture_commonjs_destructuring(
+fn capture_import_destructuring(
     builder: &mut ExtractionBuilder<'_, '_>,
     pattern: Node<'_>,
-    module_specifier: &str,
+    input: ImportDestructuringInput<'_>,
 ) -> Result<(), ExtractError> {
     for child in named_children(pattern) {
         let (imported_node, local_node) = match child.kind() {
@@ -576,10 +964,15 @@ fn capture_commonjs_destructuring(
             _ => continue,
         };
         let imported_name = builder.context.owned_unquoted_text(imported_node)?;
+        if input.excluded_members.contains(&imported_name.as_str())
+            || !import_literal_is_safe(&imported_name)
+        {
+            continue;
+        }
         let local_name = builder.context.owned_text(local_node)?;
         builder.emit_import_binding(ExtractedImportBinding {
             kind: ImportBindingKind::Named,
-            module_specifier: module_specifier.to_owned(),
+            module_specifier: input.module_specifier.to_owned(),
             imported_name: imported_name.clone(),
             local_name,
             span: span_for(imported_node)?,
@@ -691,6 +1084,9 @@ pub(super) fn emit_export_alias(
     builder: &mut ExtractionBuilder<'_, '_>,
     alias: ExportAlias<'_>,
 ) -> Result<(), ExtractError> {
+    if !import_literal_is_safe(&alias.public_name) || !import_literal_is_safe(&alias.local_name) {
+        return Ok(());
+    }
     let owner = emit_export_alias_symbol(builder, &alias)?;
     emit_export_alias_binding(builder, &alias)?;
     references::push_reference(
@@ -714,6 +1110,9 @@ pub(super) fn emit_namespace_reexport(
         module_specifier,
     } = input;
     let public_name = builder.context.owned_unquoted_text(public_node)?;
+    if !import_literal_is_safe(&public_name) {
+        return Ok(());
+    }
     let alias = ExportAlias {
         public_name: public_name.clone(),
         local_name: public_name.clone(),
@@ -926,13 +1325,16 @@ fn is_top_level_assignment(node: Node<'_>) -> bool {
         .is_some_and(|parent| parent.kind() == "program")
 }
 
-fn is_javascript_family(language: SourceLanguage) -> bool {
+/// Languages with ECMAScript module syntax; `ArkTS` keeps TypeScript's
+/// `import`/`export` grammar, so its export clauses mark declarations too.
+pub(super) fn is_javascript_family(language: SourceLanguage) -> bool {
     matches!(
         language,
         SourceLanguage::TypeScript
             | SourceLanguage::Tsx
             | SourceLanguage::JavaScript
             | SourceLanguage::Jsx
+            | SourceLanguage::ArkTs
     )
 }
 

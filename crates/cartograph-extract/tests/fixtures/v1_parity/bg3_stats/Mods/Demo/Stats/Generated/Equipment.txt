@@ -1,0 +1,4 @@
+new equipment "EQP_Demo_Fighter"
+add initialweaponset "Melee"
+add equipmentgroup
+add equipment entry "WPN_Longsword"

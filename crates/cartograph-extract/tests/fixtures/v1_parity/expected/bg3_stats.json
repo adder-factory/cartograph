@@ -1,0 +1,280 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "bg3_stats",
+  "files": [
+    "Mods/Demo/Stats/Generated/Data/Passive.txt",
+    "Mods/Demo/Stats/Generated/Data/Spell.txt",
+    "Mods/Demo/Stats/Generated/Data/Status.txt",
+    "Mods/Demo/Stats/Generated/Equipment.txt",
+    "Mods/Demo/Stats/Generated/SpellSet.txt",
+    "Public/Demo/Stats/Generated/TreasureTable.txt"
+  ],
+  "symbols": [
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "kind": "file",
+      "name": "Passive.txt",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "kind": "resource",
+      "name": "Target_Passive",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Passive.txt::Target_Passive",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "file",
+      "name": "Spell.txt",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "resource",
+      "name": "Target_Spell",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "resource",
+      "name": "Target_Spell_Upcast",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell_Upcast",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "file",
+      "name": "Status.txt",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "resource",
+      "name": "Base_Status",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Status.txt::Base_Status",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "resource",
+      "name": "Target_Status",
+      "qualified_name": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Equipment.txt",
+      "kind": "file",
+      "name": "Equipment.txt",
+      "qualified_name": "Mods/Demo/Stats/Generated/Equipment.txt",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Equipment.txt",
+      "kind": "resource",
+      "name": "EQP_Demo_Fighter",
+      "qualified_name": "Mods/Demo/Stats/Generated/Equipment.txt::EQP_Demo_Fighter",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/SpellSet.txt",
+      "kind": "file",
+      "name": "SpellSet.txt",
+      "qualified_name": "Mods/Demo/Stats/Generated/SpellSet.txt",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/SpellSet.txt",
+      "kind": "resource",
+      "name": "Demo_SpellSet",
+      "qualified_name": "Mods/Demo/Stats/Generated/SpellSet.txt::Demo_SpellSet",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "Public/Demo/Stats/Generated/TreasureTable.txt",
+      "kind": "file",
+      "name": "TreasureTable.txt",
+      "qualified_name": "Public/Demo/Stats/Generated/TreasureTable.txt",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "Public/Demo/Stats/Generated/TreasureTable.txt",
+      "kind": "resource",
+      "name": "TUT_Chest_Potions",
+      "qualified_name": "Public/Demo/Stats/Generated/TreasureTable.txt::TUT_Chest_Potions",
+      "start_line": 1,
+      "end_line": 1
+    }
+  ],
+  "edges": [
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Passive.txt::Target_Passive",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Passive.txt::Target_Passive",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "line": 5
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell_Upcast",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "line": 4
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "extends",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell_Upcast",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "line": 10
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell_Upcast",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "line": 11
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Status.txt::Base_Status",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "extends",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Status.txt::Base_Status",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "line": 7
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Passive.txt::Target_Passive",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Passive.txt",
+      "line": 8
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Data/Status.txt",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "Mods/Demo/Stats/Generated/Data/Status.txt::Target_Status",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Data/Spell.txt::Target_Spell",
+      "target_file": "Mods/Demo/Stats/Generated/Data/Spell.txt",
+      "line": 8
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/Equipment.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/Equipment.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/Equipment.txt::EQP_Demo_Fighter",
+      "target_file": "Mods/Demo/Stats/Generated/Equipment.txt",
+      "line": null
+    },
+    {
+      "file": "Mods/Demo/Stats/Generated/SpellSet.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Mods/Demo/Stats/Generated/SpellSet.txt",
+      "target_kind": "resource",
+      "target": "Mods/Demo/Stats/Generated/SpellSet.txt::Demo_SpellSet",
+      "target_file": "Mods/Demo/Stats/Generated/SpellSet.txt",
+      "line": null
+    },
+    {
+      "file": "Public/Demo/Stats/Generated/TreasureTable.txt",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "Public/Demo/Stats/Generated/TreasureTable.txt",
+      "target_kind": "resource",
+      "target": "Public/Demo/Stats/Generated/TreasureTable.txt::TUT_Chest_Potions",
+      "target_file": "Public/Demo/Stats/Generated/TreasureTable.txt",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

@@ -1,0 +1,1201 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "arkts",
+  "files": [
+    "entry/src/main/ets/common/Utils.ets",
+    "entry/src/main/ets/components/CounterView.ets",
+    "entry/src/main/ets/model/Item.ets",
+    "entry/src/main/ets/pages/Gap.ets",
+    "entry/src/main/ets/pages/Index.ets"
+  ],
+  "symbols": [
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "file",
+      "name": "Utils.ets",
+      "qualified_name": "entry/src/main/ets/common/Utils.ets",
+      "start_line": 1,
+      "end_line": 36
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "variable",
+      "name": "PI_APPROX",
+      "qualified_name": "PI_APPROX",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "variable",
+      "name": "counter",
+      "qualified_name": "counter",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "enum",
+      "name": "Color",
+      "qualified_name": "Color",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "enum_member",
+      "name": "Red",
+      "qualified_name": "Color::Red",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "enum_member",
+      "name": "Green",
+      "qualified_name": "Color::Green",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "enum_member",
+      "name": "Blue",
+      "qualified_name": "Color::Blue",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "type_alias",
+      "name": "Formatter",
+      "qualified_name": "Formatter",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "interface",
+      "name": "Logger",
+      "qualified_name": "Logger",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "function",
+      "name": "formatId",
+      "qualified_name": "formatId",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "variable",
+      "name": "arrow",
+      "qualified_name": "arrow",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "variable",
+      "name": "anon",
+      "qualified_name": "anon",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "class",
+      "name": "ConsoleLogger",
+      "qualified_name": "ConsoleLogger",
+      "start_line": 31,
+      "end_line": 35
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "method",
+      "name": "log",
+      "qualified_name": "ConsoleLogger::log",
+      "start_line": 32,
+      "end_line": 34
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "file",
+      "name": "CounterView.ets",
+      "qualified_name": "entry/src/main/ets/components/CounterView.ets",
+      "start_line": 1,
+      "end_line": 39
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "import",
+      "name": "@ohos.router",
+      "qualified_name": "@ohos.router",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "struct",
+      "name": "CounterView",
+      "qualified_name": "CounterView",
+      "start_line": 4,
+      "end_line": 23
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "CounterView::count",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "field",
+      "name": "title",
+      "qualified_name": "CounterView::title",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "field",
+      "name": "total",
+      "qualified_name": "CounterView::total",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "CounterView::build",
+      "start_line": 9,
+      "end_line": 17
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "method",
+      "name": "increment",
+      "qualified_name": "CounterView::increment",
+      "start_line": 19,
+      "end_line": 22
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "function",
+      "name": "FooterBuilder",
+      "qualified_name": "FooterBuilder",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "class",
+      "name": "WorkerService",
+      "qualified_name": "WorkerService",
+      "start_line": 30,
+      "end_line": 34
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "WorkerService::run",
+      "start_line": 31,
+      "end_line": 33
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "class",
+      "name": "Worker",
+      "qualified_name": "Worker",
+      "start_line": 36,
+      "end_line": 38
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "method",
+      "name": "start",
+      "qualified_name": "Worker::start",
+      "start_line": 37,
+      "end_line": 37
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "file",
+      "name": "Item.ets",
+      "qualified_name": "entry/src/main/ets/model/Item.ets",
+      "start_line": 1,
+      "end_line": 36
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "import",
+      "name": "../common/Utils",
+      "qualified_name": "../common/Utils",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "interface",
+      "name": "Identifiable",
+      "qualified_name": "Identifiable",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "class",
+      "name": "BaseModel",
+      "qualified_name": "BaseModel",
+      "start_line": 7,
+      "end_line": 13
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "field",
+      "name": "logger",
+      "qualified_name": "BaseModel::logger",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "BaseModel::describe",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "class",
+      "name": "Item",
+      "qualified_name": "Item",
+      "start_line": 15,
+      "end_line": 35
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "field",
+      "name": "id",
+      "qualified_name": "Item::id",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "field",
+      "name": "name",
+      "qualified_name": "Item::name",
+      "start_line": 17,
+      "end_line": 17
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "field",
+      "name": "count",
+      "qualified_name": "Item::count",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "method",
+      "name": "constructor",
+      "qualified_name": "Item::constructor",
+      "start_line": 20,
+      "end_line": 25
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "method",
+      "name": "label",
+      "qualified_name": "Item::label",
+      "start_line": 27,
+      "end_line": 30
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "Item::create",
+      "start_line": 32,
+      "end_line": 34
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "file",
+      "name": "Gap.ets",
+      "qualified_name": "entry/src/main/ets/pages/Gap.ets",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "variable",
+      "name": "x",
+      "qualified_name": "x",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "class",
+      "name": "C",
+      "qualified_name": "C",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "field",
+      "name": "p",
+      "qualified_name": "C::p",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "enum",
+      "name": "E",
+      "qualified_name": "E",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "enum_member",
+      "name": "A",
+      "qualified_name": "E::A",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "import",
+      "name": "../common/Utils",
+      "qualified_name": "../common/Utils",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "file",
+      "name": "Index.ets",
+      "qualified_name": "entry/src/main/ets/pages/Index.ets",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "import",
+      "name": "../model/Item",
+      "qualified_name": "../model/Item",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "import",
+      "name": "../common/Utils",
+      "qualified_name": "../common/Utils",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "import",
+      "name": "../common/Utils",
+      "qualified_name": "../common/Utils",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "import",
+      "name": "../components/CounterView",
+      "qualified_name": "../components/CounterView",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "struct",
+      "name": "Index",
+      "qualified_name": "Index",
+      "start_line": 6,
+      "end_line": 27
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "field",
+      "name": "items",
+      "qualified_name": "Index::items",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "field",
+      "name": "total",
+      "qualified_name": "Index::total",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "field",
+      "name": "color",
+      "qualified_name": "Index::color",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "method",
+      "name": "aboutToAppear",
+      "qualified_name": "Index::aboutToAppear",
+      "start_line": 13,
+      "end_line": 17
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "Index::build",
+      "start_line": 19,
+      "end_line": 26
+    }
+  ],
+  "edges": [
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::Blue",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::Green",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Color",
+      "target_kind": "enum_member",
+      "target": "Color::Red",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "ConsoleLogger",
+      "target_kind": "method",
+      "target": "ConsoleLogger::log",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "enum",
+      "target": "Color",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "class",
+      "target": "ConsoleLogger",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "type_alias",
+      "target": "Formatter",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "interface",
+      "target": "Logger",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "variable",
+      "target": "PI_APPROX",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "variable",
+      "target": "anon",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "variable",
+      "target": "arrow",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "variable",
+      "target": "counter",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "function",
+      "target": "formatId",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "calls",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/common/Utils.ets",
+      "target_kind": "function",
+      "target": "formatId",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": 18
+    },
+    {
+      "file": "entry/src/main/ets/common/Utils.ets",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "ConsoleLogger",
+      "target_kind": "interface",
+      "target": "Logger",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": 31
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "CounterView",
+      "target_kind": "method",
+      "target": "CounterView::build",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "CounterView",
+      "target_kind": "field",
+      "target": "CounterView::count",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "CounterView",
+      "target_kind": "method",
+      "target": "CounterView::increment",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "CounterView",
+      "target_kind": "field",
+      "target": "CounterView::title",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "CounterView",
+      "target_kind": "field",
+      "target": "CounterView::total",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Worker",
+      "target_kind": "method",
+      "target": "Worker::start",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "WorkerService",
+      "target_kind": "method",
+      "target": "WorkerService::run",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/components/CounterView.ets",
+      "target_kind": "import",
+      "target": "@ohos.router",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/components/CounterView.ets",
+      "target_kind": "struct",
+      "target": "CounterView",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/components/CounterView.ets",
+      "target_kind": "function",
+      "target": "FooterBuilder",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/components/CounterView.ets",
+      "target_kind": "class",
+      "target": "Worker",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/components/CounterView.ets",
+      "target_kind": "class",
+      "target": "WorkerService",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/components/CounterView.ets",
+      "target_kind": "import",
+      "target": "@ohos.router",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": 1
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "CounterView::build",
+      "target_kind": "method",
+      "target": "CounterView::increment",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": 13
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "WorkerService::run",
+      "target_kind": "method",
+      "target": "Worker::start",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": 32
+    },
+    {
+      "file": "entry/src/main/ets/components/CounterView.ets",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "WorkerService::run",
+      "target_kind": "class",
+      "target": "Worker",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": 32
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseModel",
+      "target_kind": "method",
+      "target": "BaseModel::describe",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BaseModel",
+      "target_kind": "field",
+      "target": "BaseModel::logger",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "method",
+      "target": "Item::constructor",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "field",
+      "target": "Item::count",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "method",
+      "target": "Item::create",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "field",
+      "target": "Item::id",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "method",
+      "target": "Item::label",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "field",
+      "target": "Item::name",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/model/Item.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/model/Item.ets",
+      "target_kind": "class",
+      "target": "BaseModel",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/model/Item.ets",
+      "target_kind": "interface",
+      "target": "Identifiable",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/model/Item.ets",
+      "target_kind": "class",
+      "target": "Item",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/model/Item.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": 1
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "class",
+      "target": "BaseModel",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": 15
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "implements",
+      "source_kind": "class",
+      "source": "Item",
+      "target_kind": "interface",
+      "target": "Identifiable",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": 15
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Item::label",
+      "target_kind": "method",
+      "target": "ConsoleLogger::log",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": 28
+    },
+    {
+      "file": "entry/src/main/ets/model/Item.ets",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Item::create",
+      "target_kind": "class",
+      "target": "Item",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": 33
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "C",
+      "target_kind": "field",
+      "target": "C::p",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "E",
+      "target_kind": "enum_member",
+      "target": "E::A",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Gap.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Gap.ets",
+      "target_kind": "class",
+      "target": "C",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Gap.ets",
+      "target_kind": "enum",
+      "target": "E",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Gap.ets",
+      "target_kind": "variable",
+      "target": "x",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Gap.ets",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Gap.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/pages/Gap.ets",
+      "line": 6
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Index",
+      "target_kind": "method",
+      "target": "Index::aboutToAppear",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Index",
+      "target_kind": "method",
+      "target": "Index::build",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Index",
+      "target_kind": "field",
+      "target": "Index::color",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Index",
+      "target_kind": "field",
+      "target": "Index::items",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Index",
+      "target_kind": "field",
+      "target": "Index::total",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../components/CounterView",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../model/Item",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "struct",
+      "target": "Index",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": null
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../model/Item",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": 1
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../common/Utils",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": 2
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "entry/src/main/ets/pages/Index.ets",
+      "target_kind": "import",
+      "target": "../components/CounterView",
+      "target_file": "entry/src/main/ets/pages/Index.ets",
+      "line": 4
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Index::aboutToAppear",
+      "target_kind": "method",
+      "target": "Item::create",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": 14
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Index::aboutToAppear",
+      "target_kind": "variable",
+      "target": "arrow",
+      "target_file": "entry/src/main/ets/common/Utils.ets",
+      "line": 15
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Index::build",
+      "target_kind": "struct",
+      "target": "CounterView",
+      "target_file": "entry/src/main/ets/components/CounterView.ets",
+      "line": 21
+    },
+    {
+      "file": "entry/src/main/ets/pages/Index.ets",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Index::build",
+      "target_kind": "method",
+      "target": "Item::label",
+      "target_file": "entry/src/main/ets/model/Item.ets",
+      "line": 23
+    }
+  ],
+  "unresolved": []
+}

@@ -8,7 +8,8 @@ BIN_DIR="${CARTOGRAPH_BIN_DIR:-$HOME/.local/bin}"
 if [ "${1:-}" = "--uninstall" ]; then
   # Project-local MCP registrations are intentionally left in place because
   # this installer cannot know which projects/agent hosts the user configured.
-  # Run `cartograph uninstall --yes --target <host>` inside each project first.
+  # Run `cartograph uninstall --target <host> --location local` inside each
+  # project first.
   rm -f "$BIN_DIR/cartograph"
   rm -rf "$INSTALL_DIR"
   echo "Cartograph standalone install removed."

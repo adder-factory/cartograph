@@ -2,6 +2,7 @@ use cartograph_domain::{SourceLanguage, SymbolKind};
 
 use crate::{
     ExtractError,
+    code_scan::CodeScan,
     framework::{
         DelimiterInput, FrameworkBuilder, FrameworkRouteInput, join_route_paths,
         matching_delimiter, quoted_literal_after, skip_ascii_whitespace,
@@ -47,7 +48,7 @@ fn scan_spring(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(
             let Some(method) = original_callable(builder, method_index) else {
                 continue;
             };
-            if method.start < class.start || method.end > class.end {
+            if !is_routable_member(source, &class, &method) {
                 continue;
             }
             let method_context = declaration_context(source, method.start, method.end);
@@ -108,7 +109,7 @@ fn scan_aspnet_class(
         let Some(method) = original_callable(builder, method_index) else {
             continue;
         };
-        if method.start < class.start || method.end > class.end {
+        if !is_routable_member(source, class, &method) {
             continue;
         }
         add_aspnet_method_route(
@@ -176,6 +177,44 @@ fn add_aspnet_method_route(
         command: false,
         handler: Some((&method.name, name_start, name_end)),
     })
+}
+
+/// Whether `method` is a member of `class` that may carry a route mapping.
+///
+/// A primary constructor (Kotlin, C# 12) is declared in the class header,
+/// between the class annotations and the class body, so its declaration context
+/// would read the class-level mapping as its own; it never handles requests.
+/// Every callable declared inside the body stays routable.
+fn is_routable_member(
+    source: &str,
+    class: &OriginalDeclaration,
+    method: &OriginalDeclaration,
+) -> bool {
+    method.start >= class.start
+        && method.end <= class.end
+        && !(method.name == class.name && in_class_header(source, class.start, method.start))
+}
+
+/// Whether `offset` precedes the body of the class declared at `class_start`:
+/// no `{` outside literals, comments and annotation parentheses lies between
+/// them. A header longer than the annotation bound is treated as a body member.
+fn in_class_header(source: &str, class_start: usize, offset: usize) -> bool {
+    let Some(header) = source.as_bytes().get(class_start..offset) else {
+        return false;
+    };
+    if header.len() > MAX_ANNOTATION_BYTES {
+        return false;
+    }
+    let mut depth = 0_usize;
+    for (_, byte) in CodeScan::new(header) {
+        match byte {
+            b'(' => depth = depth.saturating_add(1),
+            b')' => depth = depth.saturating_sub(1),
+            b'{' if depth == 0 => return false,
+            _ => {}
+        }
+    }
+    true
 }
 
 fn effective_aspnet_paths<'a>(base: &'a str, subpath: &'a str) -> (&'a str, &'a str) {
@@ -274,7 +313,12 @@ fn original_callable(
 
 #[derive(Clone)]
 enum AnnotationArgument<'source> {
-    Empty,
+    /// No path argument; the span is the annotation's name, which declares the
+    /// route when the path is inherited.
+    Empty {
+        start: usize,
+        end: usize,
+    },
     Literal {
         value: &'source str,
         start: usize,
@@ -287,14 +331,14 @@ impl<'source> AnnotationArgument<'source> {
     fn value_or_empty(&self) -> &'source str {
         match self {
             Self::Literal { value, .. } => value,
-            Self::Empty | Self::Dynamic => "",
+            Self::Empty { .. } | Self::Dynamic => "",
         }
     }
 
     const fn span(&self) -> Option<(usize, usize)> {
         match self {
-            Self::Literal { start, end, .. } => Some((*start, *end)),
-            Self::Empty | Self::Dynamic => None,
+            Self::Literal { start, end, .. } | Self::Empty { start, end } => Some((*start, *end)),
+            Self::Dynamic => None,
         }
     }
 }
@@ -324,26 +368,55 @@ fn annotation_argument_in_slice<'source>(
             continue;
         }
         let after = skip_ascii_whitespace(text, start + marker.len());
-        if marker.starts_with('[') && text.as_bytes().get(after) == Some(&b']') {
-            return Some(AnnotationArgument::Empty);
-        }
+        let square_bracketed = marker.starts_with('[');
+        // The annotation's name, without the attribute's opening bracket.
+        let name_start = slice.offset + start + usize::from(square_bracketed);
+        let name = (name_start, slice.offset + start + marker.len());
         if text.as_bytes().get(after) != Some(&b'(') {
-            return Some(AnnotationArgument::Empty);
+            return Some(AnnotationArgument::Empty {
+                start: name.0,
+                end: name.1,
+            });
         }
-        return parse_annotation_parentheses(slice, after, marker.starts_with('['));
+        return parse_annotation_parentheses(
+            slice,
+            AnnotationParentheses {
+                open: after,
+                name,
+                square_bracketed,
+            },
+        );
     }
     None
 }
 
+/// Location of one annotation's argument list inside a context slice.
+#[derive(Clone, Copy)]
+struct AnnotationParentheses {
+    /// Slice-relative offset of the opening parenthesis.
+    open: usize,
+    /// Source span of the annotation's name.
+    name: (usize, usize),
+    /// Whether the annotation is a C# attribute (`[Name(...)]`).
+    square_bracketed: bool,
+}
+
 fn parse_annotation_parentheses(
     slice: ContextSlice<'_>,
-    open: usize,
-    square_bracketed: bool,
+    parentheses: AnnotationParentheses,
 ) -> Option<AnnotationArgument<'_>> {
+    let AnnotationParentheses {
+        open,
+        name,
+        square_bracketed,
+    } = parentheses;
     let close = matching_delimiter(DelimiterInput::parentheses(slice.text, open))?;
     let argument = &slice.text[open.saturating_add(1)..close];
     if argument.trim().is_empty() {
-        return Some(AnnotationArgument::Empty);
+        return Some(AnnotationArgument::Empty {
+            start: name.0,
+            end: name.1,
+        });
     }
     if let Some(quoted) =
         quoted_literal_after(argument, 0).map(|quoted| quoted.with_offset(slice.offset + open + 1))

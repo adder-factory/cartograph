@@ -20,13 +20,18 @@
 //!
 //! A bare identifier that is not called is usually a local binding, which the
 //! resolver cannot tell apart from a project declaration, so it stays
-//! unrecorded as it does outside macros. The one exception is a
-//! constant-shaped name (`MAX_ROWS`) inside a std formatting or assertion
-//! macro, whose arguments are known expressions: Rust's naming lints reserve
-//! that shape for constants and statics, so it is recorded as a value
-//! reference both as an argument token and as an inline `{LIMIT}` /
-//! `{value:WIDTH$}` capture in the format string. Other macros may be DSLs in
-//! which such a token is a key, a type, or text, so they record none.
+//! unrecorded. The exception is a constant-shaped name (`MAX_ROWS`): Rust's
+//! naming lints reserve that shape for constants and statics. Outside macros
+//! the usage walk records it in any read position; inside a macro it is
+//! recorded only for a std formatting or assertion macro, whose arguments are
+//! known expressions, both as an argument token and as an inline `{LIMIT}` /
+//! `{value:WIDTH$}` capture in the format string. It is also recorded as an
+//! argument token of a macro defined earlier in the same file by a
+//! `macro_rules!` whose matchers bind only expressions (`($c:expr) => ..`; see
+//! [`local_macros`]). Other macros may be DSLs in which such a token is a key,
+//! a type, or text, so they record none. As in direct code, a name bound as a
+//! parameter or const generic parameter of an enclosing function, closure, or
+//! item is never such a read.
 //!
 //! Attribute bodies, nested `macro_rules!` definitions, `$` metavariables,
 //! `#` interpolations, lifetimes, declared names, literals, and string text
@@ -38,9 +43,13 @@ use tree_sitter::Node;
 use crate::{ExtractError, ExtractedReference, RUST_MACRO_RESOLUTION_PREFIX};
 
 use super::{
-    ExtractionBuilder, references,
+    ExtractionBuilder, polyglot, references,
     syntax::{DirectChildren, children, named_children, span_for},
 };
+
+mod local_macros;
+
+pub(super) use local_macros::{LocalExpressionMacros, record_definition};
 
 /// Most references one invocation's token tree may add; more fails the file's output bound.
 /// A sweep of 55,866 crates.io sources peaked at 2,204 (generated FFI declarations), and
@@ -131,7 +140,7 @@ pub(super) fn capture_invocation(
         return Ok(());
     };
     let name = builder.context.owned_text(target)?;
-    let reading = TreeReading::of_macro(&name);
+    let reading = TreeReading::of_invocation(builder, &name, node.start_byte())?;
     let reference = macro_call_reference(builder, name, span_for(target)?)?;
     builder.emit_reference(reference)?;
     let Some(tokens) = named_children(node).find(|child| child.kind() == "token_tree") else {
@@ -223,6 +232,31 @@ impl TreeReading {
             role: macro_role(macro_name),
             pattern: pattern_scope(macro_name),
         }
+    }
+
+    /// The reading of a `name!` invocation starting at byte `offset`: a std
+    /// macro's known reading, or expressions for a single-name macro whose
+    /// latest same-file `macro_rules!` definition in scope there takes
+    /// expressions. The constant reads that reading adds are optional facts,
+    /// so the fallback pass keeps the unknown-syntax reading.
+    fn of_invocation(
+        builder: &mut ExtractionBuilder<'_, '_>,
+        macro_name: &str,
+        offset: usize,
+    ) -> Result<Self, ExtractError> {
+        let reading = Self::of_macro(macro_name);
+        if reading.role == TreeRole::Tokens
+            && builder
+                .rust_macros
+                .takes_expressions((macro_name, offset), builder.context.cancelled)?
+            && builder.optional_facts.admit()
+        {
+            return Ok(Self {
+                role: TreeRole::Expressions(None),
+                pattern: PatternScope::None,
+            });
+        }
+        Ok(reading)
     }
 
     const SKIPPED: Self = Self {
@@ -568,7 +602,10 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
                 });
             return Ok(());
         }
-        frame.cursor.next_tree = Some((path.arguments, TreeReading::of_macro(&name)));
+        frame.cursor.next_tree = Some((
+            path.arguments,
+            TreeReading::of_invocation(self.builder, &name, token.start_byte())?,
+        ));
         let span = SourceCursor::at(self.source, token)?.span(token.start_byte(), path.end)?;
         let reference = macro_call_reference(self.builder, name, span)?;
         self.emit(reference)
@@ -602,6 +639,7 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
         if matches!(role, TreeRole::Expressions(_))
             && follower != Follower::Binding
             && constant_shaped(text)
+            && !polyglot::rust_constant_bound_by_enclosing_scope(self.builder, token, text)?
         {
             self.emit_token(token, ReferenceKind::References)?;
         }
@@ -653,7 +691,11 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
                 .get(start..end)
                 .ok_or(ExtractError::InvalidSpan)?;
             // A `{NAME}` that names an explicit `NAME = ..` argument is not a capture.
-            if !constant_shaped(name) || named_arguments.contains(&name) {
+            if !constant_shaped(name)
+                || super::specifier_safety::specifier_may_carry_credential(name)
+                || named_arguments.contains(&name)
+                || polyglot::rust_constant_bound_by_enclosing_scope(self.builder, literal, name)?
+            {
                 continue;
             }
             let span = cursor.span(start, end)?;
@@ -847,7 +889,7 @@ fn push_frame<'tree>(
 }
 
 /// Whether a name has the `SCREAMING_SNAKE_CASE` shape Rust reserves for constants and statics.
-fn constant_shaped(name: &str) -> bool {
+pub(super) fn constant_shaped(name: &str) -> bool {
     name.len() >= MINIMUM_CONSTANT_NAME_BYTES
         && name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
         && name

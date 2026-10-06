@@ -1,0 +1,6 @@
+new treasuretable "TUT_Chest_Potions"
+CanMerge 1
+new subtable "1,1"
+object category "I_MY_COOL_NEW_CIRCLET",1,0,0,0,0,0,0,0
+new subtable "2,1"
+object category "I_Target_Spell_Scroll",1,0,0,0,0,0,0,0

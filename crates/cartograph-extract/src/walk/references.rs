@@ -14,7 +14,11 @@ use super::{
     },
 };
 
-const MAX_DURABLE_REFERENCE_NAME_BYTES: usize = 4_096;
+/// Longest callee text kept as a durable reference name; a wider Go callee is
+/// named by its member alone.
+pub(super) const MAX_DURABLE_REFERENCE_NAME_BYTES: usize = 4_096;
+/// Deepest static member chain (`a.b.c`) followed.
+const MAX_STATIC_CHAIN_DEPTH: usize = 64;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum InvocationKind {
@@ -44,22 +48,14 @@ pub(super) fn capture_heritage(
     for child in named_children(node) {
         builder.context.ensure_active()?;
         match child.kind() {
-            "extends_type_clause" => {
-                for target in named_children(child) {
-                    builder.context.ensure_active()?;
-                    if let Some(name_node) = reference_type_node(target) {
-                        push_node_reference(
-                            builder,
-                            NodeReference {
-                                owner: Some(owner.clone()),
-                                name: name_node,
-                                kind: ReferenceKind::Extends,
-                                span: name_node,
-                            },
-                        )?;
-                    }
-                }
-            }
+            "extends_type_clause" => capture_named_heritage_targets(
+                builder,
+                TypeTreeCapture {
+                    root: child,
+                    owner,
+                    kind: ReferenceKind::Extends,
+                },
+            )?,
             "class_heritage" => capture_class_heritage(builder, child, owner)?,
             _ => {}
         }
@@ -76,7 +72,11 @@ fn capture_class_heritage(
         builder.context.ensure_active()?;
         match clause.kind() {
             "extends_clause" => {
-                if let Some(target) = clause.child_by_field_name("value") {
+                if let Some(target) = clause
+                    .child_by_field_name("value")
+                    .filter(|target| !is_receiver_chain(*target))
+                    && heritage_base_resolves(builder, target)?
+                {
                     push_node_reference(
                         builder,
                         NodeReference {
@@ -88,23 +88,55 @@ fn capture_class_heritage(
                     )?;
                 }
             }
-            "implements_clause" => {
-                for target in named_children(clause) {
-                    builder.context.ensure_active()?;
-                    if let Some(name_node) = reference_type_node(target) {
-                        push_node_reference(
-                            builder,
-                            NodeReference {
-                                owner: Some(owner.clone()),
-                                name: name_node,
-                                kind: ReferenceKind::Implements,
-                                span: name_node,
-                            },
-                        )?;
-                    }
+            "implements_clause" => capture_named_heritage_targets(
+                builder,
+                TypeTreeCapture {
+                    root: clause,
+                    owner,
+                    kind: ReferenceKind::Implements,
+                },
+            )?,
+            // Plain JavaScript: `class A extends B` puts the base expression
+            // directly under `class_heritage`. Only a static name is a base;
+            // a computed mixin (`extends mixin(B)`) has no declaration target.
+            "identifier" | "member_expression"
+                if !is_receiver_chain(clause) && heritage_base_resolves(builder, clause)? =>
+            {
+                if let Some(name) = static_member_chain_name(builder, clause)? {
+                    push_reference(
+                        builder,
+                        PendingReference {
+                            owner: Some(owner.clone()),
+                            name,
+                            kind: ReferenceKind::Extends,
+                            node: clause,
+                        },
+                    )?;
                 }
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Emit the named targets of an extends or implements clause in child order.
+fn capture_named_heritage_targets(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: TypeTreeCapture<'_, '_>,
+) -> Result<(), ExtractError> {
+    for target in named_children(input.root) {
+        builder.context.ensure_active()?;
+        if let Some(name_node) = reference_type_node(target) {
+            push_node_reference(
+                builder,
+                NodeReference {
+                    owner: Some(input.owner.clone()),
+                    name: name_node,
+                    kind: input.kind,
+                    span: name_node,
+                },
+            )?;
         }
     }
     Ok(())
@@ -123,12 +155,14 @@ pub(super) fn capture_callable_types(
             capture_python_parameter_types(builder, parameters, owner)?;
         } else {
             capture_type_nodes(builder, parameters, owner)?;
+            module_system::capture_type_position_imports(builder, parameters, owner)?;
         }
     }
     if let Some(return_type) = node
         .child_by_field_name("return_type")
         .or_else(|| node.child_by_field_name("result"))
     {
+        module_system::capture_type_position_imports(builder, return_type, owner)?;
         capture_type_tree(
             builder,
             TypeTreeCapture {
@@ -178,16 +212,18 @@ fn capture_type_tree(
     let language = builder.context.snapshot.language();
     for target in descendants_including_root(input.root) {
         builder.context.ensure_active()?;
-        if !is_type_name(language, target) {
+        let Some(name) = import_type_member(language, target)
+            .or_else(|| is_type_name(language, target).then_some(target))
+        else {
             continue;
-        }
+        };
         push_node_reference(
             builder,
             NodeReference {
                 owner: Some(input.owner.clone()),
-                name: target,
+                name,
                 kind: input.kind,
-                span: target,
+                span: name,
             },
         )?;
     }
@@ -204,50 +240,150 @@ pub(super) fn capture_type_nodes(
     node: Node<'_>,
     owner: &SymbolId,
 ) -> Result<(), ExtractError> {
-    let language = builder.context.snapshot.language();
     for target in descendants_including_root(node) {
         builder.context.ensure_active()?;
-        let type_query_value = matches!(language, SourceLanguage::TypeScript | SourceLanguage::Tsx)
-            && target.kind() == "identifier"
-            && target
-                .parent()
-                .is_some_and(|parent| parent.kind() == "type_query")
-            && !zod_infer_type_query(builder, target);
-        if target.kind() != "type_identifier" && !type_query_value {
-            continue;
-        }
-        if type_query_value {
-            let name = builder.context.owned_text(target)?;
-            let capacity = TYPE_QUERY_VALUE_RESOLUTION_PREFIX
-                .len()
-                .checked_add(name.len())
-                .ok_or(ExtractError::OutputLimit)?;
-            let mut resolution_name = String::new();
-            resolution_name
-                .try_reserve(capacity)
-                .map_err(|_| ExtractError::OutputLimit)?;
-            resolution_name.push_str(TYPE_QUERY_VALUE_RESOLUTION_PREFIX);
-            resolution_name.push_str(&name);
-            builder.emit_reference(ExtractedReference {
-                owner: Some(owner.clone()),
-                name,
-                resolution_name: Some(resolution_name),
+        capture_type_node(
+            builder,
+            TypeNodeCapture {
+                target,
+                owner,
                 kind: ReferenceKind::TypeOf,
-                span: span_for(target)?,
-            })?;
-        } else {
-            push_node_reference(
-                builder,
-                NodeReference {
-                    owner: Some(owner.clone()),
-                    name: target,
-                    kind: ReferenceKind::TypeOf,
-                    span: target,
-                },
-            )?;
-        }
+            },
+        )?;
     }
     Ok(())
+}
+
+/// One node of a type subtree and the reference it would record.
+#[derive(Clone, Copy)]
+pub(super) struct TypeNodeCapture<'tree, 'owner> {
+    pub(super) target: Node<'tree>,
+    pub(super) owner: &'owner SymbolId,
+    /// `type_of`, or `returns` for a return annotation.
+    pub(super) kind: ReferenceKind,
+}
+
+/// Record the reference one node of a type subtree makes, if any: a type
+/// name, an inline import type's member, or (for `type_of`) a
+/// `typeof value` query.
+pub(super) fn capture_type_node(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    capture: TypeNodeCapture<'_, '_>,
+) -> Result<(), ExtractError> {
+    let TypeNodeCapture {
+        target,
+        owner,
+        kind,
+    } = capture;
+    let language = builder.context.snapshot.language();
+    if let Some(property) = import_type_member(language, target) {
+        return push_node_reference(
+            builder,
+            NodeReference {
+                owner: Some(owner.clone()),
+                name: property,
+                kind,
+                span: property,
+            },
+        );
+    }
+    if target.kind() == "type_identifier" {
+        return push_node_reference(
+            builder,
+            NodeReference {
+                owner: Some(owner.clone()),
+                name: target,
+                kind,
+                span: target,
+            },
+        );
+    }
+    let type_query_value = kind == ReferenceKind::TypeOf
+        && matches!(language, SourceLanguage::TypeScript | SourceLanguage::Tsx)
+        && target.kind() == "identifier"
+        && target
+            .parent()
+            .is_some_and(|parent| parent.kind() == "type_query")
+        && !zod_infer_type_query(builder, target);
+    if !type_query_value {
+        return Ok(());
+    }
+    let name = builder.context.owned_text(target)?;
+    let capacity = TYPE_QUERY_VALUE_RESOLUTION_PREFIX
+        .len()
+        .checked_add(name.len())
+        .ok_or(ExtractError::OutputLimit)?;
+    let mut resolution_name = String::new();
+    resolution_name
+        .try_reserve(capacity)
+        .map_err(|_| ExtractError::OutputLimit)?;
+    resolution_name.push_str(TYPE_QUERY_VALUE_RESOLUTION_PREFIX);
+    resolution_name.push_str(&name);
+    builder.emit_reference(ExtractedReference {
+        owner: Some(owner.clone()),
+        name,
+        resolution_name: Some(resolution_name),
+        kind: ReferenceKind::TypeOf,
+        span: span_for(target)?,
+    })
+}
+
+/// The named type of a TypeScript inline import type, such as `Options` in
+/// `opts?: import('./opts').Options`, when `node` is that member in a type
+/// position. A runtime `import('./x').then(..)` is never a type.
+fn import_type_member(language: SourceLanguage, node: Node<'_>) -> Option<Node<'_>> {
+    if !matches!(language, SourceLanguage::TypeScript | SourceLanguage::Tsx)
+        || node.kind() != "member_expression"
+        || !node
+            .parent()
+            .is_some_and(|parent| holds_type_at(parent, node))
+    {
+        return None;
+    }
+    let imports_module = node
+        .child_by_field_name("object")
+        .filter(|object| object.kind() == "call_expression")
+        .and_then(|call| call.child_by_field_name("function"))
+        .is_some_and(|function| function.kind() == "import");
+    node.child_by_field_name("property")
+        .filter(|property| imports_module && property.kind() == "property_identifier")
+}
+
+/// Whether `child` of `parent` sits in a TypeScript type position: under a
+/// type-holding node, or as the asserted type (never the operand) of an
+/// `as`/`satisfies` expression (`{} as import('./m').T`).
+pub(super) fn holds_type_at(parent: Node<'_>, child: Node<'_>) -> bool {
+    match parent.kind() {
+        "as_expression" | "satisfies_expression" => {
+            asserted_type(parent).is_some_and(|asserted| asserted.id() == child.id())
+        }
+        kind => is_type_position(kind),
+    }
+}
+
+/// The type an `as`/`satisfies` expression asserts: its named child after
+/// the operand. `x as const` names no type.
+pub(super) fn asserted_type(assertion: Node<'_>) -> Option<Node<'_>> {
+    let mut children = named_children(assertion).filter(|child| child.kind() != "comment");
+    children.next()?;
+    children.last()
+}
+
+/// Whether a node of this kind holds its children in a TypeScript type
+/// position (an annotation, type argument, type operator, or alias value).
+fn is_type_position(kind: &str) -> bool {
+    kind.ends_with("_type")
+        || matches!(
+            kind,
+            "type_annotation"
+                | "type_arguments"
+                | "type_alias_declaration"
+                | "type_query"
+                | "constraint"
+                | "default_type"
+                | "asserts_annotation"
+                | "type_predicate_annotation"
+        )
 }
 
 fn zod_infer_type_query(builder: &ExtractionBuilder<'_, '_>, target: Node<'_>) -> bool {
@@ -358,13 +494,7 @@ fn capture_javascript_dispatch(
     capture: InvocationCapture<'_>,
 ) -> Result<bool, ExtractError> {
     if capture.shape.invocation != InvocationKind::Call
-        || !matches!(
-            capture.shape.language,
-            SourceLanguage::TypeScript
-                | SourceLanguage::Tsx
-                | SourceLanguage::JavaScript
-                | SourceLanguage::Jsx
-        )
+        || !javascript_call_syntax(capture.shape.language)
     {
         return Ok(false);
     }
@@ -466,14 +596,7 @@ fn invocation_reference_nodes<'tree>(
         language,
         invocation,
     } = shape;
-    let javascript = matches!(
-        language,
-        SourceLanguage::TypeScript
-            | SourceLanguage::Tsx
-            | SourceLanguage::JavaScript
-            | SourceLanguage::Jsx
-    );
-    match (invocation, javascript) {
+    match (invocation, javascript_call_syntax(language)) {
         (InvocationKind::Call, true) => {
             normalized_javascript_call_target(target, 0).map(|name| (name, name))
         }
@@ -483,6 +606,19 @@ fn invocation_reference_nodes<'tree>(
         }
         (InvocationKind::Construction, false) => Some((target, expression)),
     }
+}
+
+/// Languages whose calls use JavaScript call and member-expression syntax,
+/// including `ArkTS`, whose grammar keeps TypeScript's expression node kinds.
+const fn javascript_call_syntax(language: SourceLanguage) -> bool {
+    matches!(
+        language,
+        SourceLanguage::TypeScript
+            | SourceLanguage::Tsx
+            | SourceLanguage::JavaScript
+            | SourceLanguage::Jsx
+            | SourceLanguage::ArkTs
+    )
 }
 
 fn anonymous_call_target(language: SourceLanguage, target: Node<'_>, depth: usize) -> bool {
@@ -821,6 +957,7 @@ fn static_javascript_dispatch_key(raw: &str) -> Option<&str> {
     let mut characters = key.chars();
     let first = characters.next()?;
     (key.len() <= MAX_DURABLE_REFERENCE_NAME_BYTES
+        && !super::specifier_safety::specifier_may_carry_credential(key)
         && (first == '_' || first == '$' || first.is_ascii_alphabetic())
         && characters.all(|character| {
             character == '_' || character == '$' || character.is_ascii_alphanumeric()
@@ -895,7 +1032,7 @@ fn normalized_javascript_construction_target(target: Node<'_>, depth: usize) -> 
 }
 
 fn static_javascript_member_chain(node: Node<'_>, depth: usize) -> bool {
-    if depth > 64 {
+    if depth > MAX_STATIC_CHAIN_DEPTH {
         return false;
     }
     match node.kind() {
@@ -913,6 +1050,84 @@ fn static_javascript_member_chain(node: Node<'_>, depth: usize) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether a JavaScript-family base expression names what the resolver
+/// would bind it to: a base an enclosing parameter or local rebinds
+/// (`function mixin(Base) { return class extends Base {} }`) is that binding,
+/// not a module class of the same name. Other bases are kept as they are.
+fn heritage_base_resolves(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    base: Node<'_>,
+) -> Result<bool, ExtractError> {
+    if !module_system::is_javascript_family(builder.context.snapshot.language())
+        || !matches!(base.kind(), "identifier" | "member_expression")
+    {
+        return Ok(true);
+    }
+    super::javascript_scopes::static_chain_resolves(builder, base)
+}
+
+/// Whether a static chain is rooted at `this` or `super`, an instance or
+/// parent member rather than a declaration (`class P extends this.base`).
+fn is_receiver_chain(node: Node<'_>) -> bool {
+    let mut current = node;
+    for _ in 0..MAX_STATIC_CHAIN_DEPTH {
+        match current.kind() {
+            "member_expression" => match current.child_by_field_name("object") {
+                Some(object) => current = object,
+                None => return false,
+            },
+            kind => return matches!(kind, "this" | "super"),
+        }
+    }
+    true
+}
+
+/// The dotted name of a static identifier/member chain (`ng.Input`), built
+/// from its name tokens so comments, whitespace, and optional-chaining
+/// punctuation inside the chain never become part of a reference name.
+pub(super) fn static_member_chain_name(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    if !static_javascript_member_chain(node, 0) {
+        return Ok(None);
+    }
+    let mut segments = Vec::new();
+    let mut current = node;
+    while current.kind() == "member_expression" {
+        let (Some(object), Some(property)) = (
+            current.child_by_field_name("object"),
+            current.child_by_field_name("property"),
+        ) else {
+            return Ok(None);
+        };
+        segments
+            .try_reserve(1)
+            .map_err(|_| ExtractError::OutputLimit)?;
+        segments.push(property);
+        current = object;
+    }
+    segments
+        .try_reserve(1)
+        .map_err(|_| ExtractError::OutputLimit)?;
+    segments.push(current);
+    let length = segments.iter().try_fold(segments.len(), |length, segment| {
+        length.checked_add(builder.context.text(*segment).trim().len())
+    });
+    let length = length.ok_or(ExtractError::OutputLimit)?;
+    builder.context.budget.ensure_string_length(length)?;
+    let mut name = String::new();
+    name.try_reserve(length)
+        .map_err(|_| ExtractError::OutputLimit)?;
+    for segment in segments.iter().rev() {
+        if !name.is_empty() {
+            name.push('.');
+        }
+        name.push_str(builder.context.text(*segment).trim());
+    }
+    Ok(Some(name))
 }
 
 pub(super) fn capture_jsx_reference(

@@ -1,0 +1,8 @@
+object AboutForm: TAboutForm
+  Caption = 'About'
+  OnShow = FormShow
+  object OkButton: TButton
+    Text = 'OK'
+    OnClick = OkButtonClick
+  end
+end

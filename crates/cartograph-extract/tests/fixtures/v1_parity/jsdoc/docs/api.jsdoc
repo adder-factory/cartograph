@@ -1,0 +1,13 @@
+/**
+ * Adds one to a number.
+ * @function addOne
+ * @param {number} value - the input
+ * @returns {number} the input plus one
+ * @example
+ * addOne(1); // 2
+ */
+
+/**
+ * @module geometry
+ * @see {@link Point}
+ */

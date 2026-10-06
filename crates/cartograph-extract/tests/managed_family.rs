@@ -673,6 +673,67 @@ fn managed_facts_are_repeatable_and_locked() {
     }
 }
 
+#[test]
+fn java_heritage_names_only_the_generic_head_type() {
+    let extracted = extract(
+        "src/Foo.java",
+        "class Foo extends Bar<Baz> implements Map<String, Qux>, pkg.Pair<Left, Right> {}\n\
+         class Nested extends Outer<Arg>.Inner<Other> {}\n\
+         interface J extends K<U> {}\n\
+         class G { List<Item> load(Map<String, Row> rows) { return null; } }\n",
+    );
+    let foo = symbol(&extracted, SymbolKind::Class, "Foo", "Foo");
+    assert_reference_owned_by(&extracted, foo, "Bar", ReferenceKind::Extends);
+    assert_reference_owned_by(&extracted, foo, "Map", ReferenceKind::Implements);
+    assert_reference_owned_by(&extracted, foo, "pkg.Pair", ReferenceKind::Implements);
+    let interface = symbol(&extracted, SymbolKind::Interface, "J", "J");
+    assert_reference_owned_by(&extracted, interface, "K", ReferenceKind::Extends);
+    let nested = symbol(&extracted, SymbolKind::Class, "Nested", "Nested");
+    assert_reference_owned_by(&extracted, nested, "Outer.Inner", ReferenceKind::Extends);
+    for argument in [
+        "Baz", "String", "Qux", "Left", "Right", "U", "Arg", "Other", "Outer",
+    ] {
+        assert!(
+            extracted.references.iter().all(|reference| {
+                reference.name != argument
+                    || !matches!(
+                        reference.kind,
+                        ReferenceKind::Extends | ReferenceKind::Implements
+                    )
+            }),
+            "generic argument {argument} became an inheritance target: {:?}",
+            reference_facts(&extracted),
+        );
+    }
+    // Type usage (not inheritance) still names its generic arguments.
+    let load = symbol(&extracted, SymbolKind::Method, "load", "G::load");
+    assert_reference_owned_by(&extracted, load, "Item", ReferenceKind::Returns);
+    assert_reference_owned_by(&extracted, load, "Row", ReferenceKind::TypeOf);
+}
+
+#[test]
+fn csharp_tuple_types_name_element_types_but_never_element_names() {
+    let extracted = extract(
+        "src/K.cs",
+        "class K { void Load((Item first, int count) pair) {} (Row row, Item item) Pair() { return default; } }\n",
+    );
+    let load = symbol(&extracted, SymbolKind::Method, "Load", "K::Load");
+    assert_reference_owned_by(&extracted, load, "Item", ReferenceKind::TypeOf);
+    let pair = symbol(&extracted, SymbolKind::Method, "Pair", "K::Pair");
+    assert_reference_owned_by(&extracted, pair, "Row", ReferenceKind::Returns);
+    assert_reference_owned_by(&extracted, pair, "Item", ReferenceKind::Returns);
+    for element in ["first", "count", "row", "item", "int"] {
+        assert!(
+            extracted
+                .references
+                .iter()
+                .all(|reference| reference.name != element),
+            "tuple element {element} became a type reference: {:?}",
+            reference_facts(&extracted),
+        );
+    }
+}
+
 fn extract(path: &str, source: &str) -> ExtractedFile {
     extract_result(path, source)
         .unwrap_or_else(|error| panic!("extraction failed for {path}: {error}"))

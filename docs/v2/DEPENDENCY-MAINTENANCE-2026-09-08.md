@@ -1,5 +1,10 @@
 # Dependency maintenance review — 2026-09-08
 
+[Documentation home](../README.md) · [Changelog](../RELEASES.md#dependency-audits) · [V2 architecture](ARCHITECTURE.md)
+
+> [!NOTE]
+> Dated historical record of the 2026-09-08 maintenance review; its policy changes shipped in [v2.1.28](../releases/v2.1.28.md).
+
 The maintenance review found **no confirmed abandoned dependency requiring
 removal** from the current development dependency graph. No package was replaced
 or removed. This conclusion is a dated review of available evidence, not a

@@ -1,5 +1,10 @@
 # Dependency and retention update — 2026-09-08
 
+[Documentation home](../README.md) · [Changelog](../RELEASES.md#dependency-audits) · [V2 architecture](ARCHITECTURE.md)
+
+> [!NOTE]
+> Dated historical record of the 2026-09-08 development change; it later shipped in [v2.1.28](../releases/v2.1.28.md).
+
 This development change extends the [architecture improvements](ARCHITECTURE-IMPROVEMENTS.md)
 with resumable storage cleanup and the latest published stable direct dependencies.
 It does not represent a published release or an upgrade of an already attached host.

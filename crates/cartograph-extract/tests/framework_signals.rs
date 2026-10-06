@@ -1,6 +1,9 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
+#[path = "credential_support/escaped_names.rs"]
+mod escaped_names;
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
 use cartograph_extract::{ExtractError, NativeExtractor, SourceLimits, SourceSnapshot};
@@ -925,6 +928,125 @@ public class OrdersController {
 }
 
 #[test]
+fn class_level_mappings_never_become_constructor_routes() {
+    // A Kotlin primary constructor sits between the class annotations and the
+    // class body, so the class-level `@RequestMapping` used to be read as the
+    // constructor's own mapping and published as `ANY /users/users`.
+    let kotlin = extract(
+        "src/UserController.kt",
+        r#"
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.RequestMapping
+
+@RestController
+@RequestMapping("/users")
+class UserController(private val userService: UserService) {
+    @GetMapping("/{id}")
+    fun show(id: String): String = id
+}
+"#,
+        SourceLanguage::Kotlin,
+    );
+    let kotlin_routes = route_names(&kotlin);
+    assert_eq!(kotlin_routes, ["GET /users/{id}"], "{kotlin_routes:?}");
+
+    let aspnet = extract(
+        "Controllers/OrdersController.cs",
+        r#"
+[Route("api/[controller]")]
+public class OrdersController(IOrderService orders) : ControllerBase {
+  [HttpGet("{id}")]
+  public void GetOne() {}
+}
+"#,
+        SourceLanguage::CSharp,
+    );
+    let aspnet_routes = route_names(&aspnet);
+    assert_eq!(aspnet_routes, ["GET /api/Orders/{id}"], "{aspnet_routes:?}");
+
+    // A body method that happens to share the class name is still a handler.
+    let java = extract(
+        "src/Orders.java",
+        "@RequestMapping(value = {\"/x\"})\nclass Orders {\n  @GetMapping(\"/same\")\n  public String Orders() { return \"\"; }\n}\n",
+        SourceLanguage::Java,
+    );
+    assert_eq!(route_names(&java), ["GET /same"]);
+    let kotlin_body = extract(
+        "src/Orders.kt",
+        "@RequestMapping(\"/o\")\nclass Orders /* don't { */ {\n    @GetMapping(\"/same\")\n    fun Orders(): String = \"\"\n}\n",
+        SourceLanguage::Kotlin,
+    );
+    assert_eq!(route_names(&kotlin_body), ["GET /o/same"]);
+}
+
+#[test]
+fn pathless_method_mappings_are_located_at_their_own_annotation() {
+    // `[HttpPost]` / `@GetMapping` without a path inherit the class path, but
+    // the route is declared by the method's annotation, not the class's.
+    let aspnet = extract(
+        "Controllers/OrdersController.cs",
+        "[Route(\"api/[controller]\")]\npublic class OrdersController : ControllerBase {\n  [HttpGet(\"{id}\")]\n  public void GetOne() {}\n\n  [HttpPost]\n  public void Create() {}\n}\n",
+        SourceLanguage::CSharp,
+    );
+    assert_eq!(
+        route_lines(&aspnet),
+        [("GET /api/Orders/{id}", 3), ("POST /api/Orders", 6)]
+    );
+    let spring = extract(
+        "src/OrdersController.java",
+        "@RequestMapping(\"/api\")\npublic class OrdersController {\n  @GetMapping\n  public void list() {}\n\n  @PostMapping()\n  public void create() {}\n}\n",
+        SourceLanguage::Java,
+    );
+    assert_eq!(route_lines(&spring), [("GET /api", 3), ("POST /api", 6)]);
+}
+
+#[test]
+fn play_route_handlers_keep_their_controller_action_with_arguments() {
+    // Play handlers may declare their parameters (`show(id: Long)`, which also
+    // splits on the space) or an empty list (`create()`); the action is the
+    // same per-file handler reference either way.
+    let extracted = extract(
+        "conf/routes",
+        "GET     /                       controllers.HomeController.index\nGET     /users/:id              controllers.Users.show(id: Long)\nPOST    /users                  controllers.Users.create()\n",
+        SourceLanguage::Yaml,
+    );
+    let handlers = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .map(|reference| (reference.name.as_str(), reference.span.start_line()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        handlers,
+        [
+            ("controllers.HomeController.index", 1),
+            ("controllers.Users.show", 2),
+            ("controllers.Users.create", 3),
+        ]
+    );
+}
+
+/// Route symbol names and start lines of one extraction, in source order.
+fn route_lines(extracted: &cartograph_extract::ExtractedFile) -> Vec<(&str, u32)> {
+    extracted
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Route)
+        .map(|symbol| (symbol.name.as_str(), symbol.span.start_line()))
+        .collect()
+}
+
+/// Route symbol names of one extraction, in source order.
+fn route_names(extracted: &cartograph_extract::ExtractedFile) -> Vec<&str> {
+    extracted
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Route)
+        .map(|symbol| symbol.name.as_str())
+        .collect()
+}
+
+#[test]
 fn rails_routes_expand_resources_compose_namespaces_and_keep_handler_identity() {
     let extracted = extract(
         "config/routes.rb",
@@ -1078,6 +1200,155 @@ class ModernBlock {}
             "missing Drupal plugin {plugin}: {plugins:?}"
         );
     }
+}
+
+/// A flow-mapping tag (`{ name: x, priority: 10 }`) ends its `name` at the
+/// next comma, and a scalar `'@service:method'` factory names the service
+/// once: the suffix after `:` is the factory method. In a `[@service, method]`
+/// sequence the colon belongs to the service id, quoted scalars are decoded,
+/// and a quote escape never truncates a value into a different name. A
+/// non-ASCII service id is never cut to an ASCII prefix, and a rejected `factory` scalar names
+/// nothing.
+#[test]
+fn drupal_service_flow_tags_and_scalar_factories_name_only_their_target() {
+    let services = extract(
+        "modules/custom/demo/demo.services.yml",
+        r#"
+services:
+  demo.listener:
+    class: Drupal\demo\Listener
+    tags:
+      - { name: event_subscriber, priority: 10 }
+      - { name: 'cache.bin', default_backend: cache.backend.memory }
+  demo.made:
+    factory: '@demo.factory:create'
+  demo.static:
+    factory: 'Drupal\demo\Factory::create'
+  demo.tenant:
+    factory: ['@tenant:cache', 'create']
+    arguments:
+      - { factory: '@tenant:cache' }
+  demo.escaped_factory:
+    factory: "Drupal\\demo\\Escaped::create"
+  demo.escaped:
+    class: "Drupal\\demo\\Escaped"
+    tags:
+      - { name: 'kernel''listener' }
+      - { name: "bad\tescape" }
+  demo.unicode:
+    factory: '@café:create'
+    arguments: ['@café', '@plain', '@caf€']
+  demo.unterminated:
+    factory: '@svc:create
+  demo.bad_escape:
+    configurator: "@svc\x:configure"
+"#,
+        SourceLanguage::Yaml,
+    );
+    let tags = services
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.qualified_name.contains("::drupal-tag-provider::"))
+        .map(|symbol| symbol.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tags,
+        [
+            "drupal-tag:kernel'listener",
+            "drupal-tag:cache.bin",
+            "drupal-tag:event_subscriber"
+        ],
+        "provider tags are ordered by service id"
+    );
+    let names_on = |line: u32| {
+        services
+            .references
+            .iter()
+            .filter(|reference| reference.span.start_line() == line)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names_on(9), ["demo.factory"]);
+    assert_eq!(names_on(11), ["Drupal\\demo\\Factory"]);
+    assert_eq!(names_on(13), ["tenant:cache"]);
+    assert_eq!(names_on(15), ["tenant:cache"]);
+    let escaped_factory = services
+        .references
+        .iter()
+        .find(|reference| reference.span.start_line() == 17)
+        .unwrap_or_else(|| panic!("missing escaped factory: {:?}", services.references));
+    assert_eq!(escaped_factory.name, "Drupal\\demo\\Escaped");
+    let raw_class = r"Drupal\\demo\\Escaped";
+    assert_eq!(
+        escaped_factory.span.end_byte() - escaped_factory.span.start_byte(),
+        u64::try_from(raw_class.len()).unwrap_or(u64::MAX),
+        "the span covers the raw escaped class text"
+    );
+    assert_eq!(names_on(19), ["Drupal\\demo\\Escaped"]);
+    // A non-ASCII service id is never named as a shorter ASCII prefix
+    // (`caf`) that would bind a different service; framework signals are
+    // ASCII-only, so it abstains.
+    assert_eq!(names_on(24), Vec::<&str>::new());
+    assert_eq!(names_on(25), ["plain"]);
+    // A rejected `factory`/`configurator` scalar names nothing.
+    assert_eq!(names_on(27), Vec::<&str>::new());
+    assert_eq!(names_on(29), Vec::<&str>::new());
+}
+
+#[test]
+fn codeigniter_escaped_load_operands_abstain_before_resource_state() {
+    for &(path, source) in escaped_names::ESCAPED_NAME_CASES {
+        if path.starts_with("application/") {
+            let file = credential_support::extract(path, source);
+            credential_support::assert_no_credentials(&file);
+            assert!(
+                file.references
+                    .iter()
+                    .all(|reference| reference.name != "user_model")
+            );
+        }
+    }
+    let source = r"<?php class Users extends CI_Controller { function show() { $this->load->model('App\Models\user_model', 'users'); $this->users->find(); } }";
+    let file = credential_support::extract("application/controllers/Users.php", source);
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.name == r"App\Models\user_model")
+    );
+}
+
+#[test]
+fn codeigniter_load_names_screen_credentials_before_resource_and_alias_projection() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        for (resource, alias) in [(value, "users"), ("user_model", value)] {
+            let source = format!(
+                "<?php class Users extends CI_Controller {{ public function show() {{ $this->load->model('{resource}', '{alias}'); $this->users->find(); }} }}\n"
+            );
+            let file = credential_support::extract("application/controllers/Users.php", &source);
+            credential_support::assert_no_credentials(&file);
+            assert!(
+                file.references
+                    .iter()
+                    .all(|reference| reference.resolution_name.as_deref()
+                        != Some("User_model::find"))
+            );
+        }
+    }
+    credential_support::assert_screened(
+        "application/controllers/Users.php",
+        "<?php class Users extends CI_Controller { public function show() { $this->load->model('@VALUE@', 'users'); $this->users->find(); } }\n",
+        "user_model",
+    );
+    let file = credential_support::extract(
+        "application/controllers/Users.php",
+        "<?php class Users extends CI_Controller { public function show() { $this->load->model('user_model', 'users'); $this->users->find(); } }\n",
+    );
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.name == "find"
+                && reference.resolution_name.as_deref() == Some("User_model::find"))
+    );
 }
 
 #[test]
@@ -1363,6 +1634,459 @@ const rune = $state(0);
             .references
             .iter()
             .all(|reference| { !matches!(reference.name.as_str(), "$state" | "$styleGhost") })
+    );
+}
+
+#[test]
+fn spring_conditional_on_property_keys_are_owned_by_the_annotated_declaration() {
+    let java = extract(
+        "src/PaymentsAutoConfig.java",
+        "import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;\n\n@ConditionalOnProperty(prefix = \"feature.payments.\", name = \"enabled\", havingValue = \"cartograph_literal_secret_sentinel_7c1f\")\npublic class PaymentsAutoConfig {\n  @Bean\n  @ConditionalOnProperty(\"feature.audit\")\n  public Audit audit() { return null; }\n  @ConditionalOnProperty(value = \".feature.legacy\", matchIfMissing = true)\n  public Legacy legacy() { return null; }\n  @ConditionalOnProperty(name = {\"feature.array\"})\n  public Arrayed arrayed() { return null; }\n  @Value(\"${app.cache.ttl}\")\n  private int cacheTtl;\n  @Value(\"${app.pair:1}\") String left, right;\n  @Value /* documented */ (\"${app.noted}\") private String noted;\n  @ConditionalOnProperty(prefix = PREFIX, name = \"hidden\")\n  public Hidden hidden() { return null; }\n}\n",
+        SourceLanguage::Java,
+    );
+    let owner_of = |name: &str| {
+        java.references
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::References && reference.name == name
+            })
+            .map(|reference| {
+                reference.owner.as_ref().and_then(|owner| {
+                    java.symbols
+                        .iter()
+                        .find(|symbol| &symbol.id == owner)
+                        .map(|symbol| symbol.qualified_name.as_str())
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        owner_of("feature.payments.enabled"),
+        vec![Some("PaymentsAutoConfig")]
+    );
+    assert_eq!(
+        owner_of("feature.audit"),
+        vec![Some("PaymentsAutoConfig::audit")]
+    );
+    assert_eq!(
+        owner_of("feature.legacy"),
+        vec![Some("PaymentsAutoConfig::legacy")]
+    );
+    assert_eq!(
+        owner_of("app.cache.ttl"),
+        vec![Some("PaymentsAutoConfig::cacheTtl")],
+        "@Value keys belong to the annotated field"
+    );
+    assert_eq!(
+        owner_of("app.pair"),
+        vec![
+            Some("PaymentsAutoConfig::left"),
+            Some("PaymentsAutoConfig::right")
+        ],
+        "every declarator of a multi-declarator @Value field depends on the key"
+    );
+    assert_eq!(
+        owner_of("app.noted"),
+        vec![Some("PaymentsAutoConfig::noted")],
+        "a comment between @Value and its arguments keeps the field owner"
+    );
+    assert!(
+        owner_of("hidden").is_empty(),
+        "a non-literal prefix makes the key unknown"
+    );
+    for absent in ["feature.array", "true", "enabled", "feature.payments."] {
+        assert!(
+            owner_of(absent).is_empty(),
+            "unexpected configuration key {absent}: {:?}",
+            java.references
+        );
+    }
+    assert!(!format!("{java:?}").contains(SECRET));
+
+    let kotlin = extract(
+        "src/Payments.kt",
+        "@ConditionalOnProperty(prefix = \"feature.payments\", name = \"enabled\")\nclass PaymentsAutoConfig\n@ConditionalOnProperty(prefix = \"$ROOT.flags\", name = \"templated\")\nclass Templated\n",
+        SourceLanguage::Kotlin,
+    );
+    assert!(kotlin.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::References && reference.name == "feature.payments.enabled"
+    }));
+    assert!(
+        kotlin
+            .references
+            .iter()
+            .all(|reference| !reference.name.contains("templated")),
+        "a Kotlin string template is not a literal prefix: {:?}",
+        kotlin.references
+    );
+
+    let unrelated = extract(
+        "src/Other.java",
+        "@ConditionalOnBean(name = \"feature.payments\")\nclass Other {}\n",
+        SourceLanguage::Java,
+    );
+    assert!(
+        unrelated
+            .references
+            .iter()
+            .all(|reference| reference.kind != ReferenceKind::References),
+        "only ConditionalOnProperty names configuration keys: {:?}",
+        unrelated.references
+    );
+}
+
+#[test]
+fn mybatis_template_statement_ids_reference_mapper_statements_from_the_calling_method() {
+    let extracted = extract(
+        "src/main/java/com/example/order/dao/impl/OrderAttributeDaoImpl.java",
+        "package com.example.order.dao.impl;\n\nimport com.example.order.dao.OrderAttributeDao;\n\npublic class OrderAttributeDaoImpl {\n  private static final String SQL_NS = OrderAttributeDao.class.getName() + \"Mapper\";\n  private static final String ORDER_NS = \"com.example.OrderMapper\";\n\n  public void deleteByOrderId(String orderId) {\n    getSqlSessionTemplate().delete(SQL_NS + \".deleteByOrderId\", orderId);\n  }\n\n  public Object find(String id) {\n    Object row = sqlSessionTemplate.selectOne(ORDER_NS + \".findOrder\", id);\n    this.sqlSessionTemplate.selectList(\"ns.Literal.findAll\");\n    sqlSessionTemplate.update(dynamicNamespace() + \".skip\", id);\n    sqlSessionTemplate.insert(unknown + \".skip\", id);\n    // sqlSessionTemplate.delete(\"Commented.out\");\n    return row;\n  }\n}\n",
+        SourceLanguage::Java,
+    );
+    let owned = |owner: &str| {
+        let owner = extracted
+            .symbols
+            .iter()
+            .find(|symbol| symbol.qualified_name == owner)
+            .unwrap_or_else(|| panic!("missing {owner}: {:?}", extracted.symbols));
+        extracted
+            .references
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::References
+                    && reference.owner.as_ref() == Some(&owner.id)
+            })
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        owned("com.example.order.dao.impl::OrderAttributeDaoImpl::deleteByOrderId"),
+        vec!["OrderAttributeDaoMapper::deleteByOrderId"]
+    );
+    assert_eq!(
+        owned("com.example.order.dao.impl::OrderAttributeDaoImpl::find"),
+        vec!["OrderMapper::findOrder", "Literal::findAll"]
+    );
+    assert!(
+        extracted
+            .references
+            .iter()
+            .all(|reference| !reference.name.ends_with("::skip")
+                && reference.name != "Commented::out"),
+        "unevaluable or commented statement ids must not be guessed: {:?}",
+        extracted.references
+    );
+
+    let ambiguous = extract(
+        "src/main/java/com/example/AmbiguousDao.java",
+        "package com.example;\npublic class AmbiguousDao {\n  private String reassigned = \"first.Mapper\";\n  private static final String SHADOWED = \"a.Mapper\";\n  private static final String KNOWN = \"ok.Mapper\";\n  void reset() { reassigned = \"second.Mapper\"; }\n  void load() {\n    sqlSessionTemplate.selectOne(reassigned + \".find\");\n    sqlSessionTemplate.selectOne(SHADOWED + \".find\");\n    String doc = \"sqlSessionTemplate.selectOne(KNOWN + \\\".fake\\\")\";\n    sqlSessionTemplate.selectOne(KNOWN + \".real\");\n  }\n  class Inner { private static final String SHADOWED = \"b.Mapper\"; }\n}\n",
+        SourceLanguage::Java,
+    );
+    let statements = ambiguous
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statements,
+        vec!["Mapper::real"],
+        "reassigned or shadowed constants and calls inside string literals abstain"
+    );
+
+    let scoped = extract(
+        "src/main/java/com/example/ScopedDao.java",
+        "package com.example;\npublic class ScopedDao {\n  private static final String NS = \"field.Mapper\";\n  void initialize() {\n    final String LOCAL = \"LocalMapper\";\n  }\n  Object load(String NS) {\n    return sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n  Object local() {\n    return sqlSessionTemplate.selectOne(LOCAL + \".find\");\n  }\n  Object quoted() {\n    String block = \"\"\"\n      sqlSessionTemplate.selectOne(\"Block.fake\");\n      \"\"\";\n    char quote = '\"'; return sqlSessionTemplate.selectOne(\"Quoted.real\");\n  }\n  Object annotated(@Param(\"ns\") String NS) {\n    return sqlSessionTemplate.selectOne((NS) + \".find\");\n  }\n  void loop(java.util.List<String> names) {\n    for (String NS : names) sqlSessionTemplate.selectOne(NS + \".find\");\n    names.forEach(NS -> sqlSessionTemplate.selectOne(NS + \".find\"));\n  }\n  Object fieldUse() {\n    return sqlSessionTemplate.selectOne(NS + \".ok\");\n  }\n}\n",
+        SourceLanguage::Java,
+    );
+    let statements = scoped
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statements,
+        vec!["Quoted::real", "Mapper::ok"],
+        "parameters shadow fields, locals never answer for other methods, text blocks are literals, and a char literal quote does not hide a real call"
+    );
+}
+
+#[test]
+fn mybatis_lambda_generic_arguments_do_not_shadow_statement_constants() {
+    let source = "class GenericDao {\n  static final String NS = \"pkg.Mapper\";\n  static class NS {}\n  void load() {\n    Consumer<Map<String, NS>> c = (Map<String, NS> values) -> sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n";
+    let extracted = extract("src/GenericDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::find"]);
+}
+
+#[test]
+fn mybatis_lambda_type_names_do_not_shadow_statement_constants() {
+    let source = "class TypeDao {\n  static final String Map = \"pkg.OtherMapper\";\n  void load() {\n    Consumer<Map<String, Integer>> c = (Map<String, Integer> values) -> sqlSessionTemplate.selectOne(Map + \".find\");\n  }\n}\n";
+    let extracted = extract("src/TypeDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["OtherMapper::find"]);
+}
+
+#[test]
+fn mybatis_switch_constant_labels_keep_statement_constants() {
+    for label in ["NS", "ConstantSwitchDao.NS", "NS, OTHER", "\"other\""] {
+        let source = format!(
+            "class ConstantSwitchDao {{\n  static final String NS = \"pkg.Mapper\";\n  static final String OTHER = \"other\";\n  void load(String input) {{\n    switch (input) {{\n      case {label} -> sqlSessionTemplate.selectOne(NS + \".find\");\n      default -> sqlSessionTemplate.selectOne(NS + \".fallback\");\n    }}\n  }}\n}}\n"
+        );
+        let extracted = extract("src/ConstantSwitchDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::find", "Mapper::fallback"], "{label}");
+    }
+}
+
+#[test]
+fn mybatis_switch_type_patterns_and_real_lambdas_shadow_statement_constants() {
+    for arm in [
+        "case String NS -> sqlSessionTemplate.selectOne(NS + \".find\");",
+        "case final String NS -> sqlSessionTemplate.selectOne(NS + \".find\");",
+        "case @Marker(value = {1, 2}) final java.lang.String NS -> sqlSessionTemplate.selectOne(NS + \".find\");",
+        "case String value -> map.forEach(NS -> sqlSessionTemplate.selectOne(NS + \".find\"));",
+    ] {
+        let source = format!(
+            "class PatternSwitchDao {{\n  static final String NS = \"pkg.Mapper\";\n  void load(Object input) {{ switch (input) {{ {arm} default -> {{}} }} }}\n  void field() {{ sqlSessionTemplate.selectOne(NS + \".real\"); }}\n}}\n"
+        );
+        let extracted = extract("src/PatternSwitchDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::real"], "{arm}");
+    }
+}
+
+#[test]
+fn mybatis_switch_record_patterns_abstain_for_statement_constants() {
+    let source = "class RecordSwitchDao {\n  static final String NS = \"pkg.Mapper\";\n  record Box(String value) {}\n  void load(Object input) {\n    switch (input) {\n      case Box(String value) -> sqlSessionTemplate.selectOne(NS + \".find\");\n      default -> {}\n    }\n  }\n  void field() { sqlSessionTemplate.selectOne(NS + \".real\"); }\n}\n";
+    let extracted = extract("src/RecordSwitchDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::real"]);
+}
+
+#[test]
+fn mybatis_nested_switch_record_patterns_shadow_statement_constants() {
+    let source = "class SwitchDao {\n  static final String NS = \"pkg.Mapper\";\n  record Inner(String value) {}\n  record Outer(Inner value) {}\n  void load(Object input) {\n    switch (input) {\n      case Outer(Inner(String NS)) -> sqlSessionTemplate.selectOne(NS + \".find\");\n      default -> {}\n    }\n  }\n  void field() { sqlSessionTemplate.selectOne(NS + \".real\"); }\n}\n";
+    let extracted = extract("src/SwitchDao.java", source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::real"]);
+}
+
+#[test]
+fn mybatis_varargs_parameters_shadow_statement_constants() {
+    for parameter in [
+        "String... NS",
+        "java.lang.String /* type */ ... NS",
+        "String[]... NS",
+        "Façade... NS",
+    ] {
+        let source = format!(
+            "class VarargsDao {{\n  static final String NS = \"pkg.Mapper\";\n  void load({parameter}) {{ sqlSessionTemplate.selectOne(NS + \".find\"); }}\n  void field() {{ sqlSessionTemplate.selectOne(NS + \".real\"); }}\n}}\n"
+        );
+        let extracted = extract("src/VarargsDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::real"], "{parameter}");
+    }
+}
+
+#[test]
+fn mybatis_large_argument_lists_keep_unshadowed_statement_constants() {
+    let arguments = vec!["NS"; 16_000].join(",");
+    let source = format!(
+        "class LargeDao {{\n  static final String NS = \"pkg.Mapper\";\n  void load() {{ consume({arguments}); sqlSessionTemplate.selectOne(NS + \".find\"); }}\n  void shadowed() {{ map.forEach((NS, value) -> sqlSessionTemplate.selectOne(NS + \".fake\")); }}\n}}\n"
+    );
+    let extracted = extract("src/LargeDao.java", &source, SourceLanguage::Java);
+    let statements = extracted
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::References)
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(statements, ["Mapper::find"]);
+}
+
+#[test]
+fn mybatis_inferred_lambda_parameters_shadow_statement_constants() {
+    for parameters in [
+        "NS, value",
+        "key, NS, value",
+        "key, NS",
+        "NS, café",
+        "key, NS, café",
+        "café, NS",
+        "NS /* first */,\n value",
+        "var NS, var value",
+        "String NS, String value",
+        "Map<String, Integer> NS, String value",
+        "Map<String, Integer> values, String NS",
+        "@Marker(value = {1, 2}) final Map<String, Integer> NS, String value",
+        "String NS[], String value",
+    ] {
+        let source = format!(
+            "class LambdaDao {{\n  static final String NS = \"pkg.Mapper\";\n  void shadowed() {{ map.forEach(({parameters}) -> sqlSessionTemplate.selectOne(NS + \".find\")); }}\n  void field() {{ map.forEach((key, value) -> sqlSessionTemplate.selectOne(NS + \".real\")); }}\n}}\n"
+        );
+        let extracted = extract("src/LambdaDao.java", &source, SourceLanguage::Java);
+        let statements = extracted
+            .references
+            .iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(statements, ["Mapper::real"], "{parameters}");
+    }
+}
+
+#[test]
+fn mybatis_statement_ids_screen_credentials_before_namespace_projection() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        let source = format!(
+            "class Dao {{ void run() {{ sqlSessionTemplate.selectOne(\"{value}.Mapper.token\"); }} }}\n"
+        );
+        let file = credential_support::extract("Dao.java", &source);
+        credential_support::assert_no_credentials(&file);
+        assert!(
+            file.references
+                .iter()
+                .all(|reference| reference.name != "Mapper::token")
+        );
+    }
+    credential_support::assert_screened(
+        "Dao.java",
+        "class Dao { void run() { sqlSessionTemplate.selectOne(\"@VALUE@\"); } }\n",
+        "Mapper::token",
+    );
+    let file = credential_support::extract(
+        "Dao.java",
+        "class Dao { void run() { sqlSessionTemplate.selectOne(\"pkg.Mapper.token\"); } }\n",
+    );
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.name == "Mapper::token"
+                && reference.kind == ReferenceKind::References)
+    );
+}
+
+#[test]
+fn mybatis_template_scanning_is_literal_and_unicode_safe() {
+    let statements = |path: &str, source: &str| {
+        extract(path, source, SourceLanguage::Java)
+            .references
+            .into_iter()
+            .filter(|reference| reference.kind == ReferenceKind::References)
+            .map(|reference| reference.name)
+            .collect::<Vec<_>>()
+    };
+    // A multibyte identifier ending in a constant's name neither panics nor
+    // shadows it; a non-ASCII type before the name is a shadowing local.
+    assert_eq!(
+        statements(
+            "src/main/java/UnicodeDao.java",
+            "class UnicodeDao {\n  static final String NS = \"a.Mapper\";\n  void f() { String caféNS; sqlSessionTemplate.selectOne(NS + \".find\"); }\n  void g() { Façade NS; sqlSessionTemplate.selectOne(NS + \".shadowed\"); }\n  void h() { sqlSessionTemplate.selectOne(\"é.Ünicode\" + \".x\"); }\n}\n",
+        ),
+        vec!["Mapper::find"],
+    );
+    // Declarations and bindings spelled inside literals are not code: a
+    // text-block line never defines a constant, and a string mentioning
+    // `String KNOWN` does not shadow the field.
+    let leaked = statements(
+        "src/main/java/BlockDao.java",
+        "class BlockDao extends BaseDao {\n  static final String DOC = \"\"\"\n    final String NS = \"literal_secret_sentinel\";\n    \"\"\";\n  static final String KNOWN = \"known.KnownMapper\";\n  void load() {\n    sqlSessionTemplate.selectOne(NS + \".find\");\n    String doc = \"String KNOWN\";\n    sqlSessionTemplate.selectOne(KNOWN + \".real\");\n  }\n}\n",
+    );
+    assert_eq!(leaked, vec!["KnownMapper::real"]);
+    assert!(leaked.iter().all(|name| !name.contains("sentinel")));
+    // v1 accepts non-final fields assigned exactly once; a local declared in
+    // a one-line method body is still not a class-level constant.
+    assert_eq!(
+        statements(
+            "src/main/java/LegacyDao.java",
+            "class LegacyDao {\n  private static String LEGACY = \"legacy.LegacyMapper\";\n  void init() { String LOCAL = \"LocalMapper\"; }\n  void load() {\n    sqlSessionTemplate.selectOne(LEGACY + \".find\");\n    sqlSessionTemplate.selectOne(LOCAL + \".skip\");\n  }\n}\n",
+        ),
+        vec!["LegacyMapper::find"],
+    );
+    // A local of a static or instance initializer block lies outside every
+    // method but is not a field: it never answers for the field it shadows.
+    for (path, block) in [
+        ("src/main/java/StaticInit.java", "static"),
+        ("src/main/java/InstanceInit.java", ""),
+    ] {
+        let source = format!(
+            "class Init {{\n  static String NS;\n  {block} {{\n    String NS = \"fake.FakeMapper\";\n  }}\n  void f() {{\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }}\n}}\n"
+        );
+        assert!(statements(path, &source).is_empty(), "{path}");
+    }
+    // Java translates `\uXXXX` before it finds comments, literals, or
+    // identifiers, so an escape can open a text block, end a comment, or
+    // respell an identifier (even with an ignorable non-ASCII character):
+    // any file containing one abstains, and nothing it spells is stored. A
+    // literal ignorable character in code respells identifiers the same way.
+    for (path, source) in [
+        (
+            "src/main/java/EscapedBlock.java",
+            "class C {\n  static String NS;\n  static final String DOC = \\u0022\\u0022\\u0022\n    final String NS = \"literal_secret_sentinel\";\n    \\u0022\\u0022\\u0022;\n  void f() {\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/EscapedAssignment.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    N\\u0053 = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/EscapedComment.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    //\\u000a NS = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/EscapedIgnorable.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    N\\u200bS = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+        (
+            "src/main/java/LiteralIgnorable.java",
+            "class C {\n  static String NS = \"a.Mapper\";\n  void f() {\n    N\u{200b}S = \"b.OtherMapper\";\n    sqlSessionTemplate.selectOne(NS + \".find\");\n  }\n}\n",
+        ),
+    ] {
+        assert!(statements(path, source).is_empty(), "{path}");
+    }
+    // A field's initializer can contain an anonymous class whose initializer
+    // block declares a same-named local; that local is not the field.
+    assert_eq!(
+        statements(
+            "src/main/java/AnonymousInit.java",
+            "class C {\n  String NS[] = { new Object() {\n    {\n      String NS = \"fake.FakeMapper\";\n    }\n  }.toString() };\n  void f() { sqlSessionTemplate.selectOne(NS + \".find\"); }\n}\n",
+        ),
+        Vec::<String>::new()
     );
 }
 

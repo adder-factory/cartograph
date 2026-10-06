@@ -9,7 +9,7 @@ use cartograph_db::{
     CartographDatabase, InterchangeEdge, InterchangeSnapshot, InterchangeSnapshotRequest,
     InterchangeSymbol,
 };
-use cartograph_domain::ProjectId;
+use cartograph_domain::{EdgeKind, ProjectId, SymbolKind};
 use clap::ValueEnum;
 use serde::Serialize;
 
@@ -19,50 +19,15 @@ const SNAPSHOT_TIMEOUT: Duration = Duration::from_mins(10);
 pub(super) const DEFAULT_NODE_LIMIT: u16 = 1_000;
 const MAXIMUM_NODE_LIMIT: u16 = 50_000;
 
-const NODE_KINDS: &[&str] = &[
-    "file",
-    "module",
-    "class",
-    "struct",
-    "interface",
-    "trait",
-    "protocol",
-    "function",
-    "method",
-    "property",
-    "field",
-    "variable",
-    "constant",
-    "enum",
-    "enum_member",
-    "type_alias",
-    "namespace",
-    "parameter",
-    "import",
-    "export",
-    "route",
-    "component",
-    "table",
-    "resource",
-];
+/// Stable spellings `--kind` accepts: every symbol kind the domain defines.
+fn node_kind_names() -> Vec<&'static str> {
+    SymbolKind::ALL.iter().map(|kind| kind.as_str()).collect()
+}
 
-const EDGE_KINDS: &[&str] = &[
-    "contains",
-    "calls",
-    "imports",
-    "exports",
-    "extends",
-    "implements",
-    "references",
-    "type_of",
-    "returns",
-    "instantiates",
-    "overrides",
-    "decorates",
-    "tests",
-    "field_access",
-    "def_use",
-];
+/// Stable spellings `--edge-kind` accepts: every stored edge kind the domain defines.
+fn edge_kind_names() -> Vec<&'static str> {
+    EdgeKind::ALL.iter().map(|kind| kind.as_str()).collect()
+}
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
 pub(super) enum GraphExportFormat {
@@ -201,8 +166,12 @@ pub(super) async fn run_graph_export(
             "--limit must be between 1 and {MAXIMUM_NODE_LIMIT}"
         ));
     }
-    let kinds = parse_filter(request.kinds.as_deref(), NODE_KINDS, "--kind")?;
-    let edge_kinds = parse_filter(request.edge_kinds.as_deref(), EDGE_KINDS, "--edge-kind")?;
+    let kinds = parse_filter(request.kinds.as_deref(), &node_kind_names(), "--kind")?;
+    let edge_kinds = parse_filter(
+        request.edge_kinds.as_deref(),
+        &edge_kind_names(),
+        "--edge-kind",
+    )?;
     let languages = parse_unrestricted_filter(request.languages.as_deref());
     let file_prefix = request.file_prefix.as_deref().map(normalize_prefix);
     let raw = database
@@ -653,10 +622,20 @@ mod tests {
 
     #[test]
     fn enum_filters_reject_unknown_values() {
-        assert!(parse_filter(Some("function,unknown"), NODE_KINDS, "--kind").is_err());
+        assert!(parse_filter(Some("function,unknown"), &node_kind_names(), "--kind").is_err());
         assert_eq!(
             parse_unrestricted_filter(Some("rust,rust,typescript")),
             vec!["rust", "typescript"]
         );
+    }
+
+    #[test]
+    fn kind_filters_accept_every_stored_symbol_and_edge_kind() {
+        // A hand-maintained allowlist once omitted `union`, so exporting C unions failed.
+        let every_symbol_kind = SymbolKind::ALL.map(SymbolKind::as_str).join(",");
+        let every_edge_kind = EdgeKind::ALL.map(EdgeKind::as_str).join(",");
+        assert!(parse_filter(Some(&every_symbol_kind), &node_kind_names(), "--kind").is_ok());
+        assert!(parse_filter(Some("union"), &node_kind_names(), "--kind").is_ok());
+        assert!(parse_filter(Some(&every_edge_kind), &edge_kind_names(), "--edge-kind").is_ok());
     }
 }

@@ -1,0 +1,48 @@
+@import url('./theme.css');
+@charset "utf-8";
+
+:root {
+  --brand: #3366ff;
+  --gap: 8px;
+}
+
+html,
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+.button,
+.button--primary {
+  padding: var(--gap) calc(var(--gap) * 2);
+  color: var(--brand);
+}
+
+.button:hover > .icon::after {
+  content: '\2192';
+}
+
+#main[data-state='open'] .panel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 600px) {
+  .panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@font-face {
+  font-family: 'Fixture Sans';
+  src: url('./fonts/fixture.woff2') format('woff2');
+}
+
+@supports (display: grid) {
+  .layout { display: grid; }
+}

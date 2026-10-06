@@ -1,0 +1,12 @@
+@layer reset, components;
+
+@layer components {
+  .card {
+    border: 1px solid var(--brand, black);
+    animation: fade-in 200ms ease-in;
+  }
+}
+
+.card__title:not(.muted):nth-child(2n + 1) {
+  font-weight: 600 !important;
+}

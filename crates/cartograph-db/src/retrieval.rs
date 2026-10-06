@@ -1669,15 +1669,27 @@ pub(crate) fn decode_symbol(
         start_line: read_u32(row, SYMBOL_START_LINE_COLUMN, "start_line")?,
         end_line: read_u32(row, SYMBOL_END_LINE_COLUMN, "end_line")?,
         visibility: parse_optional_visibility(row, SYMBOL_VISIBILITY_COLUMN)?,
-        export: SymbolExportFlags::new(
-            read_bool(row, SYMBOL_EXPORTED_COLUMN, "exported")?,
-            read_bool(row, SYMBOL_DEFAULT_EXPORT_COLUMN, "default_export")?,
-        ),
-        execution: SymbolExecutionFlags {
-            async_symbol: read_bool(row, SYMBOL_ASYNC_COLUMN, "async_symbol")?,
-            static_member: read_bool(row, SYMBOL_STATIC_COLUMN, "static_member")?,
-        },
+        export: decode_symbol_export(row)?,
+        execution: decode_symbol_execution(row)?,
         declaration_only: read_bool(row, SYMBOL_DECLARATION_ONLY_COLUMN, "declaration_only")?,
+    })
+}
+
+/// Named/default export state stored on one current symbol row.
+fn decode_symbol_export(row: &sqlx_postgres::PgRow) -> Result<SymbolExportFlags, StorageError> {
+    Ok(SymbolExportFlags::new(
+        read_bool(row, SYMBOL_EXPORTED_COLUMN, "exported")?,
+        read_bool(row, SYMBOL_DEFAULT_EXPORT_COLUMN, "default_export")?,
+    ))
+}
+
+/// Async/static execution modifiers stored on one current symbol row.
+fn decode_symbol_execution(
+    row: &sqlx_postgres::PgRow,
+) -> Result<SymbolExecutionFlags, StorageError> {
+    Ok(SymbolExecutionFlags {
+        async_symbol: read_bool(row, SYMBOL_ASYNC_COLUMN, "async_symbol")?,
+        static_member: read_bool(row, SYMBOL_STATIC_COLUMN, "static_member")?,
     })
 }
 

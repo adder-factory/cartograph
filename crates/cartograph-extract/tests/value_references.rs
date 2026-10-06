@@ -62,9 +62,12 @@ export function wire(pretty: boolean) {
 
 #[test]
 fn member_values_strings_and_ambiguous_same_file_names_do_not_invent_value_edges() {
+    // `duplicated` names two top-level bindings, so the read in `wire`
+    // cannot choose one. Neither a class member namesake nor another scope's
+    // local would make it ambiguous: the nearest enclosing scope decides.
     let source = r"
 function duplicated() {}
-class Other { duplicated() {} }
+var duplicated = 1;
 function uniqueHandler() {}
 function wire() {
   configure(obj.uniqueHandler);
@@ -81,6 +84,89 @@ function wire() {
         "invented ambiguous/member/string value reference: {:?}",
         extracted.references
     );
+}
+
+#[test]
+fn nested_functions_passed_as_values_survive_namesakes_in_other_scopes() {
+    // No top-level binding names `toggle`, `handler`, `later`, `Widget` or
+    // `pick`; each is bound in several nested scopes. A read whose nearest
+    // binding is a function or class its own scope declares, hoisted or not,
+    // names that declaration (v1.1.33 recorded the `[value, toggle]` hook
+    // result as a value reference) and carries its qualified name, so
+    // resolution cannot bind a same-named file-level candidate instead. A
+    // read whose nearest binding is a plain local, a function only a nested
+    // scope declares, or one of two same-scope declarations names nothing.
+    let source = r"
+export function useToggle(initial: boolean) {
+  const [value, setValue] = useState(initial);
+  const toggle = () => setValue(!value);
+  return [value, toggle];
+}
+export function Button() {
+  const [open, toggle] = useToggle(false);
+  return consume(open, toggle);
+}
+function outer() {
+  const handler = 1;
+  function inner() { function handler() {} return handler; }
+  return consume([handler, inner]);
+}
+function other() {
+  function handler() {}
+  return [handler];
+}
+function hoisted() {
+  register([later]);
+  function later() {}
+}
+function shadowed() { const later = 0; const Widget = 1; return later + Widget; }
+function factory() {
+  class Widget {}
+  return [Widget];
+}
+function sibling(flag: boolean) {
+  if (flag) { const pick = () => 1; register([pick]); } else { const pick = () => 2; }
+}
+";
+    let first = extract("src/components/Button.tsx", source);
+    assert_eq!(first, extract("src/components/Button.tsx", source));
+    let value_reads = |owner: &str, name: &str| {
+        let owner = &symbol(&first, SymbolKind::Function, owner).id;
+        first
+            .references
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::References
+                    && reference.name == name
+                    && reference.owner.as_ref() == Some(owner)
+            })
+            .map(|reference| reference.resolution_name.as_deref())
+            .collect::<Vec<_>>()
+    };
+    for (owner, name, identity) in [
+        ("useToggle", "toggle", "useToggle::toggle"),
+        ("other", "handler", "other::handler"),
+        ("hoisted", "later", "hoisted::later"),
+        ("factory", "Widget", "factory::Widget"),
+    ] {
+        assert_eq!(
+            value_reads(owner, name),
+            [Some(identity)],
+            "{owner} -> {name}: {:?}",
+            first.references
+        );
+    }
+    for (owner, name) in [
+        ("Button", "toggle"),
+        ("outer", "handler"),
+        ("sibling", "pick"),
+    ] {
+        assert!(
+            value_reads(owner, name).is_empty(),
+            "{owner} recorded a read of {name}: {:?}",
+            first.references
+        );
+    }
 }
 
 fn extract(path: &str, source: &str) -> ExtractedFile {

@@ -2,11 +2,11 @@ use std::ops::ControlFlow;
 
 use cartograph_domain::{FileParseStatus, SourceLanguage};
 use thiserror::Error;
-use tree_sitter::{ParseOptions, Parser, Point, Query};
+use tree_sitter::{ParseOptions, Parser, Point, Query, Tree};
 
 use crate::{
     DiagnosticCode, ExtractedFile, ExtractionDiagnostic, ExtractionStrategy, LanguageSpec,
-    SourceSnapshot, custom, framework, tags, test_names, walk,
+    SourceSnapshot, custom, framework, objc_macro_rewrite, tags, test_names, walk,
 };
 
 /// Default defensive AST depth used when a project does not override it.
@@ -128,44 +128,28 @@ impl NativeExtractor {
         if cancelled() {
             return Err(ExtractError::Cancelled);
         }
-        if self.strategy == ExtractionStrategy::CustomStructural {
-            let extracted = custom::extract(snapshot, cancelled)?;
-            let extracted = framework::enrich(snapshot, extracted, cancelled)?;
+        if self.strategy == ExtractionStrategy::CustomStructural || custom::scans_snapshot(snapshot)
+        {
+            let extracted = custom::extract(snapshot, self.maximum_ast_depth, cancelled)?;
+            let extracted = framework::enrich(
+                framework::FrameworkInput::new(snapshot, extracted),
+                cancelled,
+            )?;
             return test_names::enrich(snapshot, extracted);
         }
 
-        let source = snapshot.source().as_bytes();
-        let mut interrupted = false;
-        let tree = {
-            let mut input = |offset: usize, _position: Point| match source.get(offset..) {
-                Some(remaining) => remaining,
-                None => &[],
-            };
-            let mut progress = |_state: &tree_sitter::ParseState| {
-                if cancelled() {
-                    interrupted = true;
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-            };
-            let options = ParseOptions::new().progress_callback(&mut progress);
+        let rewritten = pre_parse_rewrite(snapshot, cancelled)?;
+        let source = rewritten
+            .as_deref()
+            .unwrap_or_else(|| snapshot.source())
+            .as_bytes();
+        let tree = parse_with_cancellation(
             self.parser
                 .as_mut()
-                .ok_or(ExtractError::GrammarUnavailable)?
-                .parse_with_options(&mut input, None, Some(options))
-        };
-        let Some(tree) = tree else {
-            self.parser
-                .as_mut()
-                .ok_or(ExtractError::GrammarUnavailable)?
-                .reset();
-            return if interrupted {
-                Err(ExtractError::Cancelled)
-            } else {
-                Err(ExtractError::ParserStopped)
-            };
-        };
+                .ok_or(ExtractError::GrammarUnavailable)?,
+            source,
+            cancelled,
+        )?;
         if cancelled() {
             return Err(ExtractError::Cancelled);
         }
@@ -186,17 +170,93 @@ impl NativeExtractor {
                 },
                 cancelled,
             )?;
-            let extracted = framework::enrich(snapshot, extracted, cancelled)?;
+            let extracted = framework::enrich(
+                framework::FrameworkInput::new(snapshot, extracted).with_root(root),
+                cancelled,
+            )?;
             return test_names::enrich(snapshot, extracted);
         }
-        let extracted = walk::extract(
-            snapshot,
-            walk::WalkInput::new(root, parse_status, self.maximum_ast_depth),
-            cancelled,
-        )?;
-        let extracted = framework::enrich(snapshot, extracted, cancelled)?;
-        test_names::enrich(snapshot, extracted)
+        let mut input = walk::WalkInput::new(root, parse_status, self.maximum_ast_depth);
+        if let Some(syntax_source) = rewritten.as_deref() {
+            input = input.with_syntax_source(syntax_source);
+        }
+        enrich_walked_file(snapshot, (root, input), cancelled)
     }
+}
+
+/// Enrich the walked file with its native syntax root.
+fn enrich_walked_file<'source>(
+    snapshot: &'source SourceSnapshot,
+    (root, input): (tree_sitter::Node<'source>, walk::WalkInput<'source>),
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<ExtractedFile, ExtractError> {
+    walk::extract_with_optional_fact_fallback(snapshot, |optional_facts| {
+        walk::extract(
+            snapshot,
+            input.with_optional_facts(optional_facts),
+            &mut *cancelled,
+        )?
+        .then(|extracted| {
+            let extracted = framework::enrich(
+                framework::FrameworkInput::new(snapshot, extracted).with_root(root),
+                &mut *cancelled,
+            )?;
+            test_names::enrich(snapshot, extracted)
+        })
+    })
+}
+
+/// Span-preserving text the parser and walker read in place of the snapshot
+/// when the language needs a pre-parse rewrite; framework enrichment and test
+/// naming keep reading the original snapshot at the same offsets.
+fn pre_parse_rewrite(
+    snapshot: &SourceSnapshot,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<String>, ExtractError> {
+    if snapshot.language() != SourceLanguage::ObjectiveC {
+        return Ok(None);
+    }
+    objc_macro_rewrite::rewrite_react_native_macros(snapshot.source(), cancelled)
+}
+
+/// Parse `source` with `parser` while polling the supervisor cancellation probe.
+///
+/// The parser keeps any included ranges its caller configured, so an embedded
+/// script region is parsed over the full host bytes with host positions.
+/// # Errors
+///
+/// Returns [`ExtractError::Cancelled`] when the probe stopped the parse, or
+/// [`ExtractError::ParserStopped`] when tree-sitter stopped without a tree.
+pub(crate) fn parse_with_cancellation(
+    parser: &mut Parser,
+    source: &[u8],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Tree, ExtractError> {
+    let mut interrupted = false;
+    let tree = {
+        let mut input = |offset: usize, _position: Point| match source.get(offset..) {
+            Some(remaining) => remaining,
+            None => &[],
+        };
+        let mut progress = |_state: &tree_sitter::ParseState| {
+            if cancelled() {
+                interrupted = true;
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let options = ParseOptions::new().progress_callback(&mut progress);
+        parser.parse_with_options(&mut input, None, Some(options))
+    };
+    tree.ok_or_else(|| {
+        parser.reset();
+        if interrupted {
+            ExtractError::Cancelled
+        } else {
+            ExtractError::ParserStopped
+        }
+    })
 }
 
 fn recover_file_local_failure(

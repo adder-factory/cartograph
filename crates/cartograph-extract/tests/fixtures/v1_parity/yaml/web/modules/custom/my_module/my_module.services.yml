@@ -1,0 +1,38 @@
+services:
+  _defaults:
+    autowire: true
+  my_module.cleaner:
+    class: Drupal\my_module\Cleaner
+    arguments: ['@my_module.helper', '%my_module.param%']
+  my_module.helper:
+    class: Drupal\my_module\Helper
+    arguments:
+      - '@?my_module.optional'
+      - '@@literal'
+  my_module.cleaner_alias:
+    alias: my_module.cleaner
+  my_module.base:
+    class: Drupal\my_module\Base
+  my_module.factory:
+    class: Drupal\my_module\FactoryService
+  my_module.child:
+    parent: my_module.base
+    factory: ['@my_module.factory', 'create']
+  my_module.scalar_factory_child:
+    factory: '@my_module.factory:create'
+  my_module.logger_factory:
+    class: Drupal\my_module\LoggerFactory
+  my_module.made:
+    factory: ['Drupal\my_module\LoggerFactory', 'create']
+  my_module.made_scalar:
+    factory: 'Drupal\my_module\LoggerFactory::create'
+  my_module.consumer:
+    class: Drupal\my_module\Consumer
+    arguments:
+      $factory: '@my_module.logger_factory'
+  my_module.flow: { class: Drupal\my_module\Helper }
+  Drupal\my_module\Shorthand: ~
+  my_module.subscriber:
+    class: Drupal\my_module\Subscriber
+    tags:
+      - { name: event_subscriber }

@@ -70,7 +70,9 @@ cd cartograph
 cargo build --locked --release -p cartograph-cli
 ```
 
-The pinned Rust toolchain is loaded from `rust-toolchain.toml`.
+The pinned Rust toolchain is loaded from `rust-toolchain.toml`. A C compiler
+is also required (MSVC on Windows): the Tree-sitter runtime, the native grammar
+crates, `ring`, and `blake3` compile C sources through `cc`.
 
 ## Step 1 — choose database ownership
 
@@ -92,8 +94,9 @@ the migrated schema version, and passing hard checks for PostgreSQL 18,
 Cartograph pins a local Docker endpoint and binds PostgreSQL to loopback. It
 refuses foreign resources with colliding names. Do not weaken those checks.
 New managed containers also use the documented 2 GiB memory, four-CPU,
-256-process, bounded worker/memory, and burst-oriented WAL/checkpoint policy;
-older containers are reported rather than silently replaced.
+256-process, bounded worker/memory, and bounded WAL/checkpoint policy (see
+`docs/AGENT-INSTALL.md`); older containers are reported rather than silently
+replaced.
 
 ### External PostgreSQL (all supported platforms)
 
@@ -102,7 +105,7 @@ version 18, `pg_search` 0.26.0, and pgvector 0.8.4 or newer, then create pgvecto
 before creating `pg_search`. Supply the URL through the environment:
 
 ```sh
-export CARTOGRAPH_DATABASE_URL='postgresql://cartograph:secret@127.0.0.1:5432/cartograph'
+export CARTOGRAPH_DATABASE_URL='postgresql://<user>:<password>@127.0.0.1:5432/cartograph'
 export CARTOGRAPH_DATABASE_SCHEMA='cartograph'
 cartograph doctor /absolute/path/to/project
 ```
@@ -135,15 +138,16 @@ Do not call a setup ready solely because files or a container exist. Require:
 
 ## Step 3 — install MCP configuration
 
-Cartograph writes only project-local configuration and pins the absolute native
-executable:
+Cartograph writes project-scoped configuration and pins the absolute native
+executable. Most targets write files inside the project; Claude Code's
+project-scoped entry is stored in a home-directory file:
 
 ```sh
 # OpenAI Codex: .codex/config.toml
 cartograph install --yes --target codex --location local \
   --project-path /absolute/path/to/project
 
-# Claude Code: .mcp.json
+# Claude Code: ~/.claude.json, under projects["<absolute project path>"].mcpServers.cartograph
 cartograph install --yes --target claude --location local \
   --project-path /absolute/path/to/project
 
@@ -151,6 +155,11 @@ cartograph install --yes --target claude --location local \
 cartograph install --yes --target cursor --location local \
   --project-path /absolute/path/to/project
 ```
+
+For Claude Code the installer also writes project files `CLAUDE.local.md`,
+`.claude/skills/cartograph/SKILL.md`, and, unless `--no-permissions` is passed,
+`.claude/settings.local.json`. A local install adds the project files it wrote
+to `.gitignore`.
 
 The installer preserves unrelated MCP entries and refuses a symlink/non-file or
 oversized configuration. Restart the agent host after the write.
@@ -215,9 +224,22 @@ cartograph db backup ./cartograph.backup --project-path .
 ```
 
 Restore, upgrade, derived-index rebuild, and remove are destructive or
-replacement operations. They require the exact confirmation phrase documented
-by `cartograph db <command> --help`. Do not infer authorization for them from a
-read-only diagnostic request.
+replacement operations. They require an exact `--confirm` phrase. `--help`
+prints the phrase for restore, import-v1, prune, and compact, but not for
+upgrade, remove, or derived-index rebuild, so use this table:
+
+| Operation | Confirmation phrase |
+| --- | --- |
+| `cartograph db restore` | `restore-managed-database` |
+| `cartograph db upgrade` | `upgrade-managed-database` |
+| `cartograph db remove` | `remove-managed-database` |
+| `cartograph db derived-index --rebuild` | `rebuild-managed-derived-indexes` |
+| `cartograph db import-v1` (mutation) | `import-v1-postgres` |
+| `cartograph db prune` | `prune-old-generations` |
+| `cartograph db compact --apply` | `compact-online-indexes`, or `compact-heap-relations` with `--heap` |
+
+Do not infer authorization for these operations from a read-only diagnostic
+request.
 
 ## V1 migration
 
@@ -232,8 +254,9 @@ the exact source checkout before authorizing mutation. Use `--source-checkout`
 when that byte-exact historical tree is separate from the initialized current
 project; this preserves dirty work without changing destination identity. The
 preflight requires the exact v1.1.33-compatible checkout path/content set and
-excludes only additive v2 `.pyi` and TOML modes. Missing, extra, or substituted
-v1 files fail before destination mutation. The
+excludes every additive v2 mode (for example `.pyi`, TOML, WGSL/Metal/Slang/WESL
+shaders, Ada/VHDL, and the game-scripting modes). Missing, extra, or
+substituted v1 files fail before destination mutation. The
 destination may already have a current generation; import publishes a new
 immutable one:
 
@@ -262,10 +285,11 @@ counts preserve v1 multiplicity; spans
 remain explicitly coarse where v1 cannot prove an exact token. SCIP placeholder
 hashes cannot prove historical bytes that v1 did not retain.
 
-`ConcurrentPublication` means another writer published first. The importer
-atomically fails/releases its stale generation; with writers quiesced, repeat
-the identical confirmed command so it can reset the failed run and reserve a
-newer generation.
+The error "another Cartograph writer published during v1 import; retry after
+it is idle" (internally `ConcurrentPublication`) means another writer published
+first. The importer atomically fails/releases its stale generation; with
+writers quiesced, repeat the identical confirmed command so it can reset the
+failed run and reserve a newer generation.
 
 If a user needs data that exists only in a v1 SQLite index, give two choices:
 
@@ -275,22 +299,29 @@ If a user needs data that exists only in a v1 SQLite index, give two choices:
 
 Do not install SQLite tooling into v2 to shorten this workflow.
 
+### Generation retention and pruning
+
 Every successful index/no-op reconciliation attempts a small automatic bounded
 cleanup, and failed automatic indexing attempts clean terminal generations
-before returning: it keeps the two newest superseded generations, terminalizes
-failed pre-lease work, and can collect staging rows only after they have been unleased
-for at least ten minutes. It can also reconcile ready work only after 24 hours
-when it is unleased, non-current, and not part of incomplete import recovery.
-Cleanup claims eligible generations as `retiring` and drains child rows before
-parents in transactions of at most 10,000 rows. Earlier committed batches
-survive a later timeout; retry the same bounded operation after inspecting its
-`retiring_remaining` and `deferred_reason`. A retiring generation cannot admit
-writers, resume an import, or publish. The same lease independently bounds the
-parse cache by the exact current parsing-policy contract plus one older
-contract, 20,000 rows, 2 GiB logical payload, and a 10,000-row deletion batch.
-Generation cleanup failure still permits cache cleanup. Protected current and
-spill-pinned cache rows can exceed those targets. After backup and import
-verification, an explicit larger bounded batch is:
+before returning:
+
+- It keeps the two newest superseded generations, terminalizes failed
+  pre-lease work, and can collect staging rows only after they have been
+  unleased for at least ten minutes.
+- It can also reconcile ready work only after 24 hours when it is unleased,
+  non-current, and not part of incomplete import recovery.
+- Cleanup claims eligible generations as `retiring` and drains child rows
+  before parents in transactions of at most 10,000 rows. Earlier committed
+  batches survive a later timeout; retry the same bounded operation after
+  inspecting its `retiring_remaining` and `deferred_reason`. A retiring
+  generation cannot admit writers, resume an import, or publish.
+- The same lease independently bounds the parse cache by the exact current
+  parsing-policy contract plus one older contract, 20,000 rows, 2 GiB logical
+  payload, and a 10,000-row deletion batch. Generation cleanup failure still
+  permits cache cleanup. Protected current and spill-pinned cache rows can
+  exceed those targets.
+
+After backup and import verification, an explicit larger bounded batch is:
 
 ```sh
 cartograph db prune \
@@ -303,28 +334,38 @@ cartograph db prune \
 
 This preserves the current generation, recent or leased staging/ready work,
 incomplete import recovery state, and the two newest superseded generations.
-The requested generation batch can exceed the independent 64-derived-relation
-drop cap when failed generations own no derived relation. The default search
-relation byte budget is 8 GiB; `--maximum-search-relation-bytes` admits an audited
-override up to 64 GiB. Oversized relations do not block later smaller work.
-Inspect each report before requesting another batch. Use `serve --mcp --no-auto-sync` to keep a
-recovery host quiescent while draining a capacity-failure backlog.
+
+- The requested generation batch can exceed the independent
+  64-derived-relation drop cap when failed generations own no derived relation.
+- The default search relation byte budget is 8 GiB;
+  `--maximum-search-relation-bytes` admits an audited override up to 64 GiB.
+  Oversized relations do not block later smaller work.
+- Inspect each report before requesting another batch. Use
+  `serve --mcp --no-auto-sync` to keep a recovery host quiescent while draining
+  a capacity-failure backlog.
+
+### Storage usage and compaction
 
 Use `cartograph db usage --project-path . --format json` before diagnosing
-bloat. Treat `generationStorage.estimatedRetainedBytes` only as its documented
-source-plus-generation-BM25 lower bound; shared fact heaps, B-trees, embeddings,
-and reusable space are accounted by the full storage report. Compare parse
-cache logical, stored, schema-stored, and physical-overhead bytes before
-attributing its allocated TOAST file to live payload. `retentionMaintenance`
-records the latest automatic cleanup outcomes and consecutive failures.
-`unattributedDatabaseBytes` is an allocation gap, not proof that files can be
-deleted. Never remove PostgreSQL data files by name. `cartograph db compact` is a read-only online B-tree plan by default;
-apply requires `--confirm compact-online-indexes`, verified free-space headroom,
-and rebuilds one index at a time. `db compact --heap` is a separate read-only
-main/TOAST heap plan; its apply path requires `--confirm
-compact-heap-relations`, no live operation leases, verified headroom, and one
-`ACCESS EXCLUSIVE` `VACUUM FULL` rewrite at a time. Neither mode drops invalid
-concurrent-reindex artifacts.
+bloat.
+
+- Treat `generationStorage.estimated_retained_bytes` only as its documented
+  source-plus-generation-BM25 lower bound; shared fact heaps, B-trees,
+  embeddings, and reusable space are accounted by the full storage report.
+- Compare parse cache logical, stored, schema-stored, and physical-overhead
+  bytes before attributing its allocated TOAST file to live payload.
+- `retentionMaintenance` records the latest automatic cleanup outcomes and
+  consecutive failures.
+- `unattributedDatabaseBytes` is an allocation gap, not proof that files can be
+  deleted. Never remove PostgreSQL data files by name.
+- `cartograph db compact` is a read-only online B-tree plan by default; apply
+  requires `--confirm compact-online-indexes`, verified free-space headroom,
+  and rebuilds one index at a time.
+- `db compact --heap` is a separate read-only main/TOAST heap plan; its apply
+  path requires `--confirm compact-heap-relations`, no live operation leases,
+  verified headroom, and one `ACCESS EXCLUSIVE` `VACUUM FULL` rewrite at a
+  time.
+- Neither mode drops invalid concurrent-reindex artifacts.
 
 ## Common failures
 
@@ -356,7 +397,11 @@ cartograph install --yes --target <host> --location local \
 
 The environment variable selects the port for direct CLI commands. The
 installer pins the same non-secret port in the MCP server arguments, so the
-agent host does not need host-specific environment configuration.
+agent host does not need host-specific environment configuration. Once the
+container exists, direct project commands and a local `install` without
+`CARTOGRAPH_DATABASE_URL` discover its published port when neither the flag nor
+the environment variable is set; an explicit port that differs fails and names
+the discovered port.
 
 ### Project has no index
 
@@ -384,33 +429,40 @@ cartograph upgrade --apply --project-path <project> --json
 
 It installs the verified release when needed, reconciles safe database
 migrations and a complete current generation, runs `doctor`, proves status
-through the installed binary, and repairs stale owned host pins. Require
-`completed: true`; do not mistake `applied: false` for failure when
-`installedVersion` was already current. `projectReconciliation.state:
-source_changed` is a completed upgrade whose checkout was edited after
-publication; run `cartograph index <project>` once edits pause. When
-`projectReconciliation.retryable` is true (`another_writer_active`, a
-`timed_out` step, or a `blocked` verification because another writer replaced
-the generation this upgrade published or confirmed), rerun the same command;
-for `another_writer_active` or a replaced generation, wait until the other
-writer finishes; with `reason: schema_busy`, another Cartograph process (often
-an MCP server started from an older binary) held the schema's PostgreSQL
-locks, so restart or stop it first. A step reported as `not_run` was skipped
-because an earlier step stopped the reconciliation. If `projectReconciliation` requests
-`upgrade-managed-database`, run only its backup and exact confirmed replacement
-steps, then rerun the same command to resume. A failure after the extension
-update retains the new image for that retry and keeps the old image stopped; do
-not manually restart the old container against the possibly newer catalog. An
-interruption between renaming the stopped old container and creating the
-candidate is also resumed by the same confirmed command; do not rename the
-rollback slot by hand. Restart or reopen the host only when `restartRequired` is
-true, because an attached process cannot hot-load the new child. That flag
-describes binary or pin changes made by the current invocation; false on a no-op
-rerun does not prove the version of a process left attached across an earlier
-upgrade. Treat a database `timed_out` step as a retryable cold-pull/readiness
-timeout, not as permission to replace a container. If the database schema is
-newer than the loaded binary, use the reported binary and supported-schema
-versions to upgrade before retrying; startup fails closed.
+through the installed binary, and repairs stale owned host pins.
+
+- Require `completed: true`; do not mistake `applied: false` for failure when
+  `installedVersion` was already current.
+- `projectReconciliation.state: source_changed` is a completed upgrade whose
+  checkout was edited after publication; run `cartograph index <project>` once
+  edits pause.
+- When `projectReconciliation.retryable` is true (`another_writer_active`, a
+  `timed_out` step, or a `blocked` verification because another writer
+  replaced the generation this upgrade published or confirmed), rerun the same
+  command; for `another_writer_active` or a replaced generation, wait until the
+  other writer finishes.
+- With `reason: schema_busy`, another Cartograph process (often an MCP server
+  started from an older binary) held the schema's PostgreSQL locks, so restart
+  or stop it first.
+- A step reported as `not_run` was skipped because an earlier step stopped the
+  reconciliation.
+- If `projectReconciliation` requests `upgrade-managed-database`, run only its
+  backup and exact confirmed replacement steps, then rerun the same command to
+  resume. A failure after the extension update retains the new image for that
+  retry and keeps the old image stopped; do not manually restart the old
+  container against the possibly newer catalog. An interruption between
+  renaming the stopped old container and creating the candidate is also
+  resumed by the same confirmed command; do not rename the rollback slot by
+  hand.
+- Restart or reopen the host only when `restartRequired` is true, because an
+  attached process cannot hot-load the new child. That flag describes binary
+  or pin changes made by the current invocation; false on a no-op rerun does
+  not prove the version of a process left attached across an earlier upgrade.
+- Treat a database `timed_out` step as a retryable cold-pull/readiness timeout,
+  not as permission to replace a container.
+- If the database schema is newer than the loaded binary, use the reported
+  binary and supported-schema versions to upgrade before retrying; startup
+  fails closed.
 
 ## Development and release gates
 
@@ -423,6 +475,21 @@ RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-de
 cargo test --locked --workspace --all-features
 cargo deny --all-features check
 ```
+
+`cargo test` includes the per-language v1 parity oracle
+(`crates/cartograph-extract/tests/v1_parity_oracle.rs`). Every frozen v1 fact
+requires a unique exact v2 identity, committed exact pins in `alignments.jsonl`,
+or a pending/intentional entry in `divergences.jsonl`. These tables live under
+`crates/cartograph-extract/tests/fixtures/v1_parity/`; `reasons.jsonl` stores
+shared evidence, and `gate_cases.jsonl` and `counterexamples.jsonl` exercise
+the same gate. Ambiguous identities never match; stale or redundant rows fail.
+Read the failure's candidate suggestions, verify correspondence against the
+source and capture, then fix extraction or update the explicit rows. Keep the
+captures and corpus unchanged. Only the maintainer-only
+`scripts/capture-v1-parity-oracle.sh` creates captures, using the verified
+v1.1.33 binary under an isolated `HOME`; v2 and CI never run that binary.
+See [the coverage report](docs/LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle)
+for the key contract, current disposition counts and update procedure.
 
 These gates use the exact stable toolchain in `rust-toolchain.toml`. Do not use
 nightly-only tools or diagnostic overrides to clear them. A separate scheduled

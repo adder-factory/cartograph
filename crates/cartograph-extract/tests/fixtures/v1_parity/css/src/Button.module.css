@@ -1,0 +1,8 @@
+.root {
+  composes: button from '../styles/base.css';
+  border-radius: 4px;
+}
+
+.label {
+  text-transform: uppercase;
+}

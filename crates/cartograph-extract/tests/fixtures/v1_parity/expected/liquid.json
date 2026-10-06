@@ -1,0 +1,849 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "liquid",
+  "files": [
+    "blog/_includes/footer.html",
+    "blog/_includes/plain.html",
+    "blog/_layouts/default.html",
+    "blog/_posts/2024-01-01-hello.md",
+    "theme/layout/theme.liquid",
+    "theme/sections/broken.liquid",
+    "theme/sections/header.liquid",
+    "theme/sections/hero.liquid",
+    "theme/snippets/drawer-menu.liquid",
+    "theme/snippets/hero card.liquid",
+    "theme/snippets/icon-cart.liquid",
+    "theme/snippets/price.liquid",
+    "theme/templates/product.liquid"
+  ],
+  "symbols": [
+    {
+      "file": "blog/_includes/footer.html",
+      "kind": "file",
+      "name": "footer.html",
+      "qualified_name": "blog/_includes/footer.html",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "blog/_includes/footer.html",
+      "kind": "variable",
+      "name": "owner",
+      "qualified_name": "blog/_includes/footer.html::owner",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "blog/_includes/plain.html",
+      "kind": "file",
+      "name": "plain.html",
+      "qualified_name": "blog/_includes/plain.html",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "file",
+      "name": "default.html",
+      "qualified_name": "blog/_layouts/default.html",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "component",
+      "name": "footer.html",
+      "qualified_name": "blog/_layouts/default.html::include:footer.html",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "import",
+      "name": "footer.html",
+      "qualified_name": "blog/_layouts/default.html::import:footer.html",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "variable",
+      "name": "year",
+      "qualified_name": "blog/_layouts/default.html::year",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "blog/_posts/2024-01-01-hello.md",
+      "kind": "file",
+      "name": "2024-01-01-hello.md",
+      "qualified_name": "blog/_posts/2024-01-01-hello.md",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "blog/_posts/2024-01-01-hello.md",
+      "kind": "component",
+      "name": "footer.html",
+      "qualified_name": "blog/_posts/2024-01-01-hello.md::include:footer.html",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "blog/_posts/2024-01-01-hello.md",
+      "kind": "import",
+      "name": "footer.html",
+      "qualified_name": "blog/_posts/2024-01-01-hello.md::import:footer.html",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "file",
+      "name": "theme.liquid",
+      "qualified_name": "theme/layout/theme.liquid",
+      "start_line": 1,
+      "end_line": 18
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "variable",
+      "name": "page_title",
+      "qualified_name": "theme/layout/theme.liquid::page_title",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "variable",
+      "name": "body_class",
+      "qualified_name": "theme/layout/theme.liquid::body_class",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "component",
+      "name": "header",
+      "qualified_name": "theme/layout/theme.liquid::section:header",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "import",
+      "name": "header",
+      "qualified_name": "theme/layout/theme.liquid::import:header",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "component",
+      "name": "loading-spinner",
+      "qualified_name": "theme/layout/theme.liquid::render:loading-spinner",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "import",
+      "name": "loading-spinner",
+      "qualified_name": "theme/layout/theme.liquid::import:loading-spinner",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "component",
+      "name": "drawer-menu",
+      "qualified_name": "theme/layout/theme.liquid::render:drawer-menu",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "import",
+      "name": "drawer-menu",
+      "qualified_name": "theme/layout/theme.liquid::import:drawer-menu",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "component",
+      "name": "icon-cart",
+      "qualified_name": "theme/layout/theme.liquid::include:icon-cart",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "import",
+      "name": "icon-cart",
+      "qualified_name": "theme/layout/theme.liquid::import:icon-cart",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "component",
+      "name": "hero card",
+      "qualified_name": "theme/layout/theme.liquid::render:hero card",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "import",
+      "name": "hero card",
+      "qualified_name": "theme/layout/theme.liquid::import:hero card",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "component",
+      "name": "hero",
+      "qualified_name": "theme/layout/theme.liquid::section:hero",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "import",
+      "name": "hero",
+      "qualified_name": "theme/layout/theme.liquid::import:hero",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "theme/sections/broken.liquid",
+      "kind": "file",
+      "name": "broken.liquid",
+      "qualified_name": "theme/sections/broken.liquid",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "file": "theme/sections/broken.liquid",
+      "kind": "constant",
+      "name": "schema",
+      "qualified_name": "theme/sections/broken.liquid::schema:schema",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "file",
+      "name": "header.liquid",
+      "qualified_name": "theme/sections/header.liquid",
+      "start_line": 1,
+      "end_line": 14
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "component",
+      "name": "drawer-menu",
+      "qualified_name": "theme/sections/header.liquid::render:drawer-menu",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "import",
+      "name": "drawer-menu",
+      "qualified_name": "theme/sections/header.liquid::import:drawer-menu",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "variable",
+      "name": "logo",
+      "qualified_name": "theme/sections/header.liquid::logo",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "constant",
+      "name": "Header",
+      "qualified_name": "theme/sections/header.liquid::schema:Header",
+      "start_line": 6,
+      "end_line": 13
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "file",
+      "name": "hero.liquid",
+      "qualified_name": "theme/sections/hero.liquid",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "component",
+      "name": "price",
+      "qualified_name": "theme/sections/hero.liquid::render:price",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "import",
+      "name": "price",
+      "qualified_name": "theme/sections/hero.liquid::import:price",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "constant",
+      "name": "Hero banner",
+      "qualified_name": "theme/sections/hero.liquid::schema:Hero banner",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "theme/snippets/drawer-menu.liquid",
+      "kind": "file",
+      "name": "drawer-menu.liquid",
+      "qualified_name": "theme/snippets/drawer-menu.liquid",
+      "start_line": 1,
+      "end_line": 7
+    },
+    {
+      "file": "theme/snippets/drawer-menu.liquid",
+      "kind": "component",
+      "name": "icon-cart",
+      "qualified_name": "theme/snippets/drawer-menu.liquid::render:icon-cart",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "theme/snippets/drawer-menu.liquid",
+      "kind": "import",
+      "name": "icon-cart",
+      "qualified_name": "theme/snippets/drawer-menu.liquid::import:icon-cart",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "theme/snippets/hero card.liquid",
+      "kind": "file",
+      "name": "hero card.liquid",
+      "qualified_name": "theme/snippets/hero card.liquid",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "theme/snippets/icon-cart.liquid",
+      "kind": "file",
+      "name": "icon-cart.liquid",
+      "qualified_name": "theme/snippets/icon-cart.liquid",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "theme/snippets/price.liquid",
+      "kind": "file",
+      "name": "price.liquid",
+      "qualified_name": "theme/snippets/price.liquid",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "theme/snippets/price.liquid",
+      "kind": "variable",
+      "name": "money",
+      "qualified_name": "theme/snippets/price.liquid::money",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "component",
+      "name": "main-product",
+      "qualified_name": "theme/templates/product.liquid::section:main-product",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "file",
+      "name": "product.liquid",
+      "qualified_name": "theme/templates/product.liquid",
+      "start_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "import",
+      "name": "main-product",
+      "qualified_name": "theme/templates/product.liquid::import:main-product",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "component",
+      "name": "price",
+      "qualified_name": "theme/templates/product.liquid::render:price",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "import",
+      "name": "price",
+      "qualified_name": "theme/templates/product.liquid::import:price",
+      "start_line": 2,
+      "end_line": 2
+    }
+  ],
+  "edges": [
+    {
+      "file": "blog/_includes/footer.html",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "blog/_includes/footer.html",
+      "target_kind": "variable",
+      "target": "blog/_includes/footer.html::owner",
+      "target_file": "blog/_includes/footer.html",
+      "line": null
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "blog/_layouts/default.html",
+      "target_kind": "import",
+      "target": "blog/_layouts/default.html::import:footer.html",
+      "target_file": "blog/_layouts/default.html",
+      "line": null
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "blog/_layouts/default.html",
+      "target_kind": "component",
+      "target": "blog/_layouts/default.html::include:footer.html",
+      "target_file": "blog/_layouts/default.html",
+      "line": null
+    },
+    {
+      "file": "blog/_layouts/default.html",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "blog/_layouts/default.html",
+      "target_kind": "variable",
+      "target": "blog/_layouts/default.html::year",
+      "target_file": "blog/_layouts/default.html",
+      "line": null
+    },
+    {
+      "file": "blog/_posts/2024-01-01-hello.md",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "blog/_posts/2024-01-01-hello.md",
+      "target_kind": "import",
+      "target": "blog/_posts/2024-01-01-hello.md::import:footer.html",
+      "target_file": "blog/_posts/2024-01-01-hello.md",
+      "line": null
+    },
+    {
+      "file": "blog/_posts/2024-01-01-hello.md",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "blog/_posts/2024-01-01-hello.md",
+      "target_kind": "component",
+      "target": "blog/_posts/2024-01-01-hello.md::include:footer.html",
+      "target_file": "blog/_posts/2024-01-01-hello.md",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "variable",
+      "target": "theme/layout/theme.liquid::body_class",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "import",
+      "target": "theme/layout/theme.liquid::import:drawer-menu",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "import",
+      "target": "theme/layout/theme.liquid::import:header",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "import",
+      "target": "theme/layout/theme.liquid::import:hero",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "import",
+      "target": "theme/layout/theme.liquid::import:hero card",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "import",
+      "target": "theme/layout/theme.liquid::import:icon-cart",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "import",
+      "target": "theme/layout/theme.liquid::import:loading-spinner",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "component",
+      "target": "theme/layout/theme.liquid::include:icon-cart",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "variable",
+      "target": "theme/layout/theme.liquid::page_title",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "component",
+      "target": "theme/layout/theme.liquid::render:drawer-menu",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "component",
+      "target": "theme/layout/theme.liquid::render:hero card",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "component",
+      "target": "theme/layout/theme.liquid::render:loading-spinner",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "component",
+      "target": "theme/layout/theme.liquid::section:header",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "component",
+      "target": "theme/layout/theme.liquid::section:hero",
+      "target_file": "theme/layout/theme.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "file",
+      "target": "theme/sections/header.liquid",
+      "target_file": "theme/sections/header.liquid",
+      "line": 9
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/drawer-menu.liquid",
+      "target_file": "theme/snippets/drawer-menu.liquid",
+      "line": 11
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/icon-cart.liquid",
+      "target_file": "theme/snippets/icon-cart.liquid",
+      "line": 12
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/hero card.liquid",
+      "target_file": "theme/snippets/hero card.liquid",
+      "line": 13
+    },
+    {
+      "file": "theme/layout/theme.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/layout/theme.liquid",
+      "target_kind": "file",
+      "target": "theme/sections/hero.liquid",
+      "target_file": "theme/sections/hero.liquid",
+      "line": 15
+    },
+    {
+      "file": "theme/sections/broken.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/broken.liquid",
+      "target_kind": "constant",
+      "target": "theme/sections/broken.liquid::schema:schema",
+      "target_file": "theme/sections/broken.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/header.liquid",
+      "target_kind": "import",
+      "target": "theme/sections/header.liquid::import:drawer-menu",
+      "target_file": "theme/sections/header.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/header.liquid",
+      "target_kind": "variable",
+      "target": "theme/sections/header.liquid::logo",
+      "target_file": "theme/sections/header.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/header.liquid",
+      "target_kind": "component",
+      "target": "theme/sections/header.liquid::render:drawer-menu",
+      "target_file": "theme/sections/header.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/header.liquid",
+      "target_kind": "constant",
+      "target": "theme/sections/header.liquid::schema:Header",
+      "target_file": "theme/sections/header.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/header.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/sections/header.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/drawer-menu.liquid",
+      "target_file": "theme/snippets/drawer-menu.liquid",
+      "line": 2
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/hero.liquid",
+      "target_kind": "import",
+      "target": "theme/sections/hero.liquid::import:price",
+      "target_file": "theme/sections/hero.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/hero.liquid",
+      "target_kind": "component",
+      "target": "theme/sections/hero.liquid::render:price",
+      "target_file": "theme/sections/hero.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/sections/hero.liquid",
+      "target_kind": "constant",
+      "target": "theme/sections/hero.liquid::schema:Hero banner",
+      "target_file": "theme/sections/hero.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/sections/hero.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/sections/hero.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/price.liquid",
+      "target_file": "theme/snippets/price.liquid",
+      "line": 2
+    },
+    {
+      "file": "theme/snippets/drawer-menu.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/snippets/drawer-menu.liquid",
+      "target_kind": "import",
+      "target": "theme/snippets/drawer-menu.liquid::import:icon-cart",
+      "target_file": "theme/snippets/drawer-menu.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/snippets/drawer-menu.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/snippets/drawer-menu.liquid",
+      "target_kind": "component",
+      "target": "theme/snippets/drawer-menu.liquid::render:icon-cart",
+      "target_file": "theme/snippets/drawer-menu.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/snippets/drawer-menu.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/snippets/drawer-menu.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/icon-cart.liquid",
+      "target_file": "theme/snippets/icon-cart.liquid",
+      "line": 5
+    },
+    {
+      "file": "theme/snippets/price.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/snippets/price.liquid",
+      "target_kind": "variable",
+      "target": "theme/snippets/price.liquid::money",
+      "target_file": "theme/snippets/price.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/templates/product.liquid",
+      "target_kind": "import",
+      "target": "theme/templates/product.liquid::import:main-product",
+      "target_file": "theme/templates/product.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/templates/product.liquid",
+      "target_kind": "import",
+      "target": "theme/templates/product.liquid::import:price",
+      "target_file": "theme/templates/product.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/templates/product.liquid",
+      "target_kind": "component",
+      "target": "theme/templates/product.liquid::render:price",
+      "target_file": "theme/templates/product.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "theme/templates/product.liquid",
+      "target_kind": "component",
+      "target": "theme/templates/product.liquid::section:main-product",
+      "target_file": "theme/templates/product.liquid",
+      "line": null
+    },
+    {
+      "file": "theme/templates/product.liquid",
+      "kind": "references",
+      "source_kind": "file",
+      "source": "theme/templates/product.liquid",
+      "target_kind": "file",
+      "target": "theme/snippets/price.liquid",
+      "target_file": "theme/snippets/price.liquid",
+      "line": 2
+    }
+  ],
+  "unresolved": []
+}

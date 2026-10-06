@@ -1,0 +1,909 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "vb6",
+  "files": [
+    "legacy/Billing.vbp",
+    "legacy/Customer.cls",
+    "legacy/Gauge.ctl",
+    "legacy/Module1.bas",
+    "legacy/frmMain.frm"
+  ],
+  "symbols": [
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "file",
+      "name": "Billing.vbp",
+      "qualified_name": "legacy/Billing.vbp",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "import",
+      "name": "Module1.bas",
+      "qualified_name": "Module1.bas",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "import",
+      "name": "Customer.cls",
+      "qualified_name": "Customer.cls",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "import",
+      "name": "frmMain.frm",
+      "qualified_name": "frmMain.frm",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "import",
+      "name": "Gauge.ctl",
+      "qualified_name": "Gauge.ctl",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "class",
+      "name": "Customer",
+      "qualified_name": "Customer",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "file",
+      "name": "Customer.cls",
+      "qualified_name": "legacy/Customer.cls",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "field",
+      "name": "customerName",
+      "qualified_name": "Customer::customerName",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "field",
+      "name": "Balance",
+      "qualified_name": "Customer::Balance",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "property",
+      "name": "Name",
+      "qualified_name": "Customer::Name",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "property",
+      "name": "Name",
+      "qualified_name": "Customer::Name",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "method",
+      "name": "Load",
+      "qualified_name": "Customer::Load",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "method",
+      "name": "FormatName",
+      "qualified_name": "Customer::FormatName",
+      "start_line": 25,
+      "end_line": 27
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "component",
+      "name": "Gauge",
+      "qualified_name": "Gauge",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "file",
+      "name": "Gauge.ctl",
+      "qualified_name": "legacy/Gauge.ctl",
+      "start_line": 1,
+      "end_line": 17
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "field",
+      "name": "mValue",
+      "qualified_name": "Gauge::mValue",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "property",
+      "name": "Value",
+      "qualified_name": "Gauge::Value",
+      "start_line": 10,
+      "end_line": 12
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "method",
+      "name": "Redraw",
+      "qualified_name": "Gauge::Redraw",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "file",
+      "name": "Module1.bas",
+      "qualified_name": "legacy/Module1.bas",
+      "start_line": 1,
+      "end_line": 43
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "module",
+      "name": "Module1",
+      "qualified_name": "Module1",
+      "start_line": 1,
+      "end_line": 43
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "import",
+      "name": "GetTickCount",
+      "qualified_name": "Module1::GetTickCount",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "import",
+      "name": "Sleep",
+      "qualified_name": "Module1::Sleep",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "constant",
+      "name": "APP_NAME",
+      "qualified_name": "Module1::APP_NAME",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "constant",
+      "name": "MAX_ITEMS",
+      "qualified_name": "Module1::MAX_ITEMS",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "field",
+      "name": "gCounter",
+      "qualified_name": "Module1::gCounter",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "field",
+      "name": "mBuffer",
+      "qualified_name": "Module1::mBuffer",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "struct",
+      "name": "InvoiceLine",
+      "qualified_name": "Module1::InvoiceLine",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "field",
+      "name": "Sku",
+      "qualified_name": "Module1::InvoiceLine::Sku",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "field",
+      "name": "Qty",
+      "qualified_name": "Module1::InvoiceLine::Qty",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "enum",
+      "name": "Status",
+      "qualified_name": "Module1::Status",
+      "start_line": 17,
+      "end_line": 21
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "enum_member",
+      "name": "stNew",
+      "qualified_name": "Module1::Status::stNew",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "enum_member",
+      "name": "stPaid",
+      "qualified_name": "Module1::Status::stPaid",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "enum_member",
+      "name": "stVoid",
+      "qualified_name": "Module1::Status::stVoid",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "function",
+      "name": "Main",
+      "qualified_name": "Module1::Main",
+      "start_line": 23,
+      "end_line": 30
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "variable",
+      "name": "i",
+      "qualified_name": "Module1::Main::i",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "function",
+      "name": "Compute",
+      "qualified_name": "Module1::Compute",
+      "start_line": 32,
+      "end_line": 34
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "function",
+      "name": "DoWork",
+      "qualified_name": "Module1::DoWork",
+      "start_line": 36,
+      "end_line": 38
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "function",
+      "name": "Helper",
+      "qualified_name": "Module1::Helper",
+      "start_line": 40,
+      "end_line": 42
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "component",
+      "name": "frmMain",
+      "qualified_name": "frmMain",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "file",
+      "name": "frmMain.frm",
+      "qualified_name": "legacy/frmMain.frm",
+      "start_line": 1,
+      "end_line": 28
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "field",
+      "name": "mCustomer",
+      "qualified_name": "frmMain::mCustomer",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "method",
+      "name": "Form_Load",
+      "qualified_name": "frmMain::Form_Load",
+      "start_line": 15,
+      "end_line": 18
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "method",
+      "name": "Command1_Click",
+      "qualified_name": "frmMain::Command1_Click",
+      "start_line": 20,
+      "end_line": 23
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "method",
+      "name": "RefreshView",
+      "qualified_name": "frmMain::RefreshView",
+      "start_line": 25,
+      "end_line": 27
+    }
+  ],
+  "edges": [
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Billing.vbp",
+      "target_kind": "import",
+      "target": "Customer.cls",
+      "target_file": "legacy/Billing.vbp",
+      "line": null
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Billing.vbp",
+      "target_kind": "import",
+      "target": "Gauge.ctl",
+      "target_file": "legacy/Billing.vbp",
+      "line": null
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Billing.vbp",
+      "target_kind": "import",
+      "target": "Module1.bas",
+      "target_file": "legacy/Billing.vbp",
+      "line": null
+    },
+    {
+      "file": "legacy/Billing.vbp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Billing.vbp",
+      "target_kind": "import",
+      "target": "frmMain.frm",
+      "target_file": "legacy/Billing.vbp",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "field",
+      "target": "Customer::Balance",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "method",
+      "target": "Customer::FormatName",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "method",
+      "target": "Customer::Load",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "property",
+      "target": "Customer::Name",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "property",
+      "target": "Customer::Name",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Customer",
+      "target_kind": "field",
+      "target": "Customer::customerName",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Customer.cls",
+      "target_kind": "class",
+      "target": "Customer",
+      "target_file": "legacy/Customer.cls",
+      "line": null
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "calls",
+      "source_kind": "property",
+      "source": "Customer::Name",
+      "target_kind": "property",
+      "target": "Customer::Name",
+      "target_file": "legacy/Customer.cls",
+      "line": 13
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "calls",
+      "source_kind": "property",
+      "source": "Customer::Name",
+      "target_kind": "method",
+      "target": "Customer::FormatName",
+      "target_file": "legacy/Customer.cls",
+      "line": 17
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Customer::Load",
+      "target_kind": "method",
+      "target": "Customer::FormatName",
+      "target_file": "legacy/Customer.cls",
+      "line": 21
+    },
+    {
+      "file": "legacy/Customer.cls",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Customer::Load",
+      "target_kind": "module",
+      "target": "Module1",
+      "target_file": "legacy/Module1.bas",
+      "line": 22
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "Gauge",
+      "target_kind": "method",
+      "target": "Gauge::Redraw",
+      "target_file": "legacy/Gauge.ctl",
+      "line": null
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "Gauge",
+      "target_kind": "property",
+      "target": "Gauge::Value",
+      "target_file": "legacy/Gauge.ctl",
+      "line": null
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "Gauge",
+      "target_kind": "field",
+      "target": "Gauge::mValue",
+      "target_file": "legacy/Gauge.ctl",
+      "line": null
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Gauge.ctl",
+      "target_kind": "component",
+      "target": "Gauge",
+      "target_file": "legacy/Gauge.ctl",
+      "line": null
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "calls",
+      "source_kind": "property",
+      "source": "Gauge::Value",
+      "target_kind": "property",
+      "target": "Gauge::Value",
+      "target_file": "legacy/Gauge.ctl",
+      "line": 11
+    },
+    {
+      "file": "legacy/Gauge.ctl",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Gauge::Redraw",
+      "target_kind": "function",
+      "target": "Module1::Compute",
+      "target_file": "legacy/Module1.bas",
+      "line": 15
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "constant",
+      "target": "Module1::APP_NAME",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "function",
+      "target": "Module1::Compute",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "function",
+      "target": "Module1::DoWork",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "import",
+      "target": "Module1::GetTickCount",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "function",
+      "target": "Module1::Helper",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "struct",
+      "target": "Module1::InvoiceLine",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "constant",
+      "target": "Module1::MAX_ITEMS",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "function",
+      "target": "Module1::Main",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "import",
+      "target": "Module1::Sleep",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "enum",
+      "target": "Module1::Status",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "field",
+      "target": "Module1::gCounter",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "module",
+      "source": "Module1",
+      "target_kind": "field",
+      "target": "Module1::mBuffer",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Module1::InvoiceLine",
+      "target_kind": "field",
+      "target": "Module1::InvoiceLine::Qty",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Module1::InvoiceLine",
+      "target_kind": "field",
+      "target": "Module1::InvoiceLine::Sku",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "function",
+      "source": "Module1::Main",
+      "target_kind": "variable",
+      "target": "Module1::Main::i",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Module1::Status",
+      "target_kind": "enum_member",
+      "target": "Module1::Status::stNew",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Module1::Status",
+      "target_kind": "enum_member",
+      "target": "Module1::Status::stPaid",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Module1::Status",
+      "target_kind": "enum_member",
+      "target": "Module1::Status::stVoid",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/Module1.bas",
+      "target_kind": "module",
+      "target": "Module1",
+      "target_file": "legacy/Module1.bas",
+      "line": null
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Module1::Main",
+      "target_kind": "function",
+      "target": "Module1::DoWork",
+      "target_file": "legacy/Module1.bas",
+      "line": 25
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Module1::Main",
+      "target_kind": "function",
+      "target": "Module1::Helper",
+      "target_file": "legacy/Module1.bas",
+      "line": 26
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Module1::Main",
+      "target_kind": "function",
+      "target": "Module1::Compute",
+      "target_file": "legacy/Module1.bas",
+      "line": 28
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Module1::Main",
+      "target_kind": "import",
+      "target": "Module1::Sleep",
+      "target_file": "legacy/Module1.bas",
+      "line": 29
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Module1::Compute",
+      "target_kind": "import",
+      "target": "Module1::GetTickCount",
+      "target_file": "legacy/Module1.bas",
+      "line": 33
+    },
+    {
+      "file": "legacy/Module1.bas",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "Module1::DoWork",
+      "target_kind": "function",
+      "target": "Module1::Helper",
+      "target_file": "legacy/Module1.bas",
+      "line": 37
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "frmMain",
+      "target_kind": "method",
+      "target": "frmMain::Command1_Click",
+      "target_file": "legacy/frmMain.frm",
+      "line": null
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "frmMain",
+      "target_kind": "method",
+      "target": "frmMain::Form_Load",
+      "target_file": "legacy/frmMain.frm",
+      "line": null
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "frmMain",
+      "target_kind": "method",
+      "target": "frmMain::RefreshView",
+      "target_file": "legacy/frmMain.frm",
+      "line": null
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "contains",
+      "source_kind": "component",
+      "source": "frmMain",
+      "target_kind": "field",
+      "target": "frmMain::mCustomer",
+      "target_file": "legacy/frmMain.frm",
+      "line": null
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "legacy/frmMain.frm",
+      "target_kind": "component",
+      "target": "frmMain",
+      "target_file": "legacy/frmMain.frm",
+      "line": null
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "frmMain::Form_Load",
+      "target_kind": "field",
+      "target": "frmMain::mCustomer",
+      "target_file": "legacy/frmMain.frm",
+      "line": 17
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "frmMain::Command1_Click",
+      "target_kind": "function",
+      "target": "Module1::Main",
+      "target_file": "legacy/Module1.bas",
+      "line": 21
+    },
+    {
+      "file": "legacy/frmMain.frm",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "frmMain::Command1_Click",
+      "target_kind": "method",
+      "target": "frmMain::RefreshView",
+      "target_file": "legacy/frmMain.frm",
+      "line": 22
+    }
+  ],
+  "unresolved": []
+}

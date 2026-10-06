@@ -1,0 +1,5 @@
+<template>
+    <template for:each={accounts.data} for:item="acct">
+        <c-account-card key={acct.Id} record={acct}></c-account-card>
+    </template>
+</template>

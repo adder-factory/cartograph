@@ -1,10 +1,15 @@
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
+use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind, Visibility};
 use tree_sitter::Node;
 
 use crate::{
     ExtractError, ExtractedImportBinding, ExtractedReference, ImportBindingKind,
-    walk::{ExtractionBuilder, PendingSymbol, syntax::span_for},
+    walk::{
+        ExtractionBuilder, PendingSymbol, specifier_safety::specifier_may_carry_credential,
+        syntax::span_for,
+    },
 };
+
+mod abap;
 
 const NAME_SEARCH_DEPTH: usize = 6;
 const PREFIX_SCAN_BYTES: usize = 512;
@@ -14,21 +19,27 @@ pub(super) fn visit_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
-    if node.parent().is_none()
-        && node.kind() == "program"
-        && matches!(
-            builder.context.snapshot.language(),
-            SourceLanguage::Dart | SourceLanguage::Php | SourceLanguage::R | SourceLanguage::Ruby
-        )
-    {
-        builder.visit_named_children(node, depth)?;
+    let abap = builder.context.snapshot.language() == SourceLanguage::Abap;
+    // A parentless `program` node is the grammar's compilation unit (ABAP,
+    // PHP, R, Ruby), never a declaration that owns the rest of the file.
+    if node.parent().is_none() && node.kind() == "program" {
+        if abap {
+            abap::visit_program(builder, node, depth)?;
+        } else {
+            builder.visit_named_children(node, depth)?;
+        }
         return Ok(true);
     }
     if is_import_node(node.kind()) {
         capture_import(builder, node)?;
         return Ok(true);
     }
-    let Some((kind, name)) = declaration(builder, node)? else {
+    let declared = if abap {
+        abap::declaration(builder, node)?
+    } else {
+        declaration(builder, node)?
+    };
+    let Some((kind, name)) = declared else {
         return Ok(false);
     };
     if should_skip_markup_symbol(builder.context.snapshot.language(), kind, &name) {
@@ -43,60 +54,115 @@ pub(super) fn visit_declaration(
         return Ok(true);
     }
     let qualified_name = builder.qualified_name(&name)?;
-    if let Some(existing) = builder
-        .facts
-        .symbols
-        .iter()
-        .find(|symbol| symbol.kind == kind && symbol.qualified_name == qualified_name)
-        .map(|symbol| symbol.id.clone())
+    // A same-named declaration merges into the first one (a separate
+    // declaration and definition), except in ABAP, whose implemented
+    // definitions are merged by the ABAP walk itself and whose same-named
+    // methods are distinct misparsed interface implementations.
+    if !abap
+        && let Some(existing) = builder
+            .facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == kind && symbol.qualified_name == qualified_name)
+            .map(|symbol| symbol.id.clone())
     {
-        builder.owners.push(existing);
-        builder.native_owner_kinds.push(kind);
-        builder.native_visibilities.push(None);
-        builder.qualifiers.push(name);
+        push_scope(builder, (existing, kind, None, name));
         builder.visit_named_children(node, depth)?;
-        builder.qualifiers.pop();
-        builder.native_visibilities.pop();
-        builder.native_owner_kinds.pop();
-        builder.owners.pop();
+        pop_scope(builder);
         return Ok(true);
     }
-    let body = node.child_by_field_name("body");
+    let scope = emit_declaration(
+        builder,
+        GenericDeclaration {
+            kind,
+            name,
+            node,
+            modifier_node: node,
+        },
+    )?;
+    push_scope(builder, scope);
+    builder.visit_named_children(node, depth)?;
+    pop_scope(builder);
+    Ok(true)
+}
+
+/// One declaration the generic walker emits.
+struct GenericDeclaration<'tree> {
+    /// Declared symbol kind.
+    kind: SymbolKind,
+    /// Declared local name.
+    name: String,
+    /// Node whose span, structure and body the symbol covers.
+    node: Node<'tree>,
+    /// Node whose leading tokens and doc comment carry the declaration's
+    /// modifiers; an ABAP class implementation takes them from its definition.
+    modifier_node: Node<'tree>,
+}
+
+/// An emitted declaration's owner scope: id, kind, visibility and name.
+type GenericScope = (SymbolId, SymbolKind, Option<Visibility>, String);
+
+/// Emit one generic declaration and return the scope its children nest in.
+fn emit_declaration(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    declaration: GenericDeclaration<'_>,
+) -> Result<GenericScope, ExtractError> {
+    let GenericDeclaration {
+        kind,
+        name,
+        node,
+        modifier_node,
+    } = declaration;
+    let language = builder.context.snapshot.language();
+    let body = if language == SourceLanguage::Abap {
+        abap::body(node)
+    } else {
+        node.child_by_field_name("body")
+    };
     let definition = is_definition_node(node.kind());
-    let visibility = generic_visibility(node, builder.context.source());
+    let source = builder.context.source();
+    let visibility = generic_visibility(modifier_node, source);
     let exported = generic_exported(GenericExportInput {
-        language: builder.context.snapshot.language(),
+        language,
         top_level: builder.owners.is_empty(),
         visibility,
         name: &name,
-        node,
-        source: builder.context.source(),
+        node: modifier_node,
+        source,
     });
     let pending = PendingSymbol {
         kind,
         name: name.clone(),
         span_node: node,
         structural_node: node,
-        doc_anchor: node,
+        doc_anchor: modifier_node,
         body_node: body.or(definition.then_some(node)),
         declaration_only: is_callable(kind) && body.is_none() && !definition,
         signature: None,
         export: crate::SymbolExportFlags::named(exported),
-        async_symbol: source_prefix_contains(node, builder.context.source(), "async"),
-        static_member: source_prefix_contains(node, builder.context.source(), "static"),
+        async_symbol: source_prefix_contains(modifier_node, source, "async"),
+        static_member: source_prefix_contains(modifier_node, source, "static"),
         visibility,
     };
     let id = builder.emit_symbol(pending)?;
+    Ok((id, kind, visibility, name))
+}
+
+/// Make `scope` the innermost owner of the declarations visited next.
+fn push_scope(builder: &mut ExtractionBuilder<'_, '_>, scope: GenericScope) {
+    let (id, kind, visibility, name) = scope;
     builder.owners.push(id);
     builder.native_owner_kinds.push(kind);
     builder.native_visibilities.push(visibility);
     builder.qualifiers.push(name);
-    builder.visit_named_children(node, depth)?;
+}
+
+/// Undo the most recent [`push_scope`].
+fn pop_scope(builder: &mut ExtractionBuilder<'_, '_>) {
     builder.qualifiers.pop();
     builder.native_visibilities.pop();
     builder.native_owner_kinds.pop();
     builder.owners.pop();
-    Ok(true)
 }
 
 pub(super) fn capture_usage(
@@ -120,7 +186,7 @@ fn declaration(
     node: Node<'_>,
 ) -> Result<Option<(SymbolKind, String)>, ExtractError> {
     if let Some(kind) = declaration_kind(node.kind()) {
-        let name = find_name_node(node, 0)
+        let name = declared_name_node(node)
             .map(|name| builder.context.owned_text(name))
             .transpose()?
             .and_then(|name| normalize_name(&name));
@@ -129,6 +195,34 @@ fn declaration(
         }
     }
     textual_declaration(builder, node)
+}
+
+/// Function-value node kinds that are anonymous unless they carry their own
+/// name (`function(q) ... end`, `(a, b) => ...`).
+const ANONYMOUS_CAPABLE_FUNCTION_KINDS: [&str; 6] = [
+    "function",
+    "function_definition",
+    "function_expression",
+    "arrow_function",
+    "lambda",
+    "lambda_expression",
+];
+
+/// The node naming a declaration. An anonymous function value is named only
+/// by its own identifier-shaped `name` field: never by a parameter, by a bare
+/// identifier body (`function(v) v`), or by a keyword token (R stores
+/// `function` itself in the `name` field).
+fn declared_name_node(node: Node<'_>) -> Option<Node<'_>> {
+    // C-family definitions (Objective-C) name the function through their
+    // `declarator`, so only declarator-free function values can be anonymous.
+    if ANONYMOUS_CAPABLE_FUNCTION_KINDS.contains(&node.kind())
+        && node.child_by_field_name("declarator").is_none()
+    {
+        return node
+            .child_by_field_name("name")
+            .filter(|name| is_name_node(name.kind()));
+    }
+    find_name_node(node, 0)
 }
 
 fn declaration_kind(node_kind: &str) -> Option<SymbolKind> {
@@ -383,14 +477,12 @@ fn textual_declaration(
     let language = builder.context.snapshot.language();
     let text = builder.context.text(node).trim_start();
     let candidate = match language {
-        SourceLanguage::Clojure | SourceLanguage::CommonLisp => lisp_declaration(text),
         SourceLanguage::R if matches!(node.kind(), "left_assignment" | "binary_operator") => {
             r_declaration(text)
         }
         SourceLanguage::Sql if node.kind().contains("create") || starts_keyword(text, "create") => {
             sql_declaration(text)
         }
-        SourceLanguage::Hcl if node.kind() == "block" => hcl_declaration(text),
         SourceLanguage::Nix if matches!(node.kind(), "binding" | "attrpath_value") => {
             assignment_declaration(text, SymbolKind::Property)
         }
@@ -405,20 +497,6 @@ fn textual_declaration(
     candidate
         .map(|(kind, name)| builder.context.copy_text(&name).map(|name| (kind, name)))
         .transpose()
-}
-
-fn lisp_declaration(text: &str) -> Option<(SymbolKind, String)> {
-    let text = text.strip_prefix('(')?.trim_start();
-    let (head, rest) = split_token(text)?;
-    let kind = match head.to_ascii_lowercase().as_str() {
-        "defn" | "defn-" | "defun" | "defmethod" | "defmacro" => SymbolKind::Function,
-        "defclass" | "deftype" | "defrecord" | "defstruct" => SymbolKind::Class,
-        "ns" | "defpackage" | "in-package" => SymbolKind::Module,
-        "def" | "defonce" | "defparameter" | "defvar" | "defconstant" => SymbolKind::Variable,
-        _ => return None,
-    };
-    let (name, _) = split_token(rest.trim_start())?;
-    normalize_name(name).map(|name| (kind, name))
 }
 
 fn r_declaration(text: &str) -> Option<(SymbolKind, String)> {
@@ -456,19 +534,6 @@ fn sql_declaration(text: &str) -> Option<(SymbolKind, String)> {
         return None;
     };
     normalize_name(tokens.next()?).map(|name| (kind, name))
-}
-
-fn hcl_declaration(text: &str) -> Option<(SymbolKind, String)> {
-    let mut tokens = text.split_whitespace();
-    let head = normalize_name(tokens.next()?)?;
-    let label = tokens.next().and_then(normalize_name);
-    let name = label.map_or(head.clone(), |label| format!("{head}.{label}"));
-    let kind = if head.eq_ignore_ascii_case("resource") || head.eq_ignore_ascii_case("data") {
-        SymbolKind::Resource
-    } else {
-        SymbolKind::Module
-    };
-    Some((kind, name))
 }
 
 fn assignment_declaration(text: &str, kind: SymbolKind) -> Option<(SymbolKind, String)> {
@@ -566,6 +631,7 @@ fn normalize_name(value: &str) -> Option<String> {
     });
     if value.is_empty()
         || value.len() > 512
+        || specifier_may_carry_credential(value)
         || value.chars().any(|character| {
             !(character.is_alphanumeric()
                 || matches!(character, '_' | '$' | ':' | '.' | '-' | '/' | '@' | '#'))
@@ -638,7 +704,9 @@ fn capture_import(
         return Ok(());
     };
     let raw = builder.context.owned_text(target)?;
-    let Some(module) = normalize_module_specifier(&raw) else {
+    let Some(module) =
+        normalize_module_specifier(&raw).filter(|module| !specifier_may_carry_credential(module))
+    else {
         return Ok(());
     };
     let span = span_for(target)?;
@@ -649,6 +717,7 @@ fn capture_import(
         kind: ReferenceKind::Imports,
         span,
     })?;
+    emit_import_symbol(builder, node, &module)?;
     builder.emit_import_binding(ExtractedImportBinding {
         kind: ImportBindingKind::Namespace,
         module_specifier: module,
@@ -656,6 +725,31 @@ fn capture_import(
         local_name: "*".to_owned(),
         span,
     })
+}
+
+/// One `Import` declaration per recognized import, named by its module, so
+/// file import listings see it. The raw statement is not retained.
+fn emit_import_symbol(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    module: &str,
+) -> Result<(), ExtractError> {
+    builder
+        .emit_symbol(PendingSymbol {
+            kind: SymbolKind::Import,
+            name: builder.context.copy_text(module)?,
+            span_node: node,
+            structural_node: node,
+            doc_anchor: node,
+            body_node: None,
+            declaration_only: false,
+            signature: None,
+            export: crate::SymbolExportFlags::named(false),
+            async_symbol: false,
+            static_member: false,
+            visibility: None,
+        })
+        .map(drop)
 }
 
 fn find_import_target(node: Node<'_>, depth: usize) -> Option<Node<'_>> {
@@ -679,7 +773,7 @@ fn find_import_target(node: Node<'_>, depth: usize) -> Option<Node<'_>> {
         .find_map(|child| find_import_target(child, depth.saturating_add(1)))
 }
 
-fn normalize_reference_name(value: &str) -> Option<String> {
+pub(super) fn normalize_reference_name(value: &str) -> Option<String> {
     let value = value.trim();
     let head = value
         .split(['(', '[', '{', ' ', '\t', '\n'])
@@ -742,11 +836,8 @@ fn generic_exported(input: GenericExportInput<'_>) -> bool {
     top_level
         && matches!(
             language,
-            SourceLanguage::Clojure
-                | SourceLanguage::CommonLisp
-                | SourceLanguage::Dart
+            SourceLanguage::Dart
                 | SourceLanguage::GraphQl
-                | SourceLanguage::Hcl
                 | SourceLanguage::Html
                 | SourceLanguage::Khn
                 | SourceLanguage::Lua
@@ -784,6 +875,7 @@ fn is_definition_node(kind: &str) -> bool {
                 | "class"
                 | "module"
                 | "class_implementation"
+                | "method_implementation"
                 | "function_item"
         )
 }
@@ -838,15 +930,6 @@ fn should_skip_markup_symbol(language: SourceLanguage, kind: SymbolKind, name: &
         && kind == SymbolKind::Component
         && !name.contains('-')
         && !name.chars().next().is_some_and(char::is_uppercase)
-}
-
-fn split_token(value: &str) -> Option<(&str, &str)> {
-    let end = value
-        .find(|character: char| {
-            character.is_whitespace() || matches!(character, '(' | ')' | '[' | ']')
-        })
-        .unwrap_or(value.len());
-    (end != 0).then(|| (&value[..end], &value[end..]))
 }
 
 fn starts_keyword(value: &str, keyword: &str) -> bool {

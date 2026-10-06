@@ -1,0 +1,2250 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "rust",
+  "files": [
+    "Cargo.toml",
+    "crates/shop-core/Cargo.toml",
+    "crates/shop-core/src/lib.rs",
+    "crates/shop-core/src/models.rs",
+    "crates/shop-core/src/store/mod.rs",
+    "crates/shop-core/tests/integration.rs",
+    "crates/shop-web/Cargo.toml",
+    "crates/shop-web/src/api.rs",
+    "crates/shop-web/src/handlers/mod.rs",
+    "crates/shop-web/src/handlers/orders.rs",
+    "crates/shop-web/src/main.rs",
+    "crates/shop-web/src/services/mod.rs"
+  ],
+  "symbols": [
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "file",
+      "name": "lib.rs",
+      "qualified_name": "crates/shop-core/src/lib.rs",
+      "start_line": 1,
+      "end_line": 39
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "import",
+      "name": "models",
+      "qualified_name": "models",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "variable",
+      "name": "MAX_ITEMS",
+      "qualified_name": "MAX_ITEMS",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "variable",
+      "name": "GLOBAL_FLAG",
+      "qualified_name": "GLOBAL_FLAG",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "type_alias",
+      "name": "OrderId",
+      "qualified_name": "OrderId",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "function",
+      "name": "limit",
+      "qualified_name": "limit",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "function",
+      "name": "checked",
+      "qualified_name": "checked",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "function",
+      "name": "limit_is_positive",
+      "qualified_name": "limit_is_positive",
+      "start_line": 35,
+      "end_line": 37
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "file",
+      "name": "models.rs",
+      "qualified_name": "crates/shop-core/src/models.rs",
+      "start_line": 1,
+      "end_line": 78
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "import",
+      "name": "std",
+      "qualified_name": "std",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "import",
+      "name": "std",
+      "qualified_name": "std",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "import",
+      "name": "serde",
+      "qualified_name": "serde",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "trait",
+      "name": "Describe",
+      "qualified_name": "Describe",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "trait",
+      "name": "Priced",
+      "qualified_name": "Priced",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "struct",
+      "name": "LineItem",
+      "qualified_name": "LineItem",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "struct",
+      "name": "Order",
+      "qualified_name": "Order",
+      "start_line": 20,
+      "end_line": 26
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "enum",
+      "name": "Status",
+      "qualified_name": "Status",
+      "start_line": 29,
+      "end_line": 33
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "enum_member",
+      "name": "Pending",
+      "qualified_name": "Status::Pending",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "enum_member",
+      "name": "Paid",
+      "qualified_name": "Status::Paid",
+      "start_line": 31,
+      "end_line": 31
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "enum_member",
+      "name": "Shipped",
+      "qualified_name": "Status::Shipped",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "struct",
+      "name": "Tuple",
+      "qualified_name": "Tuple",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "new",
+      "qualified_name": "Order::new",
+      "start_line": 43,
+      "end_line": 45
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "add",
+      "qualified_name": "Order::add",
+      "start_line": 47,
+      "end_line": 50
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "total",
+      "qualified_name": "Order::total",
+      "start_line": 52,
+      "end_line": 54
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "sync",
+      "qualified_name": "Order::sync",
+      "start_line": 56,
+      "end_line": 58
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "Order::describe",
+      "start_line": 62,
+      "end_line": 64
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "fmt",
+      "qualified_name": "Order::fmt",
+      "start_line": 68,
+      "end_line": 70
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "method",
+      "name": "describe",
+      "qualified_name": "Describe::describe",
+      "start_line": 74,
+      "end_line": 76
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "file",
+      "name": "mod.rs",
+      "qualified_name": "crates/shop-core/src/store/mod.rs",
+      "start_line": 1,
+      "end_line": 60
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "import",
+      "name": "crate",
+      "qualified_name": "crate",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "import",
+      "name": "super",
+      "qualified_name": "super",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "import",
+      "name": "self",
+      "qualified_name": "self",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "struct",
+      "name": "Slot",
+      "qualified_name": "Slot",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "trait",
+      "name": "Store",
+      "qualified_name": "Store",
+      "start_line": 12,
+      "end_line": 15
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "struct",
+      "name": "MemoryStore",
+      "qualified_name": "MemoryStore",
+      "start_line": 17,
+      "end_line": 21
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "struct",
+      "name": "StoreBuilder",
+      "qualified_name": "StoreBuilder",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "method",
+      "name": "new",
+      "qualified_name": "StoreBuilder::new",
+      "start_line": 28,
+      "end_line": 30
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "StoreBuilder::build",
+      "start_line": 32,
+      "end_line": 34
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "method",
+      "name": "put",
+      "qualified_name": "MemoryStore::put",
+      "start_line": 38,
+      "end_line": 44
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "method",
+      "name": "get",
+      "qualified_name": "MemoryStore::get",
+      "start_line": 46,
+      "end_line": 48
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "function",
+      "name": "seeded",
+      "qualified_name": "seeded",
+      "start_line": 51,
+      "end_line": 59
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "file",
+      "name": "integration.rs",
+      "qualified_name": "crates/shop-core/tests/integration.rs",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "import",
+      "name": "shop_core",
+      "qualified_name": "shop_core",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "function",
+      "name": "seeded_store_has_order",
+      "qualified_name": "seeded_store_has_order",
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "file",
+      "name": "api.rs",
+      "qualified_name": "crates/shop-web/src/api.rs",
+      "start_line": 1,
+      "end_line": 30
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "import",
+      "name": "axum",
+      "qualified_name": "axum",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "import",
+      "name": "axum",
+      "qualified_name": "axum",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "import",
+      "name": "crate",
+      "qualified_name": "crate",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "variable",
+      "name": "API_VERSION",
+      "qualified_name": "API_VERSION",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "function",
+      "name": "api_routes",
+      "qualified_name": "api_routes",
+      "start_line": 7,
+      "end_line": 12
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "route",
+      "name": "GET /users",
+      "qualified_name": "crates/shop-web/src/api.rs::GET:/users",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "route",
+      "name": "POST /users/new",
+      "qualified_name": "crates/shop-web/src/api.rs::POST:/users/new",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "route",
+      "name": "GET /ping",
+      "qualified_name": "crates/shop-web/src/api.rs::GET:/ping",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "function",
+      "name": "list_users",
+      "qualified_name": "list_users",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "function",
+      "name": "create_user",
+      "qualified_name": "create_user",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "function",
+      "name": "desktop_bridge",
+      "qualified_name": "desktop_bridge",
+      "start_line": 23,
+      "end_line": 25
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "function",
+      "name": "version",
+      "qualified_name": "version",
+      "start_line": 27,
+      "end_line": 29
+    },
+    {
+      "file": "crates/shop-web/src/handlers/mod.rs",
+      "kind": "file",
+      "name": "mod.rs",
+      "qualified_name": "crates/shop-web/src/handlers/mod.rs",
+      "start_line": 1,
+      "end_line": 2
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "file",
+      "name": "orders.rs",
+      "qualified_name": "crates/shop-web/src/handlers/orders.rs",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "import",
+      "name": "crate",
+      "qualified_name": "crate",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "function",
+      "name": "ping_handler",
+      "qualified_name": "ping_handler",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "function",
+      "name": "handle_checkout",
+      "qualified_name": "handle_checkout",
+      "start_line": 7,
+      "end_line": 11
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "file",
+      "name": "main.rs",
+      "qualified_name": "crates/shop-web/src/main.rs",
+      "start_line": 1,
+      "end_line": 53
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "import",
+      "name": "actix_web",
+      "qualified_name": "actix_web",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "import",
+      "name": "axum",
+      "qualified_name": "axum",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "import",
+      "name": "shop_core",
+      "qualified_name": "shop_core",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "import",
+      "name": "shop_core",
+      "qualified_name": "shop_core",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "import",
+      "name": "crate",
+      "qualified_name": "crate",
+      "start_line": 11,
+      "end_line": 11
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "import",
+      "name": "crate",
+      "qualified_name": "crate",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "route",
+      "name": "GET /health",
+      "qualified_name": "crates/shop-web/src/main.rs::GET:/health",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "health",
+      "qualified_name": "health",
+      "start_line": 15,
+      "end_line": 17
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "route",
+      "name": "GET /a",
+      "qualified_name": "crates/shop-web/src/main.rs::GET:/a",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "route",
+      "name": "POST /b",
+      "qualified_name": "crates/shop-web/src/main.rs::POST:/b",
+      "start_line": 20,
+      "end_line": 20
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "multi",
+      "qualified_name": "multi",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "route",
+      "name": "HEAD /h",
+      "qualified_name": "crates/shop-web/src/main.rs::HEAD:/h",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "head_probe",
+      "qualified_name": "head_probe",
+      "start_line": 26,
+      "end_line": 26
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "route",
+      "name": "OPTIONS /o",
+      "qualified_name": "crates/shop-web/src/main.rs::OPTIONS:/o",
+      "start_line": 28,
+      "end_line": 28
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "options_probe",
+      "qualified_name": "options_probe",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "unused_helper",
+      "qualified_name": "unused_helper",
+      "start_line": 32,
+      "end_line": 32
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "router",
+      "qualified_name": "router",
+      "start_line": 34,
+      "end_line": 38
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 41,
+      "end_line": 52
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "file",
+      "name": "mod.rs",
+      "qualified_name": "crates/shop-web/src/services/mod.rs",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "import",
+      "name": "shop_core",
+      "qualified_name": "shop_core",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "import",
+      "name": "shop_core",
+      "qualified_name": "shop_core",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "struct",
+      "name": "OrderService",
+      "qualified_name": "OrderService",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "method",
+      "name": "new",
+      "qualified_name": "OrderService::new",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "method",
+      "name": "place",
+      "qualified_name": "OrderService::place",
+      "start_line": 13,
+      "end_line": 19
+    }
+  ],
+  "edges": [
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "variable",
+      "target": "GLOBAL_FLAG",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "variable",
+      "target": "MAX_ITEMS",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "type_alias",
+      "target": "OrderId",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "function",
+      "target": "checked",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "function",
+      "target": "limit",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "function",
+      "target": "limit_is_positive",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "tests",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "file",
+      "target": "crates/shop-core/src/lib.rs",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/lib.rs",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 5
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "limit",
+      "target_kind": "variable",
+      "target": "MAX_ITEMS",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 22
+    },
+    {
+      "file": "crates/shop-core/src/lib.rs",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "checked",
+      "target_kind": "variable",
+      "target": "MAX_ITEMS",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 26
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "trait",
+      "source": "Describe",
+      "target_kind": "method",
+      "target": "Describe::describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::add",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::fmt",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::new",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::sync",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "method",
+      "target": "Order::total",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Paid",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Pending",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "enum",
+      "source": "Status",
+      "target_kind": "enum_member",
+      "target": "Status::Shipped",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "trait",
+      "target": "Describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Describe::describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "struct",
+      "target": "LineItem",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "struct",
+      "target": "Order",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Order::add",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Order::describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Order::fmt",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Order::new",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Order::sync",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "method",
+      "target": "Order::total",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "trait",
+      "target": "Priced",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "enum",
+      "target": "Status",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "struct",
+      "target": "Tuple",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "import",
+      "target": "serde",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "import",
+      "target": "std",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "import",
+      "target": "std",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "import",
+      "target": "std",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 1
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/models.rs",
+      "target_kind": "import",
+      "target": "serde",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 3
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "extends",
+      "source_kind": "trait",
+      "source": "Priced",
+      "target_kind": "trait",
+      "target": "Describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 9
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "type_alias",
+      "target": "OrderId",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 21
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "struct",
+      "target": "LineItem",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 22
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "enum",
+      "target": "Status",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 25
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Order::new",
+      "target_kind": "type_alias",
+      "target": "OrderId",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 43
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "Order::new",
+      "target_kind": "struct",
+      "target": "Order",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 44
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "Order::add",
+      "target_kind": "struct",
+      "target": "LineItem",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 47
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "Order::sync",
+      "target_kind": "method",
+      "target": "Order::total",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 57
+    },
+    {
+      "file": "crates/shop-core/src/models.rs",
+      "kind": "implements",
+      "source_kind": "struct",
+      "source": "Order",
+      "target_kind": "trait",
+      "target": "Describe",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 61
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "MemoryStore",
+      "target_kind": "method",
+      "target": "MemoryStore::get",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "MemoryStore",
+      "target_kind": "method",
+      "target": "MemoryStore::put",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "StoreBuilder",
+      "target_kind": "method",
+      "target": "StoreBuilder::build",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "StoreBuilder",
+      "target_kind": "method",
+      "target": "StoreBuilder::new",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "struct",
+      "target": "MemoryStore",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "method",
+      "target": "MemoryStore::get",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "method",
+      "target": "MemoryStore::put",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "struct",
+      "target": "Slot",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "trait",
+      "target": "Store",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "struct",
+      "target": "StoreBuilder",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "method",
+      "target": "StoreBuilder::build",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "method",
+      "target": "StoreBuilder::new",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "function",
+      "target": "seeded",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "import",
+      "target": "self",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "import",
+      "target": "super",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 1
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "import",
+      "target": "super",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 2
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/src/store/mod.rs",
+      "target_kind": "import",
+      "target": "self",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 3
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "MemoryStore",
+      "target_kind": "struct",
+      "target": "Order",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 18
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "type_of",
+      "source_kind": "struct",
+      "source": "MemoryStore",
+      "target_kind": "struct",
+      "target": "Slot",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 20
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "StoreBuilder::new",
+      "target_kind": "struct",
+      "target": "StoreBuilder",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 28
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "StoreBuilder::new",
+      "target_kind": "struct",
+      "target": "StoreBuilder",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 29
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "StoreBuilder::new",
+      "target_kind": "variable",
+      "target": "MAX_ITEMS",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 29
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "StoreBuilder::build",
+      "target_kind": "struct",
+      "target": "MemoryStore",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 32
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "StoreBuilder::build",
+      "target_kind": "struct",
+      "target": "MemoryStore",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 33
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "StoreBuilder::build",
+      "target_kind": "struct",
+      "target": "Slot",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 33
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "implements",
+      "source_kind": "struct",
+      "source": "MemoryStore",
+      "target_kind": "trait",
+      "target": "Store",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 37
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "type_of",
+      "source_kind": "method",
+      "source": "MemoryStore::put",
+      "target_kind": "struct",
+      "target": "Order",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 38
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "references",
+      "source_kind": "method",
+      "source": "MemoryStore::put",
+      "target_kind": "variable",
+      "target": "MAX_ITEMS",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 39
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "MemoryStore::get",
+      "target_kind": "struct",
+      "target": "Order",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 46
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "returns",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "struct",
+      "target": "MemoryStore",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 51
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "method",
+      "target": "StoreBuilder::build",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 52
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "method",
+      "target": "StoreBuilder::new",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 52
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "method",
+      "target": "Order::new",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 53
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "method",
+      "target": "Order::add",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 54
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "instantiates",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "struct",
+      "target": "LineItem",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 54
+    },
+    {
+      "file": "crates/shop-core/src/store/mod.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seeded",
+      "target_kind": "method",
+      "target": "MemoryStore::put",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 55
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/tests/integration.rs",
+      "target_kind": "function",
+      "target": "seeded_store_has_order",
+      "target_file": "crates/shop-core/tests/integration.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-core/tests/integration.rs",
+      "target_kind": "import",
+      "target": "shop_core",
+      "target_file": "crates/shop-core/tests/integration.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "tests",
+      "source_kind": "file",
+      "source": "crates/shop-core/tests/integration.rs",
+      "target_kind": "file",
+      "target": "crates/shop-core/src/lib.rs",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-core/tests/integration.rs",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 1
+    },
+    {
+      "file": "crates/shop-core/tests/integration.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "seeded_store_has_order",
+      "target_kind": "function",
+      "target": "seeded",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 5
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "variable",
+      "target": "API_VERSION",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "function",
+      "target": "api_routes",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "import",
+      "target": "axum",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "import",
+      "target": "axum",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "function",
+      "target": "create_user",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "function",
+      "target": "desktop_bridge",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "function",
+      "target": "list_users",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "function",
+      "target": "version",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "import",
+      "target": "axum",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": 1
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/api.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": 3
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "api_routes",
+      "target_kind": "method",
+      "target": "MemoryStore::get",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 9
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "list_users",
+      "target_kind": "variable",
+      "target": "API_VERSION",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": 15
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "create_user",
+      "target_kind": "variable",
+      "target": "API_VERSION",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": 19
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "desktop_bridge",
+      "target_kind": "function",
+      "target": "version",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": 24
+    },
+    {
+      "file": "crates/shop-web/src/api.rs",
+      "kind": "references",
+      "source_kind": "function",
+      "source": "version",
+      "target_kind": "variable",
+      "target": "API_VERSION",
+      "target_file": "crates/shop-web/src/api.rs",
+      "line": 28
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/handlers/orders.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/handlers/orders.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/handlers/orders.rs",
+      "target_kind": "function",
+      "target": "handle_checkout",
+      "target_file": "crates/shop-web/src/handlers/orders.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/handlers/orders.rs",
+      "target_kind": "function",
+      "target": "ping_handler",
+      "target_file": "crates/shop-web/src/handlers/orders.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/handlers/orders.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/handlers/orders.rs",
+      "line": 1
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "handle_checkout",
+      "target_kind": "method",
+      "target": "OrderService::new",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": 8
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "handle_checkout",
+      "target_kind": "method",
+      "target": "OrderService::place",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": 9
+    },
+    {
+      "file": "crates/shop-web/src/handlers/orders.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "handle_checkout",
+      "target_kind": "method",
+      "target": "Order::total",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 10
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "actix_web",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "axum",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "head_probe",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "health",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "multi",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "options_probe",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "router",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "shop_core",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "shop_core",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "function",
+      "target": "unused_helper",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "actix_web",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": 7
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "axum",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": 8
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 9
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/main.rs",
+      "target_kind": "import",
+      "target": "crate",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": 11
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "decorates",
+      "source_kind": "function",
+      "source": "health",
+      "target_kind": "method",
+      "target": "MemoryStore::get",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 14
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "decorates",
+      "source_kind": "function",
+      "source": "multi",
+      "target_kind": "method",
+      "target": "MemoryStore::get",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 19
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "decorates",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": 40
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "method",
+      "target": "OrderService::new",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": 42
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "method",
+      "target": "OrderService::place",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": 43
+    },
+    {
+      "file": "crates/shop-web/src/main.rs",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "router",
+      "target_file": "crates/shop-web/src/main.rs",
+      "line": 45
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::new",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "struct",
+      "source": "OrderService",
+      "target_kind": "method",
+      "target": "OrderService::place",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/services/mod.rs",
+      "target_kind": "struct",
+      "target": "OrderService",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/services/mod.rs",
+      "target_kind": "method",
+      "target": "OrderService::new",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/services/mod.rs",
+      "target_kind": "method",
+      "target": "OrderService::place",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/services/mod.rs",
+      "target_kind": "import",
+      "target": "shop_core",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/services/mod.rs",
+      "target_kind": "import",
+      "target": "shop_core",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": null
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "crates/shop-web/src/services/mod.rs",
+      "target_kind": "import",
+      "target": "models",
+      "target_file": "crates/shop-core/src/lib.rs",
+      "line": 1
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderService::new",
+      "target_kind": "struct",
+      "target": "OrderService",
+      "target_file": "crates/shop-web/src/services/mod.rs",
+      "line": 10
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "returns",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "struct",
+      "target": "Order",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 13
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "method",
+      "target": "Order::new",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 14
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "method",
+      "target": "Order::add",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 15
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "instantiates",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "struct",
+      "target": "LineItem",
+      "target_file": "crates/shop-core/src/models.rs",
+      "line": 15
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "method",
+      "target": "StoreBuilder::build",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 16
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "method",
+      "target": "StoreBuilder::new",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 16
+    },
+    {
+      "file": "crates/shop-web/src/services/mod.rs",
+      "kind": "calls",
+      "source_kind": "method",
+      "source": "OrderService::place",
+      "target_kind": "method",
+      "target": "MemoryStore::put",
+      "target_file": "crates/shop-core/src/store/mod.rs",
+      "line": 17
+    }
+  ],
+  "unresolved": []
+}

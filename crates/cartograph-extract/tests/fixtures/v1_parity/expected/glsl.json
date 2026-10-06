@@ -1,0 +1,741 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "glsl",
+  "files": [
+    "shaders/basic.frag",
+    "shaders/basic.vert",
+    "shaders/blur.comp",
+    "shaders/common.glsl",
+    "shaders/explode.geom",
+    "shaders/patch.tesc",
+    "shaders/patch.tese"
+  ],
+  "symbols": [
+    {
+      "file": "shaders/basic.frag",
+      "kind": "file",
+      "name": "basic.frag",
+      "qualified_name": "shaders/basic.frag",
+      "start_line": 1,
+      "end_line": 23
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "variable",
+      "name": "vNormal",
+      "qualified_name": "vNormal",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "variable",
+      "name": "vWorldPos",
+      "qualified_name": "vWorldPos",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "variable",
+      "name": "fragColor",
+      "qualified_name": "fragColor",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "variable",
+      "name": "uMaterial",
+      "qualified_name": "uMaterial",
+      "start_line": 8,
+      "end_line": 8
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "variable",
+      "name": "uLightCount",
+      "qualified_name": "uLightCount",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "function",
+      "name": "accumulate",
+      "qualified_name": "accumulate",
+      "start_line": 11,
+      "end_line": 17
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 19,
+      "end_line": 22
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "file",
+      "name": "basic.vert",
+      "qualified_name": "shaders/basic.vert",
+      "start_line": 1,
+      "end_line": 21
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "variable",
+      "name": "inPosition",
+      "qualified_name": "inPosition",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "variable",
+      "name": "inNormal",
+      "qualified_name": "inNormal",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "variable",
+      "name": "vNormal",
+      "qualified_name": "vNormal",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "variable",
+      "name": "vWorldPos",
+      "qualified_name": "vWorldPos",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "variable",
+      "name": "uModel",
+      "qualified_name": "uModel",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "variable",
+      "name": "uViewProj",
+      "qualified_name": "uViewProj",
+      "start_line": 10,
+      "end_line": 10
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "function",
+      "name": "toClip",
+      "qualified_name": "toClip",
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 16,
+      "end_line": 20
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "file",
+      "name": "blur.comp",
+      "qualified_name": "shaders/blur.comp",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "variable",
+      "name": "srcImage",
+      "qualified_name": "srcImage",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "variable",
+      "name": "dstImage",
+      "qualified_name": "dstImage",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "function",
+      "name": "sampleAt",
+      "qualified_name": "sampleAt",
+      "start_line": 9,
+      "end_line": 11
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 13,
+      "end_line": 18
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "file",
+      "name": "common.glsl",
+      "qualified_name": "shaders/common.glsl",
+      "start_line": 1,
+      "end_line": 35
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "struct",
+      "name": "Light",
+      "qualified_name": "Light",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "struct",
+      "name": "Material",
+      "qualified_name": "Material",
+      "start_line": 10,
+      "end_line": 13
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "function",
+      "name": "square",
+      "qualified_name": "square",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "function",
+      "name": "computeNormal",
+      "qualified_name": "computeNormal",
+      "start_line": 21,
+      "end_line": 23
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "function",
+      "name": "attenuation",
+      "qualified_name": "attenuation",
+      "start_line": 25,
+      "end_line": 28
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "function",
+      "name": "shade",
+      "qualified_name": "shade",
+      "start_line": 30,
+      "end_line": 34
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "file",
+      "name": "explode.geom",
+      "qualified_name": "shaders/explode.geom",
+      "start_line": 1,
+      "end_line": 19
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "variable",
+      "name": "uAmount",
+      "qualified_name": "uAmount",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "function",
+      "name": "explode",
+      "qualified_name": "explode",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 12,
+      "end_line": 18
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "file",
+      "name": "patch.tesc",
+      "qualified_name": "shaders/patch.tesc",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "variable",
+      "name": "uLevel",
+      "qualified_name": "uLevel",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "function",
+      "name": "tessLevel",
+      "qualified_name": "tessLevel",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 11,
+      "end_line": 14
+    },
+    {
+      "file": "shaders/patch.tese",
+      "kind": "file",
+      "name": "patch.tese",
+      "qualified_name": "shaders/patch.tese",
+      "start_line": 1,
+      "end_line": 12
+    },
+    {
+      "file": "shaders/patch.tese",
+      "kind": "function",
+      "name": "main",
+      "qualified_name": "main",
+      "start_line": 9,
+      "end_line": 11
+    }
+  ],
+  "edges": [
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "function",
+      "target": "accumulate",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "variable",
+      "target": "fragColor",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "variable",
+      "target": "uLightCount",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "variable",
+      "target": "uMaterial",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "variable",
+      "target": "vNormal",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.frag",
+      "target_kind": "variable",
+      "target": "vWorldPos",
+      "target_file": "shaders/basic.frag",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "accumulate",
+      "target_kind": "function",
+      "target": "shade",
+      "target_file": "shaders/common.glsl",
+      "line": 14
+    },
+    {
+      "file": "shaders/basic.frag",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "accumulate",
+      "target_file": "shaders/basic.frag",
+      "line": 20
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "variable",
+      "target": "inNormal",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "variable",
+      "target": "inPosition",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "function",
+      "target": "toClip",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "variable",
+      "target": "uModel",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "variable",
+      "target": "uViewProj",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "variable",
+      "target": "vNormal",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/basic.vert",
+      "target_kind": "variable",
+      "target": "vWorldPos",
+      "target_file": "shaders/basic.vert",
+      "line": null
+    },
+    {
+      "file": "shaders/basic.vert",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "toClip",
+      "target_file": "shaders/basic.vert",
+      "line": 19
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur.comp",
+      "target_kind": "variable",
+      "target": "dstImage",
+      "target_file": "shaders/blur.comp",
+      "line": null
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur.comp",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/blur.comp",
+      "line": null
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur.comp",
+      "target_kind": "function",
+      "target": "sampleAt",
+      "target_file": "shaders/blur.comp",
+      "line": null
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/blur.comp",
+      "target_kind": "variable",
+      "target": "srcImage",
+      "target_file": "shaders/blur.comp",
+      "line": null
+    },
+    {
+      "file": "shaders/blur.comp",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "sampleAt",
+      "target_file": "shaders/blur.comp",
+      "line": 15
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.glsl",
+      "target_kind": "struct",
+      "target": "Light",
+      "target_file": "shaders/common.glsl",
+      "line": null
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.glsl",
+      "target_kind": "struct",
+      "target": "Material",
+      "target_file": "shaders/common.glsl",
+      "line": null
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.glsl",
+      "target_kind": "function",
+      "target": "attenuation",
+      "target_file": "shaders/common.glsl",
+      "line": null
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.glsl",
+      "target_kind": "function",
+      "target": "computeNormal",
+      "target_file": "shaders/common.glsl",
+      "line": null
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.glsl",
+      "target_kind": "function",
+      "target": "shade",
+      "target_file": "shaders/common.glsl",
+      "line": null
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/common.glsl",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "shaders/common.glsl",
+      "line": null
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "attenuation",
+      "target_kind": "function",
+      "target": "square",
+      "target_file": "shaders/common.glsl",
+      "line": 27
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "shade",
+      "target_kind": "function",
+      "target": "computeNormal",
+      "target_file": "shaders/common.glsl",
+      "line": 32
+    },
+    {
+      "file": "shaders/common.glsl",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "shade",
+      "target_kind": "function",
+      "target": "attenuation",
+      "target_file": "shaders/common.glsl",
+      "line": 33
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/explode.geom",
+      "target_kind": "function",
+      "target": "explode",
+      "target_file": "shaders/explode.geom",
+      "line": null
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/explode.geom",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/explode.geom",
+      "line": null
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/explode.geom",
+      "target_kind": "variable",
+      "target": "uAmount",
+      "target_file": "shaders/explode.geom",
+      "line": null
+    },
+    {
+      "file": "shaders/explode.geom",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "explode",
+      "target_file": "shaders/explode.geom",
+      "line": 14
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/patch.tesc",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/patch.tesc",
+      "line": null
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/patch.tesc",
+      "target_kind": "function",
+      "target": "tessLevel",
+      "target_file": "shaders/patch.tesc",
+      "line": null
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/patch.tesc",
+      "target_kind": "variable",
+      "target": "uLevel",
+      "target_file": "shaders/patch.tesc",
+      "line": null
+    },
+    {
+      "file": "shaders/patch.tesc",
+      "kind": "calls",
+      "source_kind": "function",
+      "source": "main",
+      "target_kind": "function",
+      "target": "tessLevel",
+      "target_file": "shaders/patch.tesc",
+      "line": 12
+    },
+    {
+      "file": "shaders/patch.tese",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "shaders/patch.tese",
+      "target_kind": "function",
+      "target": "main",
+      "target_file": "shaders/patch.tese",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

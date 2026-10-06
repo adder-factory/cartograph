@@ -1,0 +1,4 @@
+<h1><%= title %></h1>
+<% for i, item in ipairs(items) do %>
+  <li><%- item.name %></li>
+<% end %>

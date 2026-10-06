@@ -1,0 +1,1243 @@
+{
+  "baseline": "v1.1.33",
+  "binary_sha256": "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7",
+  "language": "yaml",
+  "files": [
+    "app/controllers/UserController.java",
+    "composer.json",
+    "conf/routes",
+    "config/routes.yaml",
+    "config/routes/admin.yaml",
+    "docker-compose.yml",
+    "src/Controller/BlogController.php",
+    "web/modules/custom/module_b/module_b.services.yml",
+    "web/modules/custom/my_module/my_module.routing.yml",
+    "web/modules/custom/my_module/my_module.services.yml",
+    "web/modules/custom/my_module/src/Controller/HelloController.php",
+    "web/modules/custom/my_module/src/Form/SettingsForm.php",
+    "web/modules/custom/my_module/src/Services.php"
+  ],
+  "symbols": [
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "file",
+      "name": "UserController.java",
+      "qualified_name": "app/controllers/UserController.java",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "class",
+      "name": "UserController",
+      "qualified_name": "UserController",
+      "start_line": 3,
+      "end_line": 7
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "method",
+      "name": "list",
+      "qualified_name": "UserController::list",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "UserController::show",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "UserController::create",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "composer.json",
+      "kind": "file",
+      "name": "composer.json",
+      "qualified_name": "composer.json",
+      "start_line": 1,
+      "end_line": 8
+    },
+    {
+      "file": "conf/routes",
+      "kind": "file",
+      "name": "routes",
+      "qualified_name": "conf/routes",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "conf/routes",
+      "kind": "route",
+      "name": "GET /users",
+      "qualified_name": "conf/routes::GET:/users",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "conf/routes",
+      "kind": "route",
+      "name": "GET /users/:id",
+      "qualified_name": "conf/routes::GET:/users/:id",
+      "start_line": 3,
+      "end_line": 3
+    },
+    {
+      "file": "conf/routes",
+      "kind": "route",
+      "name": "POST /users",
+      "qualified_name": "conf/routes::POST:/users",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "file",
+      "name": "routes.yaml",
+      "qualified_name": "config/routes.yaml",
+      "start_line": 1,
+      "end_line": 15
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "route",
+      "name": "blog_show",
+      "qualified_name": "config/routes.yaml#blog_show",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "route",
+      "name": "blog_list",
+      "qualified_name": "config/routes.yaml#blog_list",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "route",
+      "name": "blog_fallback",
+      "qualified_name": "config/routes.yaml#blog_fallback",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "route",
+      "name": "noPath",
+      "qualified_name": "config/routes.yaml#noPath",
+      "start_line": 13,
+      "end_line": 13
+    },
+    {
+      "file": "config/routes/admin.yaml",
+      "kind": "file",
+      "name": "admin.yaml",
+      "qualified_name": "config/routes/admin.yaml",
+      "start_line": 1,
+      "end_line": 4
+    },
+    {
+      "file": "config/routes/admin.yaml",
+      "kind": "route",
+      "name": "admin_dashboard",
+      "qualified_name": "config/routes/admin.yaml#admin_dashboard",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "docker-compose.yml",
+      "kind": "file",
+      "name": "docker-compose.yml",
+      "qualified_name": "docker-compose.yml",
+      "start_line": 1,
+      "end_line": 6
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "file",
+      "name": "BlogController.php",
+      "qualified_name": "src/Controller/BlogController.php",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "class",
+      "name": "BlogController",
+      "qualified_name": "BlogController",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "method",
+      "name": "show",
+      "qualified_name": "BlogController::show",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "method",
+      "name": "list",
+      "qualified_name": "BlogController::list",
+      "start_line": 6,
+      "end_line": 6
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "method",
+      "name": "admin",
+      "qualified_name": "BlogController::admin",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "web/modules/custom/module_b/module_b.services.yml",
+      "kind": "file",
+      "name": "module_b.services.yml",
+      "qualified_name": "web/modules/custom/module_b/module_b.services.yml",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "web/modules/custom/module_b/module_b.services.yml",
+      "kind": "resource",
+      "name": "event_subscriber",
+      "qualified_name": "web/modules/custom/module_b/module_b.services.yml::service-tag:event_subscriber",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "web/modules/custom/module_b/module_b.services.yml",
+      "kind": "resource",
+      "name": "module_b.dispatcher",
+      "qualified_name": "web/modules/custom/module_b/module_b.services.yml::module_b.dispatcher",
+      "start_line": 2,
+      "end_line": 2
+    },
+    {
+      "file": "web/modules/custom/module_b/module_b.services.yml",
+      "kind": "resource",
+      "name": "module_b.listener",
+      "qualified_name": "web/modules/custom/module_b/module_b.services.yml::module_b.listener",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "file",
+      "name": "my_module.routing.yml",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml",
+      "start_line": 1,
+      "end_line": 43
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "/hello",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml::my_module.hello",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.hello",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.hello",
+      "start_line": 1,
+      "end_line": 1
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "/admin/config/my_module [GET,POST]",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml::my_module.settings",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.settings",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.settings",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "/thing/add",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml::my_module.entity_add",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.entity_add",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.entity_add",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "/admin/things",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml::my_module.entity_list",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.entity_list",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.entity_list",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "/thing/{thing}",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml::my_module.entity_view",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.entity_view",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.entity_view",
+      "start_line": 30,
+      "end_line": 30
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "/missing",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml::my_module.missing_method",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.missing_method",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.missing_method",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "route",
+      "name": "my_module.no_path",
+      "qualified_name": "web/modules/custom/my_module/my_module.routing.yml#my_module.no_path",
+      "start_line": 40,
+      "end_line": 40
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "file",
+      "name": "my_module.services.yml",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml",
+      "start_line": 1,
+      "end_line": 39
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.cleaner",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.cleaner",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.helper",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.helper",
+      "start_line": 7,
+      "end_line": 7
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.cleaner_alias",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.cleaner_alias",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.base",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.base",
+      "start_line": 14,
+      "end_line": 14
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.factory",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.factory",
+      "start_line": 16,
+      "end_line": 16
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.child",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.child",
+      "start_line": 18,
+      "end_line": 18
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.scalar_factory_child",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.scalar_factory_child",
+      "start_line": 21,
+      "end_line": 21
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.logger_factory",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.logger_factory",
+      "start_line": 23,
+      "end_line": 23
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.made",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.made",
+      "start_line": 25,
+      "end_line": 25
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.made_scalar",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.made_scalar",
+      "start_line": 27,
+      "end_line": 27
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.consumer",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.consumer",
+      "start_line": 29,
+      "end_line": 29
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.flow",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.flow",
+      "start_line": 33,
+      "end_line": 33
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "Drupal\\my_module\\Shorthand",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::Drupal\\my_module\\Shorthand",
+      "start_line": 34,
+      "end_line": 34
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "resource",
+      "name": "my_module.subscriber",
+      "qualified_name": "web/modules/custom/my_module/my_module.services.yml::my_module.subscriber",
+      "start_line": 35,
+      "end_line": 35
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "file",
+      "name": "HelloController.php",
+      "qualified_name": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "start_line": 1,
+      "end_line": 11
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "import",
+      "name": "Drupal\\Core\\Controller\\ControllerBase",
+      "qualified_name": "Drupal\\Core\\Controller\\ControllerBase",
+      "start_line": 4,
+      "end_line": 4
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "class",
+      "name": "HelloController",
+      "qualified_name": "HelloController",
+      "start_line": 6,
+      "end_line": 10
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "method",
+      "name": "build",
+      "qualified_name": "HelloController::build",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "kind": "file",
+      "name": "SettingsForm.php",
+      "qualified_name": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "start_line": 1,
+      "end_line": 9
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "kind": "class",
+      "name": "SettingsForm",
+      "qualified_name": "SettingsForm",
+      "start_line": 4,
+      "end_line": 8
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "kind": "method",
+      "name": "buildForm",
+      "qualified_name": "SettingsForm::buildForm",
+      "start_line": 5,
+      "end_line": 7
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "file",
+      "name": "Services.php",
+      "qualified_name": "web/modules/custom/my_module/src/Services.php",
+      "start_line": 1,
+      "end_line": 27
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "Cleaner",
+      "qualified_name": "Cleaner",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "Cleaner::run",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "Helper",
+      "qualified_name": "Helper",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "method",
+      "name": "run",
+      "qualified_name": "Helper::run",
+      "start_line": 9,
+      "end_line": 9
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "Base",
+      "qualified_name": "Base",
+      "start_line": 12,
+      "end_line": 12
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "FactoryService",
+      "qualified_name": "FactoryService",
+      "start_line": 14,
+      "end_line": 16
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "FactoryService::create",
+      "start_line": 15,
+      "end_line": 15
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "LoggerFactory",
+      "qualified_name": "LoggerFactory",
+      "start_line": 18,
+      "end_line": 20
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "method",
+      "name": "create",
+      "qualified_name": "LoggerFactory::create",
+      "start_line": 19,
+      "end_line": 19
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "Consumer",
+      "qualified_name": "Consumer",
+      "start_line": 22,
+      "end_line": 22
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "Shorthand",
+      "qualified_name": "Shorthand",
+      "start_line": 24,
+      "end_line": 24
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "class",
+      "name": "Subscriber",
+      "qualified_name": "Subscriber",
+      "start_line": 26,
+      "end_line": 26
+    }
+  ],
+  "edges": [
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::create",
+      "target_file": "app/controllers/UserController.java",
+      "line": null
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::list",
+      "target_file": "app/controllers/UserController.java",
+      "line": null
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "UserController",
+      "target_kind": "method",
+      "target": "UserController::show",
+      "target_file": "app/controllers/UserController.java",
+      "line": null
+    },
+    {
+      "file": "app/controllers/UserController.java",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "app/controllers/UserController.java",
+      "target_kind": "class",
+      "target": "UserController",
+      "target_file": "app/controllers/UserController.java",
+      "line": null
+    },
+    {
+      "file": "conf/routes",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "conf/routes::GET:/users",
+      "target_kind": "method",
+      "target": "UserController::list",
+      "target_file": "app/controllers/UserController.java",
+      "line": 2
+    },
+    {
+      "file": "conf/routes",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "conf/routes::GET:/users/:id",
+      "target_kind": "method",
+      "target": "UserController::show",
+      "target_file": "app/controllers/UserController.java",
+      "line": 3
+    },
+    {
+      "file": "conf/routes",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "conf/routes::POST:/users",
+      "target_kind": "method",
+      "target": "UserController::create",
+      "target_file": "app/controllers/UserController.java",
+      "line": 4
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "config/routes.yaml#blog_show",
+      "target_kind": "method",
+      "target": "BlogController::show",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 1
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "config/routes.yaml#blog_list",
+      "target_kind": "method",
+      "target": "BlogController::list",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 5
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "config/routes.yaml#blog_fallback",
+      "target_kind": "class",
+      "target": "BlogController",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 9
+    },
+    {
+      "file": "config/routes.yaml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "config/routes.yaml#noPath",
+      "target_kind": "method",
+      "target": "BlogController::list",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 13
+    },
+    {
+      "file": "config/routes/admin.yaml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "config/routes/admin.yaml#admin_dashboard",
+      "target_kind": "method",
+      "target": "BlogController::admin",
+      "target_file": "src/Controller/BlogController.php",
+      "line": 1
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "method",
+      "target": "BlogController::admin",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "method",
+      "target": "BlogController::list",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "BlogController",
+      "target_kind": "method",
+      "target": "BlogController::show",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "src/Controller/BlogController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "src/Controller/BlogController.php",
+      "target_kind": "class",
+      "target": "BlogController",
+      "target_file": "src/Controller/BlogController.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/module_b/module_b.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/module_b/module_b.services.yml::module_b.dispatcher",
+      "target_kind": "resource",
+      "target": "web/modules/custom/module_b/module_b.services.yml::service-tag:event_subscriber",
+      "target_file": "web/modules/custom/module_b/module_b.services.yml",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/module_b/module_b.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/module_b/module_b.services.yml::module_b.listener",
+      "target_kind": "resource",
+      "target": "web/modules/custom/module_b/module_b.services.yml::service-tag:event_subscriber",
+      "target_file": "web/modules/custom/module_b/module_b.services.yml",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "web/modules/custom/my_module/my_module.routing.yml#my_module.hello",
+      "target_kind": "method",
+      "target": "HelloController::build",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 1
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "web/modules/custom/my_module/my_module.routing.yml::my_module.hello",
+      "target_kind": "method",
+      "target": "HelloController::build",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 4
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "web/modules/custom/my_module/my_module.routing.yml::my_module.settings",
+      "target_kind": "class",
+      "target": "SettingsForm",
+      "target_file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "line": 12
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "web/modules/custom/my_module/my_module.routing.yml#my_module.missing_method",
+      "target_kind": "class",
+      "target": "HelloController",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 35
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "references",
+      "source_kind": "route",
+      "source": "web/modules/custom/my_module/my_module.routing.yml::my_module.missing_method",
+      "target_kind": "class",
+      "target": "HelloController",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 38
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.routing.yml",
+      "kind": "calls",
+      "source_kind": "route",
+      "source": "web/modules/custom/my_module/my_module.routing.yml#my_module.no_path",
+      "target_kind": "method",
+      "target": "HelloController::build",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 40
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.subscriber",
+      "target_kind": "resource",
+      "target": "web/modules/custom/module_b/module_b.services.yml::service-tag:event_subscriber",
+      "target_file": "web/modules/custom/module_b/module_b.services.yml",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.cleaner",
+      "target_kind": "class",
+      "target": "Cleaner",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 5
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.cleaner",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::my_module.helper",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 6
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.helper",
+      "target_kind": "class",
+      "target": "Helper",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 8
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.cleaner_alias",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::my_module.cleaner",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 13
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.base",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 15
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.factory",
+      "target_kind": "class",
+      "target": "FactoryService",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 17
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.child",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::my_module.base",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 19
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.child",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::my_module.factory",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 20
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.scalar_factory_child",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::my_module.factory",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 22
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.logger_factory",
+      "target_kind": "class",
+      "target": "LoggerFactory",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 24
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.made",
+      "target_kind": "class",
+      "target": "LoggerFactory",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 26
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.made_scalar",
+      "target_kind": "class",
+      "target": "LoggerFactory",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 28
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.consumer",
+      "target_kind": "class",
+      "target": "Consumer",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 30
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.consumer",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::my_module.logger_factory",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 32
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.flow",
+      "target_kind": "class",
+      "target": "Helper",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 33
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::Drupal\\my_module\\Shorthand",
+      "target_kind": "resource",
+      "target": "web/modules/custom/my_module/my_module.services.yml::Drupal\\my_module\\Shorthand",
+      "target_file": "web/modules/custom/my_module/my_module.services.yml",
+      "line": 34
+    },
+    {
+      "file": "web/modules/custom/my_module/my_module.services.yml",
+      "kind": "references",
+      "source_kind": "resource",
+      "source": "web/modules/custom/my_module/my_module.services.yml::my_module.subscriber",
+      "target_kind": "class",
+      "target": "Subscriber",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": 36
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "HelloController",
+      "target_kind": "method",
+      "target": "HelloController::build",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "target_kind": "import",
+      "target": "Drupal\\Core\\Controller\\ControllerBase",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "target_kind": "class",
+      "target": "HelloController",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "imports",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "target_kind": "import",
+      "target": "Drupal\\Core\\Controller\\ControllerBase",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 4
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "kind": "extends",
+      "source_kind": "class",
+      "source": "HelloController",
+      "target_kind": "import",
+      "target": "Drupal\\Core\\Controller\\ControllerBase",
+      "target_file": "web/modules/custom/my_module/src/Controller/HelloController.php",
+      "line": 6
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "SettingsForm",
+      "target_kind": "method",
+      "target": "SettingsForm::buildForm",
+      "target_file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "target_kind": "class",
+      "target": "SettingsForm",
+      "target_file": "web/modules/custom/my_module/src/Form/SettingsForm.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Cleaner",
+      "target_kind": "method",
+      "target": "Cleaner::run",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "FactoryService",
+      "target_kind": "method",
+      "target": "FactoryService::create",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "Helper",
+      "target_kind": "method",
+      "target": "Helper::run",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "class",
+      "source": "LoggerFactory",
+      "target_kind": "method",
+      "target": "LoggerFactory::create",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "Base",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "Cleaner",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "Consumer",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "FactoryService",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "Helper",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "LoggerFactory",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "Shorthand",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    },
+    {
+      "file": "web/modules/custom/my_module/src/Services.php",
+      "kind": "contains",
+      "source_kind": "file",
+      "source": "web/modules/custom/my_module/src/Services.php",
+      "target_kind": "class",
+      "target": "Subscriber",
+      "target_file": "web/modules/custom/my_module/src/Services.php",
+      "line": null
+    }
+  ],
+  "unresolved": []
+}

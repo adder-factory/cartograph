@@ -70,7 +70,7 @@ fn literal_test_names(source: &str) -> BTreeSet<String> {
             }
             quote @ (b'\'' | b'"' | b'`') => index = skip_quoted(bytes, index + 1, quote),
             byte if identifier_start(byte) => {
-                index = scan_test_identifier(source, bytes, index, &mut names);
+                index = scan_test_identifier(source, index, &mut names);
             }
             _ => index = index.saturating_add(1),
         }
@@ -78,12 +78,8 @@ fn literal_test_names(source: &str) -> BTreeSet<String> {
     names
 }
 
-fn scan_test_identifier(
-    source: &str,
-    bytes: &[u8],
-    start: usize,
-    names: &mut BTreeSet<String>,
-) -> usize {
+fn scan_test_identifier(source: &str, start: usize, names: &mut BTreeSet<String>) -> usize {
+    let bytes = source.as_bytes();
     let mut end = start.saturating_add(1);
     while bytes
         .get(end)
@@ -100,7 +96,14 @@ fn scan_test_identifier(
     let Some((title_start, title_end)) = invocation_title(bytes, end) else {
         return end;
     };
-    let title = clean_title(&source[title_start..title_end]);
+    let raw = &source[title_start..title_end];
+    if raw
+        .split_whitespace()
+        .any(crate::walk::specifier_safety::specifier_may_carry_credential)
+    {
+        return end;
+    }
+    let title = clean_title(raw);
     if !title.is_empty() {
         names.insert(bounded(&title, MAXIMUM_TEST_TITLE_BYTES));
     }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="com.acme.app.mapper.UserMapper">
+  <select id="find">SELECT * FROM users WHERE id = #{id}</select>
+  <update id="rename">UPDATE users SET name = #{name} WHERE id = #{id}</update>
+</mapper>

@@ -1,0 +1,6 @@
+<apex:page controller="ns.ReportController">
+    <apex:form>
+        <apex:commandButton action="{!run}" value="Run"/>
+        <apex:commandButton action="{!save}" value="Save"/>
+    </apex:form>
+</apex:page>

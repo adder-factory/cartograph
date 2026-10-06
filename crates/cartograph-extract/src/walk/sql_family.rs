@@ -16,6 +16,11 @@ use crate::{
 
 const MAX_SCAN_DEPTH: usize = 128;
 const MAX_RELATIONS_PER_DECLARATION: usize = 4_096;
+/// Statements whose bare `object_reference` child is the table a query writes
+/// or deletes from (`INSERT INTO t`, `DELETE FROM t`). `SELECT` and `UPDATE`
+/// wrap their tables in `relation` instead, and an invoked function's name is
+/// an `object_reference` under `invocation`, which is not a table.
+const TABLE_TARGET_PARENTS: [&str; 2] = ["insert", "from"];
 
 #[derive(Default)]
 struct ScanBudget {
@@ -75,11 +80,12 @@ struct RelationInput<'tree, 'reference> {
     kind: ReferenceKind,
 }
 
+/// One symbol scope pushed while its nested declarations and references are visited.
 #[derive(Clone, Copy)]
-struct OwnerScopeInput<'scope> {
-    owner: &'scope SymbolId,
-    kind: SymbolKind,
-    name: &'scope str,
+pub(super) struct OwnerScopeInput<'scope> {
+    pub(super) owner: &'scope SymbolId,
+    pub(super) kind: SymbolKind,
+    pub(super) name: &'scope str,
 }
 
 pub(super) fn visit_declaration(
@@ -201,6 +207,9 @@ fn emit_columns(
             continue;
         };
         let name = normalized_identifier(builder, name_node)?;
+        if super::specifier_safety::specifier_may_carry_credential(&name) {
+            continue;
+        }
         let type_node = column
             .child_by_field_name("type")
             .or_else(|| column.child_by_field_name("custom_type"));
@@ -319,8 +328,7 @@ fn scan_query_relations(
         seen,
     } = input;
     budget.visits.observe(builder, depth)?;
-    if node.kind() == "relation"
-        && let Some(reference) = direct_child(node, "object_reference")
+    if let Some(reference) = query_table_reference(node)
         && let Some(name) = qualified_name(builder, reference)?
     {
         let identity = name.to_ascii_lowercase();
@@ -353,6 +361,22 @@ fn scan_query_relations(
         )?;
     }
     Ok(())
+}
+
+/// The table a query node names: the reference inside a `relation`, or a
+/// write or delete target under one of [`TABLE_TARGET_PARENTS`].
+fn query_table_reference(node: Node<'_>) -> Option<Node<'_>> {
+    match node.kind() {
+        "relation" => direct_child(node, "object_reference"),
+        "object_reference"
+            if node
+                .parent()
+                .is_some_and(|parent| TABLE_TARGET_PARENTS.contains(&parent.kind())) =>
+        {
+            Some(node)
+        }
+        _ => None,
+    }
 }
 
 fn emit_function(
@@ -532,6 +556,7 @@ fn emit_enum_members(
         }
         let value = builder.context.owned_unquoted_text(element)?;
         if value.is_empty()
+            || super::specifier_safety::specifier_may_carry_credential(&value)
             || !declaration_value_is_search_safe(&value)
             || !seen.insert(value.clone())
         {
@@ -629,7 +654,7 @@ fn qualified_name(
         return if normalized.is_empty() {
             Ok(None)
         } else {
-            builder.context.copy_text(normalized).map(Some)
+            screened_qualified_name(builder, normalized)
         };
     }
     let mut parts = Vec::new();
@@ -654,7 +679,18 @@ fn qualified_name(
         }
         qualified.push_str(part);
     }
-    builder.context.copy_text(&qualified).map(Some)
+    screened_qualified_name(builder, &qualified)
+}
+
+/// Screen either normalized name form before retaining its owned text.
+fn screened_qualified_name(
+    builder: &ExtractionBuilder<'_, '_>,
+    value: &str,
+) -> Result<Option<String>, ExtractError> {
+    if super::specifier_safety::specifier_may_carry_credential(value) {
+        return Ok(None);
+    }
+    builder.context.copy_text(value).map(Some)
 }
 
 fn normalized_identifier(
@@ -735,7 +771,8 @@ fn emit_relation(
     })
 }
 
-fn with_owner<T>(
+/// Run `action` with `input` as the innermost owner, owner kind, and qualifier.
+pub(super) fn with_owner<T>(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: OwnerScopeInput<'_>,
     action: impl FnOnce(&mut ExtractionBuilder<'_, '_>) -> Result<T, ExtractError>,

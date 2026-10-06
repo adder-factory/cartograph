@@ -1829,7 +1829,7 @@ async fn run_graph_export_command(
 ) -> Result<ExitCode, String> {
     let runtime = open_runtime(&project_path).await?;
     let (project_id, freshness) = current_project(&runtime).await?;
-    require_freshness(freshness, false)?;
+    require_current(freshness)?;
     let output = graph_export::run_graph_export(
         runtime.database(),
         GraphExportRequest {
@@ -2555,6 +2555,10 @@ async fn current_project(runtime: &ProjectRuntime) -> Result<(ProjectId, IndexFr
     ))
 }
 
+/// Stale-index failure for a command that cannot be told to accept stale evidence.
+const STALE_WITHOUT_OVERRIDE_MESSAGE: &str =
+    "Cartograph index is stale; synchronize it with `cartograph index` and retry";
+
 fn require_freshness(freshness: IndexFreshness, allow_stale: bool) -> Result<(), String> {
     if freshness == IndexFreshness::Current || allow_stale {
         Ok(())
@@ -2565,6 +2569,15 @@ fn require_freshness(freshness: IndexFreshness, allow_stale: bool) -> Result<(),
 
 fn stale_index_message() -> String {
     "Cartograph index is stale; synchronize it or explicitly pass --allow-stale".to_owned()
+}
+
+/// Freshness gate for commands that offer no `--allow-stale` override.
+fn require_current(freshness: IndexFreshness) -> Result<(), String> {
+    if freshness == IndexFreshness::Current {
+        Ok(())
+    } else {
+        Err(STALE_WITHOUT_OVERRIDE_MESSAGE.to_owned())
+    }
 }
 
 fn traversal_request(arguments: TraversalArguments<'_>) -> Result<TraversalRequest, String> {
@@ -3051,6 +3064,22 @@ async fn run_mcp_server(arguments: McpServeArguments) -> Result<ExitCode, String
             .await
             .map_err(|error| error.to_string())?;
     }
+    let config = mcp_server_config(profile, disable_tool, read_only_mode)?;
+    let server = ProtocolServer::new(config, handler).map_err(|error| error.to_string())?;
+    server
+        .serve_stdio()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Stdio server configuration for the selected profile, after checking that every
+/// `--disable-tool` name is a registered tool.
+fn mcp_server_config(
+    profile: McpProfile,
+    disable_tool: Vec<String>,
+    read_only_mode: bool,
+) -> Result<ServerConfig, String> {
     let definitions =
         mcp_handler::tool_definitions().map_err(|_| "MCP tool contracts are invalid".to_owned())?;
     let registered = definitions
@@ -3063,7 +3092,7 @@ async fn run_mcp_server(arguments: McpServeArguments) -> Result<ExitCode, String
     {
         return Err(format!("--disable-tool names an unknown tool: {unknown}"));
     }
-    let config = ServerConfig::new(
+    ServerConfig::new(
         ServerMetadata::cartograph(),
         profile.into(),
         ServerLimits::default(),
@@ -3071,13 +3100,7 @@ async fn run_mcp_server(arguments: McpServeArguments) -> Result<ExitCode, String
     .with_instructions(MCP_SERVER_INSTRUCTIONS)
     .and_then(|config| config.with_disabled_tools(disable_tool))
     .map(|config| config.with_read_only_tools_only(read_only_mode))
-    .map_err(|error| error.to_string())?;
-    let server = ProtocolServer::new(config, handler).map_err(|error| error.to_string())?;
-    server
-        .serve_stdio()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(ExitCode::SUCCESS)
+    .map_err(|error| error.to_string())
 }
 
 async fn preflight_mcp_managed_database(project_path: &Path, port: u16) -> Result<(), String> {
@@ -6826,6 +6849,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn mcp_server_config_reports_the_first_unknown_disabled_tool() {
+        let result = mcp_server_config(
+            McpProfile::Core,
+            vec![
+                "cartograph_find".to_owned(),
+                "cartograph_missing_first".to_owned(),
+                "cartograph_missing_second".to_owned(),
+            ],
+            false,
+        );
+        assert_matches!(
+            result,
+            Err(error) if error == "--disable-tool names an unknown tool: cartograph_missing_first"
+        );
+        assert!(mcp_server_config(McpProfile::ReadOnly, Vec::new(), true).is_ok());
+        assert!(
+            mcp_server_config(McpProfile::Core, vec!["cartograph_find".to_owned()], false).is_ok()
+        );
+    }
+
     #[tokio::test]
     async fn local_print_config_accepts_an_explicit_managed_port() {
         let directory = tempfile::tempdir()
@@ -6848,6 +6892,17 @@ mod tests {
         .await;
 
         assert_matches!(result, Ok(code) if code == ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn stale_export_names_only_overrides_the_command_accepts() {
+        // `export` has no `--allow-stale`; its stale failure must not tell callers to pass one.
+        assert!(generated_cli::parse_from(["cartograph", "export", "--allow-stale"]).is_err());
+        let failure = require_current(IndexFreshness::Stale)
+            .err()
+            .unwrap_or_else(|| panic!("a stale index must fail the export gate"));
+        assert!(!failure.contains("--allow-stale"), "{failure}");
+        assert!(require_current(IndexFreshness::Current).is_ok());
     }
 
     #[test]

@@ -1,0 +1,7 @@
+{
+  "name": "objc-fixture",
+  "version": "1.0.0",
+  "dependencies": {
+    "react-native": "0.74.0"
+  }
+}

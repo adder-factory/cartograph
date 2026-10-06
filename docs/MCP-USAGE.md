@@ -3,13 +3,25 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-04 (`v2.1.39`).
+Last release audit: 2026-10-06 (`v2.1.40`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
 truth over the live checkout. The optional `cartograph_ask`, role, summary, and
-dead-code-judge branches can call configured LLM tiers; their model/evidence
-provenance, failure, and fallback states remain explicit.
+dead-code-judge branches, and the optional decision-tier (Jev) calls in
+`cartograph_explore`, `cartograph_context`, and `cartograph_propose_rename`
+(see [Optional Jev navigation](CONFIGURATION.md#optional-jev-navigation)), can
+call configured LLM tiers; their model/evidence provenance, failure, and
+fallback states remain explicit.
+
+**On this page:** [Fast path](#fast-path) · [Registration](#registration) ·
+[Auto-sync and admin jobs](#auto-sync-and-admin-job-reporting) ·
+[Profiles](#profiles) ·
+[Modern protocol](#modern-protocol-and-dynamic-tool-selection) ·
+[Selected high-use tools](#selected-high-use-tools) ·
+[Reliable agent loop](#reliable-agent-loop) ·
+[Transport contract](#transport-contract) ·
+[Modernization order](#modernization-order)
 
 ## Fast path
 
@@ -37,7 +49,7 @@ When the managed database uses a non-default loopback port, add
 command carries that port directly; no host-specific environment table is
 required.
 
-Manual server definition:
+### Manual server definition
 
 ```json
 {
@@ -56,8 +68,11 @@ Manual server definition:
 Omit the final two arguments when the project uses the default port `55432` or
 external PostgreSQL through `CARTOGRAPH_DATABASE_URL`.
 
-Restart the host after installation. An already-open host is not assumed to
-hot-reload an upgraded MCP process.
+### Restart and prove the transport
+
+> [!IMPORTANT]
+> Restart the host after installation. An already-open host is not assumed to
+> hot-reload an upgraded MCP process.
 
 `cartograph doctor --json` keeps on-disk registration and live MCP transport as
 separate readiness states. The CLI does not claim either one from a successful
@@ -65,93 +80,122 @@ database or generation check: inspect the project-local registration, restart
 the host when it changes, then make a fresh MCP status and real query call to
 prove the loaded transport.
 
+## Auto-sync and admin job reporting
+
+### Managed preflight and source catch-up
+
 Before serving, managed mode checks the owned image, HNSW shared-memory
 allocation, and explicit CPU/memory/process policy. An incompatible container
 fails with exact backup and confirmed upgrade commands. Source catch-up starts
-through the native watcher after the
-stdio server is ready, so modern `server/discover`/`tools/list` and the legacy
-`initialize` handshake do not wait for a full index; `autoSync` in
-`cartograph_status` exposes attempts, publications, no-ops, errors, stable
-stage-specific `lastErrorCode`, failure/retry times, unchanged-revision attempt
-count, retry suppression, cross-revision capacity-failure count, and the exact
-capacity limit/scope/next action. Persistent failures of unchanged revisions use bounded
-exponential backoff and stop after five automatic attempts until source changes.
-Concurrent edits (`source_changed_during_index` or `parse_source_changed`),
-another live lease owner, a writer still inside its prepare transaction, or a
-lock that keeps the read of the project's leases waiting past its bounded wait
-(`lease_busy`, normally detected before reserving a generation; a writer that
-wins after that check is refused at lease acquisition), and an undrained
-failed-generation backlog (`retention_backlog`) schedule recovery after 2–30
-seconds.
-They do not exhaust the persistent-failure circuit. A retry timer runs even
-when no new filesystem event arrives; it does not wait for the 30-second
-missed-event reconciliation. A lease the attempt could not establish, keep,
-or confirm (`lease_failed`: an acquisition that failed for a reason other than
-contention, or a lost or unconfirmed heartbeat) and database errors, including
-a read of the
-project's leases that fails for another reason (`status_failed`), retain their
-separate failure handling. When an attempt's own staging cleanup fails after
-another failure, `lastErrorCode` keeps the first failure's code and its retry
-policy, and the additive `lastCleanupFailureCode` reports
-`index_cleanup_failed`; it is omitted otherwise.
-Five generation-capacity failures trip a separate circuit that new source
-revisions cannot bypass; every automatic failure also attempts bounded cleanup
-of terminal failed generations. Adjust the reported capacity setting and run an
-explicit index to prove recovery and clear the circuit.
-When PostgreSQL is unavailable before a revision can be recovered, watcher
-events share an unknown-revision backoff bucket and retain a capped recovery
-probe rather than retrying every event or becoming permanently suppressed.
-`--no-startup-sync` suppresses only the initial reconciliation.
-`--no-auto-sync` disables both native watching and periodic reconciliation for
-an operator-controlled recovery host while leaving explicit MCP/CLI operations
-available.
+through the native watcher after the stdio server is ready, so modern
+`server/discover`/`tools/list` and the legacy `initialize` handshake do not wait
+for a full index.
 
-A non-recoverable file-local admin index failure retains one `fileFailure` object with the
-normalized project-relative `path`, fixed `reason`, and credential-safe
-`description`. The terminal job still exposes its stable failure category and
-the previous published generation remains untouched. Absolute checkout paths,
-source/parser text, literals, database URLs, and driver messages are not part of
-the MCP result.
+`autoSync` in `cartograph_status` exposes:
 
-When an `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` admin
-job fails and the bounded cleanup of its own staging generation also fails
-(for `scip-import`, the staging generation of its forced index), its terminal
-status adds an optional `cleanupFailure` object with
-`code: index_cleanup_failed` and `message`, the same object direct
-`index --format json` reports as `cleanup_failure`. It never replaces `failure`,
-which stays the failure that ended the job. A cancelled job has no `failure`;
-like a cancelled direct index, it adds `cleanupFailure` unless PostgreSQL
-confirms that no generation it reserved is still `staging` or `ready` and that
-its lease names none of them. A generation left `staging` is terminalized by the
-next index's staging preflight.
+- attempts, publications, no-ops, and errors;
+- stable stage-specific `lastErrorCode`;
+- failure/retry times;
+- unchanged-revision attempt count and retry suppression;
+- cross-revision capacity-failure count;
+- the exact capacity limit/scope/next action;
+- the additive `lastCleanupFailureCode` (see below).
 
-A `scip-import` job whose forced index fails or is cancelled restores the
-project's previous SCIP overlay. When that restore fails too, its terminal
-status adds an optional `overlayRollbackFailure` object of the same shape, with
-`code: scip_overlay_rollback_failed` and `message`. It sits beside `failure`, or
-the cancellation, and any `cleanupFailure`, and replaces none of them; a
-cancelled import still gets the PostgreSQL cleanup check above. Nothing retries
-the restore: `.cartograph/scip/overlay.scip` may still hold the requested
-artifact, which the next index, including an automatic one, would use.
+### Automatic retry policy
 
-An invalid parser-recovery span or parser stop without cancellation is a
-successful partial-file outcome with `extraction_invalid_span` or
-`extraction_parser_stopped` in the bounded degraded-file report. A terminal
-generation-capacity failure includes additive `failureDetail` guidance naming
-`maxGenerationBytes`, its `cartograph_process` scope, and the next action.
+| Outcome | Code | Handling |
+| --- | --- | --- |
+| Persistent failure of an unchanged revision | — | Bounded exponential backoff; stops after five automatic attempts until source changes |
+| Concurrent edits | `source_changed_during_index` or `parse_source_changed` | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
+| Another live lease owner, a writer still inside its prepare transaction, or a lock that keeps the read of the project's leases waiting past its bounded wait | `lease_busy`, normally detected before reserving a generation; a writer that wins after that check is refused at lease acquisition | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
+| An undrained failed-generation backlog | `retention_backlog` | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
+| A lease the attempt could not establish, keep, or confirm: an acquisition that failed for a reason other than contention, or a lost or unconfirmed heartbeat | `lease_failed` | Retains its separate failure handling |
+| Database errors, including a read of the project's leases that fails for another reason | `status_failed` for that lease read | Retain their separate failure handling |
+| Generation-capacity failure | — | Five trip a separate circuit that new source revisions cannot bypass; adjust the reported capacity setting and run an explicit index to prove recovery and clear the circuit |
+| PostgreSQL unavailable before a revision can be recovered | — | Watcher events share an unknown-revision backoff bucket and retain a capped recovery probe rather than retrying every event or becoming permanently suppressed |
+
+- A retry timer runs even when no new filesystem event arrives; it does not wait
+  for the 30-second missed-event reconciliation.
+- Every automatic failure also attempts bounded cleanup of terminal failed
+  generations.
+- When an attempt's own staging cleanup fails after another failure,
+  `lastErrorCode` keeps the first failure's code and its retry policy, and the
+  additive `lastCleanupFailureCode` reports `index_cleanup_failed`; it is
+  omitted otherwise.
+
+### Watcher timing and sync flags
 
 Watcher events use a 750 ms quiet window with a default two-second hard
 coalescing deadline, then call the indexer's own manifest/no-op fence directly.
 Automatic attempts cap native extraction at four workers and omit independent
 Git-history enrichment; explicit indexing refreshes those auxiliary channels.
 
+| `serve` flag | Effect |
+| --- | --- |
+| `--no-startup-sync` | Suppresses only the initial reconciliation |
+| `--no-auto-sync` | Disables both native watching and periodic reconciliation for an operator-controlled recovery host while leaving explicit MCP/CLI operations available |
+
+### Admin index job failures
+
+A failed admin job's terminal status keeps the failure that ended it in
+`failure`. Additive objects sit beside it:
+
+| Object | When it appears | Contents |
+| --- | --- | --- |
+| `fileFailure` | A non-recoverable file-local admin index failure; the terminal job still exposes its stable failure category and the previous published generation remains untouched | The normalized project-relative `path`, fixed `reason`, and credential-safe `description` |
+| `cleanupFailure` | An `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` job failed and the bounded cleanup of its own staging generation also failed, or a cancelled job's cleanup was not confirmed by PostgreSQL (see details) | `code: index_cleanup_failed` and `message` |
+| `overlayRollbackFailure` | A `scip-import` job's forced index failed or was cancelled and restoring the previous SCIP overlay failed too | `code: scip_overlay_rollback_failed` and `message` |
+| `failureDetail` | A terminal generation-capacity failure | Guidance naming `maxGenerationBytes`, its `cartograph_process` scope, and the next action |
+
+Absolute checkout paths, source/parser text, literals, database URLs, and driver
+messages are not part of the MCP result. An invalid parser-recovery span or
+parser stop without cancellation is a successful partial-file outcome with
+`extraction_invalid_span` or `extraction_parser_stopped` in the bounded
+degraded-file report.
+
+<details>
+<summary>Details: cleanup failures and cancelled jobs</summary>
+
+When an `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` admin
+job fails and the bounded cleanup of its own staging generation also fails (for
+`scip-import`, the staging generation of its forced index), its terminal status
+adds an optional `cleanupFailure` object with `code: index_cleanup_failed` and
+`message`, the same object direct `index --format json` reports as
+`cleanup_failure`. It never replaces `failure`, which stays the failure that
+ended the job. A cancelled job has no `failure`; like a cancelled direct index,
+it adds `cleanupFailure` unless PostgreSQL confirms that no generation it
+reserved is still `staging` or `ready` and that its lease names none of them. A
+generation left `staging` is terminalized by the next index's staging preflight.
+
+</details>
+
+> [!WARNING]
+> A `scip-import` job whose forced index fails or is cancelled restores the
+> project's previous SCIP overlay. When that restore fails too, its terminal
+> status adds an optional `overlayRollbackFailure` object of the same shape,
+> with `code: scip_overlay_rollback_failed` and `message`. It sits beside
+> `failure`, or the cancellation, and any `cleanupFailure`, and replaces none of
+> them; a cancelled import still gets the PostgreSQL cleanup check above.
+> Nothing retries the restore: `.cartograph/scip/overlay.scip` may still hold
+> the requested artifact, which the next index, including an automatic one,
+> would use.
+
 ## Profiles
 
-- `coding`: lean retrieval, source, graph, test-selection, and review loop;
-- `core`: normal coding tools plus explicit bounded administration;
-- `full`: every advertised tool, including bounded administration;
-- `read-only`: retrieval without write/admin operations;
-- `review`: comparison and verification-oriented surface.
+Select a profile with `cartograph serve --mcp --profile <PROFILE>`; `core` is
+the default. Only `cartograph_admin` is profile-restricted; every other tool
+belongs to all five profiles.
+
+| Profile | Advertised tools | Intended use |
+| --- | --- | --- |
+| `full` | All 36, including `cartograph_admin` | Every advertised tool, including bounded administration |
+| `core` (default) | All 36, including `cartograph_admin` | Normal coding tools plus explicit bounded administration |
+| `coding` | The 35 tools other than `cartograph_admin` | Lean retrieval, source, graph, test-selection, and review loop |
+| `review` | The 35 tools other than `cartograph_admin` | Comparison and verification-oriented surface |
+| `read-only` | The 35 tools other than `cartograph_admin` | Retrieval without write/admin operations: `serve` additionally refuses every mutating call branch |
+
+`serve --no-write-tools` applies the same read-only call enforcement under any
+profile.
 
 Profiles are immutable authorization ceilings for one server process. Tool
 lists are deterministic, and a tool hidden by the selected profile or an exact
@@ -199,11 +243,13 @@ for all 36 wire contracts and their CLI families.
 | `cartograph_at_range` | Exact symbols overlapping one source range or diff hunk |
 | `cartograph_node` | Exact symbol metadata and bounded source only when indexed line provenance is fresh; batches retain partial results and identify unresolved or ambiguous inputs |
 | `cartograph_graph` | Bounded callers/callees/impact, exact edge filters, shortest paths, or model-scoped pgvector symbol neighbors |
-| `cartograph_affected` | Structurally connected test candidates; file and symbol modes both enforce `maxDepth`, `maxNodes`, and result limits, and file mode reports `impact.nodesTruncated` when its traversal budget is reached |
+| `cartograph_affected` | Structurally connected test candidates; file and symbol modes both enforce `depth`, `maxNodes`, and `limit`, and file mode reports `impact.nodesTruncated` when its traversal budget is reached |
 | `cartograph_numerical` | Generation-scoped static numerical sites, coverage, explanation, and non-executing probe plans with explicit evidence levels and unknowns |
 | `cartograph_review` | Git-ref plus committed/staged/unstaged/untracked review packet |
 | `cartograph_playbook` | Complete agent workflow, tool-routing map, evidence discipline, and anti-patterns |
 | `cartograph_admin` | Start, inspect, or cancel bounded lifecycle, index, semantic, model, and SCIP interchange work |
+
+### Graph traversal fields
 
 Graph `via.from_symbol_id` and `via.to_symbol_id` describe traversal order:
 the preceding and discovered symbols. `via.edge_source_symbol_id` and
@@ -212,37 +258,59 @@ For `A calls B`, an incoming traversal from B discovers A while retaining
 edge source A and edge target B. These endpoint fields also appear in Jev
 navigation graph results.
 
+### Numerical analysis
+
 `cartograph_numerical` currently uses the `rust_ast_v1` static analyzer for
-parsed or partial Rust files. `sites` returns exact source spans and bounded
-categories without persisting expressions or literal values; `coverage`
-separates supported, analyzed, skipped/failed, and site-bearing files;
-`explain` can attach graph-selected tests for one exact owner; and `plan`
-returns probe steps without executing project code. Static `heuristic`, future
-runtime observation, and formal-proof evidence remain separate. Observation
-and formal adapters currently report `not_configured`, and stale generations
-report `stale_static_evidence` even when stale reads are explicitly allowed.
+parsed or partial Rust files.
+
+| Mode | Returns |
+| --- | --- |
+| `sites` | Exact source spans and bounded categories without persisting expressions or literal values |
+| `coverage` | Supported, analyzed, skipped/failed, and site-bearing files, separately |
+| `explain` | Can attach graph-selected tests for one exact owner |
+| `plan` | Probe steps without executing project code |
+
+Static `heuristic`, future runtime observation, and formal-proof evidence remain
+separate. Observation and formal adapters currently report `not_configured`, and
+stale generations report `stale_static_evidence` even when stale reads are
+explicitly allowed.
+
+### Review lenses and context mode
 
 `cartograph_review` risk mode binds every lens to the current generation and
 returns a `lensStatus` for findings, hotspots, dead-code candidates, and
 coverage. Each lens is independently bounded and reports `ready`, `timeout`, or
 `unavailable` with stage, limit, and retry guidance. Counts derived from the
 returned window are labeled `returned_rows_only`; partial non-Git or large
-project evidence is never presented as a complete scan.
-The structural-findings lens additionally reports `not_computed` with the
-explicit refresh action when its exact relation is absent; an empty result is
-therefore never mislabeled as a clean ready lens.
+project evidence is never presented as a complete scan. The structural-findings
+lens additionally reports `not_computed` with the explicit refresh action when
+its exact relation is absent; an empty result is therefore never mislabeled as
+a clean ready lens.
 
-`cartograph_biomarkers` is read-only. When the current fingerprint has no
-stored complete relation it returns `state: not_computed`, `findings: []`, and
-the exact confirmed refresh action without starting detector computation.
-`cartograph_status` preserves the rest of its payload in that state and reports
-an empty inline rollup with `biomarkerRollupState: not_computed`. The
-`cartograph_admin` `biomarkers-refresh` action is dry-run-first; execution
-requires `dryRun: false`, `confirm: true`, and optionally accepts
-`databaseQueryTimeoutMs` from 1 through 1800000 as the exact inner PostgreSQL
-statement timeout. `timeoutMs` remains an exclusive legacy alias. Results name
-the effective timeout and its source; the MCP client deadline must be longer
-than that database deadline.
+`cartograph_review` context mode accepts the shared `pathFilter` and
+`allowStale` fields advertised by its schema:
+
+- `pathFilter` is a validated project-relative segment prefix for both live Git
+  comparison and supplied-diff evidence; sibling prefixes do not match.
+- `allowStale` is a compatibility no-op in context mode because the Git review
+  packet already reports immutable graph freshness separately, while non-Git
+  review lenses continue to use it as an explicit stale-evidence opt-in.
+
+### Biomarkers
+
+- `cartograph_biomarkers` is read-only. When the current fingerprint has no
+  stored complete relation it returns `state: not_computed`, `findings: []`, and
+  the exact confirmed refresh action without starting detector computation.
+- `cartograph_status` preserves the rest of its payload in that state and
+  reports an empty inline rollup with `biomarkerRollupState: not_computed`.
+- The `cartograph_admin` `biomarkers-refresh` action is dry-run-first; execution
+  requires `dryRun: false`, `confirm: true`, and optionally accepts
+  `databaseQueryTimeoutMs` from 1 through 1800000 as the exact inner PostgreSQL
+  statement timeout. `timeoutMs` remains an exclusive legacy alias.
+- Results name the effective timeout and its source; the MCP client deadline
+  must be longer than that database deadline.
+
+### Dead code and digest
 
 `cartograph_dead_code` materializes its deterministic, exempted
 `maxCandidates` orphan window before bounded edge/source enrichment. A database
@@ -251,13 +319,7 @@ isolates all five concurrent sections: `sectionStatus` records `ready`,
 `timeout`, or `unavailable`, safe fallback values replace only failed sections,
 and `degraded` states whether any section was incomplete.
 
-`cartograph_review` context mode accepts the shared `pathFilter` and
-`allowStale` fields advertised by its schema. `pathFilter` is a validated
-project-relative segment prefix for both live Git comparison and supplied-diff
-evidence; sibling prefixes do not match. `allowStale` is a compatibility no-op
-in context mode because the Git review packet already reports immutable graph
-freshness separately, while non-Git review lenses continue to use it as an
-explicit stale-evidence opt-in.
+### Find content mode
 
 `cartograph_find` content mode treats `query` as a bounded Rust regular
 expression. Its optional `pathFilter` is a case-sensitive literal substring of
@@ -267,11 +329,15 @@ fragment therefore scopes the scanned inventory directly. Invalid expressions
 return a safe parser category and zero-based byte offset without echoing the
 query text.
 
+### Node batches
+
 `cartograph_node` accepts either one `symbol` or a batch of up to 20 exact
 `symbols`. A batch preserves every resolvable result, lists missing inputs in
 `unresolved`, and lists each ambiguous input in `ambiguous` with up to ten
 candidate identities and an explicit `truncated` flag. A single-symbol request
 continues to fail closed when its name is ambiguous.
+
+### Context intents, Jev ranking, and the live overlay
 
 `cartograph_context` classifies deterministic task intents such as symbol
 lookup, implementation trace, change planning, test selection, error diagnosis,
@@ -313,10 +379,11 @@ The modern discovery result and legacy initialize response contain the compact
 version of this loop. Call `cartograph_playbook` for the complete on-demand
 guide, or run `cartograph guide` outside MCP.
 
-Always preserve generation ID, freshness, confidence, abstention, component
-ranks, coarse reference precision, multiplicity, truncation, and overlay status
-in downstream reasoning. A candidate is evidence to inspect, not proof that a
-change is correct.
+> [!IMPORTANT]
+> Always preserve generation ID, freshness, confidence, abstention, component
+> ranks, coarse reference precision, multiplicity, truncation, and overlay
+> status in downstream reasoning. A candidate is evidence to inspect, not proof
+> that a change is correct.
 
 ## Transport contract
 
@@ -332,18 +399,42 @@ text to stdout. It enforces:
 - dual-era modern per-request metadata and legacy initialization;
 - modern private TTL caching without connection-dependent tool mutation.
 
-Do not retry by removing bounds or wrapping the server with an unbounded queue.
-For long index work, use `cartograph_admin` to start a job and poll status; cancel
-explicitly when the host/user abandons it. While an index job is running, its
-job view includes a live `progress` packet with the current stage, monotonic
-completed items/bytes, heartbeat count, progress-idle time, completed-stage
-timings, total elapsed time, and cancellation state. These counters expose
-actual work without source paths, source text, SQL, or database settings.
+> [!WARNING]
+> Do not retry by removing bounds or wrapping the server with an unbounded
+> queue.
 
-Retention attached to a successful index can be independently deferred with
-`reason: "project_busy"`, `retryable: true`, `unlockApplicable: false`, and a
-wait-and-retry `nextAction`. `admin unlock` removes expired leases only; it
-does not retroactively clear that historical outcome or steal a live writer.
+### Long-running admin jobs
+
+For long index work, use `cartograph_admin` to start a job and poll status;
+cancel explicitly when the host/user abandons it. While an index job is running,
+its job view includes a live `progress` packet with:
+
+- the current stage;
+- monotonic completed items/bytes;
+- heartbeat count and progress-idle time;
+- completed-stage timings and total elapsed time;
+- cancellation state.
+
+These counters expose actual work without source paths, source text, SQL, or
+database settings.
+
+### Deferred retention
+
+Retention attached to a successful index (its `retention` object) can be
+independently deferred:
+
+| Field | Value |
+| --- | --- |
+| `state` | `"deferred"` |
+| `reason` | `"project_busy"` |
+| `retryable` | `true` |
+| `unlock_applicable` | `false` |
+| `next_action` | A wait-and-retry action |
+
+`admin unlock` removes expired leases only; it does not retroactively clear that
+historical outcome or steal a live writer.
+
+### SCIP interchange jobs
 
 SCIP interchange is also job-based. Use `action: "scip-export"` with a
 project-relative `out`, or `action: "scip-import"` with a project-relative
@@ -351,6 +442,8 @@ project-relative `out`, or `action: "scip-import"` with a project-relative
 the SCIP artifact does not cover, and reports exact typed-edge versus unresolved
 foreign-link counts. The browser visualizer is intentionally absent; graph and
 interchange data remain available to agents.
+
+### When the transport closes
 
 If the MCP transport closes, report that limitation and use the equivalent
 native CLI as a control path. CLI success alone does not prove the host's MCP

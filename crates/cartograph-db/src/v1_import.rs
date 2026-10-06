@@ -953,22 +953,7 @@ async fn execute_active_import<Observe>(
 where
     Observe: FnMut(V1PostgresImportCheckpoint) -> bool,
 {
-    let target = LeaseTarget::new(
-        invocation.active.initialized.project_id.clone(),
-        ProjectOperation::Migration,
-        Some(invocation.active.initialized.run.generation_id.clone()),
-    );
-    let mut lease = database
-        .acquire_lease_bounded(
-            LeaseRequest::new(
-                target,
-                invocation.request.execution.owner.clone(),
-                invocation.request.execution.lease_duration,
-            ),
-            invocation.request.execution.statement_timeout,
-        )
-        .await
-        .map_err(|_| database_error("acquire-migration-lease"))?;
+    let mut lease = acquire_import_lease(database, &invocation).await?;
     let fence = lease.fence();
     let candidate = prepare_import_for_publication(
         &mut LeasedImportContext {
@@ -995,34 +980,16 @@ where
             .await;
         }
     };
-    if let Err(error) = database
-        .publish_generation_bounded(
-            candidate.ready,
-            TerminalGenerationMutation::new(&fence, invocation.request.execution.statement_timeout),
-        )
-        .await
-    {
-        let (_, storage_error) = error.into_parts();
-        if matches!(storage_error, crate::StorageError::StaleGeneration { .. }) {
-            database
-                .fail_generation_and_release_bounded(TerminalGenerationMutation::new(
-                    &fence,
-                    invocation.request.execution.statement_timeout,
-                ))
-                .await
-                .map_err(|error| storage_mutation_error(&error, "recover-stale-import"))?;
-            return Err(V1PostgresImportError::ConcurrentPublication);
-        }
-        return release_and_error(
-            database,
-            LeaseReleaseFailure {
-                lease: &lease,
-                statement_timeout: invocation.request.execution.statement_timeout,
-                error: storage_mutation_error(&storage_error, "publish-generation"),
-            },
-        )
-        .await;
-    }
+    publish_import_generation(
+        database,
+        ImportPublication {
+            ready: candidate.ready,
+            lease: &lease,
+            fence: &fence,
+            statement_timeout: invocation.request.execution.statement_timeout,
+        },
+    )
+    .await?;
     append_checkpoint(
         database,
         CheckpointAdvance {
@@ -1041,6 +1008,83 @@ where
         report: &invocation.active.initialized.analysis.report,
         resumed: invocation.active.initialized.run.resumed,
     }))
+}
+
+/// Acquire the bounded migration lease that fences this import's exact staging generation.
+async fn acquire_import_lease(
+    database: &CartographDatabase,
+    invocation: &ActiveImportInvocation<'_>,
+) -> Result<crate::ProjectLease, V1PostgresImportError> {
+    let target = LeaseTarget::new(
+        invocation.active.initialized.project_id.clone(),
+        ProjectOperation::Migration,
+        Some(invocation.active.initialized.run.generation_id.clone()),
+    );
+    database
+        .acquire_lease_bounded(
+            LeaseRequest::new(
+                target,
+                invocation.request.execution.owner.clone(),
+                invocation.request.execution.lease_duration,
+            ),
+            invocation.request.execution.statement_timeout,
+        )
+        .await
+        .map_err(|_| database_error("acquire-migration-lease"))
+}
+
+/// One prepared import generation and the exact lease that may publish it.
+struct ImportPublication<'a> {
+    ready: crate::ReadyGeneration,
+    lease: &'a crate::ProjectLease,
+    fence: &'a crate::LeaseFence,
+    statement_timeout: Duration,
+}
+
+/// Atomically publish one prepared import generation under its exact fence.
+///
+/// A stale generation means a concurrent writer won: the import generation is
+/// failed and released and the import reports the concurrent publication. Any
+/// other failure releases the lease and reports the storage error.
+async fn publish_import_generation(
+    database: &CartographDatabase,
+    publication: ImportPublication<'_>,
+) -> Result<(), V1PostgresImportError> {
+    let ImportPublication {
+        ready,
+        lease,
+        fence,
+        statement_timeout,
+    } = publication;
+    let Err(error) = database
+        .publish_generation_bounded(
+            ready,
+            TerminalGenerationMutation::new(fence, statement_timeout),
+        )
+        .await
+    else {
+        return Ok(());
+    };
+    let (_, storage_error) = error.into_parts();
+    if matches!(storage_error, crate::StorageError::StaleGeneration { .. }) {
+        database
+            .fail_generation_and_release_bounded(TerminalGenerationMutation::new(
+                fence,
+                statement_timeout,
+            ))
+            .await
+            .map_err(|error| storage_mutation_error(&error, "recover-stale-import"))?;
+        return Err(V1PostgresImportError::ConcurrentPublication);
+    }
+    release_and_error(
+        database,
+        LeaseReleaseFailure {
+            lease,
+            statement_timeout,
+            error: storage_mutation_error(&storage_error, "publish-generation"),
+        },
+    )
+    .await
 }
 
 async fn prepare_import_for_publication<Observe>(

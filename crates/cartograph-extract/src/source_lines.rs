@@ -38,6 +38,16 @@ impl LineMap {
             .map_err(|_| ExtractError::InvalidSpan)
     }
 
+    /// Zero-based row and byte column of one byte offset, as a parser point.
+    pub(crate) fn point(&self, byte: usize) -> tree_sitter::Point {
+        let line_index = self
+            .starts
+            .partition_point(|start| *start <= byte)
+            .saturating_sub(1);
+        let line_start = self.starts.get(line_index).copied().unwrap_or_default();
+        tree_sitter::Point::new(line_index, byte.saturating_sub(line_start))
+    }
+
     fn position(&self, byte: usize) -> Result<SourcePosition, ExtractError> {
         let line_index = self.starts.partition_point(|start| *start <= byte) - 1;
         SourcePosition::new(
