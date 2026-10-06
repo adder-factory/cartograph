@@ -1,6 +1,7 @@
+mod bridge_transaction;
 mod owner_index;
 
-use owner_index::{OWNER_INDEX_ENTRY_BYTES, SourceOwnerIndex};
+use bridge_transaction::BridgeTransaction;
 
 use std::collections::{BTreeMap, BTreeSet};
 use tree_sitter::Node;
@@ -13,19 +14,13 @@ use cartograph_domain::{
 use crate::{
     Containment, ExtractError, ExtractedFile, ExtractedReference, ExtractedSymbol, SourceSnapshot,
     SymbolExecutionFlags, SymbolExportFlags, SymbolImplementationFlags,
-    budget::{
-        ExtractionBudget, containment_budget_bytes, diagnostic_budget_bytes,
-        import_binding_budget_bytes, reference_budget_bytes, symbol_budget_bytes,
-    },
+    budget::{containment_budget_bytes, reference_budget_bytes, symbol_budget_bytes},
     source_lines::{LineMap, SourceByteRange, physical_lines},
 };
 
 const FRAMEWORK_SYMBOL_DOMAIN: &str = "cartograph.v2.framework-symbol.2026-07-24";
 const FRAMEWORK_DIGEST_DOMAIN: &str = "cartograph.v2.framework-digest.2026-07-24";
 const LANDMARK_SITE_INDEX_ENTRY_BYTES: u64 = 128;
-const MAX_BRIDGE_SOURCE_PASSES: usize = 32;
-const REFERENCE_INDEX_ENTRY_BYTES: u64 = 16;
-const REFERENCE_REFINEMENT_ENTRY_BYTES: u64 = 64;
 const CANCELLATION_INTERVAL_FRAMEWORK_ITEMS: usize = 256;
 type ReferenceSite = (Option<SymbolId>, ReferenceKind, String, u64, u64);
 const MAX_ROUTE_BYTES: usize = 1_024;
@@ -112,17 +107,11 @@ pub(crate) fn enrich(
 pub(crate) struct FrameworkBuilder<'source, 'cancel> {
     snapshot: &'source SourceSnapshot,
     root: Option<Node<'source>>,
-    file: ExtractedFile,
-    cancelled: &'cancel mut dyn FnMut() -> bool,
-    budget: ExtractionBudget,
+    pub(crate) bridge: BridgeTransaction<'cancel>,
     lines: LineMap,
-    original_symbols: usize,
-    original_ownership: Option<SourceOwnerIndex>,
-    bridge_work: usize,
     landmark_sites: BTreeSet<(SymbolKind, String, usize, usize)>,
     symbol_keys: BTreeSet<(SymbolKind, String)>,
     reference_keys: BTreeMap<ReferenceSite, usize>,
-    reference_refinements: Vec<(usize, Option<String>)>,
     ordinals: BTreeMap<(SymbolKind, String), u64>,
     /// `@Value(...)` argument ranges and the declarations they decorate,
     /// sorted by start; recorded by the Spring scanner before config scanning.
@@ -388,9 +377,10 @@ fn add_landmark_containment(
         child: id.clone(),
     };
     builder
+        .bridge
         .budget
         .reserve_fact(containment_budget_bytes(&containment), std::iter::empty())?;
-    builder.file.containments.push(containment);
+    builder.bridge.file.containments.push(containment);
     Ok(())
 }
 
@@ -404,82 +394,29 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             file,
             root,
         } = input;
-        let mut budget = ExtractionBudget::new(snapshot)?;
-        for symbol in &file.symbols {
-            budget.reserve_fact(
-                symbol_budget_bytes(symbol),
-                [
-                    symbol.name.as_str(),
-                    symbol.qualified_name.as_str(),
-                    symbol.signature.as_deref().unwrap_or(""),
-                    symbol.docstring.as_deref().unwrap_or(""),
-                    symbol.body_search_text.as_str(),
-                ],
-            )?;
-        }
-        for containment in &file.containments {
-            budget.reserve_fact(containment_budget_bytes(containment), std::iter::empty())?;
-        }
-        for reference in &file.references {
-            budget.reserve_fact(
-                reference_budget_bytes(reference),
-                [
-                    reference.name.as_str(),
-                    reference.resolution_name.as_deref().unwrap_or(""),
-                ],
-            )?;
-        }
-        for binding in &file.import_bindings {
-            budget.reserve_fact(
-                import_binding_budget_bytes(binding),
-                [
-                    binding.module_specifier.as_str(),
-                    binding.imported_name.as_str(),
-                    binding.local_name.as_str(),
-                ],
-            )?;
-        }
-        for _ in &file.diagnostics {
-            budget.reserve_fact(diagnostic_budget_bytes(), std::iter::empty())?;
-        }
-        let original_symbols = file.symbols.len();
-        let bridge_work = snapshot
-            .source()
-            .len()
-            .saturating_mul(MAX_BRIDGE_SOURCE_PASSES)
-            .saturating_add(original_symbols)
-            .saturating_add(file.references.len());
-        let symbol_keys = file
+        let bridge = BridgeTransaction::new(snapshot, file, cancelled)?;
+        let symbol_keys = bridge
+            .file
             .symbols
             .iter()
             .map(|symbol| (symbol.kind, symbol.qualified_name.clone()))
             .collect();
-        let reference_keys = index_reference_sites(&file, cancelled)?;
+        let reference_keys = index_reference_sites(&bridge.file, bridge.cancelled)?;
         Ok(Self {
             snapshot,
             root,
-            file,
-            cancelled,
-            budget,
+            bridge,
             lines: LineMap::new(snapshot.source())?,
-            original_symbols,
-            original_ownership: None,
-            bridge_work,
             landmark_sites: BTreeSet::new(),
             symbol_keys,
             reference_keys,
-            reference_refinements: Vec::new(),
             ordinals: BTreeMap::new(),
             value_annotations: Vec::new(),
         })
     }
 
     pub(crate) fn check_cancelled(&mut self) -> Result<(), ExtractError> {
-        if (self.cancelled)() {
-            Err(ExtractError::Cancelled)
-        } else {
-            Ok(())
-        }
+        self.bridge.check_cancelled()
     }
 
     pub(crate) fn source(&self) -> &'source str {
@@ -495,13 +432,13 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
     }
 
     pub(crate) fn original_symbol(&self, index: usize) -> Option<&ExtractedSymbol> {
-        (index < self.original_symbols)
-            .then(|| self.file.symbols.get(index))
+        (index < self.bridge.original_symbols)
+            .then(|| self.bridge.file.symbols.get(index))
             .flatten()
     }
 
     pub(crate) const fn original_symbol_count(&self) -> usize {
-        self.original_symbols
+        self.bridge.original_symbols
     }
 
     pub(crate) fn syntax_root(&self) -> Option<Node<'source>> {
@@ -509,71 +446,12 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
     }
 
     pub(crate) fn containments(&self) -> &[Containment] {
-        &self.file.containments
-    }
-
-    pub(crate) fn reserve_working_bytes(&mut self, bytes: u64) -> Result<(), ExtractError> {
-        self.budget.reserve_working_bytes(bytes)
-    }
-
-    pub(crate) fn index_bridge_owners(&mut self) -> Result<(), ExtractError> {
-        let count = self.original_symbols;
-        let work = count.saturating_mul(
-            usize::try_from(count.max(1).ilog2())
-                .unwrap_or(usize::MAX)
-                .saturating_add(1),
-        );
-        self.charge_bridge_work(work.saturating_add(self.file.references.len()))?;
-        let bytes = count.saturating_mul(OWNER_INDEX_ENTRY_BYTES);
-        self.reserve_working_bytes(u64::try_from(bytes).map_err(|_| ExtractError::OutputLimit)?)?;
-        self.reserve_working_bytes(REFERENCE_INDEX_ENTRY_BYTES.saturating_mul(
-            u64::try_from(self.file.references.len()).map_err(|_| ExtractError::OutputLimit)?,
-        ))?;
-        self.original_ownership = Some(SourceOwnerIndex::build(
-            &self.file.symbols[..count],
-            self.cancelled,
-        )?);
-        Ok(())
-    }
-
-    pub(crate) fn charge_bridge_work(&mut self, units: usize) -> Result<(), ExtractError> {
-        self.check_cancelled()?;
-        self.bridge_work = self
-            .bridge_work
-            .checked_sub(units)
-            .ok_or(ExtractError::OutputLimit)?;
-        Ok(())
-    }
-
-    pub(crate) fn bridge_checkpoint(&self) -> (usize, usize, usize, usize) {
-        (
-            self.file.symbols.len(),
-            self.file.containments.len(),
-            self.file.references.len(),
-            self.reference_refinements.len(),
-        )
-    }
-
-    pub(crate) fn retained_output_fits(&self) -> bool {
-        self.file.modeled_retained_bytes() <= self.budget.output_limit()
-    }
-
-    pub(crate) fn omit_bridge_facts(&mut self, checkpoint: (usize, usize, usize, usize)) {
-        for (index, previous) in self.reference_refinements.drain(checkpoint.3..).rev() {
-            self.file.references[index].resolution_name = previous;
-        }
-        self.file.symbols.truncate(checkpoint.0);
-        self.file.containments.truncate(checkpoint.1);
-        self.file.references.truncate(checkpoint.2);
-        self.file.symbols.shrink_to_fit();
-        self.file.containments.shrink_to_fit();
-        self.file.references.shrink_to_fit();
-        crate::walk::note_optional_omission(&mut self.file, self.budget.output_limit());
+        &self.bridge.file.containments
     }
 
     /// References recorded so far (walker facts first, then framework facts).
     pub(crate) fn references(&self) -> &[ExtractedReference] {
-        &self.file.references
+        &self.bridge.file.references
     }
 
     /// Record the `@Value` annotation ranges of this file.
@@ -589,12 +467,12 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     /// Number of references currently retained for this file.
     pub(crate) fn reference_count(&self) -> usize {
-        self.file.references.len()
+        self.bridge.file.references.len()
     }
 
     /// One retained reference, including those the language walker extracted.
     pub(crate) fn reference(&self, index: usize) -> Option<&ExtractedReference> {
-        self.file.references.get(index)
+        self.bridge.file.references.get(index)
     }
 
     pub(crate) fn add_route(&mut self, input: FrameworkRouteInput<'_>) -> Result<(), ExtractError> {
@@ -650,7 +528,7 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     /// Mark a landmark added by this pass as declaring, not defining, its target.
     pub(crate) fn mark_landmark_declaration_only(&mut self, id: &SymbolId) {
-        if let Some(symbol) = self.file.symbols[self.original_symbols..]
+        if let Some(symbol) = self.bridge.file.symbols[self.bridge.original_symbols..]
             .iter_mut()
             .rev()
             .find(|symbol| &symbol.id == id)
@@ -706,7 +584,7 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             structural_digest,
             clone_token_profile: None,
         };
-        self.budget.reserve_fact(
+        self.bridge.budget.reserve_fact(
             symbol_budget_bytes(&symbol),
             [
                 symbol.name.as_str(),
@@ -717,10 +595,10 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         add_landmark_containment(self, owner, &id)?;
         let site_bytes = LANDMARK_SITE_INDEX_ENTRY_BYTES
             .saturating_add(u64::try_from(identity.source_identity.len()).unwrap_or(u64::MAX));
-        self.budget.reserve_working_bytes(site_bytes)?;
+        self.bridge.budget.reserve_working_bytes(site_bytes)?;
         self.landmark_sites
             .insert((symbol.kind, identity.source_identity, start, end));
-        self.file.symbols.push(symbol);
+        self.bridge.file.symbols.push(symbol);
         if let Some((target, resolution_name, target_start, target_end)) = target {
             self.add_reference_with_resolution(FrameworkReferenceInput {
                 owner: Some(id.clone()),
@@ -777,23 +655,13 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             span.end_byte(),
         );
         if let Some(index) = self.reference_keys.get(&key).copied() {
-            if let Some(resolution_name) = resolution_name
-                && self.file.references[index].resolution_name.is_none()
-            {
-                self.budget.reserve_additional_string(&resolution_name)?;
-                self.budget
-                    .reserve_working_bytes(REFERENCE_REFINEMENT_ENTRY_BYTES)?;
-                self.reference_refinements
-                    .try_reserve(1)
-                    .map_err(|_| ExtractError::OutputLimit)?;
-                let previous = self.file.references[index]
-                    .resolution_name
-                    .replace(resolution_name);
-                self.reference_refinements.push((index, previous));
+            if let Some(resolution_name) = resolution_name {
+                self.bridge.refine_reference(index, resolution_name)?;
             }
             return Ok(());
         }
-        self.reference_keys.insert(key, self.file.references.len());
+        self.reference_keys
+            .insert(key, self.bridge.file.references.len());
         let reference = ExtractedReference {
             owner: input.owner,
             name,
@@ -801,14 +669,14 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             kind: input.kind,
             span,
         };
-        self.budget.reserve_fact(
+        self.bridge.budget.reserve_fact(
             reference_budget_bytes(&reference),
             [
                 reference.name.as_str(),
                 reference.resolution_name.as_deref().unwrap_or(""),
             ],
         )?;
-        self.file.references.push(reference);
+        self.bridge.file.references.push(reference);
         Ok(())
     }
 
@@ -836,13 +704,13 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
 
     fn owner_near(&self, offset: usize) -> Option<SymbolId> {
         let offset = u64::try_from(offset).ok()?;
-        if let Some(index) = &self.original_ownership {
+        if let Some(index) = &self.bridge.original_ownership {
             return index
                 .near(offset)
                 .and_then(|owner| self.original_symbol(owner))
                 .map(|symbol| symbol.id.clone());
         }
-        let original = &self.file.symbols[..self.original_symbols];
+        let original = &self.bridge.file.symbols[..self.bridge.original_symbols];
         if let Some(symbol) = original
             .iter()
             .filter(|symbol| symbol.span.start_byte() <= offset && offset < symbol.span.end_byte())
@@ -867,10 +735,10 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
     }
 
     fn finish(self) -> Result<ExtractedFile, ExtractError> {
-        if !self.retained_output_fits() {
+        if !self.bridge.retained_output_fits() {
             return Err(ExtractError::OutputLimit);
         }
-        Ok(self.file)
+        Ok(self.bridge.file)
     }
 }
 
@@ -969,7 +837,7 @@ fn scan_swiftui_components(
     if builder.language() != SourceLanguage::Swift || !source.contains("SwiftUI") {
         return Ok(());
     }
-    let candidates = builder.file.symbols[..builder.original_symbols]
+    let candidates = builder.bridge.file.symbols[..builder.bridge.original_symbols]
         .iter()
         .filter(|symbol| matches!(symbol.kind, SymbolKind::Class | SymbolKind::Struct))
         .filter_map(|symbol| {
@@ -1028,7 +896,7 @@ fn scan_swiftui_app_entries(
     if builder.language() != SourceLanguage::Swift || !source.contains(SWIFT_MAIN_ATTRIBUTE) {
         return Ok(());
     }
-    let entries = builder.file.symbols[..builder.original_symbols]
+    let entries = builder.bridge.file.symbols[..builder.bridge.original_symbols]
         .iter()
         .filter(|symbol| symbol.kind == SymbolKind::Struct)
         .filter_map(|symbol| {
@@ -1345,13 +1213,12 @@ fn scan_path_conventions(builder: &mut FrameworkBuilder<'_, '_>) -> Result<(), E
         })?;
     }
     if let Some(name) = nuxt_middleware_name(&path) {
-        let already_extracted =
-            builder.file.symbols[..builder.original_symbols]
-                .iter()
-                .any(|symbol| {
-                    matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method)
-                        && symbol.name == name
-                });
+        let already_extracted = builder.bridge.file.symbols[..builder.bridge.original_symbols]
+            .iter()
+            .any(|symbol| {
+                matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method)
+                    && symbol.name == name
+            });
         if !already_extracted {
             let (start, end) = convention_span(builder.source());
             builder.add_landmark(LandmarkInput {
@@ -3172,7 +3039,7 @@ mod bridge_rollback_tests {
         let mut cancelled = || false;
         let mut builder =
             FrameworkBuilder::new(FrameworkInput::new(&snapshot, file), &mut cancelled)?;
-        let checkpoint = builder.bridge_checkpoint();
+        let checkpoint = builder.bridge.checkpoint();
         let start = source.find("doThing").ok_or("missing native call")?;
         builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
             name: "doThing",
@@ -3187,7 +3054,7 @@ mod bridge_rollback_tests {
                 .iter()
                 .any(|reference| reference.resolution_name.as_deref() == Some("Camera::doThing"))
         );
-        builder.omit_bridge_facts(checkpoint);
+        builder.bridge.omit_facts(checkpoint);
         assert_eq!(serde_json::to_value(builder.references())?, original);
         Ok(())
     }

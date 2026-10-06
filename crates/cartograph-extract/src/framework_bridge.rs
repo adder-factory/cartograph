@@ -57,11 +57,11 @@ pub(crate) fn scan(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
 ) -> Result<(), ExtractError> {
-    let checkpoint = builder.bridge_checkpoint();
+    let checkpoint = builder.bridge.checkpoint();
     match scan_bounded(builder, source) {
-        Ok(()) if builder.retained_output_fits() => Ok(()),
+        Ok(()) if builder.bridge.retained_output_fits() => Ok(()),
         Ok(()) | Err(ExtractError::OutputLimit) => {
-            builder.omit_bridge_facts(checkpoint);
+            builder.bridge.omit_facts(checkpoint);
             Ok(())
         }
         Err(error) => Err(error),
@@ -81,7 +81,7 @@ fn scan_bounded(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<
             | SourceLanguage::Kotlin
             | SourceLanguage::Swift
     ) {
-        builder.index_bridge_owners()?;
+        builder.bridge.index_owners()?;
     }
     match builder.language() {
         SourceLanguage::TypeScript
@@ -142,7 +142,7 @@ fn scan_javascript_event_consumers(
         };
         let event_id = add_event_landmark(builder, ("react-native-event-consumer", &event))?;
         let bounded = bounded_bridge_range(source_range(source, event.end));
-        builder.charge_bridge_work(bounded.end - bounded.start)?;
+        builder.bridge.charge_work(bounded.end - bounded.start)?;
         if let Some(event_id) = event_id
             && let Some(comma) = source[event.end..bounded.end]
                 .find(',')
@@ -267,11 +267,11 @@ fn collect_registry_alias_bindings(
                 continue;
             };
             let prefix = bounded_bridge_prefix(source, call_start);
-            builder.charge_bridge_work(prefix.len().saturating_mul(4))?;
+            builder.bridge.charge_work(prefix.len().saturating_mul(4))?;
             if seen_calls.insert(call_start)
                 && let Some(alias) = assigned_identifier_before(prefix, prefix.len())
             {
-                builder.reserve_working_bytes(
+                builder.bridge.reserve_working_bytes(
                     u64::try_from(alias.len() + module.value.len() + NATIVE_ALIAS_ENTRY_BYTES)
                         .map_err(|_| ExtractError::OutputLimit)?,
                 )?;
@@ -292,7 +292,7 @@ fn scan_registry_alias_invocations(
     let mut cursor = 0_usize;
     while let Some(alias_start) = bridge_marker(builder, source, (cursor, &marker))? {
         let bounded = bounded_bridge_range(source_range(source, alias_start));
-        builder.charge_bridge_work(bounded.end - bounded.start)?;
+        builder.bridge.charge_work(bounded.end - bounded.start)?;
         if alias_start > 0 && source.as_bytes()[alias_start - 1].is_ascii_alphanumeric() {
             cursor = alias_start + marker.len();
             continue;
@@ -349,7 +349,7 @@ fn legacy_bridge_argument<'source>(
     let Some(open) = bridge_marker(builder, &source[..range.end], (start, "("))? else {
         return Ok(None);
     };
-    builder.charge_bridge_work(range.end - (open + 1))?;
+    builder.bridge.charge_work(range.end - (open + 1))?;
     Ok(quoted_after(&source[..range.end], open + 1))
 }
 
@@ -368,7 +368,7 @@ fn bridge_body_range(
             ..range
         },
         (b'{', b'}'),
-        &mut |units| builder.charge_bridge_work(units),
+        &mut |units| builder.bridge.charge_work(units),
     )?;
     Ok(close.map(|close| (open, close)))
 }
@@ -386,7 +386,7 @@ fn bridge_literal<'source>(
     range: SymbolRange<'source>,
 ) -> Result<Option<Quoted<'source>>, ExtractError> {
     let range = bounded_bridge_range(range);
-    builder.charge_bridge_work(range.end - range.start)?;
+    builder.bridge.charge_work(range.end - range.start)?;
     Ok(quoted_event_after(&range.source[..range.end], range.start))
 }
 
@@ -409,7 +409,7 @@ fn scan_turbo_module_spec(
     let bytes = source.as_bytes();
     let mut cursor = open + 1;
     while cursor < close {
-        builder.charge_bridge_work(close - cursor)?;
+        builder.bridge.charge_work(close - cursor)?;
         while cursor < close && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b';') {
             cursor += 1;
         }
@@ -465,7 +465,7 @@ fn interface_body(
     while let Some(position) = bridge_marker(builder, source, (cursor, "interface"))? {
         cursor = position + "interface".len();
         let range = bounded_bridge_range(source_range(source, cursor));
-        builder.charge_bridge_work(range.end - range.start)?;
+        builder.bridge.charge_work(range.end - range.start)?;
         let name_start = skip_ascii_whitespace(&source[..range.end], cursor);
         let Some((name_end, name)) = bridge_identifier(SymbolRange {
             start: name_start,
@@ -523,7 +523,9 @@ fn next_interface_statement(
     let mut state = BridgeDelimiterState::default();
     while cursor < close {
         if (cursor - start).is_multiple_of(CANCELLATION_INTERVAL_BRIDGE_BYTES) {
-            builder.charge_bridge_work((close - cursor).min(CANCELLATION_INTERVAL_BRIDGE_BYTES))?;
+            builder
+                .bridge
+                .charge_work((close - cursor).min(CANCELLATION_INTERVAL_BRIDGE_BYTES))?;
         }
         let byte = bytes[cursor];
         if consume_quote_state(byte, &mut state.quote, &mut state.escaped) {
@@ -551,7 +553,7 @@ fn scan_native_modules_calls(
     while let Some(position) = bridge_marker(builder, source, (cursor, marker))? {
         let module_start = position + marker.len();
         let bounded = bounded_bridge_range(source_range(source, module_start));
-        builder.charge_bridge_work(bounded.end - bounded.start)?;
+        builder.bridge.charge_work(bounded.end - bounded.start)?;
         let Some((module_end, module)) = bridge_identifier(bounded) else {
             cursor = module_start;
             continue;
@@ -644,7 +646,9 @@ fn scan_codegen_components(
     let Some((open, close)) = bridge_body_range(builder, source, interface)? else {
         return Ok(());
     };
-    builder.charge_bridge_work((close - open).saturating_mul(2))?;
+    builder
+        .bridge
+        .charge_work((close - open).saturating_mul(2))?;
     for (offset, name) in declaration_names(&source[open + 1..close]) {
         add_landmark(
             builder,
@@ -706,7 +710,7 @@ fn objc_bridge_scopes<'source>(
             };
             let bytes =
                 u64::try_from(OBJC_SCOPE_ENTRY_BYTES).map_err(|_| ExtractError::OutputLimit)?;
-            builder.reserve_working_bytes(bytes)?;
+            builder.bridge.reserve_working_bytes(bytes)?;
             record_objc_registration(builder, &mut scopes, range)?;
             scopes.containers.push(range);
         }
@@ -720,7 +724,9 @@ fn record_objc_registration<'source>(
     range: SymbolRange<'source>,
 ) -> Result<(), ExtractError> {
     builder.check_cancelled()?;
-    builder.charge_bridge_work((range.end - range.start).min(MAX_BRIDGE_SCAN_BYTES))?;
+    builder
+        .bridge
+        .charge_work((range.end - range.start).min(MAX_BRIDGE_SCAN_BYTES))?;
     let source = &range.source[range.start..range.end];
     let Some(class) = objc_class_name(source) else {
         return Ok(());
@@ -757,7 +763,7 @@ fn next_objc_container_marker(
     let mut lexer = ObjcLexer::default();
     while cursor < bytes.len() {
         let (region, next) = lexer.step(bytes, cursor);
-        builder.charge_bridge_work(next - cursor)?;
+        builder.bridge.charge_work(next - cursor)?;
         if region != Region::Code {
             cursor = next;
             continue;
@@ -795,7 +801,7 @@ fn next_objc_code_marker(
     let mut cursor = input.cursor;
     while cursor < input.range.end {
         let (region, next) = lexer.step(&bytes[..input.range.end], cursor);
-        builder.charge_bridge_work(next - cursor)?;
+        builder.bridge.charge_work(next - cursor)?;
         let boundary = cursor
             .checked_sub(1)
             .and_then(|before| bytes.get(before))
@@ -817,7 +823,7 @@ fn objc_protocol_container(
     start: usize,
 ) -> Result<bool, ExtractError> {
     let range = bounded_bridge_range(source_range(source, start + "@protocol".len()));
-    builder.charge_bridge_work(range.end - range.start)?;
+    builder.bridge.charge_work(range.end - range.start)?;
     let source = &source[..range.end];
     let name_start = skip_ascii_whitespace(source, range.start);
     Ok(bridge_identifier(SymbolRange {
@@ -838,7 +844,9 @@ fn scan_objc_container(
     scopes: &ObjcBridgeScopes<'_>,
 ) -> Result<(), ExtractError> {
     let source = &range.source[range.start..range.end];
-    builder.charge_bridge_work(source.len().min(MAX_BRIDGE_SCAN_BYTES))?;
+    builder
+        .bridge
+        .charge_work(source.len().min(MAX_BRIDGE_SCAN_BYTES))?;
     let class = objc_class_name(source);
     let module = class
         .and_then(|class| scopes.registrations.get(class.0))
@@ -897,7 +905,7 @@ fn scan_objc_method_macro(
         let bounded = bounded_bridge_range(SymbolRange { start, ..range });
         let first = all_identifiers(&source[start..bounded.end]).next();
         let inspected = first.map_or(bounded.end - start, |(offset, name)| offset + name.len());
-        builder.charge_bridge_work(inspected.saturating_mul(2))?;
+        builder.bridge.charge_work(inspected.saturating_mul(2))?;
         let Some((offset, _)) = first else {
             cursor = start;
             continue;
@@ -956,9 +964,9 @@ fn scan_native_view_manager(
                 ..range
             });
             let property = bridge_identifier(bounded);
-            builder.charge_bridge_work(
-                property.map_or(bounded.end, |(end, _)| end) - property_start,
-            )?;
+            builder
+                .bridge
+                .charge_work(property.map_or(bounded.end, |(end, _)| end) - property_start)?;
             let Some((property_end, property)) = property else {
                 cursor = property_start;
                 continue;
@@ -980,7 +988,7 @@ fn scan_jvm(
     ownership: &BridgeOwnership<'_>,
 ) -> Result<(), ExtractError> {
     for &index in &ownership.classes {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         if ownership.range(index).is_none() {
             continue;
         }
@@ -1064,7 +1072,7 @@ fn react_native_jvm_name_method<'source>(
     class: usize,
 ) -> Result<Option<Quoted<'source>>, ExtractError> {
     for &index in ownership.members.get(&class).into_iter().flatten() {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let is_name = builder.original_symbol(index).is_some_and(|symbol| {
             symbol.name == "getName"
                 && matches!(symbol.kind, SymbolKind::Method | SymbolKind::Function)
@@ -1084,7 +1092,7 @@ fn react_native_jvm_name_method<'source>(
         };
         let mut cursor = method.walk();
         for child in method.named_children(&mut cursor) {
-            builder.charge_bridge_work(1)?;
+            builder.bridge.charge_work(1)?;
             if child.start_byte() >= range.end {
                 break;
             }
@@ -1104,7 +1112,7 @@ fn jvm_body_module_name<'source>(
     range: SymbolRange<'source>,
     node: tree_sitter::Node<'_>,
 ) -> Result<Option<Quoted<'source>>, ExtractError> {
-    builder.charge_bridge_work(1)?;
+    builder.bridge.charge_work(1)?;
     // A return in a nested declaration or lambda belongs to that callable.
     let nested = matches!(
         node.kind(),
@@ -1132,7 +1140,9 @@ fn jvm_body_module_name<'source>(
     if let Some(value) = value.filter(|value| value.kind() == "string_literal")
         && value.end_byte() <= range.end
     {
-        builder.charge_bridge_work(value.end_byte() - value.start_byte())?;
+        builder
+            .bridge
+            .charge_work(value.end_byte() - value.start_byte())?;
         let literal = quoted_after(&range.source[..value.end_byte()], value.start_byte());
         return Ok(literal.filter(|literal| literal.quote_end + 1 == value.end_byte()));
     }
@@ -1152,7 +1162,7 @@ fn jvm_expression_value<'tree>(
 ) -> Result<Option<tree_sitter::Node<'tree>>, ExtractError> {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         if child.start_byte() >= limit {
             break;
         }
@@ -1172,7 +1182,7 @@ fn scan_react_methods(
         return Ok(());
     };
     for site in sites {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let Some((method, start, end)) = ownership.native_symbol_name(builder, site.symbol)? else {
             continue;
         };
@@ -1215,7 +1225,7 @@ fn scan_jvm_view_manager(
             .into_iter()
             .flatten()
         {
-            builder.charge_bridge_work(1)?;
+            builder.bridge.charge_work(1)?;
             let Some(property) = jvm_annotation_argument(builder, ownership, *site)? else {
                 continue;
             };
@@ -1256,11 +1266,11 @@ fn scan_objc_swift_aliases(
     source: &str,
 ) -> Result<(), ExtractError> {
     for index in 0..builder.original_symbol_count() {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let Some(method) = objc_alias_source(builder, index) else {
             continue;
         };
-        builder.charge_bridge_work(
+        builder.bridge.charge_work(
             (method.end - method.start)
                 .min(MAX_BRIDGE_SCAN_BYTES)
                 .saturating_add(method.selector.len().saturating_mul(10)),
@@ -1314,7 +1324,7 @@ fn scan_swift_objc_exports(
         return Ok(());
     }
     for index in 0..builder.original_symbol_count() {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let Some((name, start, end)) = builder.original_symbol(index).and_then(|symbol| {
             matches!(symbol.kind, SymbolKind::Method | SymbolKind::Function)
                 .then(|| {
@@ -1348,7 +1358,9 @@ fn scan_swift_objc_exports(
         if !explicit && !containing_objc_members_class(builder, ownership, index)? {
             continue;
         }
-        builder.charge_bridge_work((end - start).min(MAX_BRIDGE_SCAN_BYTES))?;
+        builder
+            .bridge
+            .charge_work((end - start).min(MAX_BRIDGE_SCAN_BYTES))?;
         let (span_start, span_end) = symbol_name_span(NamedSymbolRange { range, name: &name });
         let mut aliases = BTreeSet::from([name.clone()]);
         if let Some(selector) = swift_objc_selector_attribute(builder, range)? {
@@ -1372,7 +1384,7 @@ fn containing_objc_members_class(
     ownership: &BridgeOwnership<'_>,
     member: usize,
 ) -> Result<bool, ExtractError> {
-    builder.charge_bridge_work(1)?;
+    builder.bridge.charge_work(1)?;
     let Some((class, member)) = ownership
         .owner(member)
         .and_then(|class| ownership.range(class).zip(ownership.range(member)))
@@ -1419,7 +1431,7 @@ fn swift_objc_selector_attribute(
                 .bytes()
                 .all(|byte| byte == b':' || byte == b'_' || byte.is_ascii_alphanumeric())
         {
-            builder.reserve_working_bytes(
+            builder.bridge.reserve_working_bytes(
                 u64::try_from(selector.len()).map_err(|_| ExtractError::OutputLimit)?,
             )?;
             return Ok(Some(selector.to_owned()));
@@ -1434,13 +1446,19 @@ fn swift_symbol_attribute_text<'source>(
 ) -> Result<[&'source str; 2], ExtractError> {
     let bounded = bounded_bridge_range(range);
     let prefix = bounded_bridge_prefix(range.source, range.start);
-    builder.charge_bridge_work((bounded.end - bounded.start).saturating_mul(2))?;
+    builder
+        .bridge
+        .charge_work((bounded.end - bounded.start).saturating_mul(2))?;
     let mut lines = prefix.rsplit('\n');
     let current = lines.next().unwrap_or_default();
-    builder.charge_bridge_work(current.len().saturating_mul(2))?;
+    builder
+        .bridge
+        .charge_work(current.len().saturating_mul(2))?;
     let mut prefix_start = prefix.len() - current.len();
     for line in lines.take(MAX_SWIFT_ATTRIBUTE_LINES) {
-        builder.charge_bridge_work(line.len().saturating_mul(2).saturating_add(1))?;
+        builder
+            .bridge
+            .charge_work(line.len().saturating_mul(2).saturating_add(1))?;
         if !line.trim().starts_with('@') {
             break;
         }
@@ -1570,13 +1588,13 @@ fn bridge_marker(
         end: source.len(),
     };
     while range.start < range.end {
-        builder.charge_bridge_work(0)?;
+        builder.bridge.charge_work(0)?;
         let window = bounded_bridge_range(range);
         if let Some(relative) = range.source[window.start..window.end].find(marker) {
-            builder.charge_bridge_work(relative + marker.len())?;
+            builder.bridge.charge_work(relative + marker.len())?;
             return Ok(Some(window.start + relative));
         }
-        builder.charge_bridge_work(window.end - window.start)?;
+        builder.bridge.charge_work(window.end - window.start)?;
         if window.end == range.end {
             break;
         }
@@ -1613,7 +1631,7 @@ fn scan_expo_module(
     let mut registered = BTreeSet::new();
     let mut seen = BTreeSet::new();
     for definition in &ownership.definitions {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         if let Some(class) = ownership.owner(*definition)
             && ownership.expo_classes.contains(&class)
         {
@@ -1621,7 +1639,7 @@ fn scan_expo_module(
         }
     }
     for definition in &ownership.definitions {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         if ownership
             .owner(*definition)
             .is_some_and(|class| registered.contains(&class))
@@ -1654,7 +1672,7 @@ fn scan_expo_definition<'source>(
     } else {
         &[]
     };
-    builder.charge_bridge_work(calls.len())?;
+    builder.bridge.charge_work(calls.len())?;
     let name_calls = if calls.iter().any(|call| call.name == "Name") {
         calls
     } else {
@@ -1662,7 +1680,7 @@ fn scan_expo_definition<'source>(
     };
     let mut module = None;
     for call in name_calls.iter().filter(|call| call.name == "Name") {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let Some(name) = expo_call_argument(builder, ownership, *call)? else {
             return Ok(());
         };
@@ -1690,7 +1708,7 @@ fn scan_expo_definition<'source>(
         .chain(outside)
         .filter(|call| call.name != "Name")
     {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let Some(member) = expo_call_argument(builder, ownership, *call)? else {
             continue;
         };
@@ -1700,7 +1718,9 @@ fn scan_expo_definition<'source>(
         if !react_native_blocklisted(member.value)
             && scope.seen.insert((class, module, member.value))
         {
-            builder.reserve_working_bytes(EXPO_EXPORT_ENTRY_BYTES)?;
+            builder
+                .bridge
+                .reserve_working_bytes(EXPO_EXPORT_ENTRY_BYTES)?;
             add_member_landmark(
                 builder,
                 (SymbolKind::Method, "expo-module-method", module),
@@ -1728,7 +1748,9 @@ fn expo_call_argument<'source>(
         },
     )?;
     if let Some(argument) = argument.as_ref() {
-        builder.charge_bridge_work(argument.value.len().saturating_mul(2))?;
+        builder
+            .bridge
+            .charge_work(argument.value.len().saturating_mul(2))?;
     }
     Ok(argument
         .filter(|argument| static_expo_literal(builder.language(), ownership.source, argument)))
@@ -1778,18 +1800,18 @@ fn bridge_argument_body<'source>(
 ) -> Result<Option<SymbolRange<'source>>, ExtractError> {
     let range = bounded_bridge_range(range);
     let open = skip_ascii_whitespace(&range.source[..range.end], range.start);
-    builder.charge_bridge_work(open - range.start)?;
+    builder.bridge.charge_work(open - range.start)?;
     let Some(close) = bridge_argument_close(
         SymbolRange {
             start: open,
             ..range
         },
-        &mut |units| builder.charge_bridge_work(units),
+        &mut |units| builder.bridge.charge_work(units),
     )?
     else {
         return Ok(None);
     };
-    builder.charge_bridge_work(close - open)?;
+    builder.bridge.charge_work(close - open)?;
     Ok(Some(SymbolRange {
         start: open + 1,
         end: close,
@@ -1878,6 +1900,13 @@ fn add_landmark_with_id(
     })
 }
 
+enum ObjcModuleRegistration<'source> {
+    Absent,
+    DefaultClass,
+    Invalid,
+    Named(&'source str, (usize, usize)),
+}
+
 fn objc_module_name(
     builder: &mut FrameworkBuilder<'_, '_>,
     range: SymbolRange<'_>,
@@ -1889,41 +1918,63 @@ fn objc_module_name(
         "RCT_EXTERN_MODULE(",
         "RCT_EXPORT_MODULE(",
     ] {
-        let Some(position) = next_objc_code_marker(
-            builder,
-            ObjcCodeMarker {
-                range,
-                cursor: range.start,
-                name: marker,
-            },
-        )?
-        else {
-            continue;
-        };
-        let start = position + marker.len();
-        let bounded = bounded_bridge_range(SymbolRange { start, ..range });
-        let source = &range.source[..bounded.end];
-        saw_export_module = true;
-        if marker == "RCT_EXTERN_MODULE(" {
-            continue;
-        }
-        let name_start = skip_ascii_whitespace(source, start);
-        let name = bridge_identifier(SymbolRange {
-            start: name_start,
-            ..bounded
-        });
-        let inspected = name.map_or(bounded.end, |(end, _)| end);
-        builder.charge_bridge_work(inspected - start)?;
-        if let Some((end, name)) = name
-            && name != "RCT_EXPORT_MODULE"
-        {
-            return owned_objc_module_name(builder, name, (end - name.len(), end)).map(Some);
-        }
-        if name.is_none() && !matches!(source.as_bytes().get(name_start), Some(b')' | b',')) {
-            return Ok(None);
+        match objc_module_registration(builder, range, marker)? {
+            ObjcModuleRegistration::Absent => {}
+            ObjcModuleRegistration::DefaultClass => saw_export_module = true,
+            ObjcModuleRegistration::Invalid => return Ok(None),
+            ObjcModuleRegistration::Named(name, span) => {
+                return owned_objc_module_name(builder, name, span).map(Some);
+            }
         }
     }
-    let Some((name, start, end)) = saw_export_module.then_some(class).flatten() else {
+    default_objc_module_name(builder, saw_export_module.then_some(class).flatten())
+}
+
+fn objc_module_registration<'source>(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    range: SymbolRange<'source>,
+    marker: &str,
+) -> Result<ObjcModuleRegistration<'source>, ExtractError> {
+    let Some(position) = next_objc_code_marker(
+        builder,
+        ObjcCodeMarker {
+            range,
+            cursor: range.start,
+            name: marker,
+        },
+    )?
+    else {
+        return Ok(ObjcModuleRegistration::Absent);
+    };
+    let start = position + marker.len();
+    let bounded = bounded_bridge_range(SymbolRange { start, ..range });
+    let source = &range.source[..bounded.end];
+    if marker == "RCT_EXTERN_MODULE(" {
+        return Ok(ObjcModuleRegistration::DefaultClass);
+    }
+    let name_start = skip_ascii_whitespace(source, start);
+    let name = bridge_identifier(SymbolRange {
+        start: name_start,
+        ..bounded
+    });
+    let inspected = name.map_or(bounded.end, |(end, _)| end);
+    builder.bridge.charge_work(inspected - start)?;
+    if let Some((end, name)) = name
+        && name != "RCT_EXPORT_MODULE"
+    {
+        return Ok(ObjcModuleRegistration::Named(name, (end - name.len(), end)));
+    }
+    if name.is_none() && !matches!(source.as_bytes().get(name_start), Some(b')' | b',')) {
+        return Ok(ObjcModuleRegistration::Invalid);
+    }
+    Ok(ObjcModuleRegistration::DefaultClass)
+}
+
+fn default_objc_module_name(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    class: Option<(&str, usize, usize)>,
+) -> Result<Option<(String, usize, usize)>, ExtractError> {
+    let Some((name, start, end)) = class else {
         return Ok(None);
     };
     let stripped = name
@@ -1939,7 +1990,7 @@ fn owned_objc_module_name(
     span: (usize, usize),
 ) -> Result<(String, usize, usize), ExtractError> {
     let bytes = u64::try_from(name.len()).map_err(|_| ExtractError::OutputLimit)?;
-    builder.reserve_working_bytes(bytes)?;
+    builder.bridge.reserve_working_bytes(bytes)?;
     Ok((name.to_owned(), span.0, span.1))
 }
 

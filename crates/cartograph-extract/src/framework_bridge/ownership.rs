@@ -64,7 +64,7 @@ impl<'source> BridgeOwnership<'source> {
             .saturating_mul(INDEX_ENTRY_BYTES)
             .saturating_add(count.saturating_mul(SYMBOL_ID_BYTES));
         let bytes = u64::try_from(modeled).map_err(|_| ExtractError::OutputLimit)?;
-        builder.reserve_working_bytes(bytes)?;
+        builder.bridge.reserve_working_bytes(bytes)?;
         let mut result = Self {
             source,
             classes: Vec::new(),
@@ -126,7 +126,7 @@ impl<'source> BridgeOwnership<'source> {
         let mut name = node.child_by_field_name("name");
         if name.is_none() {
             for child in node.named_children(&mut cursor) {
-                builder.charge_bridge_work(1)?;
+                builder.bridge.charge_work(1)?;
                 if matches!(
                     child.kind(),
                     "simple_identifier" | "identifier" | "type_identifier"
@@ -137,7 +137,9 @@ impl<'source> BridgeOwnership<'source> {
             }
         }
         let Some(name) = name else { return Ok(None) };
-        builder.charge_bridge_work(name.end_byte() - name.start_byte())?;
+        builder
+            .bridge
+            .charge_work(name.end_byte() - name.start_byte())?;
         let text = self
             .source
             .get(name.byte_range())
@@ -153,7 +155,7 @@ impl<'source> BridgeOwnership<'source> {
     ) -> Result<BTreeMap<SymbolId, usize>, ExtractError> {
         let mut ids = BTreeMap::new();
         for index in 0..builder.original_symbol_count() {
-            builder.charge_bridge_work(1)?;
+            builder.bridge.charge_work(1)?;
             let Some(symbol) = builder.original_symbol(index) else {
                 continue;
             };
@@ -183,7 +185,7 @@ impl<'source> BridgeOwnership<'source> {
         ids: &BTreeMap<SymbolId, usize>,
     ) -> Result<(), ExtractError> {
         for offset in 0..builder.containments().len() {
-            builder.charge_bridge_work(1)?;
+            builder.bridge.charge_work(1)?;
             let containment = &builder.containments()[offset];
             if let (Some(child), Some(parent)) =
                 (ids.get(&containment.child), ids.get(&containment.parent))
@@ -207,7 +209,7 @@ impl<'source> BridgeOwnership<'source> {
         let mut path = Vec::new();
         let mut cursor = query.0;
         let owner = loop {
-            builder.charge_bridge_work(1)?;
+            builder.bridge.charge_work(1)?;
             if let StructuralOwner::Resolved(owner) = owners[cursor] {
                 break owner;
             }
@@ -234,7 +236,8 @@ impl<'source> BridgeOwnership<'source> {
     ) -> Result<(), ExtractError> {
         for offset in 0..builder.references().len() {
             builder
-                .charge_bridge_work(builder.references()[offset].name.len().saturating_add(1))?;
+                .bridge
+                .charge_work(builder.references()[offset].name.len().saturating_add(1))?;
             let reference = &builder.references()[offset];
             let owner = reference.owner.as_ref().and_then(|id| ids.get(id)).copied();
             let end = usize::try_from(reference.span.end_byte())
@@ -283,7 +286,7 @@ impl<'source> BridgeOwnership<'source> {
         builder: &mut FrameworkBuilder<'_, '_>,
         end: usize,
     ) -> Result<bool, ExtractError> {
-        builder.charge_bridge_work(1)?;
+        builder.bridge.charge_work(1)?;
         let Some(node) = builder
             .syntax_root()
             .and_then(|root| {
@@ -298,7 +301,7 @@ impl<'source> BridgeOwnership<'source> {
         if bytes > super::MAX_BRIDGE_SCAN_BYTES {
             return Ok(false);
         }
-        builder.charge_bridge_work(bytes)?;
+        builder.bridge.charge_work(bytes)?;
         let mut cursor = node.walk();
         let mut identifiers = node
             .named_children(&mut cursor)
