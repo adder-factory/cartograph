@@ -25,7 +25,7 @@
 #       "$fixtures/expected/$language.json"
 #   done
 # Then run `cargo test --locked -p cartograph-extract --test v1_parity_oracle` and
-# update fixtures/v1_parity/divergences.json for every fact whose status changed.
+# update v1_parity/{alignments,divergences,reasons}.jsonl for changed dispositions.
 #
 # The corpus is copied to a private temporary checkout, indexed by the v1.1.33
 # binary with an isolated HOME (local SQLite storage, no models), and the

@@ -1,1360 +1,1367 @@
-//! Per-language v1.1.33 parity oracle for native extraction.
+//! Exact v1.1.33 parity for native, per-file extraction.
 //!
-//! Every v1.1.33 language mode owns a fixture corpus in
-//! `tests/fixtures/v1_parity/<language>/` and the facts the released v1.1.33
-//! binary indexed from that corpus in
-//! `tests/fixtures/v1_parity/expected/<language>.json`, captured by the
-//! maintainer-only `scripts/capture-v1-parity-oracle.sh`. This target runs the v2
-//! [`NativeExtractor`] over every corpus file, with the corpus-relative path as
-//! the virtual path, and requires every v1 fact to have a v2 counterpart under the
-//! rules below or an entry in the divergence ledger
-//! `tests/fixtures/v1_parity/divergences.json`.
+//! Each of the 73 v1 language modes owns a frozen corpus under
+//! `tests/fixtures/v1_parity/<language>/`. Its `expected/<language>.json` contains
+//! files, declarations, edges and unresolved references captured once from the
+//! real v1.1.33 binary. The binary hash, corpus membership and 8,231 raw records
+//! are checked here; captured facts and corpus source are never regenerated to
+//! make a v2 extraction pass. Duplicate captures share one disposition, giving
+//! 8,165 distinct fact selectors.
 //!
-//! # Language attribution
+//! # Three dispositions
 //!
-//! The capture does not record v1's per-file language. A file is attributed to a
-//! mode when v1 emitted a file node for it and the frozen v1.1.33 classifier port,
-//! `SourceLanguage::for_v1_normalized_path_with_source`, selects that mode. The v2
-//! production classifier behind `SourceSnapshot::from_bytes` must then select the
-//! same mode. Corpora may hold files of other languages, such as a bridge caller or
-//! a framework manifest, and their v1 facts are checked too.
+//! **Identity** requires one exact native observation. **Alignment** requires
+//! every explicitly committed native pin for a genuine shape difference or
+//! documented correction. **Ledger** records a missing fact as pending with a
+//! wave and gap ID, or intentional with a reason ID. The reason table stores
+//! shared evidence once. Nearest-candidate suggestions are diagnostics only.
 //!
-//! # Mapping rules
+//! Keys are arrays of readable strings, scoped by language and corpus-relative
+//! file. `F` names a document root. `S` names a symbol by kind, full qualified
+//! name, start line and display name; identity omits the display component from
+//! its index alias but still checks it. `C` names containment by parent kind/name,
+//! child kind/name and the child's start line. A line-less capture uses the
+//! five-component alias; a recorded line remains part of identity. `R` names a
+//! reference by reference kind, owner kind, full owner qualified name, owner
+//! declaration start, exact reference name and occurrence start. A line-less
+//! capture may omit only the occurrence line. File owners use `file`, the path
+//! and declaration line 1. `B` names an import binding by binding kind, module,
+//! imported/local names and start line; `T` names inline-test presence. `U` retains
+//! an unresolved capture selector for an explicit disposition.
 //!
-//! Two names *agree* when they are equal or share a non-empty final segment. The
-//! final segment is the text after the last `::`, `.`, `\` or `/`. No other fuzzy
-//! matching is applied. Cross-file target identity is not asserted here; that
-//! belongs to the resolution oracle. Only the presence of the per-file fact is.
+//! The index includes ALL native facts in each file, including duplicate keys.
+//! An identity key selecting several observations is ambiguous and never carries
+//! a fact. An explicit end line may distinguish a canonical pin; if the complete
+//! readable selector still selects several observations, document the ambiguity
+//! rather than choosing one. Byte offsets and columns never participate.
 //!
-//! * **Symbols.** A v1 `file` node is the file itself and always matches. A v1
-//!   `import` node matches a v2 `import` symbol, import binding or `imports`
-//!   reference whose module specifier equals the node name, located within the
-//!   node's lines. Every other node matches a v2 symbol with the kind listed in
-//!   [`SYMBOL_KIND_MAP`], an equal name, the same 1-based start line and an agreeing
-//!   qualified name. A v1 qualified name scoped by the node's own file path
-//!   (`<file>::…` or `<file>#…`, as for routes and framework resources) is a
-//!   synthetic identity and is not compared. When both qualified names use the same
-//!   primary separator (the first of `::`, `.`, `\`, `/` they contain), the v2 name
-//!   must equal the v1 name or end with it after a separator, which admits a v2
-//!   package prefix. Otherwise only their final segments must be equal.
-//! * **`contains` edges.** A file parent matches a v2 symbol with the child's name
-//!   that is top-level or nested only in v2 `namespace` symbols, because v2 models
-//!   package and namespace declarations that v1 left implicit. Any other parent
-//!   matches a v2 containment whose parent and child carry the v1 names. An import
-//!   child matches when its import node matches.
-//! * **Other edges.** A v2 reference in the edge's source file with a kind listed
-//!   in [`EDGE_KIND_MAP`], starting on the v1 line when v1 recorded one, whose name
-//!   agrees with the target node's name or whose segment before the first separator
-//!   (the receiver of a member access, such as `Ctx` in `Ctx.Provider`) equals it.
-//!   When the target is an import node, a reference whose name, or that leading
-//!   segment, is the local name of an import binding from that module also matches,
-//!   and a `references` edge recorded on the import node's own lines matches the
-//!   import itself. An `imports` edge to a non-import target matches an `imports`
-//!   reference, import binding or `import` symbol on that line whose specifier, path
-//!   leaf, leaf stem or final segment equals the target name or its stem.
-//! * **Unresolved references.** A v2 reference with the mapped kind, starting on
-//!   that line, whose name agrees with the v1 name.
+//! A pin is a canonical native key with an optional end line. Canonical keys keep
+//! native lookup names, file-owner markers and any necessary parent-site
+//! discriminators. An alignment cannot use a shorter identity alias. Multiple
+//! pins are conjunctive: all must select distinct observations exactly once.
+//! Verified symbol correspondences supply exact endpoints for relationship
+//! identity, preserving the native owner or child declaration rather than merely
+//! agreeing on a leaf name.
 //!
-//! # Divergence ledger
+//! # Committed JSONL tables
 //!
-//! Each ledger entry names one v1 fact by language, category, kind, name (the
-//! target's qualified name for edges), source (edges only), file and line, with a
-//! `pending` or `intentional` status, an optional audit gap id and wave, and a
-//! reason that `intentional` entries must fill. The oracle fails when a v1 fact
-//! has neither a v2 match nor an entry, and when an entry names a fact that now
-//! matches or no longer exists, so the ledger can only shrink honestly. Set
-//! `CARTOGRAPH_V1_PARITY_REPORT` to a file path to write every unmatched v1 fact as
-//! JSON in the ledger's fact shape.
+//! All five tables live directly under `tests/fixtures/v1_parity/`. Each object
+//! is one row; the examples below are wrapped only for display. Alignment,
+//! divergence and reason tables are sorted by their typed record ordering.
+//!
+//! `alignments.jsonl`: a frozen selector and the complete group of native pins;
+//! `end` disambiguates the frozen selector and `reason` annotates corrections.
+//! ```json
+//! {"language":"vue","file":"App.vue","v1":["F","8"],
+//!  "pins":[{"key":["F","1"]}],"reason":"file-document-scope"}
+//! ```
+//! `divergences.jsonl`: a frozen fact and a pending or intentional disposition.
+//! ```json
+//! {"language":"c","file":"src/video/video.c",
+//!  "fact":{"key":["S","variable","AX_S32","7","AX_S32"]},
+//!  "disposition":{"status":"intentional","id":"c-macro-return-type-as-variable"}}
+//! ```
+//! `reasons.jsonl`: one nonempty reason per ID, with a wave only for pending gaps.
+//! ```json
+//! {"id":"codeigniter-route-normalization","wave":3,
+//!  "reason":"$route['404_override'] is v1 ANY <404>; native names ANY /404_override."}
+//! ```
+//! `gate_cases.jsonl`: small in-memory inputs and expected diagnostic fragments.
+//! ```json
+//! {"name":"missing symbol","cases":[{"language":"cpp",
+//!  "captured":[{"file":"a.cpp","pin":{"key":["S","class","A","1","A"]}}],
+//!  "native":[]}],"policy":{"rows":[],"definitions":[]},"problems":["unmatched"]}
+//! ```
+//! `counterexamples.jsonl`: review regressions, usually with real corpus input
+//! and edits to the native extraction before checking the same gate.
+//! ```json
+//! {"name":"changed symbol kind","cases":[{"language":"cpp",
+//!  "captured":[{"file":"a.cpp","pin":{"key":["S","class","A","1","A"]}}],
+//!  "native":[]}],"policy":{"rows":[],"definitions":[]},"problems":["unmatched"],
+//!  "input":{"path":"a.cpp","source":"class A {};",
+//!  "mutations":[{"collection":"symbols","index":0,"field":"kind","value":"variable"}]}}
+//! ```
+//!
+//! # Resolving a failure
+//!
+//! Run `cargo test --locked -p cartograph-extract --test v1_parity_oracle --
+//! --nocapture`. Read the frozen fact and up to three same-file suggestions near
+//! its line or leaf name. Inspect the frozen source, capture and actual native
+//! extraction to establish correspondence; a suggestion alone proves nothing.
+//! Fix an extractor regression where appropriate. For a genuine shape difference,
+//! commit exact pins (the entire established group for a split representation),
+//! using end lines only when needed for uniqueness. For a fact not carried, add
+//! a pending gap or an intentional reason with concrete source evidence. Reuse
+//! reason IDs, preserve existing pending waves, sort the policy tables and rerun
+//! the gate and regressions. Never widen matching rules to silence a failure.
+//!
+//! A row referencing an absent frozen selector, two dispositions for one selector,
+//! undefined or unused reason IDs, a wrong wave, empty/duplicate/overlapping pins
+//! or a now-successful identity match fails hygiene. Remove a stale alignment or
+//! ledger row and remove its reason definition if no other row uses that ID.
+//!
+//! # Corrected target occurrences
+//!
+//! Alignments annotated with `v1-target-misresolution-*` share an occurrence-only
+//! contract: they require the corrected source occurrence under its exact typed
+//! owner, owner declaration site and occurrence site. They explicitly reject the
+//! captured resolved target and NEVER claim resolved-target parity. Each reason
+//! supplies entity-specific source evidence. Correct target resolution requires
+//! separate resolver evidence; this per-file extraction gate does not establish
+//! it, even when the native reference name expresses the intended receiver.
 
 mod dependency_ownership;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
-    fs,
-    path::Path,
-};
-
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
+use cartograph_domain::{SourceLanguage, SymbolId, SymbolKind};
 use cartograph_extract::{
     ExtractedFile, ExtractedSymbol, NativeExtractor, SourceLimits, SourceSnapshot,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, de::DeserializeOwned};
+use std::collections::{BTreeMap, BTreeSet};
+use std::{fmt::Write, fs, path::Path, sync::OnceLock};
 
-/// Root of the per-language corpora, the captured oracles and the ledger.
-const FIXTURE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/v1_parity");
-/// Directory under [`FIXTURE_ROOT`] holding one oracle document per mode.
-const EXPECTED_DIRECTORY: &str = "expected";
-/// Extension of the oracle documents.
-const ORACLE_EXTENSION: &str = "json";
-/// Divergence ledger file under [`FIXTURE_ROOT`].
-const LEDGER_FILE: &str = "divergences.json";
-/// Release every oracle document was captured from.
-const V1_BASELINE: &str = "v1.1.33";
-/// SHA-256 of the v1.1.33 darwin-arm64 `cartograph` binary used for every capture.
-const V1_BINARY_SHA256: &str = "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7";
-/// Number of language modes in the frozen v1.1.33 registry.
-const V1_LANGUAGE_MODE_COUNT: usize = 73;
-/// Per-file source bound; the largest corpus file is far below it.
-const SOURCE_LIMIT_BYTES: usize = 1024 * 1024;
-/// Environment variable naming an optional JSON miss-report path.
-const REPORT_PATH_VARIABLE: &str = "CARTOGRAPH_V1_PARITY_REPORT";
-/// Separators that end a qualified or member-access name segment.
-const NAME_SEPARATORS: [&str; 4] = ["::", ".", "\\", "/"];
-/// Separators that follow a file path used as a synthetic qualified-name scope.
-const FILE_SCOPE_SEPARATORS: [&str; 2] = ["::", "#"];
-/// Separators that end a module-specifier path component.
-const PATH_SEPARATORS: [char; 2] = ['/', '\\'];
-/// Waves a ledger entry may be scheduled for.
-const LEDGER_WAVES: [u8; 3] = [1, 2, 3];
-/// v1 node kind for a whole source file.
-const V1_FILE_KIND: &str = "file";
-/// v1 node kind for an import statement.
-const V1_IMPORT_KIND: &str = "import";
-/// v1 edge kind for lexical containment.
-const V1_CONTAINS_KIND: &str = "contains";
-/// v1 edge kind for module imports.
-const V1_IMPORTS_KIND: &str = "imports";
-/// v1 edge kind for general references.
-const V1_REFERENCES_KIND: &str = "references";
+use Disposition::{Aligned, Intentional, Pending};
 
-/// Modes for which v1.1.33 emitted only file nodes in attributed files.
-const PARSER_ONLY_V1_MODES: [SourceLanguage; 7] = [
-    SourceLanguage::Css,
-    SourceLanguage::EmbeddedTemplate,
-    SourceLanguage::Html,
-    SourceLanguage::JsDoc,
-    SourceLanguage::Json,
-    SourceLanguage::Jupyter,
-    SourceLanguage::Regex,
-];
+/// Root of the immutable corpora, captures and committed policy tables.
+const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/v1_parity");
 
-/// v1 node kind to v2 symbol kind. Every v1.1.33 kind kept its stable spelling;
-/// `file` and `import` nodes follow their own rules and are not listed.
-const SYMBOL_KIND_MAP: [(&str, SymbolKind); 22] = [
-    ("class", SymbolKind::Class),
-    ("component", SymbolKind::Component),
-    ("constant", SymbolKind::Constant),
-    ("enum", SymbolKind::Enum),
-    ("enum_member", SymbolKind::EnumMember),
-    ("export", SymbolKind::Export),
-    ("field", SymbolKind::Field),
-    ("function", SymbolKind::Function),
-    ("interface", SymbolKind::Interface),
-    ("method", SymbolKind::Method),
-    ("module", SymbolKind::Module),
-    ("namespace", SymbolKind::Namespace),
-    ("parameter", SymbolKind::Parameter),
-    ("property", SymbolKind::Property),
-    ("protocol", SymbolKind::Protocol),
-    ("resource", SymbolKind::Resource),
-    ("route", SymbolKind::Route),
-    ("struct", SymbolKind::Struct),
-    ("table", SymbolKind::Table),
-    ("trait", SymbolKind::Trait),
-    ("type_alias", SymbolKind::TypeAlias),
-    ("variable", SymbolKind::Variable),
-];
+/// Release identifier sealed into every immutable capture.
+const BASELINE: &str = "v1.1.33";
 
-/// v1 edge or unresolved-reference kind to the v2 reference kinds that carry it.
-/// v2 `inherits` defers the class/interface role of a base type to resolution.
-const EDGE_KIND_MAP: [(&str, &[ReferenceKind]); 14] = [
-    ("calls", &[ReferenceKind::Calls]),
-    ("decorates", &[ReferenceKind::Decorates]),
-    ("def_use", &[ReferenceKind::DefUse]),
-    ("exports", &[ReferenceKind::Exports]),
-    (
-        "extends",
-        &[ReferenceKind::Extends, ReferenceKind::Inherits],
-    ),
-    ("field_access", &[ReferenceKind::FieldAccess]),
-    (
-        "implements",
-        &[ReferenceKind::Implements, ReferenceKind::Inherits],
-    ),
-    ("imports", &[ReferenceKind::Imports]),
-    ("instantiates", &[ReferenceKind::Instantiates]),
-    ("overrides", &[ReferenceKind::Overrides]),
-    ("references", &[ReferenceKind::References]),
-    ("returns", &[ReferenceKind::Returns]),
-    ("tests", &[ReferenceKind::Tests]),
-    ("type_of", &[ReferenceKind::TypeOf]),
-];
+/// SHA-256 of the v1.1.33 binary that produced all captures.
+const BINARY_SHA256: &str = "c223ca62ad1a31f2686c7e79f7175fde440e7f98135062eb3ed8f09937b7e5c7";
 
-/// One captured v1.1.33 oracle document.
-#[derive(Debug, Deserialize)]
+/// Number of legacy language modes required by this gate.
+const LANGUAGE_COUNT: usize = 73;
+
+/// Raw frozen record count, including repeated captures.
+const FACT_COUNT: usize = 8_231;
+
+/// Declaration line of a native file root.
+const DOCUMENT_START: u32 = 1;
+
+/// Maximum size of one corpus input passed to the native extractor.
+const SOURCE_BYTES: usize = 1_024 * 1_024;
+
+/// Maximum diagnostic candidates for an unmatched fact.
+const SUGGESTIONS: usize = 3;
+
+/// Allowed pending waves; table definitions must agree with their rows.
+const WAVES: [u8; 3] = [1, 2, 3];
+
+/// Immutable records produced by the released v1.1.33 capture binary.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Oracle {
-    /// Release the facts were captured from.
     baseline: String,
-    /// SHA-256 of the v1 binary that produced the capture.
     binary_sha256: String,
-    /// Stable id of the mode the corpus exercises.
     language: String,
-    /// Corpus files, excluding dotfiles, in byte order.
     files: Vec<String>,
-    /// Every v1 node, including file and import nodes.
     symbols: Vec<V1Symbol>,
-    /// Every resolved v1 edge.
     edges: Vec<V1Edge>,
-    /// References v1 left unresolved after resolution.
     unresolved: Vec<V1Unresolved>,
 }
 
-/// One v1 graph node.
-#[derive(Debug, Deserialize)]
+/// A frozen declaration, including its display name and recorded line range.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct V1Symbol {
-    /// Corpus-relative file path.
     file: String,
-    /// v1 node kind.
     kind: String,
-    /// Display name.
     name: String,
-    /// v1 qualified name; the path for file nodes.
     qualified_name: String,
-    /// 1-based first line.
     start_line: u32,
-    /// 1-based last line.
     end_line: u32,
 }
 
-/// One resolved v1 edge between two nodes.
-#[derive(Debug, Deserialize)]
+/// A frozen relationship whose optional line must never be silently discarded.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct V1Edge {
-    /// Source node's corpus-relative file path.
     file: String,
-    /// v1 edge kind.
     kind: String,
-    /// Source node kind.
     source_kind: String,
-    /// Source node qualified name.
     source: String,
-    /// Target node kind.
     target_kind: String,
-    /// Target node qualified name.
     target: String,
-    /// Target node's corpus-relative file path.
     target_file: String,
-    /// 1-based reference line, absent for containment and file-level facts.
     line: Option<u32>,
 }
 
-/// One reference v1 could not resolve.
-#[derive(Debug, Deserialize)]
+/// A frozen unresolved reference requiring an explicit correspondence or ledger row.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct V1Unresolved {
-    /// Corpus-relative file path.
     file: String,
-    /// v1 reference kind.
     kind: String,
-    /// Referenced name.
     name: String,
-    /// 1-based reference line.
     line: Option<u32>,
 }
 
-/// Category of a v1 fact.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "snake_case")]
-enum FactCategory {
-    /// A v1 node.
-    Symbol,
-    /// A resolved v1 edge.
-    Edge,
-    /// An unresolved v1 reference.
-    Unresolved,
-}
-
-/// Stable identity of one v1 fact, shared by the ledger and the miss report.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+/// A projected observation and its exact relationship endpoints, when recorded.
+#[derive(Clone, Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
-struct FactKey {
-    /// Fact category.
-    category: FactCategory,
-    /// File the fact belongs to: the node file, or the edge's source file.
+struct Fact {
     file: String,
-    /// v1 line: node start line, or edge/reference line when recorded.
-    line: Option<u32>,
-    /// v1 node, edge or reference kind.
-    kind: String,
-    /// Node or reference name; the target qualified name for edges.
-    name: String,
-    /// Source qualified name, present for edges only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
+    /// Frozen selector for captures; canonical key for native observations.
+    pin: Pin,
+    /// Capture identity query before verified declaration endpoints are substituted.
+    query: Option<Pin>,
+    /// Captured kind/name pair or complete native declaration identity.
+    owner: Option<Vec<String>>,
+    /// Captured kind/name pair or complete native containment-child identity.
+    target: Option<Vec<String>>,
 }
 
-/// Lifecycle of a ledger entry.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum LedgerStatus {
-    /// The fact is expected to return when its port lands.
-    Pending,
-    /// v2 deliberately differs; the reason explains why.
-    Intentional,
-}
-
-/// One accepted divergence from a v1 fact.
-#[derive(Debug, Deserialize)]
+/// One language's frozen facts and current native per-file observations.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LedgerEntry {
-    /// Stable id of the oracle mode the fact belongs to.
+struct Case {
     language: String,
-    /// The v1 fact without a v2 match.
-    fact: FactKey,
-    /// Pending port or intentional difference.
-    status: LedgerStatus,
-    /// Audit gap id tracking the port.
-    #[serde(default)]
-    gap: Option<String>,
-    /// Port wave the fact is scheduled for.
-    #[serde(default)]
-    wave: Option<u8>,
-    /// Why the fact diverges; required for intentional entries.
+    captured: Vec<Fact>,
+    native: Vec<Fact>,
+}
+
+/// A ledger record, also used internally after loading an alignment record.
+#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(deny_unknown_fields)]
+struct Row {
+    language: String,
+    file: String,
+    fact: Pin,
+    disposition: Disposition,
+}
+
+/// A flat alignment row: one frozen selector and a mandatory group of native pins.
+#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(deny_unknown_fields)]
+struct Alignment {
+    language: String,
+    file: String,
+    v1: Vec<String>,
+    end: Option<u32>,
+    pins: Vec<Pin>,
+    reason: Option<String>,
+}
+
+/// Shared evidence for a gap or intentional/correction reason.
+#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(deny_unknown_fields)]
+struct Definition {
+    id: String,
     reason: String,
+    wave: Option<u8>,
 }
 
-/// One row of the optional machine-readable miss report.
-#[derive(Serialize)]
-struct MissRecord<'a> {
-    /// Stable id of the oracle mode.
-    language: &'a str,
-    /// The unmatched v1 fact.
-    #[serde(flatten)]
-    fact: &'a FactKey,
+/// Explicit dispositions and their shared reason definitions.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Policy {
+    rows: Vec<Row>,
+    definitions: Vec<Definition>,
 }
 
-/// One corpus file read from disk.
-struct CorpusFile {
-    /// Corpus-relative path with `/` separators.
+/// A small gate case or a mutation of real native extraction output.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Example {
+    name: String,
+    cases: Vec<Case>,
+    policy: Policy,
+    problems: Vec<String>,
+    input: Option<NativeInput>,
+}
+
+/// Source and native-output edits used to replay an adversarial counterexample.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeInput {
     path: String,
-    /// Exact file bytes.
-    bytes: Vec<u8>,
+    source: Option<String>,
+    mutations: Vec<Mutation>,
 }
 
-/// One oracle document with its corpus.
-struct LanguageCase {
-    /// The mode the oracle exercises.
-    language: SourceLanguage,
-    /// Captured v1 facts.
-    oracle: Oracle,
-    /// Every corpus file, including dotfiles.
-    corpus: Vec<CorpusFile>,
+/// One deletion or field edit, optionally selecting an owner by its symbol key.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Mutation {
+    collection: String,
+    index: usize,
+    field: Option<String>,
+    value: serde_json::Value,
+    symbol: Option<Vec<String>>,
 }
 
-/// v2 classification and extraction of one corpus file.
-struct FileRun {
-    /// v2 production language, when the file could be snapshotted.
-    detected: Option<SourceLanguage>,
-    /// Extracted facts, or the reason none exist.
-    extraction: Result<ExtractedFile, String>,
+/// An exact readable key, optionally narrowed by a declaration/occurrence end line.
+#[derive(Clone, Deserialize, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(deny_unknown_fields)]
+struct Pin {
+    key: Vec<String>,
+    end: Option<u32>,
 }
 
-/// Unmatched facts and integrity findings for one language.
+/// Explicit policy for a fact that lacks a unique identity correspondence.
+#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(deny_unknown_fields, tag = "status", rename_all = "snake_case")]
+enum Disposition {
+    Aligned {
+        v2: Vec<Pin>,
+        reason: Option<String>,
+    },
+    Pending {
+        wave: u8,
+        id: String,
+    },
+    Intentional {
+        id: String,
+    },
+}
+
+/// Owned identity of a frozen fact within its language and file.
+type Id = (String, String, Pin);
+
+/// Disposition label, selected observation indices and diagnostic problems.
+type Decision = (String, Vec<usize>, Vec<String>);
+
+/// Gate diagnostics, unique-disposition counts and carried observations.
 #[derive(Default)]
-struct LanguageOutcome {
-    /// v1 facts without a v2 match.
-    misses: BTreeSet<FactKey>,
-    /// Failures that no ledger entry can excuse.
+struct Outcome {
     problems: Vec<String>,
-    /// Context printed with failures, such as extraction errors.
-    notes: Vec<String>,
+    counts: BTreeMap<String, usize>,
+    carried: BTreeMap<Id, (Vec<usize>, bool)>,
 }
 
-/// Ledger reconciliation result for one language.
-#[derive(Default)]
-struct LanguageFailures {
-    /// Unmatched facts with no ledger entry.
-    unledgered: Vec<FactKey>,
-    /// Ledger entries whose fact matches or no longer exists.
-    stale: Vec<FactKey>,
-    /// Integrity failures.
-    problems: Vec<String>,
-    /// Context for the failures above.
-    notes: Vec<String>,
+/// Surface fixture and extraction errors with their original message.
+fn must<Value, Error: std::fmt::Display>(value: Result<Value, Error>) -> Value {
+    value.unwrap_or_else(|error| panic!("{error}"))
 }
 
-impl LanguageFailures {
-    /// Whether this language contributes nothing to the failure report.
-    fn is_clean(&self) -> bool {
-        self.unledgered.is_empty() && self.stale.is_empty() && self.problems.is_empty()
+/// Build readable string components without escaping or nested serialized keys.
+macro_rules! key {
+    ($($part:expr),* $(,)?) => { vec![$($part.to_string()),*] };
+}
+
+/// Construct an observation with a readable key and no relationship metadata.
+fn fact(file: &str, parts: Vec<String>) -> Fact {
+    Fact {
+        file: file.into(),
+        pin: Pin {
+            key: parts,
+            end: None,
+        },
+        ..Fact::default()
     }
 }
 
-/// Inclusive 1-based line window a v2 fact must start in.
-#[derive(Clone, Copy)]
-struct LineSpan {
-    /// First accepted line.
-    first: u32,
-    /// Last accepted line.
-    last: u32,
+/// Keep the frozen symbol selector, including its display name and declaration site.
+fn node_key(symbol: &V1Symbol) -> Vec<String> {
+    match symbol.kind.as_str() {
+        "file" => key!["F", symbol.start_line],
+        _ => key![
+            "S",
+            &symbol.kind,
+            &symbol.qualified_name,
+            symbol.start_line,
+            &symbol.name
+        ],
+    }
 }
 
-impl LineSpan {
-    /// Any line of the file.
-    const ANY: Self = Self {
-        first: 1,
-        last: u32::MAX,
-    };
-
-    /// Exactly one line.
-    const fn exact(line: u32) -> Self {
-        Self {
-            first: line,
-            last: line,
+/// Project immutable captures without inventing missing sites or relationships.
+fn captured(oracle: &Oracle) -> Vec<Fact> {
+    let mut facts = Vec::new();
+    for symbol in &oracle.symbols {
+        assert!(symbol.start_line > 0 && symbol.end_line >= symbol.start_line);
+        if symbol.kind != "file" {
+            parse::<SymbolKind>(&format!("\"{}\"", symbol.kind));
         }
-    }
-
-    /// The recorded line, or any line when v1 recorded none.
-    fn recorded(line: Option<u32>) -> Self {
-        line.map_or(Self::ANY, Self::exact)
-    }
-
-    /// Whether `line` lies inside the window.
-    const fn contains(self, line: u32) -> bool {
-        self.first <= line && line <= self.last
-    }
-}
-
-/// v1 nodes keyed by file, qualified name and kind, the identity edges carry.
-struct V1Nodes<'a> {
-    /// Nodes sharing one identity; qualified names are not always unique.
-    by_identity: BTreeMap<(&'a str, &'a str, &'a str), Vec<&'a V1Symbol>>,
-}
-
-impl<'a> V1Nodes<'a> {
-    /// Index every node of one oracle.
-    fn new(symbols: &'a [V1Symbol]) -> Self {
-        let mut by_identity = BTreeMap::<_, Vec<_>>::new();
-        for symbol in symbols {
-            by_identity
-                .entry((
-                    symbol.file.as_str(),
-                    symbol.qualified_name.as_str(),
-                    symbol.kind.as_str(),
-                ))
-                .or_default()
-                .push(symbol);
-        }
-        Self { by_identity }
-    }
-
-    /// Nodes with one identity; empty when the capture is inconsistent.
-    fn find<'s>(&'s self, identity: (&'s str, &'s str, &'s str)) -> &'s [&'a V1Symbol] {
-        self.by_identity.get(&identity).map_or(&[], Vec::as_slice)
-    }
-}
-
-/// v2 facts of one extracted file, indexed for the mapping rules.
-struct FileFacts<'a> {
-    /// The v2 extraction.
-    file: &'a ExtractedFile,
-    /// Symbols by id.
-    by_id: BTreeMap<&'a str, &'a ExtractedSymbol>,
-    /// Direct parent id of each contained symbol id.
-    parent_of: BTreeMap<&'a str, &'a str>,
-}
-
-/// One edge-to-reference lookup.
-struct ReferenceQuery<'q> {
-    /// v1 edge kind.
-    v1_kind: &'q str,
-    /// Accepted v2 reference kinds.
-    kinds: &'q [ReferenceKind],
-    /// v1 reference line, absent for file-level facts.
-    line: Option<u32>,
-    /// v1 target node.
-    target: &'q V1Symbol,
-}
-
-impl<'a> FileFacts<'a> {
-    /// Index one extraction.
-    fn new(file: &'a ExtractedFile) -> Self {
-        Self {
-            file,
-            by_id: file
-                .symbols
-                .iter()
-                .map(|symbol| (symbol.id.as_str(), symbol))
-                .collect(),
-            parent_of: file
-                .containments
-                .iter()
-                .map(|edge| (edge.child.as_str(), edge.parent.as_str()))
-                .collect(),
-        }
-    }
-
-    /// Name of a symbol id, if the id is known.
-    fn name_of(&self, id: &str) -> Option<&'a str> {
-        self.by_id.get(id).map(|symbol| symbol.name.as_str())
-    }
-
-    /// Whether an import of `specifier` starts inside `lines`.
-    fn has_import(&self, specifier: &str, lines: LineSpan) -> bool {
-        self.import_specifiers(lines)
-            .any(|found| found == specifier)
-    }
-
-    /// Module specifiers of import symbols, bindings and `imports` references in `lines`.
-    fn import_specifiers(&self, lines: LineSpan) -> impl Iterator<Item = &'a str> {
-        let file = self.file;
-        let symbols = file
-            .symbols
-            .iter()
-            .filter(move |symbol| {
-                symbol.kind == SymbolKind::Import && lines.contains(symbol.span.start_line())
-            })
-            .map(|symbol| symbol.name.as_str());
-        let bindings = file
-            .import_bindings
-            .iter()
-            .filter(move |binding| lines.contains(binding.span.start_line()))
-            .map(|binding| binding.module_specifier.as_str());
-        let references = file
-            .references
-            .iter()
-            .filter(move |reference| {
-                reference.kind == ReferenceKind::Imports
-                    && lines.contains(reference.span.start_line())
-            })
-            .map(|reference| reference.name.as_str());
-        symbols.chain(bindings).chain(references)
-    }
-
-    /// Whether `name`, or its leading segment, is bound by an import from `specifier`.
-    fn binds_import(&self, name: &str, specifier: &str) -> bool {
-        let leading = leading_segment(name);
-        self.file.import_bindings.iter().any(|binding| {
-            binding.module_specifier == specifier
-                && (binding.local_name == name || binding.local_name == leading)
-        })
-    }
-
-    /// Whether a symbol named `name` is top-level or nested only in namespaces.
-    fn has_file_scoped(&self, name: &str) -> bool {
-        self.file
-            .symbols
-            .iter()
-            .any(|symbol| symbol.name == name && self.is_file_scoped(symbol.id.as_str()))
-    }
-
-    /// Whether every ancestor of `id` is a v2 namespace symbol.
-    fn is_file_scoped(&self, id: &str) -> bool {
-        let mut current = id;
-        for _ in 0..=self.by_id.len() {
-            let Some(parent) = self.parent_of.get(current) else {
-                return true;
-            };
-            if self
-                .by_id
-                .get(parent)
-                .is_none_or(|symbol| symbol.kind != SymbolKind::Namespace)
-            {
-                return false;
-            }
-            current = parent;
-        }
-        false
-    }
-
-    /// Whether a containment links a parent named `parent` to a child named `child`.
-    fn has_containment(&self, parent: &str, child: &str) -> bool {
-        self.file.containments.iter().any(|edge| {
-            self.name_of(edge.parent.as_str()) == Some(parent)
-                && self.name_of(edge.child.as_str()) == Some(child)
-        })
-    }
-
-    /// Whether a v2 symbol carries the v1 node under the symbol rule.
-    fn has_symbol(&self, symbol: &V1Symbol, kind: SymbolKind) -> bool {
-        self.file.symbols.iter().any(|candidate| {
-            candidate.kind == kind
-                && candidate.name == symbol.name
-                && candidate.span.start_line() == symbol.start_line
-                && qualified_names_agree(symbol, &candidate.qualified_name)
-        })
-    }
-
-    /// Whether a v2 reference carries a non-`imports` v1 edge.
-    fn references_target(&self, query: &ReferenceQuery<'_>) -> bool {
-        let lines = LineSpan::recorded(query.line);
-        let referenced = self.file.references.iter().any(|reference| {
-            query.kinds.contains(&reference.kind)
-                && lines.contains(reference.span.start_line())
-                && self.reference_names_target(&reference.name, query.target)
+        let mut captured_fact = fact(&symbol.file, node_key(symbol));
+        captured_fact.query = Some(Pin {
+            key: captured_fact.pin.key.clone(),
+            end: Some(symbol.end_line),
         });
-        referenced || self.names_imported_binding(query)
-    }
-
-    /// Whether a v2 reference name designates a v1 target node: the names agree,
-    /// the target is the receiver of a member access, or the target is an import
-    /// node whose module binds the name.
-    fn reference_names_target(&self, name: &str, target: &V1Symbol) -> bool {
-        names_agree(name, &target.name)
-            || leading_segment(name) == target.name
-            || target.kind == V1_IMPORT_KIND && self.binds_import(name, &target.name)
-    }
-
-    /// Whether a v1 `references` edge recorded on an import node's own lines is
-    /// carried by that import, which names the imported binding.
-    fn names_imported_binding(&self, query: &ReferenceQuery<'_>) -> bool {
-        let target = query.target;
-        let own_lines = LineSpan {
-            first: target.start_line,
-            last: target.end_line,
-        };
-        query.v1_kind == V1_REFERENCES_KIND
-            && target.kind == V1_IMPORT_KIND
-            && query.line.is_some_and(|line| {
-                own_lines.contains(line) && self.has_import(&target.name, LineSpan::exact(line))
-            })
-    }
-
-    /// Whether a v2 import fact carries a v1 `imports` edge.
-    fn imports_target(&self, query: &ReferenceQuery<'_>) -> bool {
-        let target = query.target;
-        let lines = LineSpan::recorded(query.line);
-        if target.kind == V1_IMPORT_KIND {
-            return self.has_import(&target.name, lines);
+        if oracle.symbols.iter().any(|other| {
+            other.file == symbol.file
+                && node_key(other) == captured_fact.pin.key
+                && other.end_line != symbol.end_line
+        }) {
+            captured_fact.pin.end = Some(symbol.end_line);
         }
-        self.import_specifiers(lines)
-            .any(|specifier| specifier_names_target(specifier, target))
+        facts.push(captured_fact);
     }
-}
-
-/// Matches one language's v1 facts against its v2 extractions.
-struct Matcher<'a> {
-    /// v1 nodes by identity.
-    nodes: V1Nodes<'a>,
-    /// Indexed v2 facts of every successfully extracted file.
-    files: BTreeMap<&'a str, FileFacts<'a>>,
-}
-
-impl Matcher<'_> {
-    /// Apply the symbol rule.
-    fn symbol(&self, symbol: &V1Symbol) -> bool {
-        if symbol.kind == V1_FILE_KIND {
-            return true;
-        }
-        let Some(facts) = self.files.get(symbol.file.as_str()) else {
-            return false;
-        };
-        if symbol.kind == V1_IMPORT_KIND {
-            let lines = LineSpan {
-                first: symbol.start_line,
-                last: symbol.end_line,
-            };
-            return facts.has_import(&symbol.name, lines);
-        }
-        symbol_kind(&symbol.kind).is_some_and(|kind| facts.has_symbol(symbol, kind))
-    }
-
-    /// Apply the `contains` or reference edge rule.
-    fn edge(&self, edge: &V1Edge) -> bool {
-        let targets = self
-            .nodes
-            .find((&edge.target_file, &edge.target, &edge.target_kind));
-        if edge.kind == V1_CONTAINS_KIND {
-            return targets.iter().any(|child| self.containment(edge, child));
-        }
-        let (Some(kinds), Some(facts)) = (
-            reference_kinds(&edge.kind),
-            self.files.get(edge.file.as_str()),
-        ) else {
-            return false;
-        };
-        targets.iter().any(|target| {
-            let query = ReferenceQuery {
-                v1_kind: &edge.kind,
-                kinds,
-                line: edge.line,
-                target,
-            };
-            if edge.kind == V1_IMPORTS_KIND {
-                facts.imports_target(&query)
-            } else {
-                facts.references_target(&query)
-            }
-        })
-    }
-
-    /// Apply the containment rule for one candidate child node.
-    fn containment(&self, edge: &V1Edge, child: &V1Symbol) -> bool {
-        if child.kind == V1_IMPORT_KIND {
-            return self.symbol(child);
-        }
-        let Some(facts) = self.files.get(child.file.as_str()) else {
-            return false;
-        };
-        if edge.source_kind == V1_FILE_KIND {
-            return facts.has_file_scoped(&child.name);
-        }
-        self.nodes
-            .find((&edge.file, &edge.source, &edge.source_kind))
+    facts.extend(
+        oracle
+            .edges
             .iter()
-            .any(|parent| facts.has_containment(&parent.name, &child.name))
-    }
-
-    /// Apply the unresolved-reference rule.
-    fn unresolved(&self, reference: &V1Unresolved) -> bool {
-        let (Some(kinds), Some(facts)) = (
-            reference_kinds(&reference.kind),
-            self.files.get(reference.file.as_str()),
-        ) else {
-            return false;
-        };
-        let lines = LineSpan::recorded(reference.line);
-        facts.file.references.iter().any(|candidate| {
-            kinds.contains(&candidate.kind)
-                && lines.contains(candidate.span.start_line())
-                && names_agree(&candidate.name, &reference.name)
-        })
-    }
-}
-
-#[test]
-fn v2_extraction_carries_every_v1_parity_fact_or_a_ledgered_divergence() {
-    let ledger = load_ledger();
-    let mut outcomes = BTreeMap::new();
-    let mut fact_count = 0_usize;
-    for language in v1_languages() {
-        let case = load_case(language);
-        fact_count +=
-            case.oracle.symbols.len() + case.oracle.edges.len() + case.oracle.unresolved.len();
-        outcomes.insert(language.as_str().to_owned(), evaluate(&case));
-    }
-    write_requested_report(&outcomes);
-    let failures = reconcile(&outcomes, &ledger);
-    assert!(
-        failures.values().all(LanguageFailures::is_clean),
-        "{}",
-        render_failures(&failures, fact_count)
+            .map(|edge| captured_edge(edge, &oracle.symbols)),
     );
+    for unresolved in &oracle.unresolved {
+        let mut captured_fact = fact(
+            &unresolved.file,
+            key!["U", &unresolved.kind, &unresolved.name],
+        );
+        if let Some(line) = unresolved.line {
+            captured_fact.pin.key.push(line.to_string());
+        }
+        facts.push(captured_fact);
+    }
+    facts
 }
 
-#[test]
-fn every_v1_language_mode_has_a_complete_parity_corpus() {
-    let languages = v1_languages();
-    assert_eq!(languages.len(), V1_LANGUAGE_MODE_COUNT);
-    let expected_ids = languages
+/// Retain the frozen selector and derive a typed owner query from captured declarations.
+fn captured_edge(edge: &V1Edge, symbols: &[V1Symbol]) -> Fact {
+    let contains = edge.kind == "contains";
+    let key = if contains {
+        key![
+            "C",
+            &edge.source_kind,
+            &edge.source,
+            &edge.target_kind,
+            &edge.target
+        ]
+    } else {
+        key!["R", &edge.kind, &edge.source, &edge.target]
+    };
+    let mut captured_fact = fact(&edge.file, key);
+    if let Some(line) = edge.line {
+        captured_fact.pin.key.push(line.to_string());
+    }
+    captured_fact.query = Some(captured_fact.pin.clone());
+    if !contains {
+        let owners = symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.file == edge.file
+                    && symbol.kind == edge.source_kind
+                    && symbol.qualified_name == edge.source
+            })
+            .filter(|symbol| {
+                edge.line
+                    .is_none_or(|line| (symbol.start_line..=symbol.end_line).contains(&line))
+            })
+            .map(|symbol| symbol.start_line)
+            .collect::<BTreeSet<_>>();
+        let site = if edge.source_kind == "file" {
+            DOCUMENT_START
+        } else if owners.len() == 1 {
+            owners.first().copied().unwrap_or_default()
+        } else {
+            0
+        };
+        let (source_kind, target_kind) = (&edge.source_kind, &edge.target_kind);
+        let mut query = key![
+            "R",
+            &edge.kind,
+            source_kind,
+            &edge.source,
+            site,
+            &edge.target
+        ];
+        if let Some(line) = edge.line {
+            query.push(line.to_string());
+        }
+        captured_fact.query = Some(Pin {
+            key: query,
+            end: None,
+        });
+        captured_fact
+            .pin
+            .key
+            .extend(key!["owner_kind", source_kind, "target_kind", target_kind]);
+    }
+    if edge.target_file != edge.file {
+        captured_fact
+            .pin
+            .key
+            .extend(key!["target_file", &edge.target_file]);
+    }
+    captured_fact.owner = Some(key![&edge.source_kind, &edge.source]);
+    captured_fact.target = Some(key![&edge.target_kind, &edge.target]);
+    captured_fact
+}
+
+/// Name a native declaration by exact kind, qualified name, start and display name.
+fn symbol_key(symbol: &ExtractedSymbol) -> Vec<String> {
+    let kind = symbol.kind.as_str();
+    let qualified_name = &symbol.qualified_name;
+    let line = symbol.span.start_line();
+    key!["S", kind, qualified_name, line, symbol.name]
+}
+
+/// Include the end line when comparing a relationship to a verified declaration.
+fn concrete(pin: &Pin) -> Vec<String> {
+    let mut key = pin.key.clone();
+    key.push(pin.end.unwrap_or_default().to_string());
+    key
+}
+
+/// Attach complete native owner identity and readable collision discriminators.
+fn owner(native_fact: &mut Fact, symbol: &ExtractedSymbol, symbols: &[ExtractedSymbol]) {
+    let mut identity = symbol_key(symbol);
+    identity.push(symbol.span.end_line().to_string());
+    native_fact.owner = Some(identity);
+    let peers = symbols
         .iter()
-        .map(|language| language.as_str().to_owned())
+        .filter(|peer| peer.qualified_name == symbol.qualified_name);
+    let (kind, line) = (symbol.kind.as_str(), symbol.span.start_line());
+    let key = &mut native_fact.pin.key;
+    if key[0] == "C" && peers.clone().count() > 1 {
+        key.extend(key!["parent_kind", kind, "parent_line", line]);
+    }
+    // A shared name/kind/start needs the owner's end line even for references.
+    let site = (symbol.kind, symbol.span.start_line());
+    if peers
+        .filter(|peer| (peer.kind, peer.span.start_line()) == site)
+        .count()
+        > 1
+    {
+        key.extend(key!["parent_end", symbol.span.end_line()]);
+    }
+}
+
+/// Project every native observation in stable order; never coalesce duplicate keys.
+fn native(file: &ExtractedFile) -> Vec<Fact> {
+    let path = file.path.as_str();
+    let symbols_by_id: BTreeMap<_, _> = file
+        .symbols
+        .iter()
+        .map(|symbol| (&symbol.id, symbol))
+        .collect();
+    assert_eq!(
+        symbols_by_id.len(),
+        file.symbols.len(),
+        "duplicate native symbol id"
+    );
+    let mut facts = vec![fact(path, key!["F", DOCUMENT_START])];
+    for symbol in &file.symbols {
+        let mut native_fact = fact(path, symbol_key(symbol));
+        native_fact.pin.end = Some(symbol.span.end_line());
+        facts.push(native_fact);
+    }
+    append_containments(file, &symbols_by_id, &mut facts);
+    append_references(file, &symbols_by_id, &mut facts);
+    append_bindings(file, &mut facts);
+    if file.has_inline_tests {
+        facts.push(fact(path, key!["T",]));
+    }
+    facts
+}
+
+/// Append real containment observations followed by implicit file-root relationships.
+fn append_containments(
+    file: &ExtractedFile,
+    symbols_by_id: &BTreeMap<&SymbolId, &ExtractedSymbol>,
+    facts: &mut Vec<Fact>,
+) {
+    let path = file.path.as_str();
+    let children = file
+        .containments
+        .iter()
+        .map(|containment| &containment.child)
         .collect::<BTreeSet<_>>();
-    assert_eq!(oracle_document_ids(), expected_ids);
-
-    let mut problems = Vec::new();
-    for language in languages {
-        let case = load_case(language);
-        for problem in corpus_problems(&case) {
-            problems.push(format!("{}: {problem}", language.as_str()));
+    let roots = file
+        .symbols
+        .iter()
+        .filter(|symbol| !children.contains(&symbol.id))
+        .map(|symbol| (None, symbol));
+    let edges = file.containments.iter().map(|containment| {
+        (
+            Some(symbols_by_id[&containment.parent]),
+            symbols_by_id[&containment.child],
+        )
+    });
+    for (parent, child) in edges.chain(roots) {
+        let (kind, qualified_name) = parent.map_or(("file", path), |parent_symbol| {
+            (parent_symbol.kind.as_str(), &*parent_symbol.qualified_name)
+        });
+        let (child_kind, child_name, line) = (
+            child.kind.as_str(),
+            &child.qualified_name,
+            child.span.start_line(),
+        );
+        let mut native_fact = fact(
+            path,
+            key!["C", kind, qualified_name, child_kind, child_name, line],
+        );
+        native_fact.pin.end = Some(child.span.end_line());
+        native_fact.target = Some(concrete(&Pin {
+            key: symbol_key(child),
+            end: native_fact.pin.end,
+        }));
+        if let Some(parent) = parent {
+            owner(&mut native_fact, parent, &file.symbols);
+        } else {
+            native_fact.pin.key.push("file_owner".into());
         }
-    }
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
-}
-
-#[test]
-fn divergence_ledger_entries_are_well_formed_and_unique() {
-    let ledger = load_ledger();
-    let languages = v1_languages()
-        .into_iter()
-        .map(SourceLanguage::as_str)
-        .collect::<BTreeSet<_>>();
-    let mut seen = BTreeSet::new();
-    let mut problems = Vec::new();
-    for entry in &ledger {
-        let label = format!("{}: {}", entry.language, describe(&entry.fact));
-        if !languages.contains(entry.language.as_str()) {
-            problems.push(format!("{label}: not a v1 language mode"));
-        }
-        if entry.status == LedgerStatus::Intentional && entry.reason.trim().is_empty() {
-            problems.push(format!("{label}: intentional entries need a reason"));
-        }
-        if entry.wave.is_some_and(|wave| !LEDGER_WAVES.contains(&wave)) {
-            problems.push(format!("{label}: wave must be 1, 2 or 3"));
-        }
-        if entry
-            .gap
-            .as_deref()
-            .is_some_and(|gap| gap.trim().is_empty())
-        {
-            problems.push(format!("{label}: gap ids must not be blank"));
-        }
-        if (entry.fact.category == FactCategory::Edge) != entry.fact.source.is_some() {
-            problems.push(format!(
-                "{label}: edge facts need a source and other facts take none"
-            ));
-        }
-        if !seen.insert((entry.language.as_str(), &entry.fact)) {
-            problems.push(format!("{label}: duplicate entry"));
-        }
-    }
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
-}
-
-/// Every v1.1.33 language mode, in stable order.
-fn v1_languages() -> Vec<SourceLanguage> {
-    SourceLanguage::ALL
-        .into_iter()
-        .filter(|language| language.is_v1_language())
-        .collect()
-}
-
-/// Stable ids of every oracle document on disk.
-fn oracle_document_ids() -> BTreeSet<String> {
-    let directory = Path::new(FIXTURE_ROOT).join(EXPECTED_DIRECTORY);
-    let entries = fs::read_dir(&directory)
-        .unwrap_or_else(|error| panic!("cannot list {}: {error}", directory.display()));
-    entries
-        .map(|entry| entry.unwrap_or_else(|error| panic!("cannot read oracle entry: {error}")))
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == ORACLE_EXTENSION)
-        })
-        .filter_map(|path| {
-            path.file_stem()
-                .map(|stem| stem.to_string_lossy().into_owned())
-        })
-        .collect()
-}
-
-/// Load one mode's oracle document and corpus.
-fn load_case(language: SourceLanguage) -> LanguageCase {
-    let path = Path::new(FIXTURE_ROOT)
-        .join(EXPECTED_DIRECTORY)
-        .join(format!("{}.{ORACLE_EXTENSION}", language.as_str()));
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-    let oracle = serde_json::from_str(&text)
-        .unwrap_or_else(|error| panic!("{} is not a valid oracle: {error}", path.display()));
-    LanguageCase {
-        language,
-        oracle,
-        corpus: corpus_files(&Path::new(FIXTURE_ROOT).join(language.as_str())),
+        facts.push(native_fact);
     }
 }
 
-/// Parse the divergence ledger.
-fn load_ledger() -> Vec<LedgerEntry> {
-    let path = Path::new(FIXTURE_ROOT).join(LEDGER_FILE);
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|error| panic!("{} is not a valid ledger: {error}", path.display()))
+/// Append references with typed owners and every canonical lookup discriminator.
+fn append_references(
+    file: &ExtractedFile,
+    symbols_by_id: &BTreeMap<&SymbolId, &ExtractedSymbol>,
+    facts: &mut Vec<Fact>,
+) {
+    let path = file.path.as_str();
+    for reference in &file.references {
+        let parent = reference.owner.as_ref().map(|id| symbols_by_id[id]);
+        let (parent_kind, parent_name, parent_line) =
+            parent.map_or(("file", path, DOCUMENT_START), |parent_symbol| {
+                (
+                    parent_symbol.kind.as_str(),
+                    parent_symbol.qualified_name.as_str(),
+                    parent_symbol.span.start_line(),
+                )
+            });
+        let (kind, name, line) = (
+            reference.kind.as_str(),
+            &reference.name,
+            reference.span.start_line(),
+        );
+        let mut native_fact = fact(
+            path,
+            key!["R", kind, parent_kind, parent_name, parent_line, name, line],
+        );
+        if let Some(lookup) = &reference.resolution_name {
+            native_fact.pin.key.extend(key!["lookup", lookup]);
+        }
+        native_fact.pin.end = Some(reference.span.end_line());
+        if let Some(parent) = parent {
+            owner(&mut native_fact, parent, &file.symbols);
+        } else {
+            native_fact.pin.key.push("file_owner".into());
+        }
+        facts.push(native_fact);
+    }
 }
 
-/// Every file under `root`, including dotfiles, sorted by corpus-relative path.
-fn corpus_files(root: &Path) -> Vec<CorpusFile> {
+/// Append import bindings as a separate native observation category.
+fn append_bindings(file: &ExtractedFile, facts: &mut Vec<Fact>) {
+    let path = file.path.as_str();
+    for binding in &file.import_bindings {
+        let kind = must(serde_json::to_string(&binding.kind));
+        let kind = kind.trim_matches('"');
+        let module = &binding.module_specifier;
+        let imported = &binding.imported_name;
+        let local = &binding.local_name;
+        let line = binding.span.start_line();
+        let mut native_fact = fact(path, key!["B", kind, module, imported, local, line]);
+        native_fact.pin.end = Some(binding.span.end_line());
+        facts.push(native_fact);
+    }
+}
+
+/// Canonical and identity-alias keys mapped to every native observation index.
+type Index<'a> = BTreeMap<(&'a str, Vec<String>), Vec<usize>>;
+
+/// Index canonical keys and identity aliases over all native observations.
+fn index(facts: &[Fact]) -> Index<'_> {
+    let mut index = Index::new();
+    for (observation_index, native_fact) in facts.iter().enumerate() {
+        // Aliases simplify identity only; each distinct observation remains indexed.
+        let mut keys = vec![native_fact.pin.key.clone()];
+        let lengths: &[usize] = match native_fact.pin.key[0].as_str() {
+            "S" => &[4],
+            "C" => &[5, 6],
+            "R" => &[6, 7],
+            _ => &[],
+        };
+        keys.extend(
+            lengths
+                .iter()
+                .map(|length| native_fact.pin.key[..*length].to_vec()),
+        );
+        for key in keys.into_iter().collect::<BTreeSet<_>>() {
+            index
+                .entry((native_fact.file.as_str(), key))
+                .or_default()
+                .push(observation_index);
+        }
+    }
+    index
+}
+
+/// Read a strictly typed capture or policy record.
+fn parse<Record: DeserializeOwned>(text: &str) -> Record {
+    must(serde_json::from_str(text))
+}
+
+/// Read fixture text while preserving a useful filesystem error.
+fn read(path: &Path) -> String {
+    must(fs::read_to_string(path))
+}
+
+/// Parse one strict record per line from a fixture table.
+fn jsonl<Record: DeserializeOwned>(file: &str) -> Vec<Record> {
+    let text = read(&Path::new(ROOT).join(file));
+    text.lines().map(parse).collect()
+}
+
+/// List every corpus file deterministically, including hidden extraction inputs.
+fn corpus_files(root: &Path) -> Vec<String> {
     let mut pending = vec![root.to_path_buf()];
     let mut files = Vec::new();
     while let Some(directory) = pending.pop() {
-        let entries = fs::read_dir(&directory)
-            .unwrap_or_else(|error| panic!("cannot list {}: {error}", directory.display()));
-        for entry in entries {
-            let path = entry
-                .unwrap_or_else(|error| panic!("cannot read corpus entry: {error}"))
-                .path();
+        for entry in must(fs::read_dir(directory)) {
+            let path = must(entry).path();
             if path.is_dir() {
                 pending.push(path);
             } else {
-                files.push(read_corpus_file(root, &path));
+                files.push(
+                    must(path.strip_prefix(root))
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
             }
         }
     }
-    files.sort_by(|left, right| left.path.cmp(&right.path));
+    files.sort();
     files
 }
 
-/// Read one corpus file and derive its corpus-relative path.
-fn read_corpus_file(root: &Path, path: &Path) -> CorpusFile {
-    let relative = path
-        .strip_prefix(root)
-        .unwrap_or_else(|error| panic!("{} escaped its corpus: {error}", path.display()));
-    let components = relative
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    CorpusFile {
-        path: components.join("/"),
-        bytes: fs::read(path)
-            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display())),
-    }
-}
-
-/// Paths v1 emitted a file node for.
-fn v1_file_nodes(oracle: &Oracle) -> BTreeSet<&str> {
-    oracle
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.kind == V1_FILE_KIND)
-        .map(|symbol| symbol.file.as_str())
-        .collect()
-}
-
-/// Corpus files v1 indexed that the frozen v1 classifier assigns to the case's mode.
-fn attributed_files(case: &LanguageCase) -> BTreeSet<&str> {
-    let indexed = v1_file_nodes(&case.oracle);
-    case.corpus
-        .iter()
-        .filter(|file| indexed.contains(file.path.as_str()))
-        .filter(|file| {
-            std::str::from_utf8(&file.bytes).ok().and_then(|text| {
-                SourceLanguage::for_v1_normalized_path_with_source(&file.path, text)
-            }) == Some(case.language)
-        })
-        .map(|file| file.path.as_str())
-        .collect()
-}
-
-/// Classify and extract one corpus file through the v2 production entry points.
-fn run_file(file: &CorpusFile) -> FileRun {
-    let limits = SourceLimits::new(SOURCE_LIMIT_BYTES)
-        .unwrap_or_else(|error| panic!("source limit is invalid: {error}"));
-    let snapshot = match SourceSnapshot::from_bytes(&file.path, &file.bytes, limits) {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            return FileRun {
-                detected: None,
-                extraction: Err(format!("snapshot rejected: {error}")),
-            };
-        }
-    };
-    let extraction = NativeExtractor::new(snapshot.language())
+/// Run the production per-file extractor with the corpus-relative virtual path.
+fn extract(path: &str, bytes: &[u8]) -> Result<ExtractedFile, String> {
+    let limits = SourceLimits::new(SOURCE_BYTES).map_err(|error| error.to_string())?;
+    let snapshot =
+        SourceSnapshot::from_bytes(path, bytes, limits).map_err(|error| error.to_string())?;
+    NativeExtractor::new(snapshot.language())
         .and_then(|mut extractor| extractor.extract(&snapshot))
-        .map_err(|error| format!("extraction failed: {error}"));
-    FileRun {
-        detected: Some(snapshot.language()),
-        extraction,
-    }
+        .map_err(|error| error.to_string())
 }
 
-/// Run v2 over one corpus and match every v1 fact.
-fn evaluate(case: &LanguageCase) -> LanguageOutcome {
-    let mut outcome = LanguageOutcome::default();
-    let runs = case
-        .corpus
+/// Verify capture provenance and corpus membership before extracting a language corpus.
+fn load_case(language: SourceLanguage) -> Case {
+    let language_name = language.as_str();
+    let root = Path::new(ROOT).join(language_name);
+    let expected = Path::new(ROOT).join(format!("expected/{language_name}.json"));
+    let oracle: Oracle = parse(&read(&expected));
+    assert_eq!(oracle.baseline, BASELINE);
+    assert_eq!(oracle.binary_sha256, BINARY_SHA256);
+    assert_eq!(oracle.language, language_name);
+    let files = corpus_files(&root);
+    let visible = files
         .iter()
-        .map(|file| (file.path.as_str(), run_file(file)))
-        .collect::<BTreeMap<_, _>>();
-    let indexed = v1_file_nodes(&case.oracle);
-    for path in attributed_files(case) {
-        let detected = runs.get(path).and_then(|run| run.detected);
-        if detected != Some(case.language) {
-            outcome.problems.push(format!(
-                "{path}: v1 attributed it to {} but v2 classifies it as {}",
-                case.language.as_str(),
-                detected.map_or("nothing", SourceLanguage::as_str)
-            ));
-        }
-    }
-    for (path, run) in &runs {
-        if let Err(reason) = &run.extraction
-            && indexed.contains(path)
-        {
-            outcome.notes.push(format!("{path}: {reason}"));
-        }
-    }
-    let matcher = Matcher {
-        nodes: V1Nodes::new(&case.oracle.symbols),
-        files: runs
-            .iter()
-            .filter_map(|(path, run)| {
-                run.extraction
-                    .as_ref()
-                    .ok()
-                    .map(|file| (*path, FileFacts::new(file)))
-            })
-            .collect(),
-    };
-    outcome.misses = unmatched_facts(&case.oracle, &matcher);
-    outcome
-}
-
-/// Every v1 fact of one oracle that has no v2 match.
-fn unmatched_facts(oracle: &Oracle, matcher: &Matcher<'_>) -> BTreeSet<FactKey> {
-    let symbols = oracle
-        .symbols
-        .iter()
-        .filter(|symbol| !matcher.symbol(symbol))
-        .map(|symbol| FactKey {
-            category: FactCategory::Symbol,
-            file: symbol.file.clone(),
-            line: Some(symbol.start_line),
-            kind: symbol.kind.clone(),
-            name: symbol.name.clone(),
-            source: None,
-        });
-    let edges = oracle
-        .edges
-        .iter()
-        .filter(|edge| !matcher.edge(edge))
-        .map(|edge| FactKey {
-            category: FactCategory::Edge,
-            file: edge.file.clone(),
-            line: edge.line,
-            kind: edge.kind.clone(),
-            name: edge.target.clone(),
-            source: Some(edge.source.clone()),
-        });
-    let unresolved = oracle
-        .unresolved
-        .iter()
-        .filter(|reference| !matcher.unresolved(reference))
-        .map(|reference| FactKey {
-            category: FactCategory::Unresolved,
-            file: reference.file.clone(),
-            line: reference.line,
-            kind: reference.kind.clone(),
-            name: reference.name.clone(),
-            source: None,
-        });
-    symbols.chain(edges).chain(unresolved).collect()
-}
-
-/// Integrity findings for one mode's oracle document and corpus.
-fn corpus_problems(case: &LanguageCase) -> Vec<String> {
-    let oracle = &case.oracle;
-    let mut problems = Vec::new();
-    if oracle.baseline != V1_BASELINE || oracle.binary_sha256 != V1_BINARY_SHA256 {
-        problems.push(format!(
-            "captured from {} / {}, expected {V1_BASELINE} / {V1_BINARY_SHA256}",
-            oracle.baseline, oracle.binary_sha256
-        ));
-    }
-    if oracle.language != case.language.as_str() {
-        problems.push(format!("oracle names language {}", oracle.language));
-    }
-    let corpus = case
-        .corpus
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<BTreeSet<_>>();
-    let listed = corpus
-        .iter()
-        .copied()
-        .filter(|path| !path_leaf(path).starts_with('.'))
+        .filter(|path| !path.rsplit('/').next().unwrap_or_default().starts_with('.'))
+        .cloned()
         .collect::<Vec<_>>();
-    if listed != oracle.files {
-        problems.push(format!(
-            "corpus {listed:?} differs from the captured file list"
-        ));
-    }
-    for file in fact_files(oracle) {
-        if !corpus.contains(file) {
-            problems.push(format!(
-                "a v1 fact names {file}, which is not in the corpus"
-            ));
-        }
-    }
-    problems.extend(attribution_problems(case));
-    problems.extend(unmapped_kind_problems(oracle));
-    problems
-}
-
-/// Every file a v1 fact belongs to or points at.
-fn fact_files(oracle: &Oracle) -> BTreeSet<&str> {
-    let symbols = oracle.symbols.iter().map(|symbol| symbol.file.as_str());
-    let edges = oracle
-        .edges
-        .iter()
-        .flat_map(|edge| [edge.file.as_str(), edge.target_file.as_str()]);
-    let unresolved = oracle
-        .unresolved
-        .iter()
-        .map(|reference| reference.file.as_str());
-    symbols.chain(edges).chain(unresolved).collect()
-}
-
-/// Attribution, structural-floor and binary-file findings for one mode.
-fn attribution_problems(case: &LanguageCase) -> Vec<String> {
-    let mut problems = Vec::new();
-    let attributed = attributed_files(case);
-    if attributed.is_empty() {
-        problems.push("no corpus file is attributed to the mode".to_owned());
-    }
-    let structural = case
-        .oracle
+    assert_eq!(visible, oracle.files, "{language_name} corpus changed");
+    let fact_files = oracle
         .symbols
         .iter()
-        .any(|symbol| symbol.kind != V1_FILE_KIND && attributed.contains(symbol.file.as_str()));
-    let parser_only = PARSER_ONLY_V1_MODES.contains(&case.language);
-    if structural == parser_only {
-        problems.push(format!(
-            "v1 structural facts in attributed files: {structural}; listed as parser-only: {parser_only}"
-        ));
-    }
-    let binary = case
-        .corpus
-        .iter()
-        .filter(|file| std::str::from_utf8(&file.bytes).is_err())
-        .map(|file| file.path.as_str())
-        .collect::<BTreeSet<_>>();
-    for symbol in &case.oracle.symbols {
-        if symbol.kind != V1_FILE_KIND && binary.contains(symbol.file.as_str()) {
-            problems.push(format!("binary file {} carries v1 facts", symbol.file));
-        }
-    }
-    problems
-}
-
-/// v1 kinds the mapping tables do not cover.
-fn unmapped_kind_problems(oracle: &Oracle) -> Vec<String> {
-    let symbol_kinds = oracle
-        .symbols
-        .iter()
-        .map(|symbol| symbol.kind.as_str())
-        .filter(|kind| {
-            ![V1_FILE_KIND, V1_IMPORT_KIND].contains(kind) && symbol_kind(kind).is_none()
-        });
-    let edge_kinds = oracle
-        .edges
-        .iter()
-        .map(|edge| edge.kind.as_str())
+        .map(|symbol| &symbol.file)
         .chain(
             oracle
-                .unresolved
+                .edges
                 .iter()
-                .map(|reference| reference.kind.as_str()),
+                .flat_map(|edge| [&edge.file, &edge.target_file]),
         )
-        .filter(|kind| *kind != V1_CONTAINS_KIND && reference_kinds(kind).is_none());
-    symbol_kinds
-        .chain(edge_kinds)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(|kind| format!("v1 kind {kind} has no mapping"))
-        .collect()
-}
-
-/// Compare every language's misses with the ledger.
-fn reconcile(
-    outcomes: &BTreeMap<String, LanguageOutcome>,
-    ledger: &[LedgerEntry],
-) -> BTreeMap<String, LanguageFailures> {
-    let mut failures = BTreeMap::<String, LanguageFailures>::new();
-    let ledgered = ledger
-        .iter()
-        .map(|entry| (entry.language.as_str(), &entry.fact))
-        .collect::<BTreeSet<_>>();
-    for (language, outcome) in outcomes {
-        let failure = failures.entry(language.clone()).or_default();
-        failure.unledgered = outcome
-            .misses
+        .chain(oracle.unresolved.iter().map(|unresolved| &unresolved.file));
+    assert!(
+        fact_files.into_iter().all(|file| files.contains(file)),
+        "captured file missing"
+    );
+    let mut native_facts = Vec::new();
+    for path in files {
+        let extraction = extract(&path, &must(fs::read(root.join(&path))));
+        if oracle
+            .symbols
             .iter()
-            .filter(|fact| !ledgered.contains(&(language.as_str(), *fact)))
-            .cloned()
-            .collect();
-        failure.problems.clone_from(&outcome.problems);
-        failure.notes.clone_from(&outcome.notes);
-    }
-    for entry in ledger {
-        let still_missing = outcomes
-            .get(&entry.language)
-            .is_some_and(|outcome| outcome.misses.contains(&entry.fact));
-        if !still_missing {
-            failures
-                .entry(entry.language.clone())
-                .or_default()
-                .stale
-                .push(entry.fact.clone());
+            .any(|symbol| symbol.kind == "file" && symbol.file == path)
+        {
+            assert!(extraction.is_ok(), "{language_name} {path}: {extraction:?}");
+        }
+        if let Ok(file) = extraction {
+            assert_eq!(file.path.as_str(), path);
+            native_facts.extend(native(&file));
         }
     }
-    for failure in failures.values_mut() {
-        failure.stale.sort();
+    Case {
+        captured: captured(&oracle),
+        language: oracle.language,
+        native: native_facts,
     }
-    failures
 }
 
-/// Write every unmatched fact to the path in [`REPORT_PATH_VARIABLE`], when set.
-fn write_requested_report(outcomes: &BTreeMap<String, LanguageOutcome>) {
-    let Some(path) = std::env::var_os(REPORT_PATH_VARIABLE) else {
-        return;
-    };
-    let records = outcomes
-        .iter()
-        .flat_map(|(language, outcome)| {
-            outcome.misses.iter().map(|fact| MissRecord {
-                language: language.as_str(),
-                fact,
+/// Load the immutable captures and committed policy once for all test entry points.
+fn corpus() -> &'static (Vec<Case>, Policy) {
+    static CORPUS: OnceLock<(Vec<Case>, Policy)> = OnceLock::new();
+    CORPUS.get_or_init(|| {
+        let languages = SourceLanguage::ALL
+            .into_iter()
+            .filter(|language| language.is_v1_language())
+            .collect::<Vec<_>>();
+        let expected = corpus_files(&Path::new(ROOT).join("expected")).len();
+        let cases = languages.into_iter().map(load_case).collect::<Vec<_>>();
+        let facts = cases.iter().map(|case| case.captured.len()).sum::<usize>();
+        assert_eq!(
+            (cases.len(), expected, facts),
+            (LANGUAGE_COUNT, LANGUAGE_COUNT, FACT_COUNT)
+        );
+        let mut rows = jsonl::<Alignment>("alignments.jsonl")
+            .into_iter()
+            .map(|alignment| Row {
+                language: alignment.language,
+                file: alignment.file,
+                fact: Pin {
+                    key: alignment.v1,
+                    end: alignment.end,
+                },
+                disposition: Aligned {
+                    v2: alignment.pins,
+                    reason: alignment.reason,
+                },
             })
-        })
-        .collect::<Vec<_>>();
-    let json = serde_json::to_string_pretty(&records)
-        .unwrap_or_else(|error| panic!("cannot serialize the miss report: {error}"));
-    fs::write(&path, json + "\n").unwrap_or_else(|error| {
-        panic!(
-            "cannot write the miss report to {}: {error}",
-            Path::new(&path).display()
+            .collect::<Vec<_>>();
+        rows.extend(jsonl::<Row>("divergences.jsonl"));
+        (
+            cases,
+            Policy {
+                rows,
+                definitions: jsonl("reasons.jsonl"),
+            },
         )
-    });
-}
-
-/// Render all failures, grouped by language with counts.
-fn render_failures(failures: &BTreeMap<String, LanguageFailures>, fact_count: usize) -> String {
-    let failing = failures
-        .iter()
-        .filter(|(_, failure)| !failure.is_clean())
-        .collect::<Vec<_>>();
-    let unledgered = failing
-        .iter()
-        .map(|(_, failure)| failure.unledgered.len())
-        .sum::<usize>();
-    let stale = failing
-        .iter()
-        .map(|(_, failure)| failure.stale.len())
-        .sum::<usize>();
-    let problems = failing
-        .iter()
-        .map(|(_, failure)| failure.problems.len())
-        .sum::<usize>();
-    let mut text = format!(
-        "v1 parity oracle: {unledgered} unmatched v1 facts without a ledger entry, {stale} stale \
-         ledger entries and {problems} problems in {} languages ({fact_count} v1 facts checked)\n",
-        failing.len()
-    );
-    for (language, failure) in failing {
-        render_language(&mut text, language, failure);
-    }
-    text
-}
-
-/// Render one language's failure group.
-fn render_language(text: &mut String, language: &str, failure: &LanguageFailures) {
-    let _ = writeln!(
-        text,
-        "== {language}: {} unmatched, {} stale, {} problems ==",
-        failure.unledgered.len(),
-        failure.stale.len(),
-        failure.problems.len()
-    );
-    for fact in &failure.unledgered {
-        let _ = writeln!(text, "  unmatched {}", describe(fact));
-    }
-    for fact in &failure.stale {
-        let _ = writeln!(text, "  stale ledger entry {}", describe(fact));
-    }
-    for problem in &failure.problems {
-        let _ = writeln!(text, "  problem: {problem}");
-    }
-    for note in &failure.notes {
-        let _ = writeln!(text, "  note: {note}");
-    }
-}
-
-/// One-line description of a fact.
-fn describe(fact: &FactKey) -> String {
-    let line = fact
-        .line
-        .map_or_else(|| "-".to_owned(), |line| line.to_string());
-    let subject = fact.source.as_ref().map_or_else(
-        || format!("`{}`", fact.name),
-        |source| format!("`{source}` -> `{}`", fact.name),
-    );
-    let category = match fact.category {
-        FactCategory::Symbol => "symbol",
-        FactCategory::Edge => "edge",
-        FactCategory::Unresolved => "unresolved",
-    };
-    format!("{category} {} {subject} at {}:{line}", fact.kind, fact.file)
-}
-
-/// v2 symbol kind for a v1 node kind.
-fn symbol_kind(v1_kind: &str) -> Option<SymbolKind> {
-    SYMBOL_KIND_MAP
-        .iter()
-        .find(|(kind, _)| *kind == v1_kind)
-        .map(|(_, kind)| *kind)
-}
-
-/// v2 reference kinds for a v1 edge or reference kind.
-fn reference_kinds(v1_kind: &str) -> Option<&'static [ReferenceKind]> {
-    EDGE_KIND_MAP
-        .iter()
-        .find(|(kind, _)| *kind == v1_kind)
-        .map(|(_, kinds)| *kinds)
-}
-
-/// Text after the last name separator; the whole name when there is none.
-fn final_segment(name: &str) -> &str {
-    NAME_SEPARATORS
-        .iter()
-        .filter_map(|separator| name.rfind(separator).map(|index| index + separator.len()))
-        .max()
-        .map_or(name, |start| &name[start..])
-}
-
-/// Text before the first name separator; the whole name when there is none.
-fn leading_segment(name: &str) -> &str {
-    NAME_SEPARATORS
-        .iter()
-        .filter_map(|separator| name.find(separator))
-        .min()
-        .map_or(name, |end| &name[..end])
-}
-
-/// The first name separator, in [`NAME_SEPARATORS`] order, that occurs in `name`.
-fn primary_separator(name: &str) -> Option<&'static str> {
-    NAME_SEPARATORS
-        .into_iter()
-        .find(|separator| name.contains(separator))
-}
-
-/// Whether a v2 name agrees with a v1 name: equal, or sharing a non-empty final segment.
-fn names_agree(v2_name: &str, v1_name: &str) -> bool {
-    let segment = final_segment(v1_name);
-    v2_name == v1_name || !segment.is_empty() && final_segment(v2_name) == segment
-}
-
-/// Whether a v2 qualified name agrees with a v1 node's qualified name under the
-/// symbol rule. A v1 name scoped by the node's own file path is a synthetic
-/// framework identity, so only the node's kind, name and line identify it.
-fn qualified_names_agree(symbol: &V1Symbol, v2_name: &str) -> bool {
-    let v1_name = symbol.qualified_name.as_str();
-    if is_file_scoped_identity(v1_name, &symbol.file) {
-        return true;
-    }
-    match (primary_separator(v1_name), primary_separator(v2_name)) {
-        (Some(left), Some(right)) if left == right => {
-            v2_name == v1_name
-                || v2_name.strip_suffix(v1_name).is_some_and(|prefix| {
-                    NAME_SEPARATORS
-                        .iter()
-                        .any(|separator| prefix.ends_with(separator))
-                })
-        }
-        _ => final_segment(v1_name) == final_segment(v2_name),
-    }
-}
-
-/// Whether a qualified name starts with a `<file>::` or `<file>#` scope.
-fn is_file_scoped_identity(qualified_name: &str, file: &str) -> bool {
-    qualified_name.strip_prefix(file).is_some_and(|rest| {
-        FILE_SCOPE_SEPARATORS
-            .iter()
-            .any(|separator| rest.starts_with(separator))
     })
 }
 
-/// Last path component of a module specifier or file path.
-fn path_leaf(path: &str) -> &str {
-    path.rsplit(PATH_SEPARATORS).next().unwrap_or(path)
-}
-
-/// A path component without its final extension, unless that leaves nothing.
-fn path_stem(component: &str) -> &str {
-    match component.rsplit_once('.') {
-        Some((stem, _)) if !stem.is_empty() => stem,
-        _ => component,
+/// Return the shared gap or reason identifier, including annotated corrections.
+fn disposition_id(disposition: &Disposition) -> Option<&str> {
+    match disposition {
+        Aligned { reason, .. } => reason.as_deref(),
+        Pending { id, .. } | Intentional { id } => Some(id),
     }
 }
 
-/// Whether an import specifier names a non-import v1 target.
-fn specifier_names_target(specifier: &str, target: &V1Symbol) -> bool {
-    let leaf = path_leaf(specifier);
-    let identities = [target.name.as_str(), path_stem(&target.name)];
-    [specifier, leaf, path_stem(leaf), final_segment(specifier)]
-        .into_iter()
-        .any(|candidate| !candidate.is_empty() && identities.contains(&candidate))
+/// Extract a leaf and optional occurrence line for diagnostics only.
+fn location(observation: &Fact) -> (&str, Option<u32>) {
+    let key = &observation.query.as_ref().unwrap_or(&observation.pin).key;
+    let (name_index, line_index) = match observation.pin.key[0].as_str() {
+        "S" | "U" => (2, 3),
+        "C" => (4, 5),
+        "R" => (5, 6),
+        "B" => (3, 5),
+        _ => (0, 0),
+    };
+    let mut leaf = key[name_index].rsplit([':', '.', '\\', '/']);
+    (
+        leaf.next().unwrap_or_default(),
+        key.get(line_index)
+            .and_then(|line_text| line_text.parse().ok()),
+    )
+}
+
+/// Show nearby native observations without granting them matching authority.
+fn suggestions(wanted: &Fact, candidates: &[Fact]) -> String {
+    let (name, line) = location(wanted);
+    let mut near = candidates
+        .iter()
+        .filter(|candidate| {
+            let (candidate_name, candidate_line) = location(candidate);
+            candidate.file == wanted.file
+                && (line.is_some() && line == candidate_line || candidate_name == name)
+        })
+        .collect::<Vec<_>>();
+    near.sort_by_key(|candidate| (location(candidate).1 != line, &candidate.pin));
+    let mut output = String::new();
+    for candidate in near.into_iter().take(SUGGESTIONS) {
+        must(write!(output, "\n  suggestion: {:?}", candidate.pin));
+    }
+    output
+}
+
+/// Borrowed identity used when looking up policy for a frozen fact.
+type IdRef<'a> = (&'a str, &'a str, &'a Pin);
+
+/// One explicit disposition per captured selector.
+type Rows<'a> = BTreeMap<IdRef<'a>, &'a Disposition>;
+
+/// Address a frozen fact within its language and file.
+fn fact_id<'a>(language: &'a str, captured_fact: &'a Fact) -> IdRef<'a> {
+    (language, &captured_fact.file, &captured_fact.pin)
+}
+
+/// Shared reason definitions indexed by their unique identifier.
+type Definitions<'a> = BTreeMap<&'a str, &'a Definition>;
+
+/// Validate the shared reason table and index its unique identifiers.
+fn definitions<'a>(policy: &'a Policy, outcome: &mut Outcome) -> Definitions<'a> {
+    let mut definitions = BTreeMap::new();
+    for definition in &policy.definitions {
+        if definition.id.trim().is_empty()
+            || definition.reason.trim().is_empty()
+            || definition.wave.is_some_and(|wave| !WAVES.contains(&wave))
+            || definitions
+                .insert(definition.id.as_str(), definition)
+                .is_some()
+        {
+            outcome
+                .problems
+                .push(format!("invalid/duplicate definition {}", definition.id));
+        }
+    }
+    definitions
+}
+
+/// Require defined identifiers with the right wave and nonempty, distinct pins.
+fn validate_row(row: &Row, definitions: &Definitions<'_>, outcome: &mut Outcome) {
+    if let Some(id) = disposition_id(&row.disposition) {
+        let wave = match row.disposition {
+            Pending { wave, .. } => Some(wave),
+            _ => None,
+        };
+        if definitions
+            .get(id)
+            .is_none_or(|definition| definition.wave != wave)
+        {
+            outcome
+                .problems
+                .push(format!("undefined or wrong-wave id {id}"));
+        }
+    }
+    if let Aligned { v2, .. } = &row.disposition
+        && (v2.is_empty() || v2.iter().collect::<BTreeSet<_>>().len() != v2.len())
+    {
+        outcome
+            .problems
+            .push(format!("empty/duplicate pins for {:?}", row.fact));
+    }
+}
+
+/// Reject unknown facts, duplicate dispositions and unused reason definitions.
+fn policy_rows<'a>(cases: &[Case], policy: &'a Policy, outcome: &mut Outcome) -> Rows<'a> {
+    let definitions = definitions(policy, outcome);
+    let captured = cases
+        .iter()
+        .flat_map(|case| {
+            case.captured
+                .iter()
+                .map(|captured_fact| fact_id(&case.language, captured_fact))
+        })
+        .collect::<BTreeSet<_>>();
+    let mut rows = BTreeMap::new();
+    let mut used = BTreeSet::new();
+    for row in &policy.rows {
+        let id = (row.language.as_str(), row.file.as_str(), &row.fact);
+        if !captured.contains(&id) {
+            outcome.problems.push(format!("unknown v1 fact {id:?}"));
+        }
+        if rows.insert(id, &row.disposition).is_some() {
+            outcome
+                .problems
+                .push(format!("two dispositions for {id:?}"));
+        }
+        if let Some(id) = disposition_id(&row.disposition) {
+            used.insert(id);
+        }
+        validate_row(row, &definitions, outcome);
+    }
+    for id in definitions.keys().filter(|id| !used.contains(**id)) {
+        outcome.problems.push(format!("unused definition {id}"));
+    }
+    rows
+}
+
+/// Use a recorded occurrence to distinguish captured declaration sites.
+fn at_node(node: &Fact, child: bool, line: u32) -> bool {
+    let start = must(node.pin.key[3].parse());
+    let end = node
+        .query
+        .as_ref()
+        .and_then(|query| query.end)
+        .or(node.pin.end);
+    let end = if child { start } else { end.unwrap_or(start) };
+    (start..=end).contains(&line)
+}
+
+/// Per-case identity index and previously verified declaration correspondences.
+struct Gate<'a> {
+    case: &'a Case,
+    index: Index<'a>,
+    nodes: BTreeMap<(String, Pin), usize>,
+}
+
+impl Gate<'_> {
+    /// Select canonical pins only; identity aliases cannot satisfy an alignment.
+    fn matches(&self, file: &str, pin: &Pin) -> Vec<usize> {
+        self.candidates(file, pin)
+            .into_iter()
+            .filter(|observation_index| self.case.native[*observation_index].pin.key == pin.key)
+            .collect()
+    }
+
+    /// Select indexed observations, applying an explicit end-line discriminator.
+    fn candidates(&self, file: &str, pin: &Pin) -> Vec<usize> {
+        self.index
+            .get(&(file, pin.key.clone()))
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|observation_index| {
+                pin.end
+                    .is_none_or(|end| self.case.native[*observation_index].pin.end == Some(end))
+            })
+            .collect()
+    }
+
+    /// Use readable identity without spans, preserving recorded containment lines.
+    fn base_identity(&self, file: &str, pin: &Pin) -> Vec<usize> {
+        let symbol = pin.key[0] == "S";
+        let mut base = pin.clone();
+        base.end = None;
+        if symbol {
+            // Display names still have to agree after the unique declaration lookup.
+            base.key.truncate(4);
+        } else if pin.key[0] == "C" {
+            // A captured containment line is evidence, not an optional span detail.
+            let length = if pin
+                .key
+                .get(5)
+                .is_some_and(|component| component.parse::<u32>().is_ok())
+            {
+                6
+            } else {
+                5
+            };
+            base.key.truncate(length);
+        }
+        let found = self.candidates(file, &base);
+        if let [observation_index] = found.as_slice() {
+            let key = &self.case.native[*observation_index].pin.key;
+            if symbol && key[4] != pin.key[4]
+                || pin.key[0] == "R" && key.get(7).is_some_and(|component| component == "lookup")
+            {
+                return Vec::new();
+            }
+        }
+        found
+    }
+
+    /// Reuse a uniquely captured declaration only after its correspondence is verified.
+    fn endpoint(&self, captured_fact: &Fact, child: bool) -> Option<&Fact> {
+        let endpoint =
+            [&captured_fact.owner, &captured_fact.target][usize::from(child)].as_ref()?;
+        let mut nodes = self
+            .case
+            .captured
+            .iter()
+            .filter(|symbol| {
+                symbol.file == captured_fact.file
+                    && symbol.pin.key[0] == "S"
+                    && symbol.pin.key[1..3] == endpoint[..]
+            })
+            .map(|symbol| (&symbol.pin, symbol))
+            .collect::<BTreeMap<_, _>>();
+        if nodes.len() > 1 {
+            let query = captured_fact.query.as_ref()?;
+            let position = if query.key[0] == "C" { 5 } else { 6 };
+            let line = query
+                .key
+                .get(position)
+                .and_then(|line_text| line_text.parse::<u32>().ok());
+            if let Some(line) = line {
+                nodes.retain(|_, symbol| at_node(symbol, child, line));
+            }
+        }
+        let node = nodes.values().next().filter(|_| nodes.len() == 1)?;
+        Some(&self.case.native[*self.nodes.get(&(node.file.clone(), node.pin.clone()))?])
+    }
+
+    /// Supply exact relationship endpoints from previously verified declarations.
+    fn projection(&self, captured_fact: &Fact) -> Option<(Pin, Option<&Fact>, Option<&Fact>)> {
+        let mut pin = captured_fact
+            .query
+            .as_ref()
+            .unwrap_or(&captured_fact.pin)
+            .clone();
+        let mut expected_owner = None;
+        let mut expected_child = None;
+        if captured_fact.owner.is_some()
+            && self
+                .case
+                .captured
+                .iter()
+                .any(|symbol| symbol.pin.key[0] == "S")
+        {
+            if captured_fact
+                .owner
+                .as_ref()
+                .is_some_and(|captured_owner| captured_owner[0] != "file")
+            {
+                let owner = self.endpoint(captured_fact, false)?;
+                if pin.key[0] == "C" {
+                    pin.key[1..3].clone_from_slice(&owner.pin.key[1..3]);
+                } else {
+                    pin.key[2..5].clone_from_slice(&owner.pin.key[1..4]);
+                }
+                expected_owner = Some(owner);
+            }
+            if pin.key[0] == "C" {
+                let child = self.endpoint(captured_fact, true)?;
+                pin.key[3..5].clone_from_slice(&child.pin.key[1..3]);
+                expected_child = Some(child);
+            }
+        }
+        Some((pin, expected_owner, expected_child))
+    }
+
+    /// Require a unique observation with exact typed owner and child identities.
+    fn identity(&self, captured_fact: &Fact) -> Vec<usize> {
+        let query = captured_fact.query.as_ref().unwrap_or(&captured_fact.pin);
+        if captured_fact.pin.key[0] == "R"
+            && self.case.captured.iter().any(|other_capture| {
+                other_capture.file == captured_fact.file
+                    && other_capture.query.as_ref().unwrap_or(&other_capture.pin) == query
+                    && other_capture.pin != captured_fact.pin
+            })
+        {
+            return Vec::new();
+        }
+        let Some((pin, expected_owner, expected_child)) = self.projection(captured_fact) else {
+            return Vec::new();
+        };
+        let matches = if captured_fact.pin.end.is_some() {
+            self.matches(&captured_fact.file, &pin)
+        } else {
+            self.base_identity(&captured_fact.file, &pin)
+        };
+        if matches.len() == 1 {
+            let native = &self.case.native[matches[0]];
+            if captured_fact
+                .owner
+                .as_ref()
+                .is_some_and(|owner| owner[0] == "file")
+                && native.owner.is_some()
+                || expected_owner
+                    .is_some_and(|owner| native.owner.as_ref() != Some(&concrete(&owner.pin)))
+                || expected_child
+                    .is_some_and(|child| native.target.as_ref() != Some(&concrete(&child.pin)))
+            {
+                return Vec::new();
+            }
+        }
+        matches
+    }
+
+    /// Require every conjunctive pin and reject overlapping selected observations.
+    fn aligned(&self, captured_fact: &Fact, pins: &[Pin]) -> Decision {
+        let mut selected = BTreeSet::new();
+        let mut problems = Vec::new();
+        let id = fact_id(&self.case.language, captured_fact);
+        for pin in pins {
+            let found = self.matches(&captured_fact.file, pin);
+            if let [observation_index] = found.as_slice() {
+                if !selected.insert(*observation_index) {
+                    problems.push(format!(
+                        "overlapping pins for {id:?}: {pin:?} select native observation {observation_index}"
+                    ));
+                }
+            } else {
+                let near = suggestions(captured_fact, &self.case.native);
+                problems.push(format!(
+                    "missing/ambiguous pin for {id:?}: {pin:?}; native observations {found:?}{near}"
+                ));
+            }
+        }
+        // Partial groups cannot supply declaration correspondences to later facts.
+        if !problems.is_empty() {
+            selected.clear();
+        }
+        ("aligned".into(), selected.into_iter().collect(), problems)
+    }
+
+    /// Prefer unique identity, rejecting stale rows before considering an explicit policy.
+    fn disposition(&self, captured_fact: &Fact, disposition: Option<&Disposition>) -> Decision {
+        let matches = self.identity(captured_fact);
+        let id = fact_id(&self.case.language, captured_fact);
+        if matches.len() == 1 {
+            let problems = disposition
+                .map(|_| format!("stale/redundant {id:?}"))
+                .into_iter()
+                .collect();
+            return ("identity".into(), matches, problems);
+        }
+        match disposition {
+            Some(Aligned { v2, .. }) => self.aligned(captured_fact, v2),
+            Some(Pending { wave, .. }) => (format!("pending-wave-{wave}"), Vec::new(), Vec::new()),
+            Some(Intentional { id }) => (format!("intentional:{id}"), Vec::new(), Vec::new()),
+            None => {
+                let near = suggestions(captured_fact, &self.case.native);
+                let error =
+                    format!("unmatched/ambiguous {id:?}; native observations {matches:?}{near}");
+                ("unmatched".into(), Vec::new(), vec![error])
+            }
+        }
+    }
+
+    /// Record a declaration correspondence only when exactly one symbol was selected.
+    fn record_node(&mut self, captured_fact: &Fact, pins: &[usize]) {
+        let mut symbols = pins
+            .iter()
+            .copied()
+            .filter(|observation_index| self.case.native[*observation_index].pin.key[0] == "S");
+        if let ("S", Some(symbol), None) = (
+            captured_fact.pin.key[0].as_str(),
+            symbols.next(),
+            symbols.next(),
+        ) {
+            self.nodes.insert(
+                (captured_fact.file.clone(), captured_fact.pin.clone()),
+                symbol,
+            );
+        }
+    }
+}
+
+/// Run the shared gate, verifying declarations before relationship endpoints.
+fn check(cases: &[Case], policy: &Policy) -> Outcome {
+    let mut outcome = Outcome::default();
+    let rows = policy_rows(cases, policy, &mut outcome);
+    for case in cases {
+        let mut gate = Gate {
+            case,
+            index: index(&case.native),
+            nodes: BTreeMap::new(),
+        };
+        let mut counted = BTreeSet::new();
+        // Declarations are verified first; only verified correspondences can supply edge endpoints.
+        let mut facts = case.captured.iter().collect::<Vec<_>>();
+        facts.sort_by_key(|captured_fact| captured_fact.owner.is_some());
+        for captured_fact in facts {
+            let id = fact_id(&case.language, captured_fact);
+            let disposition = rows.get(&id);
+            let (status, pins, problems) = gate.disposition(captured_fact, disposition.copied());
+            outcome.problems.extend(problems);
+            gate.record_node(captured_fact, &pins);
+            if counted.insert(id) {
+                *outcome.counts.entry(status).or_default() += 1;
+            }
+            if !pins.is_empty() {
+                outcome.carried.insert(
+                    (
+                        case.language.clone(),
+                        captured_fact.file.clone(),
+                        captured_fact.pin.clone(),
+                    ),
+                    (pins, matches!(disposition, Some(Aligned { .. }))),
+                );
+            }
+        }
+    }
+    outcome
+}
+
+/// Require a complete clean gate result for a baseline extraction.
+fn verified(cases: &[Case], policy: &Policy) -> Outcome {
+    let outcome = check(cases, policy);
+    assert!(
+        outcome.problems.is_empty(),
+        "{}",
+        outcome.problems.join("\n")
+    );
+    outcome
+}
+
+/// Gate all frozen facts through identity, alignment or an explicit divergence.
+#[test]
+fn exact_parity_carries_every_captured_fact_or_an_explicit_divergence() {
+    let (cases, policy) = corpus();
+    let outcome = verified(cases, policy);
+    assert_eq!(
+        outcome.counts["intentional:v1-export-module-misattribution"],
+        3
+    );
+    println!(
+        "{FACT_COUNT} facts; 0 unmatched / 0 stale / 0 problems; {:?}",
+        outcome.counts
+    );
+}
+
+/// Require deterministic ordering and reject duplicate table records.
+fn sorted<Record: DeserializeOwned + Ord>(file: &str) {
+    assert!(
+        jsonl::<Record>(file)
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "{file} order"
+    );
+}
+
+/// Keep committed policy tables reviewable and deterministic.
+#[test]
+fn compact_tables_are_sorted() {
+    sorted::<Alignment>("alignments.jsonl");
+    sorted::<Row>("divergences.jsonl");
+    sorted::<Definition>("reasons.jsonl");
+}
+
+/// Replay small cases and adversarial mutations through the production gate.
+#[test]
+fn small_inputs_and_review_counterexamples_exercise_the_real_gate() {
+    for table in ["gate_cases.jsonl", "counterexamples.jsonl"] {
+        for mut example in jsonl::<Example>(table) {
+            if let Some(input) = example.input {
+                assert_eq!(example.cases.len(), 1);
+                let source = input.source.unwrap_or_else(|| {
+                    read(
+                        &Path::new(ROOT)
+                            .join(&example.cases[0].language)
+                            .join(&input.path),
+                    )
+                });
+                let file = must(extract(&input.path, source.as_bytes()));
+                example.cases[0].native = native(&file);
+                verified(&example.cases, &example.policy);
+                example.cases[0].native = native(&mutate(&file, input.mutations));
+            }
+            let problems = check(&example.cases, &example.policy).problems;
+            assert!(
+                example
+                    .problems
+                    .iter()
+                    .all(|expected| problems.iter().any(|actual| actual.contains(expected)))
+                    && (!example.problems.is_empty() || problems.is_empty()),
+                "{}: {problems:?}",
+                example.name
+            );
+            println!("caught {}", example.name);
+        }
+    }
+}
+
+/// Apply counterexample edits to real extraction output and remove dangling edges.
+fn mutate(file: &ExtractedFile, mutations: Vec<Mutation>) -> ExtractedFile {
+    let mut json = must(serde_json::to_value(file));
+    // Edits operate on the production output shape, before readable projection.
+    for mut mutation in mutations {
+        if let Some(key) = mutation.symbol {
+            let found = file
+                .symbols
+                .iter()
+                .filter(|symbol| symbol_key(symbol) == key)
+                .collect::<Vec<_>>();
+            assert_eq!(found.len(), 1, "mutation symbol {key:?}");
+            mutation.value = must(serde_json::to_value(&found[0].id));
+        }
+        let collection = json[&mutation.collection]
+            .as_array_mut()
+            .unwrap_or_else(|| panic!("mutation collection {}", mutation.collection));
+        if let Some(field) = mutation.field {
+            if field == "line" {
+                let span = &mut collection[mutation.index]["span"];
+                span["start"]["line"] = mutation.value.clone();
+                span["end"]["line"] = mutation.value;
+            } else {
+                collection[mutation.index][field] = mutation.value;
+            }
+        } else {
+            collection.remove(mutation.index);
+        }
+    }
+    let mut file: ExtractedFile = must(serde_json::from_value(json));
+    let present = |id: &SymbolId| file.symbols.iter().any(|symbol| &symbol.id == id);
+    file.containments
+        .retain(|containment| present(&containment.parent) && present(&containment.child));
+    file.references
+        .retain(|reference| reference.owner.as_ref().is_none_or(present));
+    file
 }
