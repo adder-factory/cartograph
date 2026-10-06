@@ -81,8 +81,11 @@ pub(super) enum MemberBinding {
     /// No visible member exists along the fully inspected declared ancestry.
     Absent,
     /// The name is a member but not an unambiguous target (an overloaded
-    /// routine, or a field where a routine is required), or ancestry is unknown.
+    /// routine, or a field where a routine is required).
     Uncertain,
+    /// The walk reached a declared ancestor that is not in this file, so an
+    /// inherited member of that name cannot be ruled out.
+    UnknownAncestry,
     /// The single declared `Type::Member`.
     Exact(String),
 }
@@ -177,7 +180,7 @@ impl<'tree> FileIndex<'tree> {
         let mut key = query.type_key.to_owned();
         for level in 0..MAXIMUM_ANCESTOR_DEPTH {
             let Some(entry) = self.types.get(&key) else {
-                return MemberBinding::Uncertain;
+                return MemberBinding::UnknownAncestry;
             };
             if let Some(member) = entry
                 .members
@@ -190,7 +193,7 @@ impl<'tree> FileIndex<'tree> {
                 return MemberBinding::Absent;
             };
             let Some(next) = self.parent_key(&key, parent) else {
-                return MemberBinding::Uncertain;
+                return MemberBinding::UnknownAncestry;
             };
             key = next;
         }

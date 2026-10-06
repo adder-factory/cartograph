@@ -50,6 +50,7 @@ fn decoded_for_screening(value: &str) -> String {
     decoded
 }
 
+const HEX_RADIX: u32 = 16;
 const HEX_BYTE_DIGITS: usize = 2;
 const HEX_UNIT_DIGITS: usize = 4;
 const MAX_BRACED_HEX_DIGITS: usize = 6;
@@ -64,12 +65,12 @@ fn push_hex_escape(
     while digits < max_digits {
         let Some(digit) = characters
             .peek()
-            .and_then(|character| character.to_digit(16))
+            .and_then(|character| character.to_digit(HEX_RADIX))
         else {
             break;
         };
         characters.next();
-        code = code * 16 + digit;
+        code = code * HEX_RADIX + digit;
         digits += 1;
     }
     if let Some(character) = char::from_u32(code).filter(|_| digits > 0) {
@@ -191,9 +192,9 @@ fn parameter_name_is_sensitive(name: &str) -> bool {
 }
 
 fn decode_parameter_escape(bytes: &mut std::str::Bytes<'_>) -> Option<u8> {
-    let high = char::from(bytes.next()?).to_digit(16)?;
-    let low = char::from(bytes.next()?).to_digit(16)?;
-    u8::try_from(high * 16 + low).ok()
+    let high = char::from(bytes.next()?).to_digit(HEX_RADIX)?;
+    let low = char::from(bytes.next()?).to_digit(HEX_RADIX)?;
+    u8::try_from(high * HEX_RADIX + low).ok()
 }
 
 #[cfg(test)]

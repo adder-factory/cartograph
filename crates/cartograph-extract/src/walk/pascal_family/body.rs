@@ -324,7 +324,13 @@ fn unqualified_binding(binder: &Binder<'_, '_, '_>, name: &str) -> CallBinding {
         }) {
             MemberBinding::Exact(qualified) => return CallBinding::Scoped(qualified),
             MemberBinding::Uncertain => return CallBinding::Uncertain,
-            MemberBinding::Absent => {}
+            // An inherited member could shadow a same-named unit routine of this
+            // file, so that routine is not an exact target; with no local
+            // homonym, ordinary (import and project) resolution still applies.
+            MemberBinding::UnknownAncestry if scope.index.unit_routine(&lower).is_some() => {
+                return CallBinding::Uncertain;
+            }
+            MemberBinding::UnknownAncestry | MemberBinding::Absent => {}
         }
     }
     if scope.index.is_overloaded_routine(&lower) {
@@ -372,7 +378,7 @@ fn is_enclosing_member(scope: &CallScope<'_, '_>, name: &str) -> bool {
                 member: name,
                 usage: MemberUse::Accessor,
             }),
-            MemberBinding::Absent
+            MemberBinding::Absent | MemberBinding::UnknownAncestry
         )
     })
 }
@@ -409,7 +415,9 @@ fn member_call(scope: &CallScope<'_, '_>, type_key: &str, member: &str) -> CallB
         usage: MemberUse::Call,
     }) {
         MemberBinding::Exact(qualified) => CallBinding::Scoped(qualified),
-        MemberBinding::Uncertain | MemberBinding::Absent => CallBinding::Uncertain,
+        MemberBinding::Uncertain | MemberBinding::Absent | MemberBinding::UnknownAncestry => {
+            CallBinding::Uncertain
+        }
     }
 }
 

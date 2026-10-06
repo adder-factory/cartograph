@@ -182,7 +182,7 @@ impl<'source, 'cancel> TemplateScanner<'source, 'cancel> {
         let mut next_poll = 0;
         while let Some(&byte) = bytes.get(index) {
             poll_cancellation(self.cancelled, index, &mut next_poll)?;
-            if self.spend(1).is_none() {
+            if spend_budget(&mut self.remaining, 1).is_none() {
                 return Ok(None);
             }
             let end = match byte {
@@ -207,9 +207,11 @@ impl<'source, 'cancel> TemplateScanner<'source, 'cancel> {
             return Ok(None);
         };
         let relative = find_position(window.iter(), |&byte| byte == quote, self.cancelled)?;
-        if self
-            .spend(relative.map_or(window.len(), |relative| relative + 1))
-            .is_none()
+        if spend_budget(
+            &mut self.remaining,
+            relative.map_or(window.len(), |relative| relative + 1),
+        )
+        .is_none()
         {
             return Ok(None);
         }
@@ -313,11 +315,11 @@ impl<'source, 'cancel> TemplateScanner<'source, 'cancel> {
         &mut self,
         after_key: usize,
     ) -> Result<Option<TemplateAttribute<'source>>, ExtractError> {
-        let equals = self.past_whitespace(after_key)?;
+        let equals = past_whitespace(self.source, after_key, self.cancelled)?;
         if self.source.as_bytes().get(equals) != Some(&b'=') {
             return Ok(None);
         }
-        let open = self.past_whitespace(equals + 1)?;
+        let open = past_whitespace(self.source, equals + 1, self.cancelled)?;
         let bytes = self.source.as_bytes();
         let braced = bytes.get(open) == Some(&b'{');
         let end = match bytes.get(open) {
@@ -331,15 +333,6 @@ impl<'source, 'cancel> TemplateScanner<'source, 'cancel> {
             value: &self.source[open + 1..end],
             braced,
         }))
-    }
-
-    fn past_whitespace(&mut self, start: usize) -> Result<usize, ExtractError> {
-        let found = find_position(
-            self.source.as_bytes()[start..].iter(),
-            |byte| !byte.is_ascii_whitespace(),
-            self.cancelled,
-        )?;
-        Ok(found.map_or(self.source.len(), |relative| start + relative))
     }
 
     fn plain_find(&mut self, start: usize, close: &[u8]) -> Result<Option<usize>, ExtractError> {
@@ -384,10 +377,21 @@ impl<'source, 'cancel> TemplateScanner<'source, 'cancel> {
         self.plain.remaining = self.plain.remaining.saturating_sub(examined);
         Ok(found.map(|relative| start + relative))
     }
+}
 
-    fn spend(&mut self, bytes: usize) -> Option<()> {
-        spend_budget(&mut self.remaining, bytes)
-    }
+/// Offset of the first non-whitespace byte at or after `start` (the source
+/// length when there is none).
+fn past_whitespace(
+    source: &str,
+    start: usize,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<usize, ExtractError> {
+    let found = find_position(
+        source.as_bytes()[start..].iter(),
+        |byte| !byte.is_ascii_whitespace(),
+        cancelled,
+    )?;
+    Ok(found.map_or(source.len(), |relative| start + relative))
 }
 
 /// Search a bounded byte iterator, polling at the custom scanner's byte cadence.
@@ -613,22 +617,20 @@ impl<'scan> DelimiterScan<'scan> {
                 return Ok(None);
             }
             if self.quoting.quote.is_some() {
-                let Some(next) = self.past_quoted_byte(byte, index) else {
-                    return Ok(None);
-                };
-                index = next;
+                match self.past_quoted_byte(byte, index) {
+                    Some(next) => index = next,
+                    None => return Ok(None),
+                }
                 continue;
             }
             if byte == b'/' {
-                let Some(slash) = self.past_slash(index, cancelled)? else {
-                    return Ok(None);
-                };
-                match slash {
-                    Slash::Comment(end) => {
+                match self.past_slash(index, cancelled)? {
+                    Some(Slash::Comment(end)) => {
                         index = end + 1;
                         continue;
                     }
-                    Slash::Token(end) => index = end,
+                    Some(Slash::Token(end)) => index = end,
+                    None => return Ok(None),
                 }
             } else if self.is_close(byte, index) {
                 return Ok(Some(index));

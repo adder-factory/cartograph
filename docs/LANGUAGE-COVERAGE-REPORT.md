@@ -160,8 +160,8 @@ after the extraction fixes are:
 
 | Disposition | Distinct selectors |
 | --- | ---: |
-| Identity | 6,037 |
-| Aligned | 1,958 |
+| Identity | 6,038 |
+| Aligned | 1,957 |
 | Pending, wave 2 | 16 |
 | Pending, wave 3 | 109 |
 | Intentional | 45 |

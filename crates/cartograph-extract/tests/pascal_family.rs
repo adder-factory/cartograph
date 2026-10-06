@@ -641,8 +641,8 @@ fn uauth_fixture_matches_the_v1_contract() {
     );
     assert_eq!(
         call(&extracted, &increment.id, "Inc").resolution_name,
-        Some(scoped("Inc")),
-        "an external ancestor cannot prove that the name is not a member"
+        None,
+        "with no same-file homonym, an external ancestor keeps ordinary name resolution"
     );
     let validator = member(&extracted, SymbolKind::Method, "ITokenValidator::Validate");
     assert!(validator.implementation.declaration_only);
