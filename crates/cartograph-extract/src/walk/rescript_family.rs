@@ -7,7 +7,7 @@
 //! module path; and a module alias references the module it renames.
 
 use cartograph_domain::{ReferenceKind, SymbolId, SymbolKind};
-use tree_sitter::Node;
+use tree_sitter::{Node, TreeCursor};
 
 use crate::ExtractError;
 
@@ -36,6 +36,8 @@ const CALL_TARGET_KINDS: &[&str] = &[
 const COMMENT_KIND: &str = "comment";
 /// Deepest parenthesization unwrapped around an aliased module path or a callee.
 const MAX_PARENTHESES: usize = 4;
+/// Most proven record-member segments retained in a call target.
+const MAX_CALL_PATH_DEPTH: usize = 16;
 /// Node kinds naming the module an `open`, `include`, or alias refers to.
 const MODULE_PATH_KINDS: &[&str] = &[
     "module_identifier",
@@ -51,7 +53,7 @@ pub(super) fn visit_declaration(
 ) -> Result<bool, ExtractError> {
     match node.kind() {
         "open_statement" | "include_statement" => visit_open(builder, node),
-        "type_binding" => visit_type_binding(builder, node),
+        "type_declaration" | "let_declaration" => visit_bindings(builder, node, depth),
         "exception_declaration" => visit_named_child(
             builder,
             NamedChildDeclaration {
@@ -68,7 +70,6 @@ pub(super) fn visit_declaration(
                 kind: SymbolKind::Function,
             },
         ),
-        "let_binding" => visit_let_binding(builder, node, depth),
         "module_declaration" => visit_module_declaration(builder, node, depth),
         _ => Ok(false),
     }
@@ -94,10 +95,9 @@ pub(super) fn capture_usage(
     let Some(target) = target else {
         return Ok(());
     };
-    let Some(name) = bounded_name(builder.context.text(target)) else {
+    let Some(name) = call_target_name(builder, target, 0)? else {
         return Ok(());
     };
-    let name = builder.context.copy_text(name)?;
     emit_owned_reference(
         builder,
         OwnedReference {
@@ -106,6 +106,113 @@ pub(super) fn capture_usage(
             node: target,
         },
     )
+}
+
+/// Only identifier paths and members of proven paths can name a callee.
+/// Calls and other computed record receivers are still visited for their uses.
+fn call_target_name(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+    depth: usize,
+) -> Result<Option<String>, ExtractError> {
+    if depth > MAX_CALL_PATH_DEPTH {
+        return Ok(None);
+    }
+    let node = unparenthesized(node, "parenthesized_expression");
+    if CALLABLE_PATH_KINDS.contains(&node.kind()) {
+        return bounded_name(builder.context.text(node))
+            .filter(|name| name.split('.').all(identifier_text))
+            .map(|name| builder.context.copy_text(name))
+            .transpose();
+    }
+    if node.kind() != "member_expression" {
+        return Ok(None);
+    }
+    member_call_target_name(builder, node, depth)
+}
+
+/// Inspect every child, including extras, before claiming the member path.
+fn member_call_target_name(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    member: Node<'_>,
+    depth: usize,
+) -> Result<Option<String>, ExtractError> {
+    let mut cursor = member.walk();
+    if !cursor.goto_first_child() {
+        return Ok(None);
+    }
+    let mut name = None;
+    let mut property = false;
+    for _ in 0..MAX_CALL_PATH_DEPTH * 2 {
+        builder.context.ensure_active()?;
+        let child = cursor.node();
+        if child.is_error() || child.is_missing() {
+            return Ok(None);
+        }
+        match cursor.field_name() {
+            Some("record") => {
+                name = call_target_name(builder, child, depth.saturating_add(1))?;
+            }
+            Some("module" | "property") => {
+                if !append_member_field(builder, &mut name, &cursor) {
+                    return Ok(None);
+                }
+                property |= cursor.field_name() == Some("property");
+            }
+            _ => {}
+        }
+        if !cursor.goto_next_sibling() {
+            return Ok(if property { name } else { None });
+        }
+    }
+    Ok(None)
+}
+
+fn append_member_field(
+    builder: &ExtractionBuilder<'_, '_>,
+    name: &mut Option<String>,
+    cursor: &TreeCursor<'_>,
+) -> bool {
+    let module = cursor.field_name() == Some("module");
+    let child = cursor.node();
+    if module && child.kind() == "." {
+        return true;
+    }
+    let kind = if module {
+        "module_identifier"
+    } else {
+        "property_identifier"
+    };
+    child.kind() == kind
+        && name
+            .as_mut()
+            .is_some_and(|name| append_call_segment(builder, name, child))
+}
+
+fn append_call_segment(
+    builder: &ExtractionBuilder<'_, '_>,
+    name: &mut String,
+    node: Node<'_>,
+) -> bool {
+    let Some(segment) =
+        bounded_name(builder.context.text(node)).filter(|text| identifier_text(text))
+    else {
+        return false;
+    };
+    if name.len().saturating_add(segment.len()).saturating_add(1) > MAX_RETAINED_TEXT_BYTES {
+        return false;
+    }
+    name.push('.');
+    name.push_str(segment);
+    true
+}
+
+fn identifier_text(text: &str) -> bool {
+    let mut characters = text.chars();
+    characters
+        .next()
+        .is_some_and(|first| first == '_' || unicode_ident::is_xid_start(first))
+        && characters.all(unicode_ident::is_xid_continue)
 }
 
 /// Whether declarations at the current position are visible to other modules.
@@ -145,19 +252,61 @@ fn visit_open(
     Ok(true)
 }
 
-/// The declaration node a binding's symbol spans: the whole declaration when it
-/// holds only this binding, so leading documentation stays attached.
-fn binding_span<'tree>(binding: Node<'tree>, declaration_kind: &str) -> Node<'tree> {
-    binding
-        .parent()
-        .filter(|parent| {
-            parent.kind() == declaration_kind
-                && named_children(*parent)
-                    .filter(|child| child.kind() == binding.kind())
-                    .count()
-                    == 1
-        })
-        .unwrap_or(binding)
+/// One binding and its declaration span, determined once by its group.
+#[derive(Clone, Copy)]
+struct BindingNode<'tree> {
+    node: Node<'tree>,
+    span: Node<'tree>,
+}
+
+fn single_binding(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    declaration: Node<'_>,
+    kind: &str,
+) -> Result<bool, ExtractError> {
+    let mut count = 0;
+    for child in named_children(declaration) {
+        builder.context.ensure_active()?;
+        count += usize::from(child.kind() == kind);
+        if count > 1 {
+            return Ok(false);
+        }
+    }
+    Ok(count == 1)
+}
+
+/// Determine multiplicity once, keeping documentation on a single binding.
+fn visit_bindings(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    declaration: Node<'_>,
+    depth: usize,
+) -> Result<bool, ExtractError> {
+    let kind = if declaration.kind() == "type_declaration" {
+        "type_binding"
+    } else {
+        "let_binding"
+    };
+    let single = single_binding(builder, declaration, kind)?;
+    let child_depth = depth.saturating_add(1);
+    for node in named_children(declaration) {
+        builder.context.ensure_active()?;
+        if child_depth > builder.maximum_ast_depth {
+            return Err(ExtractError::NestingLimit);
+        }
+        let binding = BindingNode {
+            node,
+            span: if single { declaration } else { node },
+        };
+        let handled = match node.kind() {
+            "type_binding" => visit_type_binding(builder, binding)?,
+            "let_binding" => visit_let_binding(builder, binding, child_depth)?,
+            _ => false,
+        };
+        if !handled {
+            builder.visit(node, child_depth)?;
+        }
+    }
+    Ok(true)
 }
 
 /// The shape of a type binding's definition.
@@ -183,8 +332,9 @@ fn type_shape(binding: Node<'_>) -> TypeShape {
 /// Emit a type binding with its variant constructors or record fields.
 fn visit_type_binding(
     builder: &mut ExtractionBuilder<'_, '_>,
-    binding: Node<'_>,
+    input: BindingNode<'_>,
 ) -> Result<bool, ExtractError> {
+    let binding = input.node;
     let Some(name_node) = binding.child_by_field_name("name") else {
         return Ok(false);
     };
@@ -203,7 +353,7 @@ fn visit_type_binding(
     let owner = emit_declaration(
         builder,
         SymbolEmission {
-            node: binding_span(binding, "type_declaration"),
+            node: input.span,
             name,
             body: None,
             signature: None,
@@ -320,9 +470,10 @@ fn visit_named_child(
 /// A `let` binding names a function or a variable.
 fn visit_let_binding(
     builder: &mut ExtractionBuilder<'_, '_>,
-    binding: Node<'_>,
+    input: BindingNode<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
+    let binding = input.node;
     let Some(pattern) = binding
         .child_by_field_name("pattern")
         .filter(|pattern| pattern.kind() == "value_identifier")
@@ -335,6 +486,7 @@ fn visit_let_binding(
     let name = builder.context.copy_text(name)?;
     let input = LetBinding {
         binding,
+        span: input.span,
         name: &name,
         value: binding.child_by_field_name("body"),
         depth,
@@ -350,6 +502,7 @@ fn visit_let_binding(
 #[derive(Clone, Copy)]
 struct LetBinding<'tree, 'name> {
     binding: Node<'tree>,
+    span: Node<'tree>,
     name: &'name str,
     value: Option<Node<'tree>>,
     depth: usize,
@@ -367,7 +520,7 @@ fn visit_let_function(
     let owner = emit_declaration(
         builder,
         SymbolEmission {
-            node: binding_span(input.binding, "let_declaration"),
+            node: input.span,
             name,
             body: Some(function),
             signature,
@@ -509,7 +662,7 @@ fn visit_let_value(
     let owner = emit_declaration(
         builder,
         SymbolEmission {
-            node: binding_span(input.binding, "let_declaration"),
+            node: input.span,
             name,
             body: input.value,
             signature,
@@ -557,10 +710,13 @@ fn visit_module_declaration(
     } else {
         SymbolKind::Namespace
     };
-    let bindings: Vec<Node<'_>> = named_children(declaration)
-        .filter(|child| child.kind() == "module_binding")
-        .collect();
-    for binding in bindings {
+    let single = single_binding(builder, declaration, "module_binding")?;
+    for node in named_children(declaration).filter(|child| child.kind() == "module_binding") {
+        builder.context.ensure_active()?;
+        let binding = BindingNode {
+            node,
+            span: if single { declaration } else { node },
+        };
         visit_module_binding(builder, binding, ModuleKindDepth { kind, depth })?;
     }
     Ok(true)
@@ -576,9 +732,10 @@ struct ModuleKindDepth {
 /// Emit one module binding and walk or reference its definition.
 fn visit_module_binding(
     builder: &mut ExtractionBuilder<'_, '_>,
-    binding: Node<'_>,
+    input: BindingNode<'_>,
     module: ModuleKindDepth,
 ) -> Result<(), ExtractError> {
+    let binding = input.node;
     let ModuleKindDepth { kind, depth } = module;
     let Some(name) = binding
         .child_by_field_name("name")
@@ -592,7 +749,7 @@ fn visit_module_binding(
     let owner = emit_declaration(
         builder,
         SymbolEmission {
-            node: binding_span(binding, "module_declaration"),
+            node: input.span,
             name,
             body: None,
             signature: None,
@@ -690,4 +847,64 @@ fn visit_module_definition(
             depth: scope.depth,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::syntax::DIRECT_CHILD_WORK;
+    use crate::{NativeExtractor, SourceLimits, SourceSnapshot};
+    use cartograph_domain::SymbolKind;
+
+    fn group_work(width: usize, function: bool) -> usize {
+        let (keyword, value) = if function {
+            ("let rec", "() => ()")
+        } else {
+            ("type", "int")
+        };
+        let source = format!(
+            "{keyword} {}\n",
+            (0..width)
+                .map(|index| format!("t{index} = {value}"))
+                .collect::<Vec<_>>()
+                .join(" and ")
+        );
+        let snapshot = SourceSnapshot::from_bytes(
+            "Wide.res",
+            source.as_bytes(),
+            SourceLimits::new(1_048_576)
+                .unwrap_or_else(|error| panic!("test setup failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("test setup failed: {error}"));
+        DIRECT_CHILD_WORK.set(0);
+        let extracted = NativeExtractor::new(snapshot.language())
+            .unwrap_or_else(|error| panic!("test setup failed: {error}"))
+            .extract(&snapshot)
+            .unwrap_or_else(|error| panic!("test setup failed: {error}"));
+        let expected = if function {
+            SymbolKind::Function
+        } else {
+            SymbolKind::TypeAlias
+        };
+        assert_eq!(
+            extracted
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.kind == expected)
+                .count(),
+            width
+        );
+        DIRECT_CHILD_WORK.get()
+    }
+
+    #[test]
+    fn rescript_wide_binding_groups_measure_linear_ast_work() {
+        for function in [false, true] {
+            let work = group_work(96, function);
+            let doubled = group_work(192, function);
+            assert!(
+                doubled < work * 3,
+                "{function}: AST child visits grew from {work} to {doubled}"
+            );
+        }
+    }
 }

@@ -16,6 +16,65 @@ const SCALA_ORACLE: &str = include_str!("fixtures/v1_1_33/container.scala");
 const GROOVY_ORACLE: &str = include_str!("fixtures/v1_1_33/greeter.groovy");
 
 #[test]
+fn groovy_wide_error_lines_bound_lookback_and_abstain() {
+    let source = format!(
+        "def run() {{ {}; @ }}\n",
+        (0..256)
+            .map(|index| format!("call{index}()"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    let extracted = extract("src/WideError.groovy", &source);
+    let run = symbol(&extracted, SymbolKind::Function, "run", "run");
+    assert_reference_owned_by(&extracted, run, "call0", ReferenceKind::Calls);
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| reference.name == "call255"),
+        "a lookback beyond the charged scan bound must abstain"
+    );
+}
+
+#[test]
+fn groovy_multiline_error_parents_charge_skipped_siblings() {
+    let source = format!(
+        "def run() {{\n{}\n @\n}}\n",
+        (0..256)
+            .map(|index| format!("call{index}()"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let extracted = extract("src/MultilineError.groovy", &source);
+    let run = symbol(&extracted, SymbolKind::Function, "run", "run");
+    assert_reference_owned_by(&extracted, run, "call0", ReferenceKind::Calls);
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| reference.name == "call255"),
+        "skipping prior rows consumes the lookback budget"
+    );
+}
+
+#[test]
+fn groovy_error_free_deep_parentheses_keep_their_call() {
+    let source = format!(
+        "def run() {{ {}helper(){} }}\n",
+        "(".repeat(160),
+        ")".repeat(160)
+    );
+    let extracted = extract("src/Nested.groovy", &source);
+    assert!(
+        extracted.diagnostics.is_empty(),
+        "error-free nesting has no diagnostics: {:?}",
+        extracted.diagnostics
+    );
+    let run = symbol(&extracted, SymbolKind::Function, "run", "run");
+    assert_reference_owned_by(&extracted, run, "helper", ReferenceKind::Calls);
+}
+
+#[test]
 fn kotlin_preserves_v1_type_structure_and_adds_jvm_reference_semantics() {
     let extracted = extract("src/main/kotlin/com/example/Repo.kt", KOTLIN_ORACLE);
     assert_eq!(extracted.language, SourceLanguage::Kotlin);

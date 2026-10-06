@@ -58,6 +58,7 @@ struct MemberScope<'tree, 'nodes> {
     kind: SymbolKind,
     qualifier: String,
     depth: usize,
+    default_visibility: Option<Visibility>,
 }
 
 /// A type-level declaration about to be emitted.
@@ -250,6 +251,7 @@ fn visit_extension(
                 kind,
                 qualifier: qualified,
                 depth,
+                default_visibility: explicit_visibility(builder, node),
             },
         );
     }
@@ -488,11 +490,7 @@ fn visit_binding(
             .try_for_each(|node| builder.visit(*node, child_depth));
     };
     let requirement = declaration.kind() == "protocol_property_declaration";
-    let computed = binding
-        .nodes
-        .iter()
-        .copied()
-        .find(|node| node.kind() == "computed_property");
+    let computed = binding_node(binding, "computed_property");
     let kind = if requirement || computed.is_some() {
         SymbolKind::Property
     } else if placement == Placement::TypeMember {
@@ -532,27 +530,39 @@ fn visit_binding(
             kind,
             qualifier: name,
             depth,
+            default_visibility: None,
         },
     )?;
-    let Some(annotation) = binding
-        .nodes
-        .iter()
-        .copied()
-        .find(|node| node.kind() == "type_annotation")
-    else {
+    capture_binding_type(builder, visit, &id)
+}
+
+fn capture_binding_type(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    visit: BindingVisit<'_, '_>,
+    owner: &SymbolId,
+) -> Result<(), ExtractError> {
+    let Some(annotation) = binding_node(visit.binding, "type_annotation") else {
         return Ok(());
     };
-    let generics = types::generic_parameters(builder.context.source(), declaration);
+    let generics = types::generic_parameters(builder.context.source(), visit.declaration);
     types::capture_types(
         builder,
         TypeCapture::type_of(
             annotation,
             TypeScope {
-                owner: &id,
+                owner,
                 generics: &generics,
             },
         ),
     )
+}
+
+fn binding_node<'tree>(binding: &Binding<'tree>, kind: &str) -> Option<Node<'tree>> {
+    binding
+        .nodes
+        .iter()
+        .copied()
+        .find(|node| node.kind() == kind)
 }
 
 fn property_bindings(node: Node<'_>) -> Vec<Binding<'_>> {
@@ -654,6 +664,11 @@ fn visit_owned(
     let node = declaration.pending.span_node;
     let kind = declaration.pending.kind;
     let qualifier = declaration.pending.name.clone();
+    let default_visibility = if kind == SymbolKind::Interface || is_extension(node) {
+        declaration.pending.visibility
+    } else {
+        None
+    };
     let id = builder.emit_symbol(declaration.pending)?;
     let nodes = named_children(node).collect::<Vec<_>>();
     visit_owned_children(
@@ -664,6 +679,7 @@ fn visit_owned(
             kind,
             qualifier,
             depth: declaration.depth,
+            default_visibility,
         },
     )?;
     Ok(id)
@@ -675,7 +691,7 @@ fn visit_owned_children(
 ) -> Result<(), ExtractError> {
     builder.owners.push(owner.id);
     builder.native_owner_kinds.push(owner.kind);
-    builder.native_visibilities.push(None);
+    builder.native_visibilities.push(owner.default_visibility);
     builder.qualifiers.push(owner.qualifier);
     let child_depth = owner.depth.saturating_add(1);
     let result = owner
@@ -698,24 +714,29 @@ fn placement(builder: &ExtractionBuilder<'_, '_>) -> Placement {
 }
 
 /// `public`/`open` are public, `private`/`fileprivate` are private, everything
-/// else (including no modifier) is Swift's default `internal`. A setter-only
+/// else uses the scope's member default, ordinarily `internal`. A setter-only
 /// restriction such as `private(set)` leaves the getter's visibility intact.
 fn swift_visibility(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> Visibility {
-    let Some(modifiers) = named_children(node).find(|child| child.kind() == "modifiers") else {
-        return Visibility::Internal;
-    };
+    explicit_visibility(builder, node)
+        .or_else(|| builder.native_visibilities.last().copied().flatten())
+        .unwrap_or(Visibility::Internal)
+}
+
+fn explicit_visibility(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> Option<Visibility> {
+    let modifiers = named_children(node).find(|child| child.kind() == "modifiers")?;
     for modifier in named_children(modifiers).filter(|child| child.kind() == "visibility_modifier")
     {
         if has_token(modifier, "set") {
             continue;
         }
         match builder.context.text(modifier).trim() {
-            "public" | "open" => return Visibility::Public,
-            "private" | "fileprivate" => return Visibility::Private,
+            "public" | "open" => return Some(Visibility::Public),
+            "private" | "fileprivate" => return Some(Visibility::Private),
+            "internal" | "package" => return Some(Visibility::Internal),
             _ => {}
         }
     }
-    Visibility::Internal
+    None
 }
 
 /// `static` and `class` members belong to the type, not an instance.

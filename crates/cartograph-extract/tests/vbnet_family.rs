@@ -2,7 +2,7 @@
 
 mod dependency_ownership;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Write};
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
 use cartograph_extract::{
@@ -12,6 +12,37 @@ use cartograph_extract::{
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
 const LITERAL_SENTINEL: &str = "vb_literal_sentinel_4d2a";
+
+#[test]
+fn vbnet_wide_recovered_heritage_keeps_distinct_owned_targets() {
+    let mut source = String::new();
+    for index in 0..192 {
+        write!(source, "Class Child{index}\n Inherits Base_{index}\n Implements I_{index}, J_{index}\nEnd Class\n")
+            .unwrap_or_else(|error| panic!("test source failed: {error}"));
+    }
+    let extracted = extract("src/Heritage.vb", &source);
+    let heritage = extracted
+        .references
+        .iter()
+        .filter(|reference| {
+            matches!(
+                reference.kind,
+                ReferenceKind::Extends | ReferenceKind::Implements
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(heritage.len(), 192 * 3);
+    for index in 0..192 {
+        let child = symbol(&extracted, SymbolKind::Class, &format!("Child{index}"));
+        for (name, kind) in [
+            (format!("Base_{index}"), ReferenceKind::Extends),
+            (format!("I_{index}"), ReferenceKind::Implements),
+            (format!("J_{index}"), ReferenceKind::Implements),
+        ] {
+            assert_reference(&extracted, child, (&name, kind));
+        }
+    }
+}
 
 #[test]
 fn vbnet_extracts_v1_imports_classes_properties_methods_and_signatures() {

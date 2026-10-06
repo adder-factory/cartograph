@@ -439,6 +439,8 @@ struct ExtractionBuilder<'source, 'cancel> {
     commonjs_shadowing: module_system::CommonJsShadowing,
     /// Source-order walk state of the dynamic scripting families.
     script: script_support::ScriptState,
+    /// Recovered VB heritage sites already emitted in this file.
+    vbnet_heritage: vbnet_family::HeritageSeen,
     /// JavaScript-family state shared between the walk and its passes.
     javascript: javascript_state::JavaScriptState<'source>,
     maximum_ast_depth: usize,
@@ -1418,6 +1420,7 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             explicit_default_exports: BTreeSet::new(),
             commonjs_shadowing: module_system::CommonJsShadowing::default(),
             script: script_support::ScriptState::default(),
+            vbnet_heritage: vbnet_family::HeritageSeen::default(),
             javascript: javascript_state::JavaScriptState::default(),
             maximum_ast_depth,
             shortened_canonical_names: false,

@@ -78,10 +78,10 @@ pub(super) struct MemberQuery<'query> {
 
 /// The outcome of a member lookup.
 pub(super) enum MemberBinding {
-    /// No in-file member of that name is visible; ordinary resolution applies.
+    /// No visible member exists along the fully inspected declared ancestry.
     Absent,
     /// The name is a member but not an unambiguous target (an overloaded
-    /// routine, or a field where a routine is required).
+    /// routine, or a field where a routine is required), or ancestry is unknown.
     Uncertain,
     /// The single declared `Type::Member`.
     Exact(String),
@@ -169,7 +169,7 @@ impl<'tree> FileIndex<'tree> {
     /// Bind a member through the in-file ancestry: the type itself, then its
     /// class ancestors (or a helper's extended type). An ancestor's
     /// `strict private` members are invisible to descendants. Absence is
-    /// proven only when the walk reaches a type with no in-file ancestor; an
+    /// proven only when the walk reaches a type with no declared ancestor; an
     /// ancestry that exceeds the walk bound (or cycles) is uncertain, so it
     /// never reopens ordinary resolution.
     pub(super) fn member_binding(&self, query: MemberQuery<'_>) -> MemberBinding {
@@ -177,7 +177,7 @@ impl<'tree> FileIndex<'tree> {
         let mut key = query.type_key.to_owned();
         for level in 0..MAXIMUM_ANCESTOR_DEPTH {
             let Some(entry) = self.types.get(&key) else {
-                return MemberBinding::Absent;
+                return MemberBinding::Uncertain;
             };
             if let Some(member) = entry
                 .members
@@ -186,12 +186,11 @@ impl<'tree> FileIndex<'tree> {
             {
                 return member.binding(&entry.qualified, query.usage);
             }
-            let Some(next) = entry
-                .lookup_parent
-                .as_deref()
-                .and_then(|parent| self.parent_key(&key, parent))
-            else {
+            let Some(parent) = entry.lookup_parent.as_deref() else {
                 return MemberBinding::Absent;
+            };
+            let Some(next) = self.parent_key(&key, parent) else {
+                return MemberBinding::Uncertain;
             };
             key = next;
         }

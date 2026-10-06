@@ -24,6 +24,7 @@ use super::{
 };
 
 mod heritage;
+pub(super) use heritage::HeritageSeen;
 
 const MAX_SIGNATURE_BYTES: usize = 512;
 const MAX_REFERENCE_TARGET_BYTES: usize = 512;

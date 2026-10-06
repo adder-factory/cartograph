@@ -9,6 +9,60 @@ use cartograph_extract::{
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
 
+#[test]
+fn swift_extensions_and_protocol_requirements_keep_contextual_visibility() {
+    let extracted = extract(
+        "Sources/Visibility.swift",
+        r"public struct S { func ordinary() {} }
+public extension S {
+    func ping() {}
+    private func hidden() {}
+    internal func local() {}
+    private(set) var value: Int { get { 1 } set {} }
+    struct Nested { func nestedDefault() {} }
+}
+public extension External { func externalPing() {} }
+private extension S { func privatePing() {} }
+extension S { func defaultPing() {} }
+public protocol P {
+    func requiredPing()
+    var requiredValue: Int { get }
+    associatedtype Element
+}
+internal protocol Q { func internalRequirement() }",
+    );
+    for name in [
+        "ping",
+        "value",
+        "Nested",
+        "externalPing",
+        "requiredPing",
+        "requiredValue",
+        "Element",
+    ] {
+        let declared = extracted
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap_or_else(|| panic!("missing {name}"));
+        assert_eq!(declared.visibility, Some(Visibility::Public), "{name}");
+        assert!(declared.export.exported, "{name}");
+    }
+    for (name, visibility) in [
+        ("ordinary", Visibility::Internal),
+        ("hidden", Visibility::Private),
+        ("local", Visibility::Internal),
+        ("nestedDefault", Visibility::Internal),
+        ("privatePing", Visibility::Private),
+        ("defaultPing", Visibility::Internal),
+        ("internalRequirement", Visibility::Internal),
+    ] {
+        let declared = symbol(&extracted, SymbolKind::Method, name);
+        assert_eq!(declared.visibility, Some(visibility), "{name}");
+        assert!(!declared.export.exported, "{name}");
+    }
+}
+
 const MEMBERS_SAMPLE: &str = r#"import UIKit
 
 public struct Point: Equatable {

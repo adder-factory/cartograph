@@ -12,6 +12,78 @@ use script_family_support::{
 const SECRET_SENTINEL: &str = "sk_live_ruby_family_secret";
 
 #[test]
+fn ruby_reopened_inherited_singleton_receivers_do_not_claim_an_owner() {
+    let extracted = extract(
+        "lib/reopened.rb",
+        "class A; end; class Parent; class A; end; end; class B < Parent; end; class B; def A.run; end; end\n",
+    );
+    assert_unowned_method(&extracted, "run");
+}
+
+#[test]
+fn ruby_eigenclass_constants_do_not_prove_singleton_owners() {
+    let extracted = extract(
+        "lib/eigenclass.rb",
+        "class A; class << self; class Hidden; end; end; end; class B; class << A::Hidden; def run; end; end; end\n",
+    );
+    assert!(!extracted.symbols.iter().any(|symbol| symbol.name == "run"));
+}
+
+#[test]
+fn ruby_reassigned_singleton_receivers_do_not_claim_the_old_class() {
+    let extracted = extract(
+        "lib/reassigned.rb",
+        "module Outer; class A; end; end; class Parent; end; class B < Parent; Outer::A = Object.new; end; class << ::Outer::A; def run; end; end\n",
+    );
+    assert!(!extracted.symbols.iter().any(|symbol| symbol.name == "run"));
+}
+
+fn assert_unowned_method(extracted: &ExtractedFile, name: &str) {
+    let method = symbol(extracted, SymbolKind::Method, name);
+    assert_eq!(method.qualified_name, name);
+    assert!(!method.export.exported);
+    assert!(
+        !extracted
+            .containments
+            .iter()
+            .any(|edge| edge.child == method.id)
+    );
+}
+
+#[test]
+fn ruby_singleton_methods_claim_only_enclosing_owners() {
+    let extracted = extract(
+        "lib/singletons.rb",
+        "class A; end; class B; def A.run; helper(); end; def B.named; named_helper(); end; def self.own; own_helper(); end; def (factory()).computed; computed_helper(); end; end; module M; def M.module_named; end; end\n",
+    );
+    let b = symbol(&extracted, SymbolKind::Class, "B");
+    let run = symbol(&extracted, SymbolKind::Method, "run");
+    assert_unowned_method(&extracted, "run");
+    assert_unowned_method(&extracted, "computed");
+    let named = symbol(&extracted, SymbolKind::Method, "named");
+    assert_eq!(named.qualified_name, "B::named");
+    assert!(
+        extracted
+            .containments
+            .iter()
+            .any(|edge| edge.parent == b.id && edge.child == named.id)
+    );
+    assert!(call_names(&extracted, &run.id).contains(&"helper"));
+    assert_eq!(
+        symbol(&extracted, SymbolKind::Method, "own").qualified_name,
+        "B::own"
+    );
+    assert!(call_names(&extracted, &b.id).contains(&"factory"));
+    let computed = symbol(&extracted, SymbolKind::Method, "computed");
+    assert!(call_names(&extracted, &computed.id).contains(&"computed_helper"));
+    assert!(!call_names(&extracted, &computed.id).contains(&"factory"));
+    assert_eq!(
+        symbol(&extracted, SymbolKind::Method, "module_named").qualified_name,
+        "M::module_named"
+    );
+}
+
+#[test]
 fn ruby_requires_become_imports_with_exact_bindings_and_no_require_calls() {
     let extracted = extract(
         "lib/app.rb",

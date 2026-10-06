@@ -1641,6 +1641,102 @@ fn rescript_parameter_defaults_and_parenthesized_callees_are_calls() {
     );
 }
 
+#[test]
+fn rescript_computed_member_callees_abstain_and_keep_inner_calls() {
+    let extracted = extract(
+        "src/Computed.res",
+        "let f = () => {get(/*sk_live_FAKE1234567890abcdef*/1).run(); get(1).run(); callbacks.onClick(); callbacks.nested.run(); (helper)(1)}\n",
+    );
+    let f = symbol(&extracted, SymbolKind::Function, "f");
+    let calls = extracted
+        .references
+        .iter()
+        .filter(|reference| {
+            reference.kind == ReferenceKind::Calls && reference.owner.as_ref() == Some(&f.id)
+        })
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        [
+            "get",
+            "get",
+            "callbacks.onClick",
+            "callbacks.nested.run",
+            "helper"
+        ]
+    );
+}
+
+#[test]
+fn rescript_module_qualified_record_members_keep_their_full_path() {
+    let extracted = extract(
+        "src/QualifiedMembers.res",
+        "let f = () => {callbacks.Handler.run(); callbacks.Outer.Handler.run(); get(1).Handler.run()}\n",
+    );
+    let f = symbol(&extracted, SymbolKind::Function, "f");
+    let calls = extracted
+        .references
+        .iter()
+        .filter(|reference| {
+            reference.kind == ReferenceKind::Calls && reference.owner.as_ref() == Some(&f.id)
+        })
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        [
+            "callbacks.Handler.run",
+            "callbacks.Outer.Handler.run",
+            "get"
+        ]
+    );
+}
+
+#[test]
+fn rescript_module_member_scans_charge_extra_children() {
+    let source = format!(
+        "let f = () => callbacks.{}Handler.run()\n",
+        "/* member comment */".repeat(64)
+    );
+    let extracted = extract("src/MemberComments.res", &source);
+    assert!(
+        !extracted
+            .references
+            .iter()
+            .any(|reference| reference.kind == ReferenceKind::Calls),
+        "member recovery beyond the direct-child budget must abstain"
+    );
+}
+
+#[test]
+fn rescript_wide_binding_groups_keep_individual_spans() {
+    for (keyword, binding, kind) in [
+        ("type", "t", SymbolKind::TypeAlias),
+        ("let rec", "f", SymbolKind::Function),
+    ] {
+        let source = format!(
+            "{keyword} {}\n",
+            (0..192)
+                .map(|index| {
+                    let value = if kind == SymbolKind::Function {
+                        "() => ()"
+                    } else {
+                        "int"
+                    };
+                    format!("{binding}{index} = {value}")
+                })
+                .collect::<Vec<_>>()
+                .join(" and ")
+        );
+        let extracted = extract("src/Wide.res", &source);
+        for index in 0..192 {
+            let declared = symbol(&extracted, kind, &format!("{binding}{index}"));
+            assert!(declared.span.end_byte() - declared.span.start_byte() < 32);
+        }
+    }
+}
+
 fn snapshot(path: &str, source: &str) -> SourceSnapshot {
     let limits = SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("source limits failed: {error}"));

@@ -9,7 +9,9 @@
 //! comma-separated list of dotted type names (`Acme.Base(Of T)` names
 //! `Acme.Base`), or nothing when the clause is not exactly that shape.
 
-use cartograph_domain::{ReferenceKind, SourcePosition, SourceSpan, SymbolKind};
+use std::{cmp::Ordering, collections::BTreeSet, mem::size_of};
+
+use cartograph_domain::{ReferenceKind, SourcePosition, SourceSpan, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use crate::{ExtractError, ExtractedReference};
@@ -23,6 +25,57 @@ const MAX_HERITAGE_TARGETS: usize = 64;
 const MAX_TARGET_BYTES: usize = 512;
 /// Most ` _`-continued physical lines read for one clause.
 const MAX_CONTINUATION_LINES: usize = 16;
+
+/// Recovery nodes can repeat one clause; deduplication stays local to the file.
+#[derive(Default)]
+pub(in crate::walk) struct HeritageSeen(BTreeSet<HeritageKey>);
+
+#[derive(Clone, PartialEq, Eq)]
+struct HeritageKey {
+    span: SourceSpan,
+    kind: ReferenceKind,
+    owner: Option<SymbolId>,
+}
+
+impl Ord for HeritageKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        #[cfg(test)]
+        HERITAGE_WORK.set(HERITAGE_WORK.get().saturating_add(1));
+        (self.span, self.kind, &self.owner).cmp(&(other.span, other.kind, &other.owner))
+    }
+}
+
+impl PartialOrd for HeritageKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl HeritageSeen {
+    fn record(
+        builder: &mut ExtractionBuilder<'_, '_>,
+        key: HeritageKey,
+    ) -> Result<bool, ExtractError> {
+        if builder.vbnet_heritage.0.contains(&key) {
+            return Ok(false);
+        }
+        let bytes = size_of::<HeritageKey>()
+            .saturating_mul(2)
+            .saturating_add(64);
+        builder
+            .context
+            .budget
+            .reserve_working_bytes(u64::try_from(bytes).map_err(|_| ExtractError::OutputLimit)?)?;
+        if let Some(owner) = &key.owner {
+            builder
+                .context
+                .budget
+                .reserve_additional_string(owner.as_str())?;
+        }
+        builder.vbnet_heritage.0.insert(key);
+        Ok(true)
+    }
+}
 
 /// One recovered heritage statement line.
 #[derive(Clone, Copy)]
@@ -313,10 +366,14 @@ fn emit_targets(
         let start = line.clause_start + offset;
         let span = line_span(line, start, start + target.len())?;
         let owner = builder.owners.last().cloned();
-        let duplicate = builder.facts.references.iter().any(|reference| {
-            reference.span == span && reference.kind == line.kind && reference.owner == owner
-        });
-        if duplicate {
+        if !HeritageSeen::record(
+            builder,
+            HeritageKey {
+                span,
+                kind: line.kind,
+                owner: owner.clone(),
+            },
+        )? {
             continue;
         }
         let name = builder.context.copy_text(target)?;
@@ -329,6 +386,11 @@ fn emit_targets(
         })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static HERITAGE_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// `(offset, dotted name)` of each comma-separated clause target; the whole
@@ -427,4 +489,62 @@ fn line_span(
         SourcePosition::new(byte, row, column).map_err(|_| ExtractError::InvalidSpan)
     };
     SourceSpan::new(position(start)?, position(end)?).map_err(|_| ExtractError::InvalidSpan)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HERITAGE_WORK;
+    use crate::{NativeExtractor, SourceLimits, SourceSnapshot};
+    use cartograph_domain::ReferenceKind;
+    use std::fmt::Write;
+
+    fn heritage_work(width: usize) -> usize {
+        let mut source = String::new();
+        for index in 0..width {
+            write!(
+                source,
+                "Class Child{index}\n Inherits Base_{index}\nEnd Class\n"
+            )
+            .unwrap_or_else(|error| panic!("test source failed: {error}"));
+        }
+        let snapshot = SourceSnapshot::from_bytes(
+            "Wide.vb",
+            source.as_bytes(),
+            SourceLimits::new(1_048_576)
+                .unwrap_or_else(|error| panic!("test setup failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("test setup failed: {error}"));
+        HERITAGE_WORK.set(0);
+        let extracted = NativeExtractor::new(snapshot.language())
+            .unwrap_or_else(|error| panic!("test setup failed: {error}"))
+            .extract(&snapshot)
+            .unwrap_or_else(|error| panic!("test setup failed: {error}"));
+        assert_eq!(
+            extracted
+                .references
+                .iter()
+                .filter(|reference| reference.kind == ReferenceKind::Extends)
+                .count(),
+            width
+        );
+        HERITAGE_WORK.get()
+    }
+
+    #[test]
+    fn vbnet_wide_heritage_measures_bounded_deduplication_work() {
+        for width in [192_usize, 384] {
+            let work = heritage_work(width);
+            // Recovery can revisit a site; every set lookup compares at most
+            // a logarithmic number of keys, including insertion lookups.
+            let bound = width
+                * (usize::try_from(width.ilog2())
+                    .unwrap_or_else(|error| panic!("test setup failed: {error}"))
+                    + 1)
+                * 6;
+            assert!(
+                work < bound,
+                "{width} heritage sites used {work} comparisons (bound {bound})"
+            );
+        }
+    }
 }

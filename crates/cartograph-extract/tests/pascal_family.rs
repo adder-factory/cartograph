@@ -12,6 +12,49 @@ use cartograph_extract::{
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
 
+#[test]
+fn external_ancestor_members_prevent_exact_unit_homonym_resolution() {
+    let extracted = extract(
+        "src/Child.pas",
+        r"unit Child;
+interface
+uses Base;
+type
+  TChild = class(TBase)
+    procedure Run;
+  end;
+  TGrandchild = class(TChild)
+    procedure RunAgain;
+  end;
+  TPlain = class
+    procedure Run;
+  end;
+procedure Ping;
+implementation
+procedure Ping;
+begin end;
+procedure TChild.Run;
+begin Ping; end;
+procedure TGrandchild.RunAgain;
+begin Ping; end;
+procedure TPlain.Run;
+begin Ping; end;
+end.",
+    );
+    for name in ["TChild::Run", "TGrandchild::RunAgain"] {
+        let run = member(&extracted, SymbolKind::Method, name);
+        assert_eq!(
+            call(&extracted, &run.id, "Ping").resolution_name,
+            Some(scoped("Ping"))
+        );
+    }
+    let plain = member(&extracted, SymbolKind::Method, "TPlain::Run");
+    assert_eq!(
+        call(&extracted, &plain.id, "Ping").resolution_name,
+        Some(scoped("self::Ping"))
+    );
+}
+
 const UAUTH: &str = r"unit UAuth;
 
 interface
@@ -598,8 +641,8 @@ fn uauth_fixture_matches_the_v1_contract() {
     );
     assert_eq!(
         call(&extracted, &increment.id, "Inc").resolution_name,
-        None,
-        "non-members keep ordinary name resolution"
+        Some(scoped("Inc")),
+        "an external ancestor cannot prove that the name is not a member"
     );
     let validator = member(&extracted, SymbolKind::Method, "ITokenValidator::Validate");
     assert!(validator.implementation.declaration_only);

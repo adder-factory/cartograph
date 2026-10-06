@@ -26,6 +26,8 @@ const GROOVY_ENUM_MEMBER_DECLARATIONS: &[&str] =
     &["function_definition", "function_declaration", "declaration"];
 /// Most bytes of one error-recovered line scanned for an open literal before a call.
 const MAX_LINE_PREFIX_SCAN_BYTES: usize = 4_096;
+/// Most ancestors and preceding siblings inspected for one recovered use.
+const MAX_PARSE_ERROR_LOOKBACK_NODES: usize = 128;
 const JVM_TYPE_OWNER_KINDS: &[SymbolKind] = &[
     SymbolKind::Class,
     SymbolKind::Struct,
@@ -2183,8 +2185,7 @@ fn capture_groovy_usage(
 ) -> Result<(), ExtractError> {
     match node.kind() {
         "function_call" | GROOVY_COMMAND_CALL
-            if !is_groovy_construction_target(node)
-                && is_groovy_call(builder.context.source(), node) =>
+            if !is_groovy_construction_target(node) && is_groovy_call(builder, node)? =>
         {
             let Some(target) = node.child_by_field_name("function") else {
                 return Ok(());
@@ -2223,8 +2224,8 @@ fn capture_groovy_usage(
             )
         }
         "dotted_identifier"
-            if !is_groovy_call_target(builder.context.source(), node)
-                && !is_recovered_literal_word(builder.context.source(), node) =>
+            if !is_groovy_call_target(builder, node)?
+                && !is_recovered_literal_word(builder, node)? =>
         {
             capture_terminal_member(builder, node)
         }
@@ -2279,14 +2280,19 @@ fn is_scala_call_target(node: Node<'_>) -> bool {
     })
 }
 
-fn is_groovy_call_target(source: &str, node: Node<'_>) -> bool {
-    node.parent().is_some_and(|parent| {
+fn is_groovy_call_target(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let Some(parent) = node.parent().filter(|parent| {
         matches!(parent.kind(), "function_call" | GROOVY_COMMAND_CALL)
-            && is_groovy_call(source, parent)
             && parent
                 .child_by_field_name("function")
                 .is_some_and(|target| same_node(target, node))
-    })
+    }) else {
+        return Ok(false);
+    };
+    is_groovy_call(builder, parent)
 }
 
 /// Whether a Groovy call node is a call: it is not a word of an error-recovered
@@ -2298,12 +2304,15 @@ fn is_groovy_call_target(source: &str, node: Node<'_>) -> bool {
 /// `def "uses a.b c"()` becomes `a.b c` and `def "uses a.b() c"()` becomes
 /// `a.b()`), so a call recovered inside a literal, or a bare juxtaposition, is
 /// not trusted.
-fn is_groovy_call(source: &str, node: Node<'_>) -> bool {
-    !is_recovered_literal_word(source, node)
+fn is_groovy_call(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    Ok(!is_recovered_literal_word(builder, node)?
         && (node.kind() != GROOVY_COMMAND_CALL
             || node
                 .child_by_field_name("function")
-                .is_some_and(|target| target.kind() == "dotted_identifier"))
+                .is_some_and(|target| target.kind() == "dotted_identifier")))
 }
 
 /// Whether `node` is a word that error recovery lifted out of a literal: a
@@ -2311,31 +2320,67 @@ fn is_groovy_call(source: &str, node: Node<'_>) -> bool {
 /// inside a literal or comment. Nodes in error-free surroundings are trusted
 /// as the grammar parsed them, so Groovy slashy, dollar-slashy, triple-quoted
 /// and multi-line literals the line re-lex does not model are never consulted.
-fn is_recovered_literal_word(source: &str, node: Node<'_>) -> bool {
-    follows_parse_error_on_line(node) && starts_inside_line_literal(source, node.start_byte())
+fn is_recovered_literal_word(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    Ok(match follows_parse_error_on_line(builder, node)? {
+        Some(false) => false,
+        Some(true) => starts_inside_line_literal(builder.context.source(), node.start_byte()),
+        None => true,
+    })
 }
 
 /// Whether a parse error (an `ERROR` or missing node) ends on the row where
 /// `node` starts, before it. Only ancestors starting on that row and parents
 /// whose subtree holds an error are searched, so error-free trees cost one
 /// `has_error` check per ancestor on the row.
-fn follows_parse_error_on_line(node: Node<'_>) -> bool {
+fn follows_parse_error_on_line(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<bool>, ExtractError> {
     let start = node.start_position();
     let line = NodeLine {
         start_byte: node.start_byte().saturating_sub(start.column),
         row: start.row,
     };
     let mut current = node;
+    let mut visits = 0;
     while let Some(parent) = current.parent() {
-        if parent.has_error() && error_precedes_on_line(parent, current, line) {
-            return true;
+        builder.context.ensure_active()?;
+        if parent.has_error() {
+            if !charge_error_lookback(builder, &mut visits)? {
+                return Ok(None);
+            }
+            match error_precedes_on_line(
+                builder,
+                ErrorLookback {
+                    parent,
+                    current,
+                    line,
+                },
+                &mut visits,
+            )? {
+                Some(false) => {}
+                result => return Ok(result),
+            }
         }
         if parent.start_position().row != start.row {
-            return false;
+            return Ok(Some(false));
         }
         current = parent;
     }
-    false
+    Ok(Some(false))
+}
+
+/// Charge every examined node and poll cancellation before reading it.
+fn charge_error_lookback(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    visits: &mut usize,
+) -> Result<bool, ExtractError> {
+    builder.context.ensure_active()?;
+    *visits = visits.saturating_add(1);
+    Ok(*visits <= MAX_PARSE_ERROR_LOOKBACK_NODES)
 }
 
 /// The source line a node starts on: its first byte and its row.
@@ -2345,23 +2390,45 @@ struct NodeLine {
     row: usize,
 }
 
+#[derive(Clone, Copy)]
+struct ErrorLookback<'tree> {
+    parent: Node<'tree>,
+    current: Node<'tree>,
+    line: NodeLine,
+}
+
 /// Whether a child of `parent` before `current` holds a parse error and ends
 /// on `line`, at or after its start.
-fn error_precedes_on_line(parent: Node<'_>, current: Node<'_>, line: NodeLine) -> bool {
+fn error_precedes_on_line(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: ErrorLookback<'_>,
+    visits: &mut usize,
+) -> Result<Option<bool>, ExtractError> {
+    let ErrorLookback {
+        parent,
+        current,
+        line,
+    } = input;
     let mut cursor = parent.walk();
-    if cursor.goto_first_child_for_byte(line.start_byte).is_none() {
-        return false;
+    if !cursor.goto_first_child() {
+        return Ok(Some(false));
     }
     loop {
+        if !charge_error_lookback(builder, visits)? {
+            return Ok(None);
+        }
         let child = cursor.node();
         if child.start_byte() >= current.start_byte() || same_node(child, current) {
-            return false;
+            return Ok(Some(false));
         }
-        if child.has_error() && child.end_position().row == line.row {
-            return true;
+        if child.has_error()
+            && child.end_byte() >= line.start_byte
+            && child.end_position().row == line.row
+        {
+            return Ok(Some(true));
         }
         if !cursor.goto_next_sibling() {
-            return false;
+            return Ok(Some(false));
         }
     }
 }

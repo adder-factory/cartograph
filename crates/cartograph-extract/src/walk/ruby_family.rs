@@ -26,6 +26,7 @@ use super::{
         literal_free_node_signature, plain_symbol, with_owner,
     },
     syntax::{named_children, starts_uppercase},
+    with_root_scope,
 };
 
 /// Class macros that synthesize accessor fields from their symbol arguments.
@@ -220,9 +221,12 @@ fn visit_singleton_class(
     node: Node<'_>,
     depth: usize,
 ) -> Result<(), ExtractError> {
-    if let Some(receiver) = node.child_by_field_name("value") {
-        // `class << factory()` evaluates its receiver in the enclosing scope.
-        builder.visit(receiver, depth.saturating_add(1))?;
+    let Some(receiver) = node.child_by_field_name("value") else {
+        return Ok(());
+    };
+    builder.visit(receiver, depth.saturating_add(1))?;
+    if !enclosing_type_receiver(builder, receiver) {
+        return Ok(());
     }
     with_isolated_section(builder, |builder| {
         with_singleton_context(builder, SingletonContext::Singleton, |builder| {
@@ -296,6 +300,37 @@ fn visit_method(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: MethodVisit<'_>,
 ) -> Result<bool, ExtractError> {
+    if input.node.kind() != "singleton_method" {
+        return emit_method(builder, input);
+    }
+    let Some(receiver) = input.node.child_by_field_name("object") else {
+        return Ok(true);
+    };
+    builder.visit(receiver, input.depth.saturating_add(1))?;
+    if enclosing_type_receiver(builder, receiver) {
+        emit_method(builder, input)
+    } else {
+        // A bare file-level Method records the definition without a type owner.
+        with_root_scope(builder, |builder| emit_method(builder, input))
+    }
+}
+
+/// Only self or the literal enclosing type name establishes a member owner.
+fn enclosing_type_receiver(builder: &ExtractionBuilder<'_, '_>, receiver: Node<'_>) -> bool {
+    let name = builder.context.text(receiver);
+    inside_type(builder)
+        && ((receiver.kind() == "self" && name == "self")
+            || (is_constant_path(receiver, 0)
+                && builder
+                    .qualifiers
+                    .last()
+                    .is_some_and(|enclosing| name == enclosing)))
+}
+
+fn emit_method(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: MethodVisit<'_>,
+) -> Result<bool, ExtractError> {
     let node = input.node;
     let Some(name_node) = node.child_by_field_name("name") else {
         return Ok(false);
@@ -348,11 +383,23 @@ fn visit_method(
     with_owner(builder, scope, |builder| {
         within_scope(builder, locals, |builder| {
             with_singleton_context(builder, SingletonContext::Instance, |builder| {
-                builder.visit_named_children(node, input.depth)
+                visit_method_children(builder, input)
             })
         })
     })?;
     Ok(true)
+}
+
+/// The singleton receiver ran before entering this method's scope.
+fn visit_method_children(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    input: MethodVisit<'_>,
+) -> Result<(), ExtractError> {
+    let receiver = input.node.child_by_field_name("object");
+    for child in named_children(input.node).filter(|child| Some(*child) != receiver) {
+        builder.visit(child, input.depth.saturating_add(1))?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]

@@ -3046,12 +3046,19 @@ impl<'tree> Iterator for DirectChildren<'tree> {
                 return None;
             }
             let node = self.cursor.node();
+            #[cfg(test)]
+            DIRECT_CHILD_WORK.set(DIRECT_CHILD_WORK.get().saturating_add(1));
             if !self.named_only || node.is_named() {
                 return Some(node);
             }
         }
         None
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static DIRECT_CHILD_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub(super) struct Descendants<'tree> {
