@@ -3499,8 +3499,21 @@ fn extract_bg3_object(
     fields: &serde_json::Map<String, Value>,
     parent: Option<SymbolId>,
 ) -> Result<(), ExtractError> {
+    let symbol_count = builder.symbols.len();
     let next_parent = bg3_object_parent(builder, fields, parent)?;
+    let declares_resource = builder.symbols.len() > symbol_count;
+    let name_key = bg3_json_field_key(fields, &BG3_JSON_NAME_KEYS);
+    let identity_key = bg3_json_field_key(fields, &BG3_JSON_IDENTITY_KEYS).filter(|_| {
+        bg3_json_field(fields, &BG3_JSON_IDENTITY_KEYS)
+            .and_then(bg3_tokens::global_identity)
+            .is_some()
+    });
     for (key, child) in fields {
+        if declares_resource
+            && (name_key == Some(key.as_str()) || identity_key == Some(key.as_str()))
+        {
+            continue;
+        }
         if let Some(raw) = child.as_str()
             && !is_bg3_name_key(key)
         {
@@ -3560,6 +3573,19 @@ fn bg3_json_field<'value>(
         .filter_map(|key| fields.get(*key).and_then(Value::as_str))
         .map(str::trim)
         .find(|value| !value.is_empty())
+}
+
+/// The scalar field selected by the declaration's first non-empty rule.
+fn bg3_json_field_key<'key>(
+    fields: &serde_json::Map<String, Value>,
+    keys: &[&'key str],
+) -> Option<&'key str> {
+    keys.iter().copied().find(|key| {
+        fields
+            .get(*key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    })
 }
 
 fn add_bg3_references(

@@ -55,6 +55,7 @@ static VERILOG_QUERY: OnceLock<Query> = OnceLock::new();
 enum RawRole {
     Definition(SymbolKind),
     Call,
+    Signature,
 }
 
 struct RawMatch<'tree> {
@@ -67,6 +68,7 @@ struct RawMatch<'tree> {
 struct Definition<'tree> {
     kind: SymbolKind,
     name: String,
+    name_node: Node<'tree>,
     node: Node<'tree>,
     docstring: Option<String>,
 }
@@ -112,11 +114,13 @@ struct TagQueryInput<'tree, 'source> {
     query: &'source Query,
     root: Node<'tree>,
     source: &'source str,
+    language: SourceLanguage,
 }
 
 struct RecordBuildInput<'tree, 'source> {
     raw: Vec<RawMatch<'tree>>,
     source: &'source str,
+    language: SourceLanguage,
 }
 
 struct PreparedTagRecords<'tree> {
@@ -323,6 +327,7 @@ pub(crate) fn extract(
             query,
             root,
             source,
+            language: snapshot.language(),
         },
         &mut transient,
         cancelled,
@@ -393,6 +398,7 @@ fn prepare_tag_records<'tree>(
         RecordBuildInput {
             raw,
             source: input.source,
+            language: input.language,
         },
         transient,
         cancelled,
@@ -532,7 +538,11 @@ fn build_tag_definition(
     identities: &mut SymbolIdentity<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<BuiltTagDefinition, ExtractError> {
-    let qualified_name = if let Some(parent) = input.parent {
+    let qualified_name = if input.snapshot.language() == SourceLanguage::Julia
+        && input.definition.name_node.kind() == "field_expression"
+    {
+        input.definition.name.clone()
+    } else if let Some(parent) = input.parent {
         let mut qualified = String::new();
         qualified
             .try_reserve(
@@ -701,9 +711,16 @@ fn build_records<'tree>(
     let mut definitions = Vec::new();
     let mut calls = Vec::new();
     let mut seen_definitions = BTreeSet::new();
-    for record in input.raw {
+    for mut record in input.raw {
         if cancelled() {
             return Err(ExtractError::Cancelled);
+        }
+        if input.language == SourceLanguage::Julia
+            && matches!(record.role, RawRole::Call | RawRole::Signature)
+            && let Some(declaration) = julia_short_form_definition(record.role_node, input.source)
+        {
+            record.role = RawRole::Definition(SymbolKind::Function);
+            record.role_node = declaration;
         }
         let name = node_text(record.name_node, input.source).trim();
         if name.is_empty() {
@@ -725,9 +742,98 @@ fn build_records<'tree>(
                 calls: &mut calls,
                 transient,
             })?,
+            RawRole::Signature => {}
         }
     }
     Ok((definitions, calls))
+}
+
+/// A Julia call signature defines a function only on the left of `=`.
+/// Return annotations and chained `where` clauses wrap that same signature.
+fn julia_short_form_definition<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    if node.kind() != "call_expression" || !julia_named_callee(node.named_child(0)?) {
+        return None;
+    }
+    let mut signature = node;
+    for _ in 0..MAX_TAG_AST_DEPTH {
+        let parent = signature.parent()?;
+        if parent.named_child(0) != Some(signature) {
+            return None;
+        }
+        match parent.kind() {
+            "typed_expression" | "where_expression" => signature = parent,
+            "assignment" => {
+                return parent
+                    .named_child(1)
+                    .filter(|operator| node_text(*operator, source) == "=")
+                    .filter(|_| julia_assignment_is_unquoted(parent))
+                    .map(|_| parent);
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// A quoted operator name is a child; quotation around the assignment is data.
+fn julia_assignment_is_unquoted(mut node: Node<'_>) -> bool {
+    for _ in 0..MAX_TAG_AST_DEPTH {
+        let Some(parent) = node.parent() else {
+            return true;
+        };
+        if matches!(parent.kind(), "quote_expression" | "quote_statement") {
+            return false;
+        }
+        node = parent;
+    }
+    false
+}
+
+/// Only static identifier/operator paths can name a short-form declaration.
+fn julia_named_callee(mut node: Node<'_>) -> bool {
+    for _ in 0..MAX_TAG_AST_DEPTH {
+        match node.kind() {
+            "identifier" | "operator" => return true,
+            "quote_expression" => return julia_quoted_operator(node),
+            "field_expression" => {
+                let Some(field) = node.named_child(1) else {
+                    return false;
+                };
+                if field.kind() != "identifier" && !julia_quoted_operator(field) {
+                    return false;
+                }
+                let Some(value) = node.child_by_field_name("value") else {
+                    return false;
+                };
+                node = value;
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// A quoted operator may have bounded single-child parentheses around it.
+fn julia_quoted_operator(node: Node<'_>) -> bool {
+    if node.kind() != "quote_expression" || node.named_child_count() != 1 {
+        return false;
+    }
+    let Some(mut inner) = node.named_child(0) else {
+        return false;
+    };
+    for _ in 0..MAX_TAG_AST_DEPTH {
+        if inner.kind() != "parenthesized_expression" {
+            return inner.kind() == "operator";
+        }
+        if inner.named_child_count() != 1 {
+            return false;
+        }
+        let Some(child) = inner.named_child(0) else {
+            return false;
+        };
+        inner = child;
+    }
+    false
 }
 
 struct TagDefinitionInput<'input, 'tree> {
@@ -775,6 +881,7 @@ fn push_tag_definition<'tree>(input: TagDefinitionInput<'_, 'tree>) -> Result<()
     definitions.push(Definition {
         kind,
         name: owned_name,
+        name_node: record.name_node,
         node: record.role_node,
         docstring,
     });
@@ -1039,6 +1146,10 @@ impl<'tree, 'budget> RawMatchCollector<'tree, 'budget> {
             }
             "reference.call" => {
                 state.role = Some(RawRole::Call);
+                state.role_node = Some(node);
+            }
+            "reference.signature" => {
+                state.role = Some(RawRole::Signature);
                 state.role_node = Some(node);
             }
             _ => {}
@@ -1411,7 +1522,12 @@ mod tests {
             ),
             (
                 SourceLanguage::Julia,
-                "91f15fa564da36c697e0633f66d60a598880e2b2f5750582255ba3bb4b357fe5",
+                // Six added lines capture qualified/operator short-form signatures.
+                // Dropping the quoted-callee alternative restores the round-1
+                // aac7264a... bytes; its four new operator declarations are regression-tested.
+                // Removing them restores the original 91f15fa5... query byte for byte;
+                // the v1 corpus has no further Julia fact changes from these captures.
+                "adca979b387065d5d7e0a96c1a4ca2848f5f91edab5da947509a4836d576f244",
             ),
             (
                 SourceLanguage::Ocaml,
@@ -1431,7 +1547,7 @@ mod tests {
             assert_eq!(
                 blake3::hash(source.as_bytes()).to_hex().as_str(),
                 expected_query_digest,
-                "{} query drifted from v1.1.33",
+                "{} query drifted from its reviewed bytes",
                 language.as_str()
             );
             let grammar = crate::NativeGrammar::for_source_language(language)

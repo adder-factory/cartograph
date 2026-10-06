@@ -4,7 +4,7 @@ mod dependency_ownership;
 
 use std::collections::BTreeMap;
 
-use cartograph_domain::{FileParseStatus, SourceLanguage};
+use cartograph_domain::{FileParseStatus, ReferenceKind, SourceLanguage, SymbolKind};
 use cartograph_extract::{
     ExtractError, ExtractedFile, NativeExtractor, SourceLimits, SourceSnapshot,
 };
@@ -63,6 +63,263 @@ end
 
     let top_level = extract("script.exs", "IO.puts(\"hello\")\n");
     assert_eq!(canonical_facts(&top_level), ["R|<file>|puts|calls|3-7"]);
+}
+
+#[test]
+fn julia_short_form_functions_declare_module_members_and_own_body_calls() {
+    let source = "module Shapes\narea(c::Circle) = helper(c)\ntyped(x)::Float64 = convert(Float64, x)\nidentity(x::T) where T = helper(x)\nbounded(x::T)::T where {T<:Real} = helper(x)\nvalue = area(circle)\narray[index()] = helper(value)\nfunction long(x)\n    helper(x)\nend\nend\n";
+    let file = extract("src/Shapes.jl", source);
+    let module = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.kind == SymbolKind::Module && symbol.name == "Shapes")
+        .unwrap_or_else(|| panic!("missing module: {:?}", file.symbols));
+    for (name, line, callee) in [
+        ("area", 2, "helper"),
+        ("typed", 3, "convert"),
+        ("identity", 4, "helper"),
+        ("bounded", 5, "helper"),
+        ("long", 8, "helper"),
+    ] {
+        let function = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Function && symbol.name == name)
+            .unwrap_or_else(|| panic!("missing {name}: {:?}", file.symbols));
+        assert_eq!(function.qualified_name, format!("Shapes.{name}"));
+        assert_eq!(function.span.start_line(), line);
+        if name != "long" {
+            assert_eq!(function.span.end_line(), line);
+            let declaration = source
+                .lines()
+                .nth(line as usize - 1)
+                .unwrap_or_else(|| panic!("missing fixture line {line}"));
+            let start = usize::try_from(function.span.start_byte())
+                .unwrap_or_else(|error| panic!("invalid start span: {error}"));
+            let end = usize::try_from(function.span.end_byte())
+                .unwrap_or_else(|error| panic!("invalid end span: {error}"));
+            assert_eq!(&source[start..end], declaration);
+        }
+        assert!(file.containments.iter().any(|containment| {
+            containment.parent == module.id && containment.child == function.id
+        }));
+        assert!(file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == callee
+                && reference.owner.as_ref() == Some(&function.id)
+        }));
+        assert!(!file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == name
+                && reference.span.start_line() == line
+        }));
+    }
+    for (name, line) in [("area", 6), ("index", 7), ("helper", 7)] {
+        assert!(file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == name
+                && reference.span.start_line() == line
+                && reference.owner.as_ref() == Some(&module.id)
+        }));
+        assert!(!file.symbols.iter().any(|symbol| {
+            symbol.kind == SymbolKind::Function && symbol.span.start_line() == line
+        }));
+    }
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
+}
+
+#[test]
+fn julia_parity_corpus_short_form_area_has_its_exact_declaration() {
+    let file = extract(
+        "src/Shapes.jl",
+        include_str!("fixtures/v1_parity/julia/src/Shapes.jl"),
+    );
+    let area = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "area" && symbol.span.start_line() == 35)
+        .unwrap_or_else(|| panic!("missing short-form area: {:?}", file.symbols));
+    assert_eq!(area.kind, SymbolKind::Function);
+    assert_eq!(area.qualified_name, "Shapes.area");
+    assert_eq!(area.span.end_line(), 35);
+    assert!(!file.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::Calls && reference.span.start_line() == 35
+    }));
+}
+
+#[test]
+fn julia_chained_where_signatures_are_declarations_not_calls() {
+    let file = extract(
+        "src/Shapes.jl",
+        "module Shapes\nnested(x::T, y::S) where T where S = helper(x, y)\nrecursive(x) where T where S where U = recursive(helper(x))\nend\n",
+    );
+    let module = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Shapes")
+        .unwrap_or_else(|| panic!("missing Shapes module"));
+    for (name, line) in [("nested", 2), ("recursive", 3)] {
+        let function = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap_or_else(|| panic!("missing {name} declaration"));
+        assert_eq!(function.kind, SymbolKind::Function);
+        assert_eq!(function.qualified_name, format!("Shapes.{name}"));
+        assert_eq!(function.span.start_line(), line);
+        assert_eq!(function.span.end_line(), line);
+        assert!(file.containments.iter().any(|containment| {
+            containment.parent == module.id && containment.child == function.id
+        }));
+        assert!(file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == "helper"
+                && reference.owner.as_ref() == Some(&function.id)
+        }));
+    }
+    let calls = file
+        .references
+        .iter()
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(calls, ["helper", "recursive", "helper"]);
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
+}
+
+#[test]
+fn julia_qualified_and_operator_short_forms_own_their_rhs_calls() {
+    let source = "module Extensions\nBase.show(io, x) = helper(x)\nBase.:+(a,b) = combine(a,b)\n+(a,b) = combine(a,b)\nBase.Math.show(io, x)::String where T = helper(x)\nend\n";
+    let file = extract("src/Extensions.jl", source);
+    let module = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Extensions")
+        .unwrap_or_else(|| panic!("missing Extensions module"));
+    for (name, qualified, line, callee) in [
+        ("Base.show", "Base.show", 2, "helper"),
+        ("Base.:+", "Base.:+", 3, "combine"),
+        ("+", "Extensions.+", 4, "combine"),
+        ("Base.Math.show", "Base.Math.show", 5, "helper"),
+    ] {
+        let function = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Function && symbol.name == name)
+            .unwrap_or_else(|| panic!("missing {name}: {:?}", file.symbols));
+        assert_eq!(function.qualified_name, qualified);
+        assert_eq!(function.span.start_line(), line);
+        assert_eq!(function.span.end_line(), line);
+        let start = usize::try_from(function.span.start_byte())
+            .unwrap_or_else(|error| panic!("invalid span: {error}"));
+        let end = usize::try_from(function.span.end_byte())
+            .unwrap_or_else(|error| panic!("invalid span: {error}"));
+        assert_eq!(
+            &source[start..end],
+            source.lines().nth(line as usize - 1).unwrap_or_default()
+        );
+        assert!(file.containments.iter().any(|containment| {
+            containment.parent == module.id && containment.child == function.id
+        }));
+        assert!(file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == callee
+                && reference.owner.as_ref() == Some(&function.id)
+        }));
+    }
+    assert_eq!(file.references.len(), 4, "signatures are not call sites");
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
+}
+
+#[test]
+fn julia_quoted_parenthesized_operator_short_forms_own_their_rhs_calls() {
+    let source = "module Extensions\nBase.:(==)(a,b) = equal(a,b)\n:(==)(a,b) = equal(a,b)\nBase.:((==))(a,b) = equal(a,b)\n:((==))(a,b) = equal(a,b)\nend\n";
+    let file = extract("src/Extensions.jl", source);
+    let module = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Extensions")
+        .unwrap_or_else(|| panic!("missing Extensions module"));
+    for (name, qualified, line) in [
+        ("Base.:(==)", "Base.:(==)", 2),
+        (":(==)", "Extensions.:(==)", 3),
+        ("Base.:((==))", "Base.:((==))", 4),
+        (":((==))", "Extensions.:((==))", 5),
+    ] {
+        let function = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Function && symbol.name == name)
+            .unwrap_or_else(|| panic!("missing {name}: {:?}", file.symbols));
+        assert_eq!(function.qualified_name, qualified);
+        assert_eq!(function.span.start_line(), line);
+        assert_eq!(function.span.end_line(), line);
+        let start = usize::try_from(function.span.start_byte())
+            .unwrap_or_else(|error| panic!("invalid span: {error}"));
+        let end = usize::try_from(function.span.end_byte())
+            .unwrap_or_else(|error| panic!("invalid span: {error}"));
+        assert_eq!(
+            &source[start..end],
+            source.lines().nth(line as usize - 1).unwrap_or_default()
+        );
+        assert!(file.containments.iter().any(|containment| {
+            containment.parent == module.id && containment.child == function.id
+        }));
+        assert!(file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == "equal"
+                && reference.owner.as_ref() == Some(&function.id)
+        }));
+    }
+    assert_eq!(file.references.len(), 4);
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
+
+    let rejected = extract(
+        "src/Extensions.jl",
+        "module Extensions\nBase.:(a,b)(x) = helper(x)\n:(a,b)(x) = helper(x)\nend\n",
+    );
+    assert_eq!(
+        rejected.symbols.len(),
+        1,
+        "quoted tuples do not name functions"
+    );
+    assert!(rejected.references.iter().all(|reference| {
+        reference.name == "helper" && reference.owner.as_ref() == Some(&rejected.symbols[0].id)
+    }));
+    assert_eq!(rejected.references.len(), 2);
+    assert_eq!(rejected.parse_status, FileParseStatus::Parsed);
+}
+
+// Expectations captured from the native HEAD extractor at 5220c3a1.
+#[test]
+fn julia_quoted_short_form_assignments_keep_head_declarations_and_call_owners() {
+    for (source, expected) in [
+        (
+            "module M\nexpr = :(Base.:(==)(a,b) = equal(a,b))\nend\n",
+            &[
+                "S|module|M|M|0-51|44f05c4ec8f7792abf193f5d678050ce9a6016df1307edd8e8c3a81ea3d627e8|",
+                "R|M|equal|calls|36-41",
+            ][..],
+        ),
+        (
+            "module M\nexpr = quote; :(==)(a,b) = equal(a,b); end\nend\n",
+            &[
+                "S|module|M|M|0-55|6b2300a24175210dea8ce14626844048ef271adc4dae8152f9316ffc06a85a2a|",
+                "R|M|equal|calls|36-41",
+            ][..],
+        ),
+        (
+            "module M\nexpr = quote; area(x) = equal(x,x); end\nend\n",
+            &[
+                "S|module|M|M|0-52|7aac7a3991105ba33702871164d92db05209661c4ca56af7e9a5d9b12880ee7d|",
+                "R|M|area|calls|23-27",
+                "R|M|equal|calls|33-38",
+            ][..],
+        ),
+    ] {
+        let file = extract("src/Quoted.jl", source);
+        assert_eq!(canonical_facts(&file), expected);
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
 }
 
 #[test]

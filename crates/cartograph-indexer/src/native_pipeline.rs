@@ -16717,10 +16717,16 @@ mod tests {
     // ABAP declares classes and methods at their IMPLEMENTATION blocks, so
     // fixture.abap's class and method move there (same counts, new spans,
     // and the method now owns its body).
+    // Dart fixture.dart:6 now declares Box::Box, adding exactly its method,
+    // Box -> Box::Box containment edge, and symbol search document. Removing
+    // those three facts restores the previous dcf6c35b... digest exactly.
+    // Box::Box is concrete: declaration_only is false in the symbol and its
+    // document metadata. Restoring only those two booleans to true restores
+    // the intermediate 36d77193... digest exactly; all counts stay unchanged.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "dcf6c35b9fe207f27698718b7a439e411fd86aa4cb21662f631dbcb74731eaa6";
+        "fca1307d9daa8f86212a323289ec33fdffb7936c33575b32a7180d8eb285880d";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 259, 282, 135, 259);
+        (28, 260, 283, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
     // spans from its `IF` line and is named by its head line, and an LSX

@@ -449,6 +449,235 @@ fn liquid_partner_tags_keep_v1_whitespace_control_and_multiplicity() {
 }
 
 #[test]
+fn bg3_lsj_names_define_resources_without_use_references() {
+    let file = extract(
+        "Public/Demo/RootTemplates/JsonItem.lsj",
+        include_str!("fixtures/v1_parity/bg3_resource/Public/Demo/RootTemplates/JsonItem.lsj"),
+    );
+    // Native HEAD facts, with only the three consumed identity uses removed.
+    assert_eq!(
+        bg3_head_facts(&file),
+        [
+            "S|resource|MAG_JSON_Item|44444444-4444-4444-4444-444444444444|13-26|true",
+            "S|resource|MAG_JSON_Child|Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child|178-192|false",
+            "C|44444444-4444-4444-4444-444444444444|Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child",
+            "R|Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child|UnlockSpell|references|212-223",
+            "R|Public/Demo/RootTemplates/JsonItem.lsj::MAG_JSON_Child|Target_Spell|references|224-236",
+            "R|44444444-4444-4444-4444-444444444444|22222222-2222-2222-2222-222222222222|references|102-138",
+            "R|44444444-4444-4444-4444-444444444444|Target_Tag|references|267-277",
+        ]
+    );
+    assert_eq!(file.symbols[0].span.start_line(), 2);
+    assert_eq!(file.symbols[1].span.start_line(), 7);
+}
+
+#[test]
+fn bg3_lsj_identity_key_siblings_keep_declarations_and_nested_uses() {
+    for key in ["Name", "NameFS", "name", "UUID", "Guid", "id"] {
+        let file = extract(
+            "Public/Demo/RootTemplates/Names.lsj",
+            &format!(
+                r#"{{"{key}": "MAG_Resource", "Children": [{{"Name": "MAG_Child", "Uses": ["Target_Spell"]}}], "ParentTemplateId": "Target_Parent"}}"#
+            ),
+        );
+        assert_eq!(
+            symbols(&file),
+            [
+                (SymbolKind::Resource, "MAG_Resource"),
+                (SymbolKind::Resource, "MAG_Child")
+            ],
+            "{key}"
+        );
+        assert_eq!(
+            references(&file),
+            [
+                (ReferenceKind::References, "Target_Spell"),
+                (ReferenceKind::References, "Target_Parent")
+            ],
+            "{key}"
+        );
+    }
+}
+
+// HEAD 5220c3a1 projections retain declaration identity, spans, export,
+// containment, and exact reference spans/owners. Expectations below were
+// captured with the native HEAD extractor, before applying the subtraction.
+fn bg3_head_facts(file: &ExtractedFile) -> Vec<String> {
+    let names = file
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.id.as_str(), symbol.qualified_name.as_str()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut facts = Vec::new();
+    for symbol in &file.symbols {
+        facts.push(format!(
+            "S|{}|{}|{}|{}-{}|{}",
+            symbol.kind.as_str(),
+            symbol.name,
+            symbol.qualified_name,
+            symbol.span.start_byte(),
+            symbol.span.end_byte(),
+            symbol.export.exported
+        ));
+    }
+    for containment in &file.containments {
+        facts.push(format!(
+            "C|{}|{}",
+            names[containment.parent.as_str()],
+            names[containment.child.as_str()]
+        ));
+    }
+    for reference in &file.references {
+        let owner = reference
+            .owner
+            .as_ref()
+            .and_then(|owner| names.get(owner.as_str()).copied())
+            .unwrap_or("<file>");
+        facts.push(format!(
+            "R|{}|{}|{}|{}-{}",
+            owner,
+            reference.name,
+            reference.kind.as_str(),
+            reference.span.start_byte(),
+            reference.span.end_byte()
+        ));
+    }
+    facts
+}
+
+#[test]
+fn bg3_lsj_wrapped_children_and_module_info_keep_head_definitions() {
+    for (path, source, expected) in [
+        (
+            "Public/Demo/RootTemplates/Wrapped.lsj",
+            "{\"Children\":[{\n  \"Name\": \"MAG_JSON_Item\",\n  \"UUID\": \"44444444-4444-4444-4444-444444444444\",\n  \"ParentTemplateId\": \"22222222-2222-2222-2222-222222222222\",\n  \"Children\": [\n    {\n      \"Name\": \"MAG_JSON_Child\",\n      \"Boosts\": \"UnlockSpell(Target_Spell)\"\n    }\n  ],\n  \"Tags\": [\n    \"Target_Tag\"\n  ]\n}\n]}",
+            &[
+                "S|resource|MAG_JSON_Item|44444444-4444-4444-4444-444444444444|26-39|true",
+                "S|resource|MAG_JSON_Child|Public/Demo/RootTemplates/Wrapped.lsj::MAG_JSON_Child|191-205|false",
+                "C|44444444-4444-4444-4444-444444444444|Public/Demo/RootTemplates/Wrapped.lsj::MAG_JSON_Child",
+                "R|Public/Demo/RootTemplates/Wrapped.lsj::MAG_JSON_Child|UnlockSpell|references|225-236",
+                "R|Public/Demo/RootTemplates/Wrapped.lsj::MAG_JSON_Child|Target_Spell|references|237-249",
+                "R|44444444-4444-4444-4444-444444444444|22222222-2222-2222-2222-222222222222|references|115-151",
+                "R|44444444-4444-4444-4444-444444444444|Target_Tag|references|280-290",
+            ][..],
+        ),
+        (
+            "Mods/Demo/meta.lsj",
+            "{\"save\":{\"regions\":{\"Config\":{\"root\":[{\"ModuleInfo\":[{\"Name\":\"Demo_Module\",\"UUID\":\"33333333-3333-3333-3333-333333333333\",\"ParentTemplateId\":\"Target_Module\"}]}]}}}}",
+            &[
+                "S|resource|Demo_Module|33333333-3333-3333-3333-333333333333|62-73|true",
+                "R|33333333-3333-3333-3333-333333333333|Target_Module|references|141-154",
+            ][..],
+        ),
+        (
+            "Mods/Demo/meta.lsj",
+            "{\"Dependencies\":[{\"ModuleShortDesc\":[{\"Name\":\"GustavX\",\"UUID\":\"cb555efe-2d9e-131f-8195-a89329d218ea\"}]}]}",
+            &["S|resource|GustavX|cb555efe-2d9e-131f-8195-a89329d218ea|46-53|true"][..],
+        ),
+    ] {
+        let file = extract(path, source);
+        assert_eq!(bg3_head_facts(&file), expected, "{path}");
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
+}
+
+#[test]
+fn bg3_lsj_typed_dependencies_keep_head_facts_through_gameobject_wrappers() {
+    for (source, expected) in [
+        (
+            "{\"save\":{\"regions\":{\"Config\":{\"root\":[{\"Dependencies\":[{\"ModuleShortDesc\":[{\"Name\":{\"type\":\"FixedString\",\"value\":\"GustavX\"},\"UUID\":{\"type\":\"guid\",\"value\":\"cb555efe-2d9e-131f-8195-a89329d218ea\"}}]}]}]}}}}",
+            &[
+                "R|<file>|FixedString|references|92-103",
+                "R|<file>|GustavX|references|114-121",
+                "R|<file>|cb555efe-2d9e-131f-8195-a89329d218ea|references|155-191",
+            ][..],
+        ),
+        (
+            "{\"save\":{\"regions\":{\"Config\":{\"root\":[{\"Dependencies\":[{\"ModuleShortDesc\":[{\"GameObject\":[{\"Name\":{\"type\":\"FixedString\",\"value\":\"GustavX\"},\"UUID\":{\"type\":\"guid\",\"value\":\"cb555efe-2d9e-131f-8195-a89329d218ea\"}}]}]}]}]}}}}",
+            &[
+                "R|<file>|FixedString|references|107-118",
+                "R|<file>|GustavX|references|129-136",
+                "R|<file>|cb555efe-2d9e-131f-8195-a89329d218ea|references|170-206",
+            ][..],
+        ),
+        (
+            "{\"save\":{\"regions\":{\"Config\":{\"root\":[{\"Dependencies\":[{\"ModuleShortDesc\":[{\"GameObjects\":[{\"Name\":{\"type\":\"FixedString\",\"value\":\"GustavX\"},\"UUID\":{\"type\":\"guid\",\"value\":\"cb555efe-2d9e-131f-8195-a89329d218ea\"}}]}]}]}]}}}}",
+            &[
+                "R|<file>|FixedString|references|108-119",
+                "R|<file>|GustavX|references|130-137",
+                "R|<file>|cb555efe-2d9e-131f-8195-a89329d218ea|references|171-207",
+            ][..],
+        ),
+    ] {
+        let file = extract("Mods/Demo/meta.lsj", source);
+        assert_eq!(bg3_head_facts(&file), expected, "{source}");
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
+}
+
+#[test]
+fn bg3_lsj_only_consumed_scalar_fields_lose_head_references() {
+    for (source, expected) in [
+        (
+            "{\"Name\":\"MAG_Primary\",\"NameFS\":\"MAG_Secondary\",\"UUID\":\"33333333-3333-3333-3333-333333333333\",\"Guid\":\"44444444-4444-4444-4444-444444444444\",\"ParentTemplateId\":\"MAG_Primary\",\"Children\":[{\"Name\":{\"type\":\"FixedString\",\"value\":\"GustavX\"},\"UUID\":{\"type\":\"guid\",\"value\":\"cb555efe-2d9e-131f-8195-a89329d218ea\"}}]}",
+            &[
+                "S|resource|MAG_Primary|33333333-3333-3333-3333-333333333333|9-20|true",
+                "R|33333333-3333-3333-3333-333333333333|FixedString|references|201-212",
+                "R|33333333-3333-3333-3333-333333333333|GustavX|references|223-230",
+                "R|33333333-3333-3333-3333-333333333333|cb555efe-2d9e-131f-8195-a89329d218ea|references|264-300",
+                "R|33333333-3333-3333-3333-333333333333|44444444-4444-4444-4444-444444444444|references|101-137",
+                "R|33333333-3333-3333-3333-333333333333|MAG_Secondary|references|32-45",
+                "R|33333333-3333-3333-3333-333333333333|MAG_Primary|references|9-20",
+            ][..],
+        ),
+        (
+            "{\"Name\":\"MAG_Primary\",\"UUID\":\"Target_One Target_Two\",\"Guid\":\"44444444-4444-4444-4444-444444444444\"}",
+            &[
+                "S|resource|MAG_Primary|Mods/Demo/meta.lsj::MAG_Primary|9-20|true",
+                "R|Mods/Demo/meta.lsj::MAG_Primary|44444444-4444-4444-4444-444444444444|references|61-97",
+                "R|Mods/Demo/meta.lsj::MAG_Primary|Target_One|references|30-40",
+                "R|Mods/Demo/meta.lsj::MAG_Primary|Target_Two|references|41-51",
+            ][..],
+        ),
+    ] {
+        let file = extract("Mods/Demo/meta.lsj", source);
+        assert_eq!(bg3_head_facts(&file), expected, "{source}");
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
+}
+
+#[test]
+fn bg3_lsj_typed_attributes_keep_head_references_without_declarations() {
+    for key in ["Name", "NameFS", "name", "UUID", "Guid", "id"] {
+        let file = extract(
+            "Public/Demo/RootTemplates/Typed.lsj",
+            &format!(
+                r#"{{"{key}":{{"type":"FixedString","value":"MAG_Typed"}},"ParentTemplateId":{{"type":"guid","value":"44444444-4444-4444-4444-444444444444"}}}}"#
+            ),
+        );
+        assert_eq!(symbols(&file), []);
+        let mut uses = references(&file);
+        uses.sort_unstable();
+        assert_eq!(
+            uses,
+            [
+                "44444444-4444-4444-4444-444444444444",
+                "FixedString",
+                "MAG_Typed",
+            ]
+            .map(|name| (ReferenceKind::References, name)),
+            "{key}"
+        );
+        assert!(
+            file.references
+                .iter()
+                .all(|reference| reference.owner.is_none())
+        );
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
+}
+
+#[test]
 fn bg3_uuid_resources_are_addressable_and_lsj_follows_v1_naming() {
     let lsx = extract("Public/Shared/RootTemplates/Sword.lsx", SWORD_LSX);
     let sword = &lsx.symbols[1];

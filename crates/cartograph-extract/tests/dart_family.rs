@@ -420,12 +420,13 @@ class Point {
             "a body reference must lie inside its owner's span"
         );
     }
-    for unnamed in ["init", "combine"] {
+    let constructor = symbol(&extracted, SymbolKind::Method, "Point");
+    for (callee, owner) in [("init", &constructor.id), ("combine", &point.id)] {
         assert!(
             extracted.references.iter().any(|reference| {
-                reference.owner.as_ref() == Some(&point.id) && reference.name == unnamed
+                reference.owner.as_ref() == Some(owner) && reference.name == callee
             }),
-            "calls in constructor and operator bodies must survive: {unnamed}"
+            "calls in constructor and operator bodies must survive: {callee}"
         );
     }
     let origin = symbol(&extracted, SymbolKind::Field, "origin");
@@ -434,10 +435,7 @@ class Point {
 }
 
 #[test]
-fn dart_factory_constructors_are_methods_named_by_their_class_like_v1() {
-    // v1 languages/dart.ts extracted every `method_signature`, which wraps a
-    // factory constructor, naming it by its first identifier: the class.
-    // Generative and redirecting constructors were never symbols.
+fn dart_factory_constructors_use_the_declared_constructor_name() {
     let extracted = extract(
         "lib/user.dart",
         r"
@@ -455,18 +453,23 @@ class User {
     let factories = extracted
         .symbols
         .iter()
-        .filter(|symbol| symbol.kind == SymbolKind::Method && symbol.name == "User")
+        .filter(|symbol| symbol.kind == SymbolKind::Method)
         .collect::<Vec<_>>();
     assert_eq!(
         factories
             .iter()
             .map(|factory| (factory.qualified_name.as_str(), factory.span.start_line()))
             .collect::<Vec<_>>(),
-        [("User::User", 4), ("User::User", 7)],
+        [
+            ("User::User", 3),
+            ("User::fromJson", 4),
+            ("User::empty", 7),
+            ("User::redirect", 8)
+        ],
         "{:?}",
         extracted.symbols
     );
-    let from_json = factories[0];
+    let from_json = factories[1];
     assert!(contains(&extracted, &user.id, &from_json.id));
     assert_eq!(
         from_json.signature.as_deref(),
@@ -481,10 +484,116 @@ class User {
     );
     assert!(
         extracted.references.iter().any(|reference| {
-            reference.name == "build" && reference.owner.as_ref() == Some(&factories[1].id)
+            reference.name == "build" && reference.owner.as_ref() == Some(&factories[2].id)
         }),
         "an expression-bodied factory owns its body too"
     );
+}
+
+#[test]
+fn dart_parity_corpus_emits_generative_and_named_factory_constructors() {
+    let file = extract(
+        "lib/models/user.dart",
+        include_str!("fixtures/v1_parity/dart/lib/models/user.dart"),
+    );
+    let user = symbol(&file, SymbolKind::Class, "User");
+    for (name, qualified, start, end) in [
+        ("User", "User::User", 40, 40),
+        ("guest", "User::guest", 42, 42),
+        ("fromJson", "User::fromJson", 44, 46),
+    ] {
+        let constructor = symbol(&file, SymbolKind::Method, name);
+        assert_eq!(constructor.qualified_name, qualified);
+        assert_eq!(constructor.span.start_line(), start);
+        assert_eq!(constructor.span.end_line(), end);
+        assert!(contains(&file, &user.id, &constructor.id));
+    }
+    let role = symbol(&file, SymbolKind::Enum, "Role");
+    let constructor = symbol(&file, SymbolKind::Method, "Role");
+    assert_eq!(constructor.qualified_name, "Role::Role");
+    assert_eq!(constructor.span.start_line(), 13);
+    assert!(contains(&file, &role.id, &constructor.id));
+}
+
+#[test]
+fn dart_constructor_siblings_preserve_names_containment_and_initializer_calls() {
+    let file = extract(
+        "lib/constructors.dart",
+        "class User {\n  User(this.name) { init(); }\n  User.guest() : name = makeName();\n  User.alias(String name) : this(name);\n  const User.zero() : name = '';\n  factory User.fromJson(Map<String, dynamic> json) { return User(readName(json)); }\n  factory User.empty() => build();\n  const factory User.redirect() = User.zero;\n  external User.external(String name);\n  external factory User.externalFactory(String name);\n  User._private() : name = '';\n  final String name;\n}\n",
+    );
+    let class = symbol(&file, SymbolKind::Class, "User");
+    for (name, line) in [
+        ("User", 2),
+        ("guest", 3),
+        ("alias", 4),
+        ("zero", 5),
+        ("fromJson", 6),
+        ("empty", 7),
+        ("redirect", 8),
+        ("external", 9),
+        ("externalFactory", 10),
+        ("_private", 11),
+    ] {
+        let constructor = symbol(&file, SymbolKind::Method, name);
+        assert_eq!(constructor.qualified_name, format!("User::{name}"));
+        assert_eq!(constructor.span.start_line(), line);
+        assert_eq!(constructor.span.end_line(), line);
+        assert!(contains(&file, &class.id, &constructor.id));
+    }
+    assert_eq!(
+        file.symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Method)
+            .count(),
+        10
+    );
+    for (callee, owner) in [("init", "User"), ("makeName", "guest"), ("build", "empty")] {
+        let constructor = symbol(&file, SymbolKind::Method, owner);
+        assert!(file.references.iter().any(|reference| {
+            reference.kind == ReferenceKind::Calls
+                && reference.name == callee
+                && reference.owner.as_ref() == Some(&constructor.id)
+        }));
+    }
+    let private = symbol(&file, SymbolKind::Method, "_private");
+    assert_eq!(private.visibility, Some(Visibility::Private));
+    let redirect = symbol(&file, SymbolKind::Method, "redirect");
+    assert_eq!(redirect.signature.as_deref(), Some("()"));
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
+}
+
+#[test]
+fn dart_unnamed_const_factory_and_external_constructor_siblings() {
+    for declaration in [
+        "const User();",
+        "factory User() => build();",
+        "factory User() = Other;",
+        "external User();",
+        "external factory User();",
+    ] {
+        let file = extract("lib/user.dart", &format!("class User {{ {declaration} }}"));
+        let class = symbol(&file, SymbolKind::Class, "User");
+        let constructor = symbol(&file, SymbolKind::Method, "User");
+        assert_eq!(constructor.qualified_name, "User::User");
+        assert_eq!(constructor.signature.as_deref(), Some("()"));
+        assert!(contains(&file, &class.id, &constructor.id));
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
+}
+
+#[test]
+fn dart_constructor_default_values_keep_their_construction_uses() {
+    let file = extract(
+        "lib/user.dart",
+        "class User { const User({this.flag = const Flag()}); final Flag flag; }",
+    );
+    let constructor = symbol(&file, SymbolKind::Method, "User");
+    assert!(file.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::Instantiates
+            && reference.name == "Flag"
+            && reference.owner.as_ref() == Some(&constructor.id)
+    }));
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
 }
 
 #[test]
@@ -496,6 +605,63 @@ fn dart_callable_digests_follow_the_body_not_only_the_signature() {
     assert_eq!(first_run.signature, second_run.signature);
     assert_ne!(first_run.structural_digest, second_run.structural_digest);
     assert_ne!(first_run.clone_shape_digest, second_run.clone_shape_digest);
+}
+
+#[test]
+fn dart_concrete_constructor_forms_are_implementations_and_external_forms_are_declarations() {
+    let file = extract(
+        "lib/box.dart",
+        "class Box<T> {\n  T value;\n  Box(this.value);\n  Box.initialized() : value = makeValue();\n  const Box.constant(this.value);\n  const Box.zero() : value = zero;\n  Box.alias(T value) : this(value);\n  factory Box.redirect(T value) = Other;\n  const factory Box.constRedirect(T value) = Other;\n  external Box.external(T value);\n  external factory Box.externalFactory(T value);\n  external const Box.externalConst(T value);\n}\n",
+    );
+    for name in [
+        "Box",
+        "initialized",
+        "constant",
+        "zero",
+        "alias",
+        "redirect",
+        "constRedirect",
+    ] {
+        let constructor = symbol(&file, SymbolKind::Method, name);
+        assert!(!constructor.implementation.declaration_only, "{name}");
+    }
+    for name in ["external", "externalFactory", "externalConst"] {
+        let constructor = symbol(&file, SymbolKind::Method, name);
+        assert!(constructor.implementation.declaration_only, "{name}");
+    }
+    assert_eq!(file.parse_status, FileParseStatus::Parsed);
+}
+
+#[test]
+fn dart_constructor_initializer_edits_change_digest_and_executable_evidence() {
+    for body in [" {}", ";"] {
+        let first = extract(
+            "lib/user.dart",
+            &format!("class User {{ final Object name; User() : name = alpha(){body} }}"),
+        );
+        let second = extract(
+            "lib/user.dart",
+            &format!("class User {{ final Object name; User() : name = beta(){body} }}"),
+        );
+        let alpha = symbol(&first, SymbolKind::Method, "User");
+        let beta = symbol(&second, SymbolKind::Method, "User");
+        assert_eq!(alpha.id, beta.id);
+        assert_eq!(alpha.signature, beta.signature);
+        assert_ne!(alpha.structural_digest, beta.structural_digest);
+        for (file, constructor, callee) in [(&first, alpha, "alpha"), (&second, beta, "beta")] {
+            assert!(
+                constructor
+                    .body_search_text
+                    .split_whitespace()
+                    .any(|token| token == callee)
+            );
+            assert!(file.references.iter().any(|reference| {
+                reference.kind == ReferenceKind::Calls
+                    && reference.name == callee
+                    && reference.owner.as_ref() == Some(&constructor.id)
+            }));
+        }
+    }
 }
 
 #[test]
@@ -543,6 +709,7 @@ extension on String {
             (ReferenceKind::Inherits, "pkg.M"),
         ]
     );
+    let constructor = symbol(&extracted, SymbolKind::Method, "C");
     for call in ["seed", "body"] {
         let owned = extracted
             .references
@@ -550,7 +717,7 @@ extension on String {
             .filter(|reference| reference.name == call)
             .collect::<Vec<_>>();
         assert_eq!(owned.len(), 1, "{call}: {owned:?}");
-        assert_eq!(owned[0].owner.as_ref(), Some(&class.id), "{call}");
+        assert_eq!(owned[0].owner.as_ref(), Some(&constructor.id), "{call}");
     }
     let run = symbol(&extracted, SymbolKind::Method, "run");
     assert!(run.signature.is_none(), "{:?}", run.signature);

@@ -2160,8 +2160,17 @@ pub(super) fn body_search_text(
     source: &str,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<BodySearchText, ExtractError> {
+    body_search_text_for_nodes(std::iter::once(root), source, cancelled)
+}
+
+/// Reuse the same bounded accumulator for executable syntax in sibling nodes.
+pub(super) fn body_search_text_for_nodes<'tree>(
+    roots: impl IntoIterator<Item = Node<'tree>>,
+    source: &str,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<BodySearchText, ExtractError> {
     let mut accumulator = BodySearchAccumulator::default();
-    for node in descendants_including_root(root) {
+    for node in roots.into_iter().flat_map(descendants_including_root) {
         if cancelled() {
             return Err(ExtractError::Cancelled);
         }
@@ -2427,8 +2436,17 @@ pub(crate) fn structural_digest(
     source: &str,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<ContentDigest, ExtractError> {
+    structural_digest_for_nodes(std::iter::once(root), source, cancelled)
+}
+
+/// Hash sibling syntax in source order with the ordinary structural contract.
+pub(super) fn structural_digest_for_nodes<'tree>(
+    roots: impl IntoIterator<Item = Node<'tree>>,
+    source: &str,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<ContentDigest, ExtractError> {
     let mut hasher = blake3::Hasher::new_derive_key("cartograph.v2.structural-digest.2026-07-22");
-    for node in descendants_including_root(root) {
+    for node in roots.into_iter().flat_map(descendants_including_root) {
         if cancelled() {
             return Err(ExtractError::Cancelled);
         }

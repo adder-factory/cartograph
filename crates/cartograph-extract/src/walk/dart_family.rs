@@ -30,8 +30,13 @@ const MAXIMUM_MODIFIER_STEPS: usize = 8;
 /// Consecutive comments skipped between a signature and its body, or between
 /// a callee and its arguments, before the two are treated as unrelated.
 const MAXIMUM_COMMENT_RUN: usize = 64;
-/// A `factory` constructor's signature, wrapped in a `method_signature`.
-const FACTORY_CONSTRUCTOR_SIGNATURE: &str = "factory_constructor_signature";
+/// Constructor signatures wrapped in a method or member declaration.
+const CONSTRUCTOR_SIGNATURE_KINDS: [&str; 4] = [
+    "constructor_signature",
+    "constant_constructor_signature",
+    "factory_constructor_signature",
+    "redirecting_factory_constructor_signature",
+];
 /// Binding name standing for every name a library exposes.
 const WILDCARD: &str = "*";
 /// Owners whose callables are methods and whose variables are fields.
@@ -390,25 +395,26 @@ fn push_type_references<'tree>(
     Ok(())
 }
 
-/// The named signature inside a `method_signature`, or the signature itself.
-/// A factory constructor (`factory User.fromJson(..)`) is named, as in v1, by
-/// its first identifier: the class it constructs.
+/// The named signature inside a method/member wrapper, or the signature itself.
 fn named_signature(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
-    let inner = if node.kind() == "method_signature" {
+    let inner = if matches!(node.kind(), "method_signature" | "declaration") {
         named_children(node).find(|child| {
             matches!(
                 child.kind(),
-                "function_signature"
-                    | "getter_signature"
-                    | "setter_signature"
-                    | FACTORY_CONSTRUCTOR_SIGNATURE
-            )
+                "function_signature" | "getter_signature" | "setter_signature"
+            ) || CONSTRUCTOR_SIGNATURE_KINDS.contains(&child.kind())
         })?
     } else {
         node
     };
-    if inner.kind() == FACTORY_CONSTRUCTOR_SIGNATURE {
-        return named_child_of_kind(inner, "identifier").map(|class| (inner, class));
+    if CONSTRUCTOR_SIGNATURE_KINDS.contains(&inner.kind()) {
+        // The last identifier before parameters is the named constructor,
+        // or the class for an unnamed one. Redirect targets follow parameters.
+        return named_children(inner)
+            .take_while(|child| child.kind() != "formal_parameter_list")
+            .filter(|child| child.kind() == "identifier")
+            .last()
+            .map(|name| (inner, name));
     }
     inner.child_by_field_name("name").map(|name| (inner, name))
 }
@@ -438,12 +444,13 @@ fn paired_signature(body: Node<'_>) -> Option<Node<'_>> {
 }
 
 /// Whether visiting `signature` emits a callable that consumes its sibling
-/// body. Generative and redirecting constructors, operators, and members of an
-/// anonymous extension emit no symbol, so their bodies stay with the enclosing
-/// scope; a factory constructor is a method like any other `method_signature`.
+/// body. Operators and members of an anonymous extension emit no symbol,
+/// so their bodies stay with the enclosing scope.
 fn signature_owns_body(signature: Node<'_>) -> bool {
-    matches!(signature.kind(), "function_signature" | "method_signature")
-        && signature_is_standalone(signature)
+    matches!(
+        signature.kind(),
+        "function_signature" | "method_signature" | "declaration"
+    ) && signature_is_standalone(signature)
         && named_signature(signature).is_some()
         && !in_anonymous_extension(signature)
 }
@@ -477,8 +484,7 @@ fn visit_signature(
     }
     let named = named_signature(node).filter(|_| signature_owns_body(node));
     let Some((inner, name_node)) = named else {
-        // Constructor initializers and anonymous-extension members still hold
-        // calls; they belong to the enclosing scope.
+        // Anonymous-extension members still hold calls in the enclosing scope.
         return builder.visit_named_children(node, depth);
     };
     visit_callable(
@@ -496,7 +502,7 @@ fn visit_signature(
 #[derive(Clone, Copy)]
 /// A named callable signature and the body the grammar keeps beside it.
 struct Callable<'tree> {
-    /// The outermost signature node (`method_signature` or `function_signature`).
+    /// The outermost method, function, or member declaration signature node.
     signature: Node<'tree>,
     /// The signature carrying the name, parameters, and return type.
     inner: Node<'tree>,
@@ -517,9 +523,14 @@ fn visit_callable(
     };
     let name = builder.context.owned_text(callable.name)?;
     let access = dart_access(builder, callable.signature, &name);
+    let constructor = CONSTRUCTOR_SIGNATURE_KINDS.contains(&callable.inner.kind());
     let pending = PendingSymbol {
-        body_node: callable.body,
-        declaration_only: callable.body.is_none(),
+        body_node: callable.body.or_else(|| constructor_initializer(callable)),
+        declaration_only: if constructor {
+            has_child_kind(callable.signature, "external")
+        } else {
+            callable.body.is_none()
+        },
         signature: callable_signature(builder, callable.inner)?,
         export: SymbolExportFlags::named(access.exported),
         async_symbol: callable
@@ -533,20 +544,81 @@ fn visit_callable(
         ..PendingSymbol::plain(kind, name.clone(), callable.signature)
     };
     let id = builder.emit_symbol(pending)?;
-    let Some(body) = callable.body else {
+    complete_constructor_evidence(builder, callable)?;
+    if let Some(body) = callable.body {
+        widen_symbol_span(
+            builder,
+            &id,
+            NodeRange {
+                first: callable.signature,
+                last: body,
+            },
+        )?;
+    }
+    in_symbol_scope(builder, SymbolScope { id, kind, name }, |builder| {
+        visit_callable_contents(builder, callable)
+    })
+}
+
+/// Constructor initialization is executable even without a function body.
+fn constructor_initializer(callable: Callable<'_>) -> Option<Node<'_>> {
+    CONSTRUCTOR_SIGNATURE_KINDS
+        .contains(&callable.inner.kind())
+        .then(|| {
+            named_children(callable.signature)
+                .find(|child| matches!(child.kind(), "initializers" | "redirection"))
+        })
+        .flatten()
+}
+
+/// A constructor's identity and search evidence include its initializer list.
+fn complete_constructor_evidence(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    callable: Callable<'_>,
+) -> Result<(), ExtractError> {
+    let Some(initializer) = constructor_initializer(callable) else {
         return Ok(());
     };
-    widen_symbol_span(
-        builder,
-        &id,
-        NodeRange {
-            first: callable.signature,
-            last: body,
-        },
+    let digest = super::syntax::structural_digest_for_nodes(
+        std::iter::once(callable.signature).chain(callable.body),
+        builder.context.source,
+        builder.context.cancelled,
     )?;
-    in_symbol_scope(builder, SymbolScope { id, kind, name }, |builder| {
-        builder.visit_named_children(body, callable.depth.saturating_add(1))
-    })
+    let search = super::syntax::body_search_text_for_nodes(
+        std::iter::once(initializer).chain(callable.body),
+        builder.context.source,
+        builder.context.cancelled,
+    )?;
+    builder
+        .context
+        .budget
+        .reserve_additional_string(&search.text)?;
+    if let Some(symbol) = builder.facts.symbols.last_mut() {
+        symbol.structural_digest = digest;
+        symbol.body_search_text = search.text;
+        symbol.body_search_truncated = search.truncated;
+    }
+    Ok(())
+}
+
+/// Constructor initializers and callable bodies belong to their declaration.
+fn visit_callable_contents(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    callable: Callable<'_>,
+) -> Result<(), ExtractError> {
+    let depth = callable.depth.saturating_add(1);
+    if CONSTRUCTOR_SIGNATURE_KINDS.contains(&callable.inner.kind()) {
+        builder.visit_named_children(callable.inner, depth)?;
+    }
+    for initializer in named_children(callable.signature)
+        .filter(|child| matches!(child.kind(), "initializers" | "redirection"))
+    {
+        builder.visit_named_children(initializer, depth)?;
+    }
+    match callable.body {
+        Some(body) => builder.visit_named_children(body, depth),
+        None => Ok(()),
+    }
 }
 
 /// `<return type> <parameters>` when both are literal-free, as in v1.
@@ -555,10 +627,14 @@ fn callable_signature(
     inner: Node<'_>,
 ) -> Result<Option<String>, ExtractError> {
     let name = inner.child_by_field_name("name");
-    let return_type = type_text(
-        builder,
-        named_children(inner).take_while(|child| Some(*child) != name),
-    );
+    let return_type = if CONSTRUCTOR_SIGNATURE_KINDS.contains(&inner.kind()) {
+        ""
+    } else {
+        type_text(
+            builder,
+            named_children(inner).take_while(|child| Some(*child) != name),
+        )
+    };
     let parameters = named_child_of_kind(inner, "formal_parameter_list")
         .map_or("", |parameters| builder.context.text(parameters).trim());
     bounded_signature(
@@ -613,19 +689,13 @@ fn bounded_signature(
     Ok((!commented && callable_signature_is_literal_free(&signature)).then_some(signature))
 }
 
-/// A member `declaration`: an abstract callable or a field list.
+/// A member `declaration`: a callable, constructor, or field list.
 fn visit_member_variables(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
     depth: usize,
 ) -> Result<(), ExtractError> {
-    if let Some(signature) = named_children(node).find(|child| {
-        matches!(
-            child.kind(),
-            "function_signature" | "getter_signature" | "setter_signature"
-        )
-    }) && let Some(name) = signature.child_by_field_name("name")
-    {
+    if let Some((signature, name)) = named_signature(node) {
         return visit_callable(
             builder,
             Callable {
