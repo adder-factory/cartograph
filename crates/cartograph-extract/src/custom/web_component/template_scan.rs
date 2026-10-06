@@ -635,12 +635,16 @@ impl<'scan> DelimiterScan<'scan> {
             } else if self.is_close(byte, index) {
                 return Ok(Some(index));
             }
-            if !byte.is_ascii_whitespace() {
-                self.previous = self.previous.advanced(self.bytes, index);
-            }
+            self.advance_previous_token(byte, index);
             index += 1;
         }
         Ok(None)
+    }
+
+    fn advance_previous_token(&mut self, byte: u8, index: usize) {
+        if !byte.is_ascii_whitespace() {
+            self.previous = self.previous.advanced(self.bytes, index);
+        }
     }
 
     fn spend(&mut self, bytes: usize) -> Option<()> {

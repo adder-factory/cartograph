@@ -1090,18 +1090,29 @@ fn react_native_jvm_name_method<'source>(
         }) else {
             continue;
         };
-        let mut cursor = method.walk();
-        for child in method.named_children(&mut cursor) {
-            builder.bridge.charge_work(1)?;
-            if child.start_byte() >= range.end {
-                break;
+        if let Some(name) = jvm_method_module_name(builder, range, method)? {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
+}
+
+fn jvm_method_module_name<'source>(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    range: SymbolRange<'source>,
+    method: tree_sitter::Node<'_>,
+) -> Result<Option<Quoted<'source>>, ExtractError> {
+    let mut cursor = method.walk();
+    for child in method.named_children(&mut cursor) {
+        builder.bridge.charge_work(1)?;
+        if child.start_byte() >= range.end {
+            break;
+        }
+        if matches!(child.kind(), "block" | "function_body") {
+            if let Some(name) = jvm_body_module_name(builder, range, child)? {
+                return Ok(Some(name));
             }
-            if matches!(child.kind(), "block" | "function_body") {
-                if let Some(name) = jvm_body_module_name(builder, range, child)? {
-                    return Ok(Some(name));
-                }
-                break;
-            }
+            break;
         }
     }
     Ok(None)

@@ -637,8 +637,7 @@ impl<'scan> BindingScan<'scan> {
             if character.is_whitespace() {
                 continue;
             }
-            if (character == ':'
-                || character == '-' && text.as_bytes().get(offset + 1) == Some(&b'>'))
+            if Self::is_separator(character, text.as_bytes().get(offset + 1).copied())
                 && !self.separator(character, check_cancelled)?
             {
                 return Ok(false);
@@ -649,6 +648,10 @@ impl<'scan> BindingScan<'scan> {
             self.word(&text[start..]);
         }
         Ok(true)
+    }
+
+    fn is_separator(character: char, next: Option<u8>) -> bool {
+        character == ':' || character == '-' && next == Some(b'>')
     }
 
     fn word(&mut self, word: &'scan str) {

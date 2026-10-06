@@ -263,18 +263,29 @@ impl<'source> BridgeOwnership<'source> {
                     limit,
                     supported,
                 });
-            } else if let Some(owner) = owner {
-                if reference.kind == ReferenceKind::Inherits && reference.name == "ExpoModulesCore"
-                {
-                    if self.qualified_expo_base(builder, end)?
-                        && let Some(class) = self.owner(owner)
-                    {
-                        self.expo_classes.insert(class);
-                    }
-                } else {
-                    self.index_owned_site((reference.kind, reference.name.as_str()), (owner, end));
-                }
+                continue;
             }
+            let Some(owner) = owner else {
+                continue;
+            };
+            if reference.kind == ReferenceKind::Inherits && reference.name == "ExpoModulesCore" {
+                self.index_qualified_expo_base(builder, (owner, end))?;
+            } else {
+                self.index_owned_site((reference.kind, reference.name.as_str()), (owner, end));
+            }
+        }
+        Ok(())
+    }
+
+    fn index_qualified_expo_base(
+        &mut self,
+        builder: &mut FrameworkBuilder<'_, '_>,
+        (owner, end): (usize, usize),
+    ) -> Result<(), ExtractError> {
+        if self.qualified_expo_base(builder, end)?
+            && let Some(class) = self.owner(owner)
+        {
+            self.expo_classes.insert(class);
         }
         Ok(())
     }

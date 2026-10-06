@@ -259,38 +259,7 @@ fn scan_service_direct_references(
         text: line,
         service_setting,
     } = input;
-    for key in ["class", "alias", "parent"] {
-        if let Some(scalar) = yaml_value_for_key(line, key) {
-            add_service_reference(
-                builder,
-                ServiceReference {
-                    service,
-                    value: &scalar.value,
-                    start: line_start + scalar.start,
-                    end: line_start + scalar.end,
-                },
-            )?;
-        }
-    }
-    // A `Class::method` factory names its class; an `@service` factory is
-    // one of the service references scanned below.
-    if let Some(factory) = yaml_value_for_key(line, "factory")
-        && !factory.value.starts_with('@')
-        && let Some((class, _)) = factory.value.split_once("::")
-        && let Some(raw_class_length) = line[factory.start..factory.end].find("::")
-    {
-        // No supported escape spells `::`, so the raw and decoded texts
-        // split at the same separator; the span covers the raw class text.
-        add_service_reference(
-            builder,
-            ServiceReference {
-                service,
-                value: class,
-                start: line_start + factory.start,
-                end: line_start + factory.start + raw_class_length,
-            },
-        )?;
-    }
+    scan_service_scalar_references(builder, input)?;
     // A `factory`/`configurator` whose scalar is rejected (an unterminated
     // quote, an unsupported escape) names nothing rather than a raw guess.
     if yaml_first_key(line).is_some_and(|(key, ..)| {
@@ -347,6 +316,51 @@ fn scan_service_direct_references(
             )?;
         }
         cursor = end.max(marker + 1);
+    }
+    Ok(())
+}
+
+fn scan_service_scalar_references(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    input: ServiceLine<'_>,
+) -> Result<(), ExtractError> {
+    let ServiceLine {
+        service,
+        start: line_start,
+        text: line,
+        ..
+    } = input;
+    for key in ["class", "alias", "parent"] {
+        if let Some(scalar) = yaml_value_for_key(line, key) {
+            add_service_reference(
+                builder,
+                ServiceReference {
+                    service,
+                    value: &scalar.value,
+                    start: line_start + scalar.start,
+                    end: line_start + scalar.end,
+                },
+            )?;
+        }
+    }
+    // A `Class::method` factory names its class; an `@service` factory is
+    // one of the service references scanned by the caller.
+    if let Some(factory) = yaml_value_for_key(line, "factory")
+        && !factory.value.starts_with('@')
+        && let Some((class, _)) = factory.value.split_once("::")
+        && let Some(raw_class_length) = line[factory.start..factory.end].find("::")
+    {
+        // No supported escape spells `::`, so the raw and decoded texts
+        // split at the same separator; the span covers the raw class text.
+        add_service_reference(
+            builder,
+            ServiceReference {
+                service,
+                value: class,
+                start: line_start + factory.start,
+                end: line_start + factory.start + raw_class_length,
+            },
+        )?;
     }
     Ok(())
 }
