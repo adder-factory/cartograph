@@ -149,6 +149,7 @@ fn block_header<'tree>(
 fn is_terraform_label(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAXIMUM_LABEL_BYTES
+        && !specifier_may_carry_credential(value)
         && value.chars().all(|character| {
             character.is_alphanumeric()
                 || matches!(character, '_' | '-' | '.')

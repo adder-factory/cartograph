@@ -1,5 +1,6 @@
 //! Lua, Luau, and KHN extraction contracts restored from the v1 Lua extractors.
 
+mod credential_support;
 mod dependency_ownership;
 mod script_family_support;
 
@@ -322,4 +323,11 @@ fn lua_wide_local_lists_take_linear_work() {
     assert_linear_work("src/wide.lua", |width| {
         format!("local {} = nil\n", numbered_names("name", width, ", "))
     });
+}
+
+#[test]
+fn lua_and_luau_loads_screen_credentials_before_emitting_import_facts() {
+    for path in ["main.lua", "main.luau", "main.khn"] {
+        credential_support::assert_screened(path, "require(\"@VALUE@\")\n", "token");
+    }
 }

@@ -17,6 +17,11 @@ pub(super) fn visit_export(
     depth: usize,
 ) -> Result<(), ExtractError> {
     let source_node = node.child_by_field_name("source");
+    if source_node
+        .is_some_and(|source| module_system::screened_import_source(builder, source).is_none())
+    {
+        return Ok(());
+    }
     let source = source_node
         .map(|source| builder.context.owned_unquoted_text(source))
         .transpose()?;
@@ -130,7 +135,10 @@ pub(super) fn visit_import(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
-    let Some(source_node) = node.child_by_field_name("source") else {
+    let Some(source_node) = node
+        .child_by_field_name("source")
+        .and_then(|source| module_system::screened_import_source(builder, source))
+    else {
         return Ok(());
     };
     let module_name = builder.context.owned_unquoted_text(source_node)?;
@@ -222,6 +230,9 @@ fn emit_named_import_bindings(
         }
         if let Some(name_node) = specifier.child_by_field_name("name") {
             let name = builder.context.owned_unquoted_text(name_node)?;
+            if !module_system::import_literal_is_safe(&name) {
+                continue;
+            }
             let local_node = specifier.child_by_field_name("alias").unwrap_or(name_node);
             if local_node.kind() == "identifier" {
                 let local_name = builder.context.owned_text(local_node)?;

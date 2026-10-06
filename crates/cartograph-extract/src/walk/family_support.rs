@@ -120,6 +120,18 @@ pub(super) fn source_text<'source>(source: &'source str, node: Node<'_>) -> &'so
         .unwrap_or_default()
 }
 
+/// A source name, including escaped identifiers, screened before it is retained.
+pub(super) fn screened_name(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    let value = builder.context.text(node);
+    if super::specifier_safety::specifier_may_carry_credential(value) {
+        return Ok(None);
+    }
+    builder.context.owned_text(node).map(Some)
+}
+
 /// A declaration together with the children visited inside its scope.
 pub(super) struct ScopedEmission<'tree, 'children> {
     pub(super) symbol: SymbolEmission<'tree>,
@@ -223,6 +235,7 @@ pub(super) fn bounded_name(text: &str) -> Option<&str> {
     let text = text.trim();
     let valid = !text.is_empty()
         && text.len() <= MAX_RETAINED_TEXT_BYTES
+        && !super::specifier_safety::specifier_may_carry_credential(text)
         && !text.chars().any(|character| {
             character.is_whitespace()
                 || character.is_control()

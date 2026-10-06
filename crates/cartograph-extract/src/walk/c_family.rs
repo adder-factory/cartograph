@@ -300,7 +300,9 @@ fn visit_include(
         .strip_circumfix('<', '>')
         .or_else(|| raw_path.strip_circumfix('"', '"'))
         .unwrap_or(raw_path);
-    if module_name.is_empty() {
+    if module_name.is_empty()
+        || super::specifier_safety::specifier_may_carry_credential(module_name)
+    {
         return Ok(());
     }
     let name = builder.context.copy_text(module_name)?;

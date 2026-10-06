@@ -319,10 +319,18 @@ struct ReservedLandmarkIdentity {
     ordinal: u64,
 }
 
-fn has_landmark(builder: &FrameworkBuilder<'_, '_>, input: &LandmarkInput<'_>) -> bool {
-    builder
-        .landmark_sites
-        .contains(&(input.kind, input.identity.clone(), input.start, input.end))
+/// Reject unsafe retained source labels and already recorded landmark sites.
+fn landmark_is_rejected(builder: &FrameworkBuilder<'_, '_>, input: &LandmarkInput<'_>) -> bool {
+    [&input.name, &input.body_search_text]
+        .into_iter()
+        .flat_map(|text| text.split_whitespace())
+        .any(crate::walk::specifier_safety::specifier_may_carry_credential)
+        || builder.landmark_sites.contains(&(
+            input.kind,
+            input.identity.clone(),
+            input.start,
+            input.end,
+        ))
 }
 
 fn reserve_landmark_identity(
@@ -541,7 +549,7 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         &mut self,
         input: LandmarkInput<'_>,
     ) -> Result<Option<SymbolId>, ExtractError> {
-        if has_landmark(self, &input) {
+        if landmark_is_rejected(self, &input) {
             return Ok(None);
         }
         let LandmarkInput {
@@ -1176,6 +1184,12 @@ pub(crate) fn matching_delimiter(input: DelimiterInput<'_>) -> Option<usize> {
 }
 
 pub(crate) fn join_route_paths(base: &str, subpath: &str) -> Option<String> {
+    if [base, subpath]
+        .into_iter()
+        .any(crate::walk::specifier_safety::specifier_may_carry_credential)
+    {
+        return None;
+    }
     if base.len().saturating_add(subpath.len()) > MAX_ROUTE_BYTES {
         return None;
     }
@@ -2652,6 +2666,9 @@ fn valid_signal_byte(byte: u8) -> bool {
 }
 
 fn looks_sensitive(value: &str) -> bool {
+    if crate::walk::specifier_safety::specifier_may_carry_credential(value) {
+        return true;
+    }
     let lower = value.to_ascii_lowercase();
     [
         "sk_live_",

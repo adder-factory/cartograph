@@ -1,5 +1,6 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
 
 use std::collections::BTreeMap;
@@ -715,4 +716,20 @@ fn extract_result(path: &str, source: &str) -> Result<ExtractedFile, ExtractErro
 
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT).unwrap_or_else(|error| panic!("test limit failed: {error}"))
+}
+
+#[test]
+fn julia_retained_tag_names_screen_provider_keys() {
+    for key in ["sk_live_FAKE1234567890abcdef", "ghp_aaaaaaaaaaaaaaaaaaaa"] {
+        let file = credential_support::extract("names.jl", &format!("Base.{key}(x) = x\n"));
+        credential_support::assert_no_credentials(&file);
+        assert_eq!(file.symbols, []);
+    }
+    credential_support::assert_screened("comments.jl", "#= @VALUE@ =#\nBase.:+(x) = x\n", ":+");
+    let file = credential_support::extract("names.jl", "Base.token(x) = x\n");
+    assert!(
+        file.symbols
+            .iter()
+            .any(|symbol| symbol.name == "Base.token")
+    );
 }

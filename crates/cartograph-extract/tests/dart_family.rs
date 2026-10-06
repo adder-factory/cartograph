@@ -1,6 +1,9 @@
 //! Dart extraction contracts ported from the v1 Dart extractor scenarios.
 
+mod credential_support;
 mod dependency_ownership;
+#[path = "credential_support/escaped_specifiers.rs"]
+mod escaped_specifiers;
 
 use cartograph_domain::{FileParseStatus, ReferenceKind, SourceLanguage, SymbolKind, Visibility};
 use cartograph_extract::{
@@ -880,4 +883,20 @@ fn symbol<'file>(
                 .collect::<Vec<_>>();
             panic!("missing {kind:?} {name}; extracted: {available:?}")
         })
+}
+
+#[test]
+fn escaped_dart_module_operands_abstain_before_import_facts() {
+    for template in ["import '@VALUE@';\n", "export '@VALUE@';\n"] {
+        escaped_specifiers::assert_escaped_specifiers_abstain("main.dart", template);
+    }
+}
+
+#[test]
+fn dart_imports_and_exports_screen_credential_bearing_uris() {
+    credential_support::assert_screened(
+        "main.dart",
+        "import '@VALUE@';\nexport '@VALUE@';\n",
+        "https://example.invalid/module",
+    );
 }

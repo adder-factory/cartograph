@@ -1,5 +1,6 @@
 //! Nix extraction contracts restored from the v1 Nix extractor.
 
+mod credential_support;
 mod dependency_ownership;
 mod script_family_support;
 
@@ -289,4 +290,13 @@ fn nix_wide_inherits_take_linear_work() {
             numbered_names("attr", width, " ")
         )
     });
+}
+
+#[test]
+fn nix_loads_and_quoted_keys_screen_credentials() {
+    credential_support::assert_screened(
+        "default.nix",
+        "{ \"@VALUE@\" = import \"@VALUE@\"; }\n",
+        "token",
+    );
 }

@@ -1157,6 +1157,7 @@ fn safe_identifier_name(value: &str) -> bool {
 /// scheme (`Bearer abc123`) is a credential.
 pub(super) fn safe_literal_name(value: &str) -> bool {
     value.len() <= MAX_SCHEMA_NAME_BYTES
+        && !super::specifier_safety::specifier_may_carry_credential(value)
         && value.trim() == value
         && !value.contains("  ")
         && value
@@ -1177,6 +1178,9 @@ pub(super) fn safe_literal_name(value: &str) -> bool {
 /// authorization scheme with a credential (`"Bearer-abc123"`). Any other
 /// quoted key (`"x y"`, `"café"`) must be a safe literal name.
 fn safe_object_key_name(key: Node<'_>, name: &str) -> bool {
+    if super::specifier_safety::specifier_may_carry_credential(name) {
+        return false;
+    }
     if key.kind() != "string" {
         return safe_identifier_name(name);
     }

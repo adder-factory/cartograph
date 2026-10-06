@@ -16,6 +16,7 @@ use crate::{ExtractError, ExtractedImportBinding, ExtractedReference, ImportBind
 
 use super::{
     ExtractionBuilder, MAX_SAFE_SIGNATURE_BYTES, PendingSymbol,
+    specifier_safety::specifier_may_carry_credential,
     syntax::{descendants_including_root, span_for},
 };
 
@@ -99,6 +100,11 @@ pub(super) fn emit_load_import(
     builder: &mut ExtractionBuilder<'_, '_>,
     load: LoadImport<'_>,
 ) -> Result<(), ExtractError> {
+    if specifier_may_carry_credential(&load.display)
+        || specifier_may_carry_credential(&load.specifier)
+    {
+        return Ok(());
+    }
     let span = span_for(load.site)?;
     let site = load.site;
     let display = load.display;
@@ -139,6 +145,7 @@ pub(super) fn bounded_text(
     let value = value.trim();
     if value.is_empty()
         || value.len() > MAX_SCRIPT_NAME_BYTES
+        || specifier_may_carry_credential(value)
         || value
             .chars()
             .any(|character| character.is_control() || matches!(character, '"' | '\'' | '`'))

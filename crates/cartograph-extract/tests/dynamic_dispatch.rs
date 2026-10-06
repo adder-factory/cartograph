@@ -1,5 +1,6 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
 
 use std::assert_matches;
@@ -126,4 +127,15 @@ fn extract(path: &str, source: &str) -> ExtractedFile {
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("dispatch source limit failed: {error}"))
+}
+
+#[test]
+fn literal_dynamic_dispatch_keys_screen_credentials() {
+    for path in ["dispatch.ts", "dispatch.ets"] {
+        credential_support::assert_screened(
+            path,
+            "function f(obj:any) { obj[\"@VALUE@\"](); }",
+            "token",
+        );
+    }
 }

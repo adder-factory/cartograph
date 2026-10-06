@@ -210,7 +210,7 @@ fn token_has_credential_prefix(token: &str) -> bool {
 }
 
 /// Return whether one path segment is shaped like an issued provider access
-/// key: a prefix in the provider's own case (`AKIA`, `sk_live_`, `ghp_`,
+/// key: a case-insensitive provider prefix (`AKIA`, `sk_live_`, `ghp_`,
 /// `glpat-`) followed by a key body of at least eight `[A-Za-z0-9_-]` bytes.
 ///
 /// Unlike the declaration screen this never matches an ordinary directory or
@@ -219,12 +219,13 @@ fn token_has_credential_prefix(token: &str) -> bool {
 #[must_use]
 pub fn token_has_provider_key_shape(segment: &str) -> bool {
     CREDENTIAL_TOKEN_PREFIXES.iter().any(|prefix| {
-        segment.strip_prefix(prefix).is_some_and(|body| {
-            body.len() >= MINIMUM_PROVIDER_KEY_BODY_BYTES
-                && body
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-        })
+        starts_with_ignore_ascii_case(segment, prefix)
+            && segment.get(prefix.len()..).is_some_and(|body| {
+                body.len() >= MINIMUM_PROVIDER_KEY_BODY_BYTES
+                    && body
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            })
     })
 }
 
@@ -236,7 +237,10 @@ pub fn value_token_is_sensitive(token: &str) -> bool {
     is_sensitive_value_token(token) || looks_like_high_entropy_token(token)
 }
 
-fn is_sensitive_value_token(token: &str) -> bool {
+/// Whether a name identifies credential material, without the entropy heuristic.
+/// Query and fragment parameter names share this declaration-value vocabulary.
+#[must_use]
+pub fn is_sensitive_value_token(token: &str) -> bool {
     const EXACT: &[&str] = &[
         "apikey",
         "authtoken",
@@ -2441,6 +2445,9 @@ mod tests {
             "ghs_abcdefgh12",
             "glpat-abcdefgh",
             "xoxb-1234-5678",
+            "Glpat-aaaaaaaaaaaaaaaaaaaa",
+            "SK_LIVE_FAKE1234567890abcdef",
+            "akiaiosfodnn7example",
         ] {
             assert!(token_has_provider_key_shape(key), "{key}");
         }

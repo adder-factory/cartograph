@@ -320,7 +320,7 @@ fn declared_name(
 ) -> Result<Option<String>, ExtractError> {
     builder.context.ensure_active()?;
     let name = unescaped(builder.context.text(node));
-    if name.is_empty() {
+    if name.is_empty() || super::specifier_safety::specifier_may_carry_credential(name) {
         return Ok(None);
     }
     builder.context.copy_text(name).map(Some)

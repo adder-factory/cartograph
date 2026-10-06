@@ -17,6 +17,7 @@ use crate::{
     },
     identity::SymbolIdentity,
     source_lines::{LineMap, SourceByteRange, physical_lines},
+    walk::specifier_safety::specifier_may_carry_credential,
 };
 
 const CUSTOM_DIGEST_CONTEXT: &str = "cartograph.v2.custom-structural-digest.2026-07-24";
@@ -460,6 +461,12 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
     }
 
     fn add_import_binding(&mut self, input: &CustomImportInput<'_>) -> Result<(), ExtractError> {
+        if [input.module, input.imported, input.local]
+            .into_iter()
+            .any(specifier_may_carry_credential)
+        {
+            return Ok(());
+        }
         let binding = ExtractedImportBinding {
             kind: input.kind,
             module_specifier: bounded_string(input.module)?,
@@ -544,7 +551,9 @@ fn custom_symbol(parts: CustomSymbolParts<'_>) -> Result<ExtractedSymbol, Extrac
         name: bounded_string(name)?,
         qualified_name,
         span,
-        signature: options.signature,
+        signature: options
+            .signature
+            .filter(|text| !text.split_whitespace().any(specifier_may_carry_credential)),
         docstring: None,
         body_search_text: options.body_search_text,
         body_search_truncated: false,
@@ -599,6 +608,9 @@ fn normalize_reference(raw: &str) -> Option<String> {
 }
 
 fn looks_sensitive(value: &str) -> bool {
+    if specifier_may_carry_credential(value) {
+        return true;
+    }
     let lower = value.to_ascii_lowercase();
     if [
         "sk_live_",
@@ -791,7 +803,8 @@ fn properties_key(line: &str) -> Option<(usize, usize, String)> {
             }
         }
     }
-    (!key.is_empty() && cursor < bytes.len()).then_some((start, cursor, key))
+    (!key.is_empty() && cursor < bytes.len() && !specifier_may_carry_credential(&key))
+        .then_some((start, cursor, key))
 }
 
 fn interpolation_references(value: &str) -> Vec<(usize, &str)> {
@@ -818,6 +831,7 @@ fn interpolation_references(value: &str) -> Vec<(usize, &str)> {
 fn is_qualified_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_REFERENCE_NAME_BYTES
+        && !specifier_may_carry_credential(value)
         && value.bytes().all(|byte| {
             is_identifier_body(byte) || matches!(byte, b'.' | b':' | b'/' | b'-' | b'#')
         })
@@ -976,6 +990,10 @@ fn extract_liquid_output_references(
         };
         let close = open + 2 + close_relative;
         let expression = &source[open + 2..close];
+        if specifier_may_carry_credential(expression) {
+            cursor = close + 2;
+            continue;
+        }
         for (relative_offset, name) in identifiers(expression) {
             if liquid_keyword(name) || !seen.insert((open, name)) {
                 continue;
@@ -1185,6 +1203,9 @@ fn find_matching_close(tags: &[MarkupTag<'_>], opening_index: usize) -> Option<(
 }
 
 fn function_like_names(value: &str) -> Vec<(usize, &str)> {
+    if specifier_may_carry_credential(value) {
+        return Vec::new();
+    }
     identifiers(value)
         .into_iter()
         .filter(|(offset, name)| {
@@ -1373,6 +1394,9 @@ fn scan_salesforce_attribute(
     let Some((name_offset, field_name)) = tag_attribute(*tag, "name") else {
         return Ok(());
     };
+    if specifier_may_carry_credential(field_name) {
+        return Ok(());
+    }
     let field = builder.add_symbol(
         CustomSymbolInput::new(
             SymbolKind::Field,
@@ -1388,7 +1412,9 @@ fn scan_salesforce_attribute(
             ..SymbolOptions::default()
         }),
     )?;
-    if let Some((type_offset, type_name)) = tag_attribute(*tag, "type") {
+    if let Some((type_offset, type_name)) = tag_attribute(*tag, "type")
+        .filter(|(_, type_name)| !specifier_may_carry_credential(type_name))
+    {
         let reference = salesforce_type_head(type_name);
         if is_qualified_name(reference) {
             let relative = type_name.find(reference).unwrap_or(0);
@@ -1420,6 +1446,7 @@ fn salesforce_type_signature(type_name: &str) -> Option<String> {
     let type_name = type_name.trim();
     (!type_name.is_empty()
         && type_name.len() <= MAX_SALESFORCE_TYPE_BYTES
+        && !specifier_may_carry_credential(type_name)
         && type_name.bytes().all(|byte| {
             is_salesforce_word_byte(byte)
                 || matches!(byte, b'.' | b'<' | b'>' | b',' | b'[' | b']' | b' ')
@@ -1575,6 +1602,12 @@ fn extract_vb6(builder: &mut CustomBuilder<'_, '_>) -> Result<(), ExtractError> 
         return extract_vb6_project(builder);
     }
     let source = builder.source();
+    if vb6_container_name(source)
+        .as_deref()
+        .is_some_and(specifier_may_carry_credential)
+    {
+        return Ok(());
+    }
     let mut state = initialize_vb6_container(builder, source)?;
     for (line_start, raw_line) in physical_lines(source) {
         builder.check_cancelled()?;
@@ -1746,15 +1779,9 @@ fn extract_vb6_project(builder: &mut CustomBuilder<'_, '_>) -> Result<(), Extrac
             continue;
         }
         let value = line[separator + 1..].trim();
-        let name = value
-            .split(';')
-            .next_back()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .unwrap_or(value);
-        if name.is_empty() {
+        let Some(name) = vb6_project_load_name(value) else {
             continue;
-        }
+        };
         let offset = raw_line.find(name).unwrap_or(0);
         let id = builder.add_symbol(
             CustomSymbolInput::new(
@@ -1775,6 +1802,20 @@ fn extract_vb6_project(builder: &mut CustomBuilder<'_, '_>) -> Result<(), Extrac
         )?;
     }
     Ok(())
+}
+
+/// A project load name, screening the complete operand before its file projection.
+fn vb6_project_load_name(value: &str) -> Option<&str> {
+    if specifier_may_carry_credential(value) {
+        return None;
+    }
+    let name = value
+        .split(';')
+        .next_back()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(value);
+    (!name.is_empty()).then_some(name)
 }
 
 /// The module/class/form name declared by `Attribute VB_Name` or by the form's
@@ -2229,6 +2270,9 @@ fn extract_mybatis_mapper(
     builder: &mut CustomBuilder<'_, '_>,
     input: MybatisMapperInput<'_>,
 ) -> Result<(), ExtractError> {
+    if specifier_may_carry_credential(input.namespace) {
+        return Ok(());
+    }
     let simple_namespace = input
         .namespace
         .rsplit('.')
@@ -2499,6 +2543,7 @@ fn extract_mybatis_config(
             }
         } else if tag_name_eq(tag, "typeAlias")
             && let Some((offset, alias)) = tag_attribute(tag, "alias")
+            && !specifier_may_carry_credential(alias)
         {
             builder.add_symbol(
                 CustomSymbolInput::new(
@@ -2823,6 +2868,9 @@ fn anubis_call_skip(name: &str) -> bool {
 }
 
 fn dotted_references(line: &str) -> Vec<(usize, &str)> {
+    if specifier_may_carry_credential(line) {
+        return Vec::new();
+    }
     let bytes = line.as_bytes();
     let mut output = Vec::new();
     let mut cursor = 0;
@@ -2909,6 +2957,9 @@ fn add_bg3_declaration(
     let Some((offset, name)) = quoted_values(line).into_iter().next() else {
         return Ok(None);
     };
+    if specifier_may_carry_credential(name) {
+        return Ok(None);
+    }
     builder
         .add_symbol(
             CustomSymbolInput::new(
@@ -3032,6 +3083,9 @@ fn add_bg3_data_references(
 }
 
 fn bg3_reference_tokens(value: &str) -> Vec<&str> {
+    if specifier_may_carry_credential(value) {
+        return Vec::new();
+    }
     value
         .split(|character: char| {
             !(character.is_ascii_alphanumeric()
@@ -3625,6 +3679,14 @@ fn scan_bg3_region(
         }
         return Ok(true);
     }
+    let unsafe_scope = regions.last().is_some_and(|(_, name)| name.is_empty())
+        || tag_attribute(tag, "id").is_some_and(|(_, name)| specifier_may_carry_credential(name));
+    if unsafe_scope {
+        if !tag.self_closing {
+            regions.push((None, String::new()));
+        }
+        return Ok(true);
+    }
     if let Some((offset, name)) = tag_attribute(tag, "id") {
         let parent = regions.last().and_then(|(id, _)| id.clone());
         let prefix = regions.last().map_or(builder.path(), |(_, name)| name);
@@ -3656,6 +3718,9 @@ fn scan_bg3_content(
     let Some((offset, handle)) = tag_attribute(tag, "contentuid") else {
         return Ok(false);
     };
+    if specifier_may_carry_credential(handle) {
+        return Ok(true);
+    }
     builder.add_symbol(
         CustomSymbolInput::new(SymbolKind::Resource, handle, handle.to_owned())
             .at(offset, offset + handle.len())

@@ -278,7 +278,7 @@ fn scan_literal(
     if content.len() > MAX_LITERAL_BYTES {
         return Err(ExtractError::OutputLimit);
     }
-    if content.contains("${") {
+    if content.contains("${") || super::specifier_safety::specifier_may_carry_credential(content) {
         return Ok(());
     }
     let tokens = tokenize(content)?;

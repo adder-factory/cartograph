@@ -692,6 +692,7 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
                 .ok_or(ExtractError::InvalidSpan)?;
             // A `{NAME}` that names an explicit `NAME = ..` argument is not a capture.
             if !constant_shaped(name)
+                || super::specifier_safety::specifier_may_carry_credential(name)
                 || named_arguments.contains(&name)
                 || polyglot::rust_constant_bound_by_enclosing_scope(self.builder, literal, name)?
             {

@@ -1,5 +1,6 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
@@ -462,4 +463,39 @@ fn extract_custom(path: &str, source: &str, language: SourceLanguage) -> Extract
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("custom-family source limit failed: {error}"))
+}
+
+#[test]
+fn screened_bg3_region_abstains_without_changing_the_following_sibling_owner() {
+    let template = "<region id=\"Outer\"><region id=\"@VALUE@\"><node id=\"Object\"><attribute id=\"Name\" value=\"Hidden\"/></node></region><node id=\"Object\"><attribute id=\"Name\" value=\"Following\"/></node></region>";
+    for value in credential_support::CREDENTIAL_INPUTS {
+        let file = credential_support::extract(
+            "Public/Mod/RootTemplates/regions.lsx",
+            &template.replace("@VALUE@", value),
+        );
+        credential_support::assert_no_credentials(&file);
+        assert!(!file.symbols.iter().any(|symbol| symbol.name == "Hidden"));
+        assert!(file.symbols.iter().any(|symbol| symbol.name == "Following"
+            && symbol.qualified_name.ends_with("::Outer::Following")));
+    }
+    credential_support::assert_screened("Public/Mod/RootTemplates/regions.lsx", template, "Inner");
+}
+
+#[test]
+fn literal_loads_and_script_calls_screen_before_name_projection() {
+    for (path, source, ordinary) in [
+        ("main.vbp", "Module=@VALUE@\n", "./Module.bas"),
+        (
+            "Mods/Demo/Scripts/anubis/node/Guard.ann",
+            "SetEntityEvent(me, \"@VALUE@()\");\n",
+            "RaiseAlarm",
+        ),
+        (
+            "Story/RawFiles/Goals/OrderGoal.txt",
+            "Version 1\nINITSECTION\nSysCompleteGoal(\"@VALUE@()\");\nKBSECTION\nEXITSECTION\n",
+            "Init",
+        ),
+    ] {
+        credential_support::assert_screened(path, source, ordinary);
+    }
 }

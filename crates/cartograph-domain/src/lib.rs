@@ -14,7 +14,7 @@ pub use source::{
     FileParseStatus, InvalidNormalizedPath, InvalidSourceSpan, NormalizedPath, ReferenceKind,
     SourceLanguage, SourcePosition, SourceSpan, SymbolExecutionFlags, SymbolExportFlags,
     SymbolImplementationFlags, SymbolKind, Visibility, callable_signature_is_literal_free,
-    declaration_value_is_search_safe, symbol_signature_is_search_safe,
+    declaration_value_is_search_safe, is_sensitive_value_token, symbol_signature_is_search_safe,
     token_has_provider_key_shape, v1_language_registry_digest, v2_language_additions_digest,
     value_token_is_sensitive,
 };

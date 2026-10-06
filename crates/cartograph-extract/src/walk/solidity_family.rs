@@ -21,6 +21,7 @@ use super::{
         literal_free_signature, register_scope_key, source_text, visit_in_scope,
     },
     generic_family,
+    specifier_safety::specifier_may_carry_credential,
     syntax::{children, descendants, named_children, span_for},
 };
 
@@ -682,20 +683,49 @@ fn visit_pragma(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<bool, ExtractError> {
-    let text = builder
-        .context
-        .text(node)
-        .trim()
-        .trim_end_matches(';')
-        .trim_end();
+    let Some(text) = pragma_syntax_text(builder, node)? else {
+        return Ok(true);
+    };
     let valid = !text.is_empty()
         && text.len() <= MAX_RETAINED_TEXT_BYTES
+        && !specifier_may_carry_credential(&text)
         && !text
             .chars()
             .any(|character| character.is_control() || matches!(character, '"' | '\'' | '`'));
     if valid {
-        let name = builder.context.copy_text(text)?;
-        emit_import_symbol(builder, node, name)?;
+        emit_import_symbol(builder, node, text)?;
     }
     Ok(true)
+}
+
+/// Reconstruct syntax leaves, retaining adjacency but excluding grammar extras.
+fn pragma_syntax_text(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    if node.end_byte().saturating_sub(node.start_byte()) > MAX_RETAINED_TEXT_BYTES {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    let mut previous_end = node.start_byte();
+    for token in descendants(node).filter(|token| token.child_count() == 0 && !token.is_extra()) {
+        builder.context.ensure_active()?;
+        let raw = builder.context.text(token);
+        // An opaque generic pragma value cannot distinguish comments from syntax.
+        if token.kind() == "pragma_value" && (raw.contains("/*") || raw.contains("//")) {
+            return Ok(None);
+        }
+        let value = raw.trim();
+        if value.is_empty() || value == ";" {
+            continue;
+        }
+        if !text.is_empty()
+            && (token.start_byte() > previous_end || raw.len() > raw.trim_start().len())
+        {
+            text.push(' ');
+        }
+        text.push_str(value);
+        previous_end = token.end_byte();
+    }
+    Ok(Some(text))
 }

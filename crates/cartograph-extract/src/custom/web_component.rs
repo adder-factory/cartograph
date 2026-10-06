@@ -265,6 +265,9 @@ fn scan_form_action(
     };
     let offset = tag.start + 1 + attribute.start;
     let value = attribute.value;
+    if super::specifier_may_carry_credential(value) {
+        return Ok(());
+    }
     if attribute.braced
         || (builder.snapshot.language() == SourceLanguage::Svelte && value.contains('{'))
     {

@@ -1555,6 +1555,9 @@ fn visit_go_imports(
             continue;
         };
         let module_specifier = builder.context.owned_unquoted_text(path_node)?;
+        if super::specifier_safety::specifier_may_carry_credential(&module_specifier) {
+            continue;
+        }
         let local_name = match specifier.child_by_field_name("name") {
             Some(alias) => builder.context.owned_text(alias)?,
             None => module_specifier

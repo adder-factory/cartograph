@@ -631,6 +631,7 @@ fn normalize_name(value: &str) -> Option<String> {
     });
     if value.is_empty()
         || value.len() > 512
+        || specifier_may_carry_credential(value)
         || value.chars().any(|character| {
             !(character.is_alphanumeric()
                 || matches!(character, '_' | '$' | ':' | '.' | '-' | '/' | '@' | '#'))

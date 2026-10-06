@@ -2,6 +2,7 @@
 //! are never named after a parameter or body, and recognized imports declare
 //! `Import` symbols.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{ReferenceKind, SymbolKind};
@@ -173,4 +174,19 @@ fn credential_bearing_import_specifiers_leave_no_import_facts() {
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("generic parity source limit failed: {error}"))
+}
+
+#[test]
+fn solidity_pragma_excludes_comments_and_screens_retained_tokens() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        let file = extract("main.sol", &format!("pragma solidity /*{value}*/ ^0.8.0;"));
+        credential_support::assert_no_credentials(&file);
+        assert!(
+            file.symbols.iter().any(|symbol| {
+                symbol.kind == SymbolKind::Import && symbol.name == "pragma solidity ^0.8.0"
+            }),
+            "{file:?}"
+        );
+    }
+    credential_support::assert_screened("main.sol", "pragma @VALUE@;", "experimental ABIEncoderV2");
 }

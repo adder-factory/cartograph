@@ -118,7 +118,13 @@ pub(super) fn extract_markup(builder: &mut CustomBuilder<'_, '_>) -> Result<(), 
     };
     for tag in tags {
         builder.check_cancelled()?;
-        if scan_bg3_region(builder, &mut state.regions, tag)?
+        if scan_bg3_region(builder, &mut state.regions, tag)? {
+            continue;
+        }
+        if state
+            .regions
+            .last()
+            .is_some_and(|(_, name)| name.is_empty())
             || scan_bg3_content(builder, &state.regions, tag)?
         {
             continue;

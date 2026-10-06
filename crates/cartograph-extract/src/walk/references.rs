@@ -951,6 +951,7 @@ fn static_javascript_dispatch_key(raw: &str) -> Option<&str> {
     let mut characters = key.chars();
     let first = characters.next()?;
     (key.len() <= MAX_DURABLE_REFERENCE_NAME_BYTES
+        && !super::specifier_safety::specifier_may_carry_credential(key)
         && (first == '_' || first == '$' || first.is_ascii_alphabetic())
         && characters.all(|character| {
             character == '_' || character == '$' || character.is_ascii_alphanumeric()

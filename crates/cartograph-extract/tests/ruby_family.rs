@@ -1,5 +1,6 @@
 //! Ruby extraction contracts restored from the v1 Ruby extractor.
 
+mod credential_support;
 mod dependency_ownership;
 mod script_family_support;
 
@@ -658,4 +659,34 @@ fn call_names<'file>(
         })
         .map(|reference| reference.name.as_str())
         .collect()
+}
+
+#[test]
+fn ruby_loads_screen_credentials_before_emitting_import_facts() {
+    credential_support::assert_screened(
+        "main.rb",
+        "require \"@VALUE@\"\nrequire_relative \"@VALUE@\"\nload \"@VALUE@\"\n",
+        "token",
+    );
+}
+
+#[test]
+fn ruby_accessor_symbol_literals_screen_provider_keys() {
+    for name in ["sk_live_FAKE1234567890abcdef", "ghp_aaaaaaaaaaaaaaaaaaaa"] {
+        let source = format!("class Example; attr_reader :{name}; end\n");
+        let file = credential_support::extract("accessors.rb", &source);
+        credential_support::assert_no_credentials(&file);
+        assert!(
+            file.symbols
+                .iter()
+                .all(|symbol| symbol.kind != SymbolKind::Field)
+        );
+    }
+    let file =
+        credential_support::extract("accessors.rb", "class Example; attr_reader :token; end\n");
+    assert!(
+        file.symbols
+            .iter()
+            .any(|symbol| symbol.name == "token" && symbol.kind == SymbolKind::Field)
+    );
 }

@@ -132,6 +132,7 @@ pub(crate) fn scan(
         let owner = method.id.clone();
         let Some(statement) = evaluate_expression(argument.expression, &constants)
             .as_deref()
+            .filter(|value| !crate::walk::specifier_safety::specifier_may_carry_credential(value))
             .and_then(statement_qualified_name)
         else {
             continue;

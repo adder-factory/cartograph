@@ -862,6 +862,7 @@ fn literal_shell_text(raw: &str) -> Option<&str> {
         .or_else(|| raw.strip_circumfix('\'', '\''))
         .unwrap_or(raw);
     (!unquoted.is_empty()
+        && !super::specifier_safety::specifier_may_carry_credential(unquoted)
         && !unquoted.contains('$')
         && !unquoted.contains('(')
         && !unquoted.contains('`'))

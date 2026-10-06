@@ -466,7 +466,11 @@ fn plain_string(
     let mut parts = named_children(string);
     match (parts.next(), parts.next()) {
         (Some(fragment), None) if fragment.kind() == "string_fragment" => {
-            bounded_text(builder, builder.context.text(fragment))
+            let value = builder.context.text(fragment);
+            if super::specifier_safety::specifier_may_carry_credential(value) {
+                return Ok(None);
+            }
+            bounded_text(builder, value)
         }
         _ => Ok(None),
     }

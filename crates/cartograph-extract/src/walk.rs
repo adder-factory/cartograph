@@ -66,7 +66,7 @@ mod script_support;
 mod shader_family;
 mod shell_family;
 mod solidity_family;
-mod specifier_safety;
+pub(crate) mod specifier_safety;
 mod sql_family;
 mod swift_family;
 pub(crate) mod syntax;
@@ -1527,10 +1527,11 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
 
     fn extracted_symbol(
         &mut self,
-        pending: PendingSymbol<'_>,
+        mut pending: PendingSymbol<'_>,
         id: &SymbolId,
         qualified_name: String,
     ) -> Result<ExtractedSymbol, ExtractError> {
+        screen_signature(&mut pending);
         let span = span_for(pending.span_node)?;
         let docstring = self.context.jsdoc(pending.doc_anchor)?;
         let body_search = match pending.body_node {
@@ -1876,5 +1877,16 @@ impl<'source, 'cancel> ExtractionContext<'source, 'cancel> {
         self.source()
             .get(node.start_byte()..node.end_byte())
             .unwrap_or_default()
+    }
+}
+
+/// Drops a declaration signature that carries a credential.
+fn screen_signature(pending: &mut PendingSymbol<'_>) {
+    if pending.signature.as_deref().is_some_and(|signature| {
+        signature
+            .split_whitespace()
+            .any(specifier_safety::specifier_may_carry_credential)
+    }) {
+        pending.signature = None;
     }
 }

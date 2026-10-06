@@ -1,5 +1,6 @@
 //! R extraction contracts restored from the v1 R extractor.
 
+mod credential_support;
 mod dependency_ownership;
 mod script_family_support;
 
@@ -261,4 +262,29 @@ fn r_long_assignment_chains_take_linear_work() {
     assert_linear_work("R/chain.R", |width| {
         format!("{} <- 1\n", numbered_names("link", width, " <- "))
     });
+}
+
+#[test]
+fn r_load_urls_retain_ordinary_token_path_facts() {
+    let uri = "https://example.invalid/token/helpers.R";
+    let file = extract("main.R", &format!("source(\"{uri}\")\n"));
+    assert_eq!(names_of_kind(&file, SymbolKind::Import), [uri]);
+    assert_eq!(symbol(&file, SymbolKind::Import, uri).qualified_name, uri);
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.kind == ReferenceKind::Imports && reference.name == uri)
+    );
+    assert!(
+        file.import_bindings
+            .iter()
+            .any(|binding| binding.kind == ImportBindingKind::Namespace
+                && binding.module_specifier == uri
+                && binding.imported_name == "*")
+    );
+}
+
+#[test]
+fn r_loads_screen_credentials_before_emitting_import_facts() {
+    credential_support::assert_screened("main.R", "source(\"@VALUE@\")\n", "token");
 }

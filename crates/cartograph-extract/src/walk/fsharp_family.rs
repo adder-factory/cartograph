@@ -17,6 +17,7 @@ use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind, SymbolExpor
 
 use super::{
     ExtractionBuilder, NamedDeclaration, NodeRange, PendingReference, PendingSymbol, SymbolScope,
+    family_support::screened_name,
     in_symbol_scope, references, safe_assignment_signature,
     syntax::{has_child_kind, named_child_of_kind, named_children, span_for},
     widen_symbol_span, with_root_scope,
@@ -113,7 +114,8 @@ fn piped_function<'tree>(
 /// Whether `name` is a plain, possibly dotted, identifier rather than an
 /// operator or literal.
 fn is_dotted_identifier(name: &str) -> bool {
-    name.starts_with(|character: char| character.is_ascii_alphabetic() || character == '_')
+    !super::specifier_safety::specifier_may_carry_credential(name)
+        && name.starts_with(|character: char| character.is_ascii_alphabetic() || character == '_')
         && name
             .chars()
             .all(|character| character.is_alphanumeric() || matches!(character, '_' | '.' | '\''))
@@ -427,6 +429,9 @@ fn visit_let_binding(
     } = visit;
     let scope = binding
         .name
+        .filter(|name| {
+            !super::specifier_safety::specifier_may_carry_credential(builder.context.text(*name))
+        })
         .map(|name| {
             emit_let(
                 builder,
@@ -543,7 +548,9 @@ fn visit_member(
     let visibility = member
         .and_then(|member| access_visibility(builder, member))
         .unwrap_or(Visibility::Public);
-    let name = builder.context.owned_text(name_node)?;
+    let Some(name) = screened_name(builder, name_node)? else {
+        return Ok(());
+    };
     let id = builder.emit_symbol(PendingSymbol {
         body_node: Some(node),
         static_member: member.is_some_and(|member| has_child_kind(member, "static")),
@@ -578,7 +585,9 @@ fn emit_record_field(
         && callable_signature_is_literal_free(text))
     .then(|| builder.context.copy_text(text))
     .transpose()?;
-    let name = builder.context.owned_text(name)?;
+    let Some(name) = screened_name(builder, name)? else {
+        return Ok(());
+    };
     builder.emit_symbol(PendingSymbol {
         signature,
         visibility: Some(Visibility::Public),
@@ -595,7 +604,9 @@ fn emit_enum_case(
     let Some(name) = named_child_of_kind(node, "identifier") else {
         return Ok(());
     };
-    let name = builder.context.owned_text(name)?;
+    let Some(name) = screened_name(builder, name)? else {
+        return Ok(());
+    };
     builder.emit_symbol(PendingSymbol::plain(SymbolKind::EnumMember, name, node))?;
     Ok(())
 }

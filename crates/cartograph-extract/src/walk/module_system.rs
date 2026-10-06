@@ -9,6 +9,7 @@ use super::{
     ExtractionBuilder, PendingReference, PendingSymbol,
     javascript_bindings::{BindingMatch, scan_bound_names},
     references, require_aliases,
+    specifier_safety::specifier_may_carry_credential,
     syntax::{descendants_including_root, has_child_kind, named_children, span_for},
 };
 
@@ -503,8 +504,7 @@ fn commonjs_require_source<'tree>(
     if arguments.named_child_count() != 1 {
         return None;
     }
-    static_dynamic_import_source(arguments.named_child(0)?)
-        .filter(|source| !super::syntax::unquote(builder.context.text(*source)).is_empty())
+    screened_import_source(builder, arguments.named_child(0)?)
 }
 
 /// Record the module loaded by a `require(..)` (or `createRequire` alias)
@@ -760,8 +760,25 @@ fn dynamic_import_source<'tree>(
     if values.take(MAX_DYNAMIC_IMPORT_ARGUMENTS).count() >= MAX_DYNAMIC_IMPORT_ARGUMENTS {
         return None;
     }
-    static_dynamic_import_source(value)
-        .filter(|source| !builder.context.text(*source).trim().is_empty())
+    screened_import_source(builder, value)
+}
+
+/// Static, type, dynamic, and `CommonJS` loads share an escape-free specifier.
+/// Escapes require decoding before an exact module identity can be established.
+pub(super) fn screened_import_source<'tree>(
+    builder: &ExtractionBuilder<'_, '_>,
+    value: Node<'tree>,
+) -> Option<Node<'tree>> {
+    static_dynamic_import_source(value).filter(|source| {
+        let module = super::syntax::unquote(builder.context.text(*source));
+        !module.is_empty() && import_literal_is_safe(module)
+    })
+}
+
+/// A literal import name is kept in its source spelling unless that spelling
+/// carries a credential.
+pub(super) fn import_literal_is_safe(value: &str) -> bool {
+    !specifier_may_carry_credential(value)
 }
 
 fn dynamic_import_selected_member<'tree>(
@@ -947,7 +964,9 @@ fn capture_import_destructuring(
             _ => continue,
         };
         let imported_name = builder.context.owned_unquoted_text(imported_node)?;
-        if input.excluded_members.contains(&imported_name.as_str()) {
+        if input.excluded_members.contains(&imported_name.as_str())
+            || !import_literal_is_safe(&imported_name)
+        {
             continue;
         }
         let local_name = builder.context.owned_text(local_node)?;
@@ -1065,6 +1084,9 @@ pub(super) fn emit_export_alias(
     builder: &mut ExtractionBuilder<'_, '_>,
     alias: ExportAlias<'_>,
 ) -> Result<(), ExtractError> {
+    if !import_literal_is_safe(&alias.public_name) || !import_literal_is_safe(&alias.local_name) {
+        return Ok(());
+    }
     let owner = emit_export_alias_symbol(builder, &alias)?;
     emit_export_alias_binding(builder, &alias)?;
     references::push_reference(
@@ -1088,6 +1110,9 @@ pub(super) fn emit_namespace_reexport(
         module_specifier,
     } = input;
     let public_name = builder.context.owned_unquoted_text(public_node)?;
+    if !import_literal_is_safe(&public_name) {
+        return Ok(());
+    }
     let alias = ExportAlias {
         public_name: public_name.clone(),
         local_name: public_name.clone(),

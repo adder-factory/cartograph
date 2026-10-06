@@ -207,6 +207,9 @@ fn emit_columns(
             continue;
         };
         let name = normalized_identifier(builder, name_node)?;
+        if super::specifier_safety::specifier_may_carry_credential(&name) {
+            continue;
+        }
         let type_node = column
             .child_by_field_name("type")
             .or_else(|| column.child_by_field_name("custom_type"));
@@ -553,6 +556,7 @@ fn emit_enum_members(
         }
         let value = builder.context.owned_unquoted_text(element)?;
         if value.is_empty()
+            || super::specifier_safety::specifier_may_carry_credential(&value)
             || !declaration_value_is_search_safe(&value)
             || !seen.insert(value.clone())
         {
@@ -650,7 +654,7 @@ fn qualified_name(
         return if normalized.is_empty() {
             Ok(None)
         } else {
-            builder.context.copy_text(normalized).map(Some)
+            screened_qualified_name(builder, normalized)
         };
     }
     let mut parts = Vec::new();
@@ -675,7 +679,18 @@ fn qualified_name(
         }
         qualified.push_str(part);
     }
-    builder.context.copy_text(&qualified).map(Some)
+    screened_qualified_name(builder, &qualified)
+}
+
+/// Screen either normalized name form before retaining its owned text.
+fn screened_qualified_name(
+    builder: &ExtractionBuilder<'_, '_>,
+    value: &str,
+) -> Result<Option<String>, ExtractError> {
+    if super::specifier_safety::specifier_may_carry_credential(value) {
+        return Ok(None);
+    }
+    builder.context.copy_text(value).map(Some)
 }
 
 fn normalized_identifier(

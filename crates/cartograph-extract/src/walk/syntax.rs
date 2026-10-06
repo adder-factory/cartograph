@@ -2181,7 +2181,7 @@ pub(super) fn body_search_text_for_nodes<'tree>(
         } else {
             continue;
         };
-        if token.is_empty() {
+        if token.is_empty() || super::specifier_safety::specifier_may_carry_credential(token) {
             continue;
         }
         accumulator.push(token)?;
@@ -2797,7 +2797,14 @@ fn normalize_preceding_comments(
             if (appender.cancelled)() {
                 return Err(ExtractError::Cancelled);
             }
-            appender.append(text_for(input.source, *comment))?;
+            let raw = text_for(input.source, *comment);
+            if raw
+                .split_whitespace()
+                .any(super::specifier_safety::specifier_may_carry_credential)
+            {
+                return Ok(None);
+            }
+            appender.append(raw)?;
         }
     }
     Ok((!normalized.is_empty()).then_some(normalized))

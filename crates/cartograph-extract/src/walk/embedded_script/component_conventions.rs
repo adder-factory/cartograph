@@ -271,11 +271,15 @@ pub(super) fn anchor_static_imports(
         for statement in named_children(*root).filter(|node| node.kind() == "import_statement") {
             builder.context.ensure_active()?;
             let Some(specifier) = statement.child_by_field_name("source").and_then(|source| {
+                super::super::module_system::screened_import_source(builder, source)?;
                 named_children(source).find(|part| part.kind() == "string_fragment")
             }) else {
                 continue;
             };
             let module = builder.context.owned_text(specifier)?;
+            if super::super::specifier_safety::specifier_may_carry_credential(&module) {
+                continue;
+            }
             sites.push(EmbeddedImportSite {
                 module: builder.context.copy_text(&module)?,
                 start: specifier.start_byte(),

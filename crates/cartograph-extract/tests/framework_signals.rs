@@ -1,6 +1,9 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
+#[path = "credential_support/escaped_names.rs"]
+mod escaped_names;
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
 use cartograph_extract::{ExtractError, NativeExtractor, SourceLimits, SourceSnapshot};
@@ -1293,6 +1296,62 @@ services:
 }
 
 #[test]
+fn codeigniter_escaped_load_operands_abstain_before_resource_state() {
+    for &(path, source) in escaped_names::ESCAPED_NAME_CASES {
+        if path.starts_with("application/") {
+            let file = credential_support::extract(path, source);
+            credential_support::assert_no_credentials(&file);
+            assert!(
+                file.references
+                    .iter()
+                    .all(|reference| reference.name != "user_model")
+            );
+        }
+    }
+    let source = r"<?php class Users extends CI_Controller { function show() { $this->load->model('App\Models\user_model', 'users'); $this->users->find(); } }";
+    let file = credential_support::extract("application/controllers/Users.php", source);
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.name == r"App\Models\user_model")
+    );
+}
+
+#[test]
+fn codeigniter_load_names_screen_credentials_before_resource_and_alias_projection() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        for (resource, alias) in [(value, "users"), ("user_model", value)] {
+            let source = format!(
+                "<?php class Users extends CI_Controller {{ public function show() {{ $this->load->model('{resource}', '{alias}'); $this->users->find(); }} }}\n"
+            );
+            let file = credential_support::extract("application/controllers/Users.php", &source);
+            credential_support::assert_no_credentials(&file);
+            assert!(
+                file.references
+                    .iter()
+                    .all(|reference| reference.resolution_name.as_deref()
+                        != Some("User_model::find"))
+            );
+        }
+    }
+    credential_support::assert_screened(
+        "application/controllers/Users.php",
+        "<?php class Users extends CI_Controller { public function show() { $this->load->model('@VALUE@', 'users'); $this->users->find(); } }\n",
+        "user_model",
+    );
+    let file = credential_support::extract(
+        "application/controllers/Users.php",
+        "<?php class Users extends CI_Controller { public function show() { $this->load->model('user_model', 'users'); $this->users->find(); } }\n",
+    );
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.name == "find"
+                && reference.resolution_name.as_deref() == Some("User_model::find"))
+    );
+}
+
+#[test]
 fn codeigniter_controller_routes_and_loaded_resource_calls_keep_convention_identity() {
     let extracted = extract(
         "application/controllers/admin/Users.php",
@@ -1910,6 +1969,37 @@ fn mybatis_inferred_lambda_parameters_shadow_statement_constants() {
             .collect::<Vec<_>>();
         assert_eq!(statements, ["Mapper::real"], "{parameters}");
     }
+}
+
+#[test]
+fn mybatis_statement_ids_screen_credentials_before_namespace_projection() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        let source = format!(
+            "class Dao {{ void run() {{ sqlSessionTemplate.selectOne(\"{value}.Mapper.token\"); }} }}\n"
+        );
+        let file = credential_support::extract("Dao.java", &source);
+        credential_support::assert_no_credentials(&file);
+        assert!(
+            file.references
+                .iter()
+                .all(|reference| reference.name != "Mapper::token")
+        );
+    }
+    credential_support::assert_screened(
+        "Dao.java",
+        "class Dao { void run() { sqlSessionTemplate.selectOne(\"@VALUE@\"); } }\n",
+        "Mapper::token",
+    );
+    let file = credential_support::extract(
+        "Dao.java",
+        "class Dao { void run() { sqlSessionTemplate.selectOne(\"pkg.Mapper.token\"); } }\n",
+    );
+    assert!(
+        file.references
+            .iter()
+            .any(|reference| reference.name == "Mapper::token"
+                && reference.kind == ReferenceKind::References)
+    );
 }
 
 #[test]

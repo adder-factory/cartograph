@@ -2,6 +2,7 @@
 //! declaration identity and precedence, reference precision, and the
 //! negative cases v1 deliberately did not extract.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{FileParseStatus, ReferenceKind, SymbolKind};
@@ -989,4 +990,71 @@ fn literal_derived_bg3_and_aura_names_never_carry_credentials() {
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("markup source limit failed: {error}"))
+}
+
+#[test]
+fn liquid_schema_display_email_retains_exact_name_and_search_text() {
+    let name = "Contact support@example.invalid";
+    let file = extract(
+        "sections/contact.liquid",
+        &format!("{{% schema %}}{{\"name\":\"{name}\"}}{{% endschema %}}"),
+    );
+    assert_eq!(file.symbols.len(), 1);
+    let schema = &file.symbols[0];
+    assert_eq!(schema.name, name);
+    assert_eq!(
+        schema.qualified_name,
+        "sections/contact.liquid::schema:Contact support@example.invalid"
+    );
+    assert_eq!(
+        schema.body_search_text,
+        "schema Contact support@example.invalid"
+    );
+}
+
+#[test]
+fn liquid_schema_credential_display_names_use_the_schema_fallback() {
+    for value in credential_support::CREDENTIAL_INPUTS
+        .into_iter()
+        .chain(["https://alice:hunter2@example.invalid"])
+    {
+        let source = format!("{{% schema %}}{{\"name\":\"{value}\"}}{{% endschema %}}");
+        let file = extract("sections/main.liquid", &source);
+        credential_support::assert_no_credentials(&file);
+        assert!(!format!("{file:?}").contains("hunter2"));
+        assert!(file.symbols.iter().any(|symbol| symbol.name == "schema"));
+    }
+    credential_support::assert_screened(
+        "sections/main.liquid",
+        "{% schema %}{\"name\":\"@VALUE@\"}{% endschema %}",
+        "Hero",
+    );
+}
+
+#[test]
+fn aura_attribute_types_screen_credentials_before_type_head_projection() {
+    for value in credential_support::CREDENTIAL_INPUTS {
+        let source = format!(
+            "<aura:component><aura:attribute name=\"value\" type=\"{value}\"/></aura:component>"
+        );
+        let file = extract("aura/Type/Type.cmp", &source);
+        credential_support::assert_no_credentials(&file);
+        assert!(
+            file.references
+                .iter()
+                .all(|reference| reference.kind != ReferenceKind::TypeOf)
+        );
+        let field = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Field)
+            .unwrap_or_else(|| panic!("safe field is still extracted: {file:?}"));
+        assert_eq!(field.name, "value");
+        assert!(field.signature.is_none());
+    }
+    credential_support::assert_screened(
+        "aura/Type/Type.cmp",
+        "<aura:component><aura:attribute name=\"value\" type=\"@VALUE@\"/></aura:component>",
+        "Account",
+    );
 }

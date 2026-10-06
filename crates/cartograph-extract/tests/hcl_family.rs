@@ -2,6 +2,7 @@
 //! Terraform-address identities, block kinds, locals, module sources, and
 //! address references.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{FileParseStatus, ReferenceKind, SourceLanguage, SymbolKind};
@@ -254,8 +255,10 @@ fn module_sources_import_only_static_credential_free_strings() {
             "git::https://example.com/vpc.git?ref=v1.2.0",
             "git::ssh://git@example.com/vpc.git",
             "git@example.com:org/vpc.git",
-            // A plain local path names a directory; credential words alone are
-            // only screened in URL-shaped sources.
+            // Ordinary URL path words and opaque path names are not credentials.
+            "https://example.com/password/hunter3/vpc.zip",
+            "https://example.com/token/opaque5/vpc.zip",
+            "https://example.com/Zx9mQ2vL8kP4rT6yW1nB3cD5/vpc.zip",
             "./modules/token",
             // Region directories share a provider-key prefix but not its shape.
             "./regions/asia-east1"
@@ -282,9 +285,6 @@ fn module_sources_import_only_static_credential_free_strings() {
         "FAKE1234567890abcdef",
         "AKIAIOSFODNN7EXAMPLE",
         "slackexample4",
-        "hunter3",
-        "opaque5",
-        "Zx9mQ2vL8kP4rT6yW1nB3cD5",
     ] {
         assert!(!rendered.contains(secret), "{secret} leaked");
     }
@@ -336,4 +336,9 @@ fn unicode_labels_are_terraform_names() {
 
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT).unwrap_or_else(|error| panic!("HCL limit failed: {error}"))
+}
+
+#[test]
+fn terraform_labels_screen_provider_keys_and_keep_token() {
+    credential_support::assert_screened("main.tf", "variable \"@VALUE@\" {}\n", "token");
 }

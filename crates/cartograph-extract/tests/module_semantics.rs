@@ -1,6 +1,11 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
+#[path = "credential_support/escaped_names.rs"]
+mod escaped_names;
+#[path = "credential_support/escaped_specifiers.rs"]
+mod escaped_specifiers;
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
 use cartograph_extract::{
@@ -357,4 +362,142 @@ fn extract(path: &str, source: &str) -> ExtractedFile {
     extractor
         .extract(&snapshot)
         .unwrap_or_else(|error| panic!("module extraction failed: {error}"))
+}
+
+#[test]
+fn ordinary_jsdoc_links_retain_exact_documentation() {
+    let file = credential_support::extract("doc.ts", "/** See {@link User}. */ function f() {}\n");
+    let function = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "f")
+        .unwrap_or_else(|| panic!("function f must remain: {file:?}"));
+    assert_eq!(function.qualified_name, "f");
+    assert_eq!(function.docstring.as_deref(), Some("See {@link User}."));
+}
+
+#[test]
+fn escaped_quoted_import_and_export_names_abstain_without_losing_safe_modules() {
+    for &(path, source) in escaped_names::ESCAPED_NAME_CASES {
+        if std::path::Path::new(path)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("ts") || extension.eq_ignore_ascii_case("js")
+            })
+        {
+            let file = credential_support::extract(path, source);
+            credential_support::assert_no_credentials(&file);
+            assert!(file.import_bindings.iter().all(|binding| {
+                binding.imported_name == "*" || binding.imported_name == "default"
+            }));
+        }
+    }
+    credential_support::assert_screened(
+        "namespace.ts",
+        "export * as \"@VALUE@\" from \"./safe\";\n",
+        "token",
+    );
+}
+
+#[test]
+fn escaped_javascript_module_operands_abstain_before_import_facts() {
+    for template in [
+        "import X from \"@VALUE@\";\n",
+        "export * from \"@VALUE@\";\n",
+        "export { X } from \"@VALUE@\";\n",
+        "function f(x: import(\"@VALUE@\").T) {}\n",
+        "const x = import(\"@VALUE@\");\n",
+        "const x = require(\"@VALUE@\");\n",
+    ] {
+        escaped_specifiers::assert_escaped_specifiers_abstain("main.ts", template);
+    }
+    for (path, template) in [
+        (
+            "main.astro",
+            "---\nimport X from \"@VALUE@\";\n---\n<X />\n",
+        ),
+        (
+            "main.vue",
+            "<script>import X from \"@VALUE@\";</script><template><X /></template>\n",
+        ),
+        (
+            "main.svelte",
+            "<script>import X from \"@VALUE@\";</script><X />\n",
+        ),
+    ] {
+        escaped_specifiers::assert_escaped_specifiers_abstain(path, template);
+    }
+}
+
+#[test]
+fn undecoded_literal_signatures_abstain_without_losing_safe_declarations() {
+    for (source, kind, name) in [
+        (
+            r#"function f(x: import("https:\/\/reader:FAKEPASSWORDxyz@example.invalid/module").T) {}"#,
+            SymbolKind::Function,
+            "f",
+        ),
+        (
+            r#"import { "sk_l\u0069ve_FAKE1234567890abcdef" as x } from "./safe";"#,
+            SymbolKind::Import,
+            "./safe",
+        ),
+        (
+            r#"type Safe = "sk_l\u0069ve_FAKE1234567890abcdef";"#,
+            SymbolKind::TypeAlias,
+            "Safe",
+        ),
+    ] {
+        let file = credential_support::extract("signature.ts", source);
+        credential_support::assert_no_credentials(&file);
+        let symbol = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == kind && symbol.name == name)
+            .unwrap_or_else(|| panic!("safe declaration must remain: {file:?}"));
+        assert_eq!(symbol.signature, None);
+    }
+    for (source, name, signature) in [
+        (
+            r#"function f(x: import("https://example.invalid/token/module").T) {}"#,
+            "f",
+            r#"(x: import("https://example.invalid/token/module").T)"#,
+        ),
+        (
+            r#"import { "token" as x } from "./safe";"#,
+            "./safe",
+            r#"import { "token" as x } from "./safe";"#,
+        ),
+    ] {
+        let file = credential_support::extract("ordinary.ts", source);
+        let symbol = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap_or_else(|| panic!("ordinary declaration must remain: {file:?}"));
+        assert_eq!(symbol.signature.as_deref(), Some(signature));
+    }
+    let file = credential_support::extract(
+        "namespace.php",
+        r#"<?php function keep(\n\Value $value): \n\Value { echo "\n"; return $value; }"#,
+    );
+    let function = file
+        .symbols
+        .iter()
+        .find(|symbol| symbol.kind == SymbolKind::Function && symbol.name == "keep")
+        .unwrap_or_else(|| panic!("namespace signature must remain: {file:?}"));
+    assert_eq!(
+        function.signature.as_deref(),
+        Some(r"(\n\Value $value): \n\Value")
+    );
+}
+
+#[test]
+fn inline_dynamic_and_commonjs_imports_screen_credentials() {
+    credential_support::assert_screened(
+        "main.ts",
+        "function f(x: import(\"@VALUE@\").T) {}\nconst m = import(\"@VALUE@\");\nconst n = require(\"@VALUE@\");\n",
+        "https://example.invalid/module",
+    );
 }

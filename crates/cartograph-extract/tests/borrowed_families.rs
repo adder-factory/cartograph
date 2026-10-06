@@ -3,7 +3,10 @@
 //! The scenarios are the v1 extractor acceptance sources, extended with the
 //! negative cases each dedicated family must keep out of the graph.
 
+mod credential_support;
 mod dependency_ownership;
+#[path = "credential_support/escaped_names.rs"]
+mod escaped_names;
 
 use cartograph_domain::{ReferenceKind, SymbolKind, Visibility};
 use cartograph_extract::{
@@ -1870,5 +1873,30 @@ fn assert_no_secret(extracted: &ExtractedFile) {
     assert!(
         !format!("{extracted:?}").contains(SECRET_SENTINEL),
         "a source literal leaked into extracted facts"
+    );
+}
+
+#[test]
+fn common_lisp_reader_escapes_abstain_before_designator_facts() {
+    for &(path, source) in escaped_names::ESCAPED_NAME_CASES {
+        if std::path::Path::new(path)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("lisp"))
+        {
+            let file = credential_support::extract(path, source);
+            credential_support::assert_no_credentials(&file);
+            assert_eq!(file.symbols.len(), 0);
+            assert_eq!(file.import_bindings.len(), 0);
+        }
+    }
+}
+
+#[test]
+fn common_lisp_package_designators_screen_credentials() {
+    credential_support::assert_screened(
+        "main.lisp",
+        "(defpackage \"@VALUE@\")\n(in-package \"@VALUE@\")\n",
+        "token",
     );
 }

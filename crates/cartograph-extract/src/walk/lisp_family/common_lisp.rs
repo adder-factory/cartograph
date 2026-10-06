@@ -15,6 +15,7 @@ use super::{
             emit_owned_reference, emit_scoped_declaration, literal_free_signature,
             register_scope_key, source_text, visit_in_scope,
         },
+        specifier_safety::specifier_may_carry_credential,
         syntax::named_children,
     },
     AFTER_HEAD, AFTER_NAME, form_children,
@@ -197,9 +198,10 @@ fn escaped_symbol(text: &str) -> Option<&str> {
     let name = text.trim().strip_prefix('|')?.strip_suffix('|')?;
     let valid = !name.trim().is_empty()
         && name.len() <= MAX_RETAINED_TEXT_BYTES
-        && !name
-            .chars()
-            .any(|character| character.is_control() || matches!(character, '|' | '"' | '\'' | '`'));
+        && !specifier_may_carry_credential(name)
+        && !name.chars().any(|character| {
+            character.is_control() || matches!(character, '\\' | '|' | '"' | '\'' | '`')
+        });
     valid.then_some(name)
 }
 
@@ -207,6 +209,9 @@ fn escaped_symbol(text: &str) -> Option<&str> {
 /// its escaped spelling.
 fn clean_designator(text: &str) -> Option<&str> {
     let text = text.trim();
+    if text.contains('\\') {
+        return None;
+    }
     if text.len() > 1 && text.starts_with('|') && text.ends_with('|') {
         return escaped_symbol(text);
     }

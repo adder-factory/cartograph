@@ -1,5 +1,6 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
 
 use std::assert_matches;
@@ -8,6 +9,57 @@ use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
 use cartograph_extract::{ExtractedFile, NativeExtractor, SourceLimits, SourceSnapshot};
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
+
+#[test]
+fn graphql_description_escapes_abstain_without_losing_declarations() {
+    let file = extract(
+        "escaped.graphql",
+        r#""sk_l\u0069ve_FAKE1234567890abcdef" type User { id: ID }"#,
+    );
+    credential_support::assert_no_credentials(&file);
+    assert!(
+        unique_symbol(&file, SymbolKind::Class, "User")
+            .docstring
+            .is_none()
+    );
+    let file = extract(
+        "ordinary.graphql",
+        r#""""A Windows path C:\Users.""" type User { id: ID }"#,
+    );
+    assert_eq!(
+        unique_symbol(&file, SymbolKind::Class, "User")
+            .docstring
+            .as_deref(),
+        Some(r"A Windows path C:\Users.")
+    );
+}
+
+#[test]
+fn graphql_description_literals_screen_credentials_without_losing_declarations() {
+    for quote in ["\"", "\"\"\""] {
+        for value in credential_support::CREDENTIAL_INPUTS {
+            let source = format!("{quote}{value}{quote} type User {{ id: ID }}\n");
+            let file = extract("schema.graphql", &source);
+            credential_support::assert_no_credentials(&file);
+            let user = unique_symbol(&file, SymbolKind::Class, "User");
+            assert!(user.docstring.is_none());
+        }
+        let source = format!(
+            "{quote}Contact support@example.invalid; token is a field.{quote} type User {{ id: ID }}\n"
+        );
+        let file = extract("schema.graphql", &source);
+        let user = unique_symbol(&file, SymbolKind::Class, "User");
+        assert_eq!(
+            user.docstring.as_deref(),
+            Some("Contact support@example.invalid; token is a field.")
+        );
+    }
+    credential_support::assert_screened(
+        "schema.graphql",
+        "\"@VALUE@\" type User { id: ID }\n",
+        "A user record.",
+    );
+}
 const GRAPHQL_SCHEMA: &str = r#"
 """A graph entity."""
 interface Node { id: ID! }

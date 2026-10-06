@@ -7,6 +7,7 @@
 //! fixtures; every extraction is also checked for determinism and for exact
 //! host-file spans.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{FileParseStatus, ReferenceKind, SymbolKind};
@@ -2115,4 +2116,20 @@ fn contains(
 fn limits() -> SourceLimits {
     SourceLimits::new(SOURCE_LIMIT)
         .unwrap_or_else(|error| panic!("web-component source limit failed: {error}"))
+}
+
+#[test]
+fn embedded_static_imports_screen_credentials() {
+    credential_support::assert_screened(
+        "main.astro",
+        "---\nimport X from \"@VALUE@\";\n---\n<X />\n",
+        "https://example.invalid/module",
+    );
+}
+
+#[test]
+fn component_form_actions_screen_before_call_name_projection() {
+    for path in ["action.vue", "action.svelte"] {
+        credential_support::assert_screened(path, "<form action=\"@VALUE@()\"></form>\n", "save");
+    }
 }

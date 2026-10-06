@@ -733,7 +733,11 @@ fn build_records<'tree>(
         } else {
             Cow::Borrowed(node_text(record.name_node, input.source).trim())
         };
-        if name.is_empty() {
+        if name.is_empty()
+            || name
+                .split_whitespace()
+                .any(crate::walk::specifier_safety::specifier_may_carry_credential)
+        {
             continue;
         }
         match record.role {
@@ -1542,6 +1546,12 @@ fn safe_declaration_signature(
     let Some(header) = declaration_signature_header(input) else {
         return Ok(None);
     };
+    if header
+        .split_whitespace()
+        .any(crate::walk::specifier_safety::specifier_may_carry_credential)
+    {
+        return Ok(None);
+    }
     let bounded = truncate_with_ellipsis(header, MAX_SIGNATURE_BYTES, TRUNCATED_SIGNATURE_BYTES)?;
     let contains_unmodeled_literal = bounded
         .bytes()
@@ -1591,6 +1601,12 @@ fn contains_colon_atom(value: &str) -> bool {
 }
 
 fn clean_doc(raw: &str) -> Result<Option<String>, ExtractError> {
+    if raw
+        .split_whitespace()
+        .any(crate::walk::specifier_safety::specifier_may_carry_credential)
+    {
+        return Ok(None);
+    }
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(None);

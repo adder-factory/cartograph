@@ -2,7 +2,7 @@
 //! canonical UUIDs, `Name_<uuid>` GUIDSTRINGs, `h…` localization handles,
 //! and the identifier tokens a field or script string refers to.
 
-use cartograph_domain::token_has_provider_key_shape;
+use crate::walk::specifier_safety::specifier_may_carry_credential;
 
 use super::looks_sensitive;
 
@@ -61,11 +61,7 @@ pub(super) fn reference_tokens(value: &str) -> Vec<(usize, &str)> {
 fn may_carry_credential(value: &str) -> bool {
     value.contains(ACCOUNT_MARKER)
         || value.contains(URL_AUTHORITY_MARKER)
-        || value
-            .split(|character: char| {
-                !(character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
-            })
-            .any(token_has_provider_key_shape)
+        || specifier_may_carry_credential(value)
 }
 
 const fn is_token_byte(byte: u8) -> bool {

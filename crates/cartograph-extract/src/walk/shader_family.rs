@@ -253,6 +253,9 @@ fn append_wesl_import_paths(
     span: SourceSpan,
     imports: &mut Vec<(SourceSpan, String, String)>,
 ) -> Result<(), ExtractError> {
+    if super::specifier_safety::specifier_may_carry_credential(payload) {
+        return Ok(());
+    }
     let mut paths = Vec::new();
     flatten_wesl_imports(
         payload,
@@ -691,6 +694,9 @@ fn visit_import(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    if super::specifier_safety::specifier_may_carry_credential(builder.context.text(node)) {
+        return Ok(());
+    }
     let Some(path_node) = node.child_by_field_name("path") else {
         return Ok(());
     };
@@ -729,6 +735,9 @@ fn visit_define_import_path(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    if super::specifier_safety::specifier_may_carry_credential(builder.context.text(node)) {
+        return Ok(());
+    }
     let Some(path_node) = node.child_by_field_name("path") else {
         return Ok(());
     };

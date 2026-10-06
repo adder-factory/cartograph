@@ -1,5 +1,6 @@
 //! Integration coverage for Cartograph native extraction contracts.
 
+mod credential_support;
 mod dependency_ownership;
 
 use cartograph_domain::{SourceLanguage, SymbolKind};
@@ -8,6 +9,28 @@ use cartograph_extract::{
 };
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
+
+#[test]
+fn embedded_sql_literals_screen_credentials_before_table_projection() {
+    credential_support::assert_screened(
+        "query.ts",
+        "const query = 'SELECT * FROM \"@VALUE@\"';\n",
+        "token",
+    );
+    for value in credential_support::CREDENTIAL_INPUTS {
+        let source = format!("const query = 'SELECT * FROM users WHERE url = \"{value}\"';\n");
+        let file = extract("query.ts", &source);
+        credential_support::assert_no_credentials(&file);
+        assert_eq!(references(&file, "users", "read"), 0);
+    }
+    let file = extract("query.ts", "const query = 'SELECT * FROM \"token\"';\n");
+    let reference = sql_reference(&file, "token", "read");
+    assert_eq!(reference.name, "token");
+    assert_eq!(
+        reference.resolution_name.as_deref(),
+        Some("cartograph.embedded-sql::read::token")
+    );
+}
 
 #[test]
 fn static_sql_literals_link_supported_application_languages_to_qualified_tables() {
