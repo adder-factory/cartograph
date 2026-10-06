@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeSet, HashMap},
     mem::size_of,
     ops::ControlFlow,
@@ -9,7 +10,9 @@ use cartograph_domain::{
     ContentDigest, FileParseStatus, ReferenceKind, SourceLanguage, SymbolId, SymbolKind,
     callable_signature_is_literal_free,
 };
-use tree_sitter::{Language, Node, Query, QueryCursor, QueryCursorOptions, StreamingIterator};
+use tree_sitter::{
+    Language, Node, Query, QueryCursor, QueryCursorOptions, StreamingIterator, TreeCursor,
+};
 
 use crate::{
     Containment, ExtractError, ExtractedFile, ExtractedReference, ExtractedSymbol,
@@ -717,12 +720,19 @@ fn build_records<'tree>(
         }
         if input.language == SourceLanguage::Julia
             && matches!(record.role, RawRole::Call | RawRole::Signature)
-            && let Some(declaration) = julia_short_form_definition(record.role_node, input.source)
+            && let Some(declaration) =
+                julia_short_form_definition(record.role_node, input.source, cancelled)?
         {
             record.role = RawRole::Definition(SymbolKind::Function);
             record.role_node = declaration;
         }
-        let name = node_text(record.name_node, input.source).trim();
+        let name = if input.language == SourceLanguage::Julia
+            && matches!(record.role, RawRole::Definition(SymbolKind::Function))
+        {
+            julia_callee_name((record.name_node, input.source), transient, cancelled)?
+        } else {
+            Cow::Borrowed(node_text(record.name_node, input.source).trim())
+        };
         if name.is_empty() {
             continue;
         }
@@ -730,7 +740,7 @@ fn build_records<'tree>(
             RawRole::Definition(kind) => push_tag_definition(TagDefinitionInput {
                 record: &record,
                 kind,
-                name,
+                name: &name,
                 source: input.source,
                 definitions: &mut definitions,
                 seen: &mut seen_definitions,
@@ -738,7 +748,7 @@ fn build_records<'tree>(
             })?,
             RawRole::Call => push_tag_call(TagCallInput {
                 record: &record,
-                name,
+                name: &name,
                 calls: &mut calls,
                 transient,
             })?,
@@ -750,29 +760,140 @@ fn build_records<'tree>(
 
 /// A Julia call signature defines a function only on the left of `=`.
 /// Return annotations and chained `where` clauses wrap that same signature.
-fn julia_short_form_definition<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tree>> {
-    if node.kind() != "call_expression" || !julia_named_callee(node.named_child(0)?) {
-        return None;
+fn julia_short_form_definition<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<Node<'tree>>, ExtractError> {
+    if node.kind() != "call_expression" {
+        return Ok(None);
+    }
+    let [Some(callee), _] = julia_signature_parts(node, cancelled)? else {
+        return Ok(None);
+    };
+    if !julia_named_callee(callee, cancelled)? {
+        return Ok(None);
     }
     let mut signature = node;
     for _ in 0..MAX_TAG_AST_DEPTH {
-        let parent = signature.parent()?;
-        if parent.named_child(0) != Some(signature) {
-            return None;
+        let Some(parent) = signature.parent() else {
+            return Ok(None);
+        };
+        let [first, operator] = julia_signature_parts(parent, cancelled)?;
+        if first != Some(signature) {
+            return Ok(None);
         }
         match parent.kind() {
             "typed_expression" | "where_expression" => signature = parent,
             "assignment" => {
-                return parent
-                    .named_child(1)
+                return Ok(operator
                     .filter(|operator| node_text(*operator, source) == "=")
                     .filter(|_| julia_assignment_is_unquoted(parent))
-                    .map(|_| parent);
+                    .map(|_| parent));
             }
-            _ => return None,
+            _ => return Ok(None),
         }
     }
-    None
+    Ok(None)
+}
+
+/// Named extras, including trailing comments, do not occupy signature slots.
+/// Every skipped extra polls cancellation, even when no declaration is emitted.
+fn julia_signature_parts<'tree>(
+    node: Node<'tree>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<[Option<Node<'tree>>; 2], ExtractError> {
+    let mut parts = [None, None];
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        return Ok(parts);
+    }
+    loop {
+        if cancelled() {
+            return Err(ExtractError::Cancelled);
+        }
+        let child = cursor.node();
+        if child.is_named() && julia_signature_part(&child) {
+            if parts[0].is_none() {
+                parts[0] = Some(child);
+            } else {
+                parts[1] = Some(child);
+                break;
+            }
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    Ok(parts)
+}
+
+fn julia_signature_part(node: &Node<'_>) -> bool {
+    !node.is_extra() && !matches!(node.kind(), "line_comment" | "block_comment")
+}
+
+/// Comments inside a static callee never enter its declaration identity.
+/// Leaf punctuation preserves quoted operators and their parentheses.
+fn julia_callee_name<'source>(
+    input: (Node<'_>, &'source str),
+    transient: &mut TagTransientBudget,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Cow<'source, str>, ExtractError> {
+    let (node, source) = input;
+    let raw = node_text(node, source).trim();
+    if !raw.contains('#') {
+        return Ok(Cow::Borrowed(raw));
+    }
+    let mut name = julia_callee_buffer(raw.len(), transient)?;
+    let mut cursor = node.walk();
+    let maximum_depth = u32::try_from(MAX_TAG_AST_DEPTH).map_err(|_| ExtractError::NestingLimit)?;
+    loop {
+        if cancelled() {
+            return Err(ExtractError::Cancelled);
+        }
+        if cursor.depth() > maximum_depth {
+            return Err(ExtractError::NestingLimit);
+        }
+        let part = cursor.node();
+        if julia_signature_part(&part) {
+            if cursor.goto_first_child() {
+                continue;
+            }
+            name.push_str(node_text(part, source));
+        }
+        if !julia_next_name_part(&mut cursor) {
+            break;
+        }
+    }
+    Ok(Cow::Owned(name))
+}
+
+fn julia_callee_buffer(
+    length: usize,
+    transient: &mut TagTransientBudget,
+) -> Result<String, ExtractError> {
+    transient.charge(length)?;
+    let mut name = String::new();
+    name.try_reserve_exact(length)
+        .map_err(|_| ExtractError::OutputLimit)?;
+    Ok(name)
+}
+
+fn julia_next_name_part(cursor: &mut TreeCursor<'_>) -> bool {
+    while !cursor.goto_next_sibling() {
+        if !cursor.goto_parent() {
+            return false;
+        }
+    }
+    true
+}
+
+fn julia_signature_child<'tree>(
+    node: Node<'tree>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<Node<'tree>>, ExtractError> {
+    let [first, second] = julia_signature_parts(node, cancelled)?;
+    Ok(first.filter(|_| second.is_none()))
 }
 
 /// A quoted operator name is a child; quotation around the assignment is data.
@@ -790,50 +911,53 @@ fn julia_assignment_is_unquoted(mut node: Node<'_>) -> bool {
 }
 
 /// Only static identifier/operator paths can name a short-form declaration.
-fn julia_named_callee(mut node: Node<'_>) -> bool {
+fn julia_named_callee(
+    mut node: Node<'_>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<bool, ExtractError> {
     for _ in 0..MAX_TAG_AST_DEPTH {
         match node.kind() {
-            "identifier" | "operator" => return true,
-            "quote_expression" => return julia_quoted_operator(node),
+            "identifier" | "operator" => return Ok(true),
+            "quote_expression" => return julia_quoted_operator(node, cancelled),
             "field_expression" => {
-                let Some(field) = node.named_child(1) else {
-                    return false;
+                let [_, Some(field)] = julia_signature_parts(node, cancelled)? else {
+                    return Ok(false);
                 };
-                if field.kind() != "identifier" && !julia_quoted_operator(field) {
-                    return false;
+                if field.kind() != "identifier" && !julia_quoted_operator(field, cancelled)? {
+                    return Ok(false);
                 }
                 let Some(value) = node.child_by_field_name("value") else {
-                    return false;
+                    return Ok(false);
                 };
                 node = value;
             }
-            _ => return false,
+            _ => return Ok(false),
         }
     }
-    false
+    Ok(false)
 }
 
 /// A quoted operator may have bounded single-child parentheses around it.
-fn julia_quoted_operator(node: Node<'_>) -> bool {
-    if node.kind() != "quote_expression" || node.named_child_count() != 1 {
-        return false;
+fn julia_quoted_operator(
+    node: Node<'_>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<bool, ExtractError> {
+    if node.kind() != "quote_expression" {
+        return Ok(false);
     }
-    let Some(mut inner) = node.named_child(0) else {
-        return false;
+    let Some(mut inner) = julia_signature_child(node, cancelled)? else {
+        return Ok(false);
     };
     for _ in 0..MAX_TAG_AST_DEPTH {
         if inner.kind() != "parenthesized_expression" {
-            return inner.kind() == "operator";
+            return Ok(inner.kind() == "operator");
         }
-        if inner.named_child_count() != 1 {
-            return false;
-        }
-        let Some(child) = inner.named_child(0) else {
-            return false;
+        let Some(child) = julia_signature_child(inner, cancelled)? else {
+            return Ok(false);
         };
         inner = child;
     }
-    false
+    Ok(false)
 }
 
 struct TagDefinitionInput<'input, 'tree> {
@@ -1415,28 +1539,9 @@ fn safe_declaration_signature(
     if !matches!(input.kind, SymbolKind::Function | SymbolKind::Method) {
         return Ok(None);
     }
-    let Some(line) = node_text(input.node, input.source)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-    else {
+    let Some(header) = declaration_signature_header(input) else {
         return Ok(None);
     };
-    let header = match input.language {
-        SourceLanguage::Elixir => {
-            let without_inline_body = line.split_once(", do:").map_or(line, |(header, _)| header);
-            without_inline_body
-                .strip_suffix(" do")
-                .unwrap_or(without_inline_body)
-        }
-        SourceLanguage::Haskell => line.split_once('=').map_or(line, |(header, _)| header),
-        SourceLanguage::Julia => callable_prefix_through_parameters(line).unwrap_or(line),
-        SourceLanguage::Ocaml => line.split_once('=').map_or(line, |(header, _)| header),
-        SourceLanguage::OcamlInterface => line,
-        SourceLanguage::Verilog => line.split_once(';').map_or(line, |(header, _)| header),
-        _ => return Ok(None),
-    }
-    .trim();
     let bounded = truncate_with_ellipsis(header, MAX_SIGNATURE_BYTES, TRUNCATED_SIGNATURE_BYTES)?;
     let contains_unmodeled_literal = bounded
         .bytes()
@@ -1448,9 +1553,34 @@ fn safe_declaration_signature(
     )
 }
 
+fn declaration_signature_header<'source>(
+    input: DeclarationSignatureInput<'_, 'source>,
+) -> Option<&'source str> {
+    let line = node_text(input.node, input.source)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let header = match input.language {
+        SourceLanguage::Elixir => {
+            let without_inline_body = line.split_once(", do:").map_or(line, |(header, _)| header);
+            without_inline_body
+                .strip_suffix(" do")
+                .unwrap_or(without_inline_body)
+        }
+        SourceLanguage::Haskell => line.split_once('=').map_or(line, |(header, _)| header),
+        SourceLanguage::Julia => callable_prefix_through_parameters(line)?,
+        SourceLanguage::Ocaml => line.split_once('=').map_or(line, |(header, _)| header),
+        SourceLanguage::OcamlInterface => line,
+        SourceLanguage::Verilog => line.split_once(';').map_or(line, |(header, _)| header),
+        _ => return None,
+    };
+    Some(header.trim())
+}
+
 fn callable_prefix_through_parameters(line: &str) -> Option<&str> {
     let end = line.find(')')?;
-    line.get(..=end)
+    // A partial line or comment-bearing header cannot establish a safe signature.
+    line.get(..=end).filter(|header| !header.contains('#'))
 }
 
 fn contains_colon_atom(value: &str) -> bool {
@@ -1508,6 +1638,64 @@ fn diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parsed_julia(source: &str) -> tree_sitter::Tree {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&crate::NativeGrammar::Julia.language())
+            .unwrap_or_else(|error| panic!("Julia grammar failed: {error}"));
+        parser
+            .parse(source, None)
+            .unwrap_or_else(|| panic!("Julia parse failed"))
+    }
+
+    #[test]
+    fn julia_signature_comment_runs_poll_cancellation() {
+        let source = format!("f(x) {} = helper(x)\n", "#==# ".repeat(10_000));
+        let tree = parsed_julia(&source);
+        let assignment = tree
+            .root_node()
+            .named_child(0)
+            .unwrap_or_else(|| panic!("missing assignment"));
+        let signature = assignment
+            .named_child(0)
+            .unwrap_or_else(|| panic!("missing signature"));
+        assert_eq!(signature.kind(), "call_expression");
+        assert_eq!(
+            julia_short_form_definition(signature, &source, &mut || false)
+                .unwrap_or_else(|error| panic!("classification failed: {error}")),
+            Some(assignment)
+        );
+        let mut polls = 0;
+        let result = julia_short_form_definition(signature, &source, &mut || {
+            polls += 1;
+            polls == 8
+        });
+        assert!(matches!(result, Err(ExtractError::Cancelled)));
+        assert_eq!(polls, 8);
+    }
+
+    #[test]
+    fn julia_commented_callee_name_obeys_the_ast_depth_limit() {
+        let source = format!(
+            "{}#= note =# leaf(x) = helper(x)\n",
+            "Root.".repeat(MAX_TAG_AST_DEPTH + 1)
+        );
+        let tree = parsed_julia(&source);
+        let callee = tree
+            .root_node()
+            .named_child(0)
+            .and_then(|assignment| assignment.named_child(0))
+            .and_then(|call| call.named_child(0))
+            .unwrap_or_else(|| panic!("missing callee"));
+        assert_eq!(callee.kind(), "field_expression");
+        let mut transient = TagTransientBudget {
+            retained: 0,
+            maximum: source.len() * 2,
+        };
+        let result = julia_callee_name((callee, &source), &mut transient, &mut || false);
+        assert!(matches!(result, Err(ExtractError::NestingLimit)));
+    }
 
     #[test]
     fn every_tags_query_compiles_against_its_exact_native_grammar() {

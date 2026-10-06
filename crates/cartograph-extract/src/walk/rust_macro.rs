@@ -140,7 +140,7 @@ pub(super) fn capture_invocation(
         return Ok(());
     };
     let name = builder.context.owned_text(target)?;
-    let reading = TreeReading::of_invocation(builder, &name, node.start_byte());
+    let reading = TreeReading::of_invocation(builder, &name, node.start_byte())?;
     let reference = macro_call_reference(builder, name, span_for(target)?)?;
     builder.emit_reference(reference)?;
     let Some(tokens) = named_children(node).find(|child| child.kind() == "token_tree") else {
@@ -243,18 +243,20 @@ impl TreeReading {
         builder: &mut ExtractionBuilder<'_, '_>,
         macro_name: &str,
         offset: usize,
-    ) -> Self {
+    ) -> Result<Self, ExtractError> {
         let reading = Self::of_macro(macro_name);
         if reading.role == TreeRole::Tokens
-            && builder.rust_macros.takes_expressions(macro_name, offset)
+            && builder
+                .rust_macros
+                .takes_expressions((macro_name, offset), builder.context.cancelled)?
             && builder.optional_facts.admit()
         {
-            return Self {
+            return Ok(Self {
                 role: TreeRole::Expressions(None),
                 pattern: PatternScope::None,
-            };
+            });
         }
-        reading
+        Ok(reading)
     }
 
     const SKIPPED: Self = Self {
@@ -602,7 +604,7 @@ impl<'source> MacroTokenScan<'_, 'source, '_> {
         }
         frame.cursor.next_tree = Some((
             path.arguments,
-            TreeReading::of_invocation(self.builder, &name, token.start_byte()),
+            TreeReading::of_invocation(self.builder, &name, token.start_byte())?,
         ));
         let span = SourceCursor::at(self.source, token)?.span(token.start_byte(), path.end)?;
         let reference = macro_call_reference(self.builder, name, span)?;

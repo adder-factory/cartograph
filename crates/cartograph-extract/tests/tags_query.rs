@@ -148,6 +148,121 @@ fn julia_parity_corpus_short_form_area_has_its_exact_declaration() {
 }
 
 #[test]
+fn julia_commented_short_form_signatures_declare_and_own_rhs_calls() {
+    for (signature, name) in [
+        ("f(x) #= note =#", "f"),
+        ("f(x) #= first =# #= second =#", "f"),
+        ("#= before =# f(x)", "f"),
+        (
+            "f(x) #= typed =# ::T #= annotation =# where T #= assignment =#",
+            "f",
+        ),
+        ("f(x) where #= bound =# T where S #= assignment =#", "f"),
+        ("Base #= module =#.show(x) #= assignment =#", "Base.show"),
+        ("Base. #= field =# show(x)", "Base.show"),
+        ("Base.:( #= quote =# == #= trailing =# )(a,b)", "Base.:(==)"),
+        (":( #= inner =# == #= trailing =# )(a,b)", ":(==)"),
+        (":(( #= nested =# == #= trailing =# ))(a,b)", ":((==))"),
+    ] {
+        let source = format!("module M\n{signature} = helper(x) #= trailing =#\nend\n");
+        let file = extract("src/Commented.jl", &source);
+        let module = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Module)
+            .unwrap_or_else(|| panic!("missing module: {signature}"));
+        let function = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Function)
+            .unwrap_or_else(|| panic!("missing declaration: {signature}: {:?}", file.references));
+        assert_eq!(function.name, name, "{signature}");
+        let qualified = if name.starts_with("Base.") {
+            name.to_owned()
+        } else {
+            format!("M.{name}")
+        };
+        assert_eq!(function.qualified_name, qualified, "{signature}");
+        assert!(
+            file.containments
+                .iter()
+                .any(|edge| edge.parent == module.id && edge.child == function.id),
+            "{signature}"
+        );
+        assert_eq!(
+            file.references.len(),
+            1,
+            "signature is not a call: {signature}"
+        );
+        let call = &file.references[0];
+        assert_eq!(call.name, "helper", "{signature}");
+        assert_eq!(call.kind, ReferenceKind::Calls);
+        assert_eq!(call.owner.as_ref(), Some(&function.id), "{signature}");
+        assert_eq!(file.parse_status, FileParseStatus::Parsed, "{signature}");
+    }
+}
+
+#[test]
+fn julia_parameter_comments_never_enter_declaration_facts() {
+    const CANARY: &str = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    for declaration in [
+        format!("f(x # {CANARY}\n) #= note =# = helper(x)"),
+        format!("f(x # {CANARY} )\n) #= note =# = helper(x)"),
+        format!("f(x #= {CANARY} =#) #= note =# = helper(x)"),
+        format!("function f(x # {CANARY}\n)\nhelper(x)\nend"),
+    ] {
+        let source = format!("module M\n{declaration}\nend\n");
+        let file = extract("src/Comments.jl", &source);
+        let function = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Function && symbol.name == "f")
+            .unwrap_or_else(|| panic!("missing declaration: {:?}", file.symbols));
+        assert_eq!(function.qualified_name, "M.f");
+        let helper = file
+            .references
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Calls && reference.name == "helper")
+            .unwrap_or_else(|| panic!("missing RHS call: {:?}", file.references));
+        assert_eq!(helper.owner.as_ref(), Some(&function.id));
+        assert!(!format!("{file:?}").contains("ghp_"));
+        assert_eq!(function.signature, None);
+        assert_eq!(file.parse_status, FileParseStatus::Parsed);
+    }
+}
+
+#[test]
+fn julia_commented_non_signatures_keep_module_call_owners() {
+    for body in [
+        "Base.:(a #= tuple =#,b)(x) = helper(x)",
+        "f(x) #= operator =# += helper(x)",
+        "expr = quote; f(x) #= quoted =# = helper(x); end",
+    ] {
+        let source = format!("module M\n{body}\nend\n");
+        let file = extract("src/Commented.jl", &source);
+        let module = file
+            .symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Module)
+            .unwrap_or_else(|| panic!("missing module: {body}"));
+        assert!(
+            file.symbols
+                .iter()
+                .all(|symbol| symbol.kind != SymbolKind::Function),
+            "{body}"
+        );
+        let call = file
+            .references
+            .iter()
+            .find(|reference| reference.name == "helper")
+            .unwrap_or_else(|| panic!("missing RHS call: {body}"));
+        assert_eq!(call.kind, ReferenceKind::Calls);
+        assert_eq!(call.owner.as_ref(), Some(&module.id), "{body}");
+        assert_eq!(file.parse_status, FileParseStatus::Parsed, "{body}");
+    }
+}
+
+#[test]
 fn julia_chained_where_signatures_are_declarations_not_calls() {
     let file = extract(
         "src/Shapes.jl",

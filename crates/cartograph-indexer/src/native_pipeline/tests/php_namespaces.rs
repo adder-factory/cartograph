@@ -42,6 +42,138 @@ const LEGACY_USER: (&str, &str) = (
 );
 
 #[test]
+fn non_public_static_calls_require_class_scope_even_in_the_same_file() {
+    let facts = generation(&[(
+        "src/Visibility.php",
+        r"<?php
+class C {
+    private static function hidden() {}
+    protected static function guarded() {}
+    public static function __callStatic($name, $args) {}
+    public static function inside() { C::hidden(); C::guarded(); }
+}
+class Other { public static function run() { C::hidden(); C::guarded(); } }
+function run() { C::hidden(); C::guarded(); }
+class Plain { private static function hidden() {} }
+function plain() { Plain::hidden(); }
+",
+    )]);
+    for owner in ["run", "Other::run"] {
+        let caller = capability_symbol(&facts, "src/Visibility.php", owner);
+        for name in ["C::hidden", "C::guarded"] {
+            let call =
+                CapabilityReferenceQuery::new(&facts, caller).named(name, ReferenceKind::Calls);
+            assert!(
+                call.target_symbol_id.is_none(),
+                "inaccessible {name}: {call:?}"
+            );
+        }
+    }
+    let plain = capability_symbol(&facts, "src/Visibility.php", "plain");
+    assert!(
+        CapabilityReferenceQuery::new(&facts, plain)
+            .named("Plain::hidden", ReferenceKind::Calls)
+            .target_symbol_id
+            .is_none()
+    );
+    let inside = capability_symbol(&facts, "src/Visibility.php", "C::inside");
+    for name in ["hidden", "guarded"] {
+        assert_targets(
+            CapabilityReferenceQuery::new(&facts, inside)
+                .named(&format!("C::{name}"), ReferenceKind::Calls),
+            capability_symbol(&facts, "src/Visibility.php", &format!("C::{name}")),
+        );
+    }
+}
+
+#[test]
+fn protected_static_calls_require_proven_ancestry_across_files() {
+    let facts = generation(&[
+        (
+            "src/Base.php",
+            r"<?php
+class Base {
+    private static function hidden() {}
+    protected static function guarded() {}
+    public static function inside() { Base::hidden(); Base::guarded(); Child::childOnly(); }
+}",
+        ),
+        (
+            "src/Child.php",
+            r"<?php
+class Child extends Base {
+    protected static function childOnly() {}
+    public static function run() { Base::guarded(); Base::hidden(); }
+}
+
+class Grandchild extends Child { public static function run() { Base::guarded(); } }
+class Other { public static function run() { Base::guarded(); } }
+class Unknown extends Vendor { public static function run() { Base::guarded(); } }
+function run() { Base::guarded(); }
+",
+        ),
+    ]);
+    let guarded = capability_symbol(&facts, "src/Base.php", "Base::guarded");
+    for owner in ["Child::run", "Grandchild::run"] {
+        let caller = capability_symbol(&facts, "src/Child.php", owner);
+        assert_targets(
+            CapabilityReferenceQuery::new(&facts, caller)
+                .named("Base::guarded", ReferenceKind::Calls),
+            guarded,
+        );
+    }
+    for owner in ["Other::run", "Unknown::run", "run"] {
+        let caller = capability_symbol(&facts, "src/Child.php", owner);
+        assert!(
+            CapabilityReferenceQuery::new(&facts, caller)
+                .named("Base::guarded", ReferenceKind::Calls)
+                .target_symbol_id
+                .is_none()
+        );
+    }
+    let child = capability_symbol(&facts, "src/Child.php", "Child::run");
+    assert!(
+        CapabilityReferenceQuery::new(&facts, child)
+            .named("Base::hidden", ReferenceKind::Calls)
+            .target_symbol_id
+            .is_none()
+    );
+    let base = capability_symbol(&facts, "src/Base.php", "Base::inside");
+    assert_targets(
+        CapabilityReferenceQuery::new(&facts, base).named("Child::childOnly", ReferenceKind::Calls),
+        capability_symbol(&facts, "src/Child.php", "Child::childOnly"),
+    );
+}
+
+#[test]
+fn private_calls_preserve_closure_scope_but_exclude_nested_named_functions() {
+    let facts = generation(&[(
+        "src/Scope.php",
+        r"<?php
+class C {
+    private static function hidden() {}
+    public static function inside() {
+        $closure = function () { C::hidden(); };
+        function nested() { C::hidden(); }
+    }
+}
+",
+    )]);
+    let inside = capability_symbol(&facts, "src/Scope.php", "C::inside");
+    assert_targets(
+        CapabilityReferenceQuery::new(&facts, inside).named("C::hidden", ReferenceKind::Calls),
+        capability_symbol(&facts, "src/Scope.php", "C::hidden"),
+    );
+    let nested = capability_symbol(&facts, "src/Scope.php", "nested");
+    assert!(
+        CapabilityReferenceQuery::new(&facts, nested)
+            .named("C::hidden", ReferenceKind::Calls)
+            .target_symbol_id
+            .is_none()
+    );
+}
+
+#[test]
 fn use_imports_bind_static_calls_constructors_and_declarations_to_the_imported_namespace() {
     let facts = generation(&[
         USER_MODEL,

@@ -31,7 +31,7 @@
 //! rather than exact lookups. When such a name matches a PHP `use` binding,
 //! the binding's fully qualified target is resolved the same exact way.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cartograph_domain::{FileId, ReferenceKind, SourceLanguage, SymbolId, SymbolKind, Visibility};
 use cartograph_extract::{ExtractedImportBinding, ExtractedReference, PHP_EXACT_RESOLUTION_PREFIX};
@@ -154,6 +154,8 @@ const fn exactly_resolvable(kind: SymbolKind) -> bool {
 pub(super) struct PhpResolutionIndex {
     /// ASCII-lowercased qualified name → the declared spellings that fold to it.
     folded: HashMap<String, CaseVariants>,
+    /// Class-like identities that establish caller scope.
+    classes: HashSet<SymbolId>,
     /// Class → candidate key of the class its `extends` clause names; `None`
     /// when the target is unknown or not unique.
     parents: HashMap<SymbolId, Option<String>>,
@@ -204,6 +206,9 @@ where
         if exactly_resolvable(symbol.kind) {
             index.fold(&symbol.input.qualified_name, budget)?;
         }
+        if class_like(symbol.kind) {
+            record_class_scope(&mut index.classes, &symbol.input.symbol_id, budget)?;
+        }
     }
     for reference in &file.references {
         if cancelled() {
@@ -219,6 +224,35 @@ where
         }
     }
     Ok(())
+}
+
+fn record_class_scope(
+    classes: &mut HashSet<SymbolId>,
+    id: &SymbolId,
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    budget.charge(
+        RESOLUTION_MAP_NODE_ALLOWANCE
+            .saturating_add(usize_to_u64(size_of::<SymbolId>()))
+            .saturating_add(usize_to_u64(id.as_str().len())),
+    )?;
+    classes.insert(id.clone());
+    Ok(())
+}
+
+/// PHP methods and member initializers have their class as the direct parent.
+/// Named nested functions establish a separate scope and must not inherit it.
+pub(super) fn caller_class<'index>(
+    index: &'index ResolutionIndex,
+    owner: Option<&SymbolId>,
+) -> Option<&'index SymbolId> {
+    let owner = owner?;
+    index.php.classes.get(owner).or_else(|| {
+        index
+            .parents
+            .get(owner)
+            .filter(|parent| index.php.classes.contains(*parent))
+    })
 }
 
 impl PhpResolutionIndex {
@@ -389,10 +423,11 @@ impl<'lookup> PhpExactLookup<'lookup> {
     }
 }
 
-/// An exact lookup together with the file it is resolved from.
+/// An exact lookup together with its file and proven caller class scope.
 #[derive(Clone, Copy)]
 pub(super) struct PhpExactRequest<'request> {
     pub(super) file_id: &'request FileId,
+    pub(super) caller_class: Option<&'request SymbolId>,
     pub(super) lookup: PhpExactLookup<'request>,
 }
 
@@ -406,10 +441,15 @@ pub(super) fn resolve_exact<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let PhpExactRequest { file_id, lookup } = request;
+    let PhpExactRequest {
+        file_id,
+        caller_class,
+        lookup,
+    } = request;
     let exact = ExactQuery {
         index,
         file_id,
+        caller_class,
         intent: lookup.intent,
         key: lookup.key,
     };
@@ -529,6 +569,7 @@ fn split_last_segment(key: &str) -> (&str, &str) {
 struct ExactQuery<'query> {
     index: &'query ResolutionIndex,
     file_id: &'query FileId,
+    caller_class: Option<&'query SymbolId>,
     intent: Intent,
     key: &'query str,
 }
@@ -598,15 +639,15 @@ impl<'query> ExactQuery<'query> {
         let Some(spellings) = self.index.php.spellings(self.key) else {
             return Ok(None);
         };
-        select_candidate(
+        let candidate = select_candidate(
             self.filed(spellings),
-            |candidate| {
-                self.admits(candidate)
-                    && !candidate.augmentation
-                    && visible_from(candidate, self.file_id)
-            },
+            |candidate| self.admits(candidate) && !candidate.augmentation,
             cancelled,
-        )
+        )?;
+        match candidate {
+            Some(candidate) if self.visible_from(candidate, cancelled)? => Ok(Some(candidate)),
+            _ => Ok(None),
+        }
     }
 
     fn target<Cancel>(
@@ -637,6 +678,66 @@ impl<'query> ExactQuery<'query> {
         }
         .candidate(cancelled)
     }
+
+    /// Private access requires the declaring class; protected access requires
+    /// that class or a uniquely resolved chain relating it to the caller.
+    fn visible_from<Cancel>(
+        self,
+        candidate: &ResolutionCandidate,
+        cancelled: &mut Cancel,
+    ) -> Result<bool, StageItemFailure>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        match candidate.visibility {
+            None | Some(Visibility::Public) => return Ok(true),
+            Some(Visibility::Internal) => return Ok(false),
+            Some(Visibility::Private | Visibility::Protected) => {}
+        }
+        let (Some(caller), Some(declaring)) =
+            (self.caller_class, candidate.parent_symbol_id.as_ref())
+        else {
+            return Ok(false);
+        };
+        if caller == declaring {
+            return Ok(true);
+        }
+        if candidate.visibility == Some(Visibility::Private) {
+            return Ok(false);
+        }
+        Ok(self.descends_from((caller, declaring), cancelled)?
+            || self.descends_from((declaring, caller), cancelled)?)
+    }
+
+    fn descends_from<Cancel>(
+        self,
+        lineage: (&SymbolId, &SymbolId),
+        cancelled: &mut Cancel,
+    ) -> Result<bool, StageItemFailure>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        let (mut descendant, ancestor) = lineage;
+        for _ in 0..MAX_ANCESTRY_HOPS {
+            if cancelled() {
+                return Err(StageItemFailure);
+            }
+            let Some(Some(parent)) = self.index.php.parents.get(descendant) else {
+                return Ok(false);
+            };
+            let Some(class) = self
+                .class_like(parent, cancelled)?
+                .filter(|class| class.kind == SymbolKind::Class)
+            else {
+                return Ok(false);
+            };
+            if &class.symbol_id == ancestor {
+                return Ok(true);
+            }
+            descendant = &class.symbol_id;
+        }
+        Ok(false)
+    }
 }
 
 /// The exact-resolution target of a candidate resolved from `file_id`.
@@ -660,12 +761,6 @@ fn php_candidate(index: &ResolutionIndex, candidate: &ResolutionCandidate) -> bo
         .files
         .get(&candidate.file_id)
         .is_some_and(|file| file.language == SourceLanguage::Php.as_str())
-}
-
-/// Private members are reachable only from their own file; protected and
-/// public members stay reachable from subclasses and callers elsewhere.
-fn visible_from(candidate: &ResolutionCandidate, file_id: &FileId) -> bool {
-    &candidate.file_id == file_id || candidate.visibility != Some(Visibility::Private)
 }
 
 /// Bind `Model::member` to the model class when the class is, by exact
@@ -989,6 +1084,7 @@ where
     let imported = ExactQuery {
         index,
         file_id: reference.file_id,
+        caller_class: caller_class(index, reference.owner),
         intent: Intent::Class,
         key: &imported,
     };

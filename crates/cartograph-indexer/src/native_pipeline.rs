@@ -8603,26 +8603,26 @@ where
         index,
         facts,
         budget,
-        cancelled: _,
+        cancelled,
     } = input;
-    for target in candidates
-        .iter()
-        .filter(|candidate| candidate.qualified_name == qualified_name)
-    {
-        let Some(jvm_name) = mybatis_jvm_statement_name(index, target)? else {
+    for target in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if target.qualified_name != qualified_name {
+            continue;
+        }
+        let Some(jvm_name) = mybatis_jvm_statement_name(index, target, cancelled)? else {
             continue;
         };
         let Some(sources) = index.candidates.get(&jvm_name) else {
             continue;
         };
         for source in sources.as_slice() {
-            let Some(source_file) = index.modules.files.get(&source.file_id) else {
+            if cancelled() {
                 return Err(StageItemFailure);
-            };
-            if source.qualified_name != jvm_name
-                || source.kind != SymbolKind::Method
-                || !matches!(source_file.language.as_str(), "java" | "kotlin" | "scala")
-            {
+            }
+            if !mybatis_jvm_mapper_method(index, (source, &jvm_name))? {
                 continue;
             }
             append_framework_edge(
@@ -8640,12 +8640,31 @@ where
     Ok(())
 }
 
+fn mybatis_jvm_mapper_method(
+    index: &ResolutionIndex,
+    source: (&ResolutionCandidate, &str),
+) -> Result<bool, StageItemFailure> {
+    let (candidate, name) = source;
+    let file = index
+        .modules
+        .files
+        .get(&candidate.file_id)
+        .ok_or(StageItemFailure)?;
+    Ok(candidate.qualified_name == name
+        && candidate.kind == SymbolKind::Method
+        && matches!(file.language.as_str(), "java" | "kotlin" | "scala"))
+}
+
 /// The exact JVM qualified name of a `MyBatis` XML statement whose mapper
 /// namespace is package-qualified, or `None` for any other candidate.
-fn mybatis_jvm_statement_name(
+fn mybatis_jvm_statement_name<Cancel>(
     index: &ResolutionIndex,
     statement: &ResolutionCandidate,
-) -> Result<Option<String>, StageItemFailure> {
+    cancelled: &mut Cancel,
+) -> Result<Option<String>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     let Some(file) = index.modules.files.get(&statement.file_id) else {
         return Err(StageItemFailure);
     };
@@ -8658,11 +8677,16 @@ fn mybatis_jvm_statement_name(
     ) else {
         return Ok(None);
     };
-    let namespace = index.candidates.get(mapper).and_then(|bucket| {
-        bucket.as_slice().iter().find(|candidate| {
-            &candidate.symbol_id == parent && candidate.kind == SymbolKind::Namespace
-        })
-    });
+    let mut namespace = None;
+    for candidate in resolution_candidates_for_file(index, mapper, &statement.file_id) {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if &candidate.symbol_id == parent && candidate.kind == SymbolKind::Namespace {
+            namespace = Some(candidate);
+            break;
+        }
+    }
     let Some((package, simple)) =
         namespace.and_then(|namespace| namespace.qualified_name.rsplit_once('.'))
     else {
@@ -8686,34 +8710,29 @@ where
         index,
         facts,
         budget,
-        cancelled: _,
+        cancelled,
     } = input;
-    let exact = candidates
-        .iter()
-        .filter(|candidate| candidate.qualified_name == qualified_name)
-        .collect::<Vec<_>>();
-    for source in &exact {
-        let Some(source_file) = index.modules.files.get(&source.file_id) else {
+    let targets = mybatis_xml_targets((index, qualified_name, candidates), budget, cancelled)?;
+    if targets.is_empty() {
+        return Ok(());
+    }
+    for source in candidates {
+        if cancelled() {
             return Err(StageItemFailure);
-        };
-        if !matches!(source_file.language.as_str(), "java" | "kotlin" | "scala")
-            || source.kind != SymbolKind::Method
-        {
+        }
+        if !mybatis_jvm_mapper_method(index, (source, qualified_name))? {
             continue;
         }
-        for target in &exact {
-            let Some(target_file) = index.modules.files.get(&target.file_id) else {
+        for &target in &targets {
+            if cancelled() {
                 return Err(StageItemFailure);
-            };
-            if target_file.language != "xml"
-                || target.kind != SymbolKind::Method
-                || source.symbol_id == target.symbol_id
-            {
+            }
+            if source.symbol_id == target.symbol_id {
                 continue;
             }
             // An unpackaged JVM mapper bound to a package-qualified namespace
             // matches only by the simple-namespace convention, not exactly.
-            let confidence = if mybatis_jvm_statement_name(index, target)?.is_some() {
+            let confidence = if mybatis_jvm_statement_name(index, target, cancelled)?.is_some() {
                 FRAMEWORK_CONVENTION_CONFIDENCE
             } else {
                 EXACT_PROJECT_CONFIDENCE
@@ -8731,6 +8750,54 @@ where
         }
     }
     Ok(())
+}
+
+/// Select exact XML statements once, before scanning JVM mapper sources.
+fn mybatis_xml_targets<'candidate, Cancel>(
+    input: (&ResolutionIndex, &str, &'candidate [ResolutionCandidate]),
+    budget: &mut ResolveBudget,
+    cancelled: &mut Cancel,
+) -> Result<Vec<&'candidate ResolutionCandidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (index, name, candidates) = input;
+    let mut targets = Vec::new();
+    for candidate in candidates {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if candidate.qualified_name != name || candidate.kind != SymbolKind::Method {
+            continue;
+        }
+        let file = index
+            .modules
+            .files
+            .get(&candidate.file_id)
+            .ok_or(StageItemFailure)?;
+        if file.language != SourceLanguage::Xml.as_str() {
+            continue;
+        }
+        reserve_mybatis_target_slot(&mut targets, budget)?;
+        targets.push(candidate);
+    }
+    Ok(targets)
+}
+
+fn reserve_mybatis_target_slot(
+    targets: &mut Vec<&ResolutionCandidate>,
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    if targets.len() < targets.capacity() {
+        return Ok(());
+    }
+    let additional = targets.capacity().max(1);
+    budget.charge(
+        usize_to_u64(additional).saturating_mul(usize_to_u64(size_of::<&ResolutionCandidate>())),
+    )?;
+    targets
+        .try_reserve_exact(additional)
+        .map_err(|_| StageItemFailure)
 }
 
 fn append_named_framework_bridges<Cancel>(
@@ -10938,6 +11005,7 @@ where
             index,
             php_resolution::PhpExactRequest {
                 file_id: &context.identity.file_id,
+                caller_class: php_resolution::caller_class(index, reference.owner.as_ref()),
                 lookup: php_lookup,
             },
             cancelled,
@@ -18734,6 +18802,242 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             "OrderAttributeDaoMapper::deleteByOrderId",
         );
         assert!(has_edge(dao, delete, EdgeKind::References));
+    }
+
+    fn duplicate_mybatis_index(count: usize) -> ResolutionIndex {
+        let source = r#"<mapper namespace="com.example.OrderMapper"><select id="findOrder">SELECT 1</select></mapper>"#;
+        let limits = SourceLimits::new(TEST_SOURCE_BYTES)
+            .unwrap_or_else(|error| panic!("invalid limits: {error}"));
+        let mut accumulator = NativeFactAccumulator::new(TEST_GENERATION_BYTES);
+        let mut extractor = NativeExtractor::new(SourceLanguage::Xml)
+            .unwrap_or_else(|error| panic!("missing XML grammar: {error}"));
+        for ordinal in 0..count {
+            let path = format!("mapper/OrderMapper{ordinal}.xml");
+            let snapshot =
+                cartograph_extract::SourceSnapshot::from_bytes(&path, source.as_bytes(), limits)
+                    .unwrap_or_else(|error| panic!("invalid snapshot: {error}"));
+            let file = extractor
+                .extract(&snapshot)
+                .unwrap_or_else(|error| panic!("XML extraction failed: {error}"));
+            accumulator
+                .push(file)
+                .unwrap_or_else(|_| panic!("corpus exceeded budget"));
+        }
+        mybatis_test_resolution_index(&accumulator, TEST_GENERATION_BYTES)
+    }
+
+    fn mybatis_test_resolution_index(
+        accumulator: &NativeFactAccumulator,
+        maximum_bytes: u64,
+    ) -> ResolutionIndex {
+        let mut budget = ResolveBudget::new(0, maximum_bytes)
+            .unwrap_or_else(|_| panic!("invalid resolve budget"));
+        build_resolution_index(
+            accumulator,
+            ResolutionIndexContext {
+                source_root: &test_source_root(),
+                budget: &mut budget,
+                cancelled: &mut || false,
+            },
+        )
+        .unwrap_or_else(|_| panic!("index exceeded budget"))
+    }
+
+    fn mixed_mybatis_alias_index(counts: (usize, usize)) -> ResolutionIndex {
+        const CORPUS_BYTES: u64 = 256 * 1024 * 1024;
+        let limits = SourceLimits::new(TEST_SOURCE_BYTES)
+            .unwrap_or_else(|error| panic!("invalid limits: {error}"));
+        let mut accumulator = NativeFactAccumulator::new(CORPUS_BYTES);
+        for (language, count) in [
+            (SourceLanguage::Java, counts.0),
+            (SourceLanguage::Php, counts.1),
+        ] {
+            let mut extractor = NativeExtractor::new(language)
+                .unwrap_or_else(|error| panic!("missing grammar: {error}"));
+            for ordinal in 0..count {
+                let (path, source) = mybatis_alias_fixture(language, ordinal);
+                let snapshot = cartograph_extract::SourceSnapshot::from_bytes(
+                    &path,
+                    source.as_bytes(),
+                    limits,
+                )
+                .unwrap_or_else(|error| panic!("invalid snapshot: {error}"));
+                let file = extractor
+                    .extract(&snapshot)
+                    .unwrap_or_else(|error| panic!("extraction failed: {error}"));
+                accumulator
+                    .push(file)
+                    .unwrap_or_else(|_| panic!("corpus exceeded budget"));
+            }
+        }
+        mybatis_test_resolution_index(&accumulator, CORPUS_BYTES)
+    }
+
+    fn mybatis_alias_fixture(language: SourceLanguage, ordinal: usize) -> (String, String) {
+        match language {
+            SourceLanguage::Java => (
+                format!("java/{ordinal}/OrderMapper.java"),
+                "public class OrderMapper { public void findOrder() {} }".to_owned(),
+            ),
+            SourceLanguage::Php => (
+                format!("php/OrderMapper{ordinal}.php"),
+                format!(
+                    "<?php namespace Ns{ordinal}; class OrderMapper {{ public static function findOrder() {{}} }}"
+                ),
+            ),
+            _ => panic!("unsupported fixture language"),
+        }
+    }
+
+    #[test]
+    fn qualified_mybatis_zero_xml_alias_selection_is_linear_and_cancellable() {
+        const JVM_COUNT: usize = 256;
+        const PHP_COUNT: usize = 10_000;
+        let index = mixed_mybatis_alias_index((JVM_COUNT, PHP_COUNT));
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing mapper bucket"))
+            .as_slice();
+        assert_eq!(candidates.len(), JVM_COUNT + PHP_COUNT);
+        for cancel_after in [usize::MAX, 8] {
+            let mut polls = 0;
+            let mut facts = GenerationFacts::default();
+            let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+                .unwrap_or_else(|_| panic!("invalid resolve budget"));
+            let result = append_mybatis_qualified_edges(
+                ResolutionMutation {
+                    index: &index,
+                    facts: &mut facts,
+                    budget: &mut budget,
+                    cancelled: &mut || {
+                        polls += 1;
+                        polls == cancel_after
+                    },
+                },
+                "OrderMapper::findOrder",
+                candidates,
+            );
+            assert_eq!(result.is_err(), cancel_after == 8);
+            assert!(polls <= candidates.len(), "selection work was {polls}");
+            assert_eq!(polls, cancel_after.min(candidates.len()));
+            assert_eq!(facts.edges, []);
+            assert_eq!(budget.charged_bytes, 0);
+        }
+    }
+
+    #[test]
+    fn qualified_mybatis_xml_target_selection_obeys_its_allocation_budget() {
+        let index = duplicate_mybatis_index(16);
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing statement bucket"))
+            .as_slice();
+        let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+            .unwrap_or_else(|_| panic!("invalid resolve budget"));
+        let targets = mybatis_xml_targets(
+            (&index, "OrderMapper::findOrder", candidates),
+            &mut budget,
+            &mut || false,
+        )
+        .unwrap_or_else(|_| panic!("target selection failed"));
+        assert_eq!(targets.len(), candidates.len());
+        assert_eq!(
+            budget.charged_bytes,
+            usize_to_u64(targets.capacity())
+                .saturating_mul(usize_to_u64(size_of::<&ResolutionCandidate>()))
+        );
+        let mut too_small =
+            ResolveBudget::new(0, 0).unwrap_or_else(|_| panic!("invalid resolve budget"));
+        assert!(
+            mybatis_xml_targets(
+                (&index, "OrderMapper::findOrder", candidates),
+                &mut too_small,
+                &mut || false
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn duplicate_mybatis_mappers_cancel_without_emitting_edges() {
+        let index = duplicate_mybatis_index(256);
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing statement bucket"))
+            .as_slice();
+        for packaged in [true, false] {
+            let mut facts = GenerationFacts::default();
+            let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+                .unwrap_or_else(|_| panic!("invalid resolve budget"));
+            let mut polls = 0;
+            let mutation = ResolutionMutation {
+                index: &index,
+                facts: &mut facts,
+                budget: &mut budget,
+                cancelled: &mut || {
+                    polls += 1;
+                    polls == 8
+                },
+            };
+            let result = if packaged {
+                append_mybatis_packaged_edges(mutation, "OrderMapper::findOrder", candidates)
+            } else {
+                append_mybatis_qualified_edges(mutation, "OrderMapper::findOrder", candidates)
+            };
+            assert_matches!(result, Err(StageItemFailure));
+            assert_eq!(polls, 8);
+            assert_eq!(facts.edges, []);
+        }
+    }
+
+    #[test]
+    fn duplicate_mybatis_mapper_parent_lookups_are_file_scoped() {
+        const COUNT: usize = 256;
+        let index = duplicate_mybatis_index(COUNT);
+        let candidates = index
+            .candidates
+            .get("OrderMapper::findOrder")
+            .unwrap_or_else(|| panic!("missing statement bucket"))
+            .as_slice();
+        assert_eq!(candidates.len(), COUNT);
+        let mut polls = 0;
+        for statement in candidates {
+            let name = mybatis_jvm_statement_name(&index, statement, &mut || {
+                polls += 1;
+                false
+            })
+            .unwrap_or_else(|_| panic!("name lookup failed"));
+            assert_eq!(name.as_deref(), Some("com.example::OrderMapper::findOrder"));
+        }
+        assert_eq!(
+            polls, COUNT,
+            "each parent lookup examines only its file's namespace"
+        );
+        let mut facts = GenerationFacts::default();
+        let mut budget = ResolveBudget::new(0, TEST_GENERATION_BYTES)
+            .unwrap_or_else(|_| panic!("invalid resolve budget"));
+        polls = 0;
+        assert!(
+            append_mybatis_packaged_edges(
+                ResolutionMutation {
+                    index: &index,
+                    facts: &mut facts,
+                    budget: &mut budget,
+                    cancelled: &mut || {
+                        polls += 1;
+                        false
+                    },
+                },
+                "OrderMapper::findOrder",
+                candidates
+            )
+            .is_ok()
+        );
+        assert_eq!(polls, COUNT * 2);
+        assert_eq!(facts.edges, []);
     }
 
     #[test]

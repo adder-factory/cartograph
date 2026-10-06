@@ -67,20 +67,46 @@ struct ScopedDefinition {
 #[derive(Default)]
 pub(in crate::walk) struct LocalExpressionMacros {
     definitions: HashMap<String, Vec<ScopedDefinition>>,
+    #[cfg(test)]
+    scope_comparisons: std::cell::Cell<usize>,
 }
 
 impl LocalExpressionMacros {
     /// Whether the latest definition of `macro_name` in scope at byte `offset`
     /// takes expressions; `false` when none is in scope.
-    pub(super) fn takes_expressions(&self, macro_name: &str, offset: usize) -> bool {
-        self.definitions
-            .get(macro_name)
-            .and_then(|definitions| {
-                definitions.iter().rev().find(|definition| {
-                    definition.scope_start <= offset && offset < definition.scope_end
-                })
-            })
-            .is_some_and(|definition| definition.takes_expressions)
+    pub(super) fn takes_expressions(
+        &mut self,
+        invocation: (&str, usize),
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<bool, ExtractError> {
+        Ok(self
+            .current_definition(invocation, cancelled)?
+            .is_some_and(|definition| definition.takes_expressions))
+    }
+
+    /// Source-order traversal never returns to an expired scope. Retire each
+    /// binding once; widened `macro_use` scopes retain their original extent.
+    fn current_definition(
+        &mut self,
+        invocation: (&str, usize),
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<ScopedDefinition>, ExtractError> {
+        let (macro_name, offset) = invocation;
+        let Some(definitions) = self.definitions.get_mut(macro_name) else {
+            return Ok(None);
+        };
+        while let Some(definition) = definitions.last().copied() {
+            if cancelled() {
+                return Err(ExtractError::Cancelled);
+            }
+            #[cfg(test)]
+            self.scope_comparisons.set(self.scope_comparisons.get() + 1);
+            if offset < definition.scope_end {
+                return Ok((definition.scope_start <= offset).then_some(definition));
+            }
+            definitions.pop();
+        }
+        Ok(None)
     }
 }
 
@@ -103,6 +129,9 @@ pub(in crate::walk) fn record_definition(
     }
     let takes_expressions = definition_takes_expressions(builder, definition)?;
     let name = builder.context.owned_text(name_node)?;
+    builder
+        .rust_macros
+        .current_definition((&name, definition.start_byte()), builder.context.cancelled)?;
     let macros = &mut builder.rust_macros.definitions;
     macros
         .try_reserve(1)
@@ -292,4 +321,56 @@ impl<'tree> MatcherScan<'_, '_, '_, 'tree> {
 fn is_punctuation(token: Node<'_>) -> bool {
     let kind = token.kind();
     !kind.is_empty() && kind.bytes().all(|byte| byte.is_ascii_punctuation())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn expired_bindings(count: usize) -> LocalExpressionMacros {
+        let mut macros = LocalExpressionMacros::default();
+        let mut definitions = vec![ScopedDefinition {
+            scope_start: 0,
+            scope_end: usize::MAX,
+            takes_expressions: false,
+        }];
+        definitions.extend((0..count).map(|offset| ScopedDefinition {
+            scope_start: offset,
+            scope_end: offset + 1,
+            takes_expressions: true,
+        }));
+        macros.definitions.insert("q".to_owned(), definitions);
+        macros
+    }
+
+    #[test]
+    fn expired_macro_bindings_are_inspected_only_once() {
+        const COUNT: usize = 10_000;
+        let mut macros = expired_bindings(COUNT);
+        for _ in 0..COUNT {
+            assert!(
+                !macros
+                    .takes_expressions(("q", COUNT), &mut || false)
+                    .unwrap_or_else(|error| panic!("lookup failed: {error}"))
+            );
+        }
+        assert!(
+            macros.scope_comparisons.get() <= COUNT * 2,
+            "expired definitions must not be rescanned: {}",
+            macros.scope_comparisons.get()
+        );
+    }
+
+    #[test]
+    fn retiring_expired_macro_bindings_polls_cancellation() {
+        let mut macros = expired_bindings(10_000);
+        let mut polls = 0;
+        let result = macros.takes_expressions(("q", 10_000), &mut || {
+            polls += 1;
+            polls == 8
+        });
+        assert!(matches!(result, Err(ExtractError::Cancelled)));
+        assert_eq!(polls, 8);
+        assert_eq!(macros.scope_comparisons.get(), 7);
+    }
 }
