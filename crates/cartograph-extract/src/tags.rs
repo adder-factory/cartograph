@@ -379,6 +379,7 @@ pub(crate) fn extract(
         containments: facts.containments,
         references,
         call_scope_sites: Vec::new(),
+        javascript_member_calls: Vec::new(),
         numerical_sites: Vec::new(),
         import_bindings: Vec::new(),
         has_inline_tests: false,

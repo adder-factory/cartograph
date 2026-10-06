@@ -118,6 +118,9 @@ pub struct ExtractedFile {
     /// Syntax-proven callable scope at exact call sites, separate from reference identity.
     #[serde(default)]
     pub call_scope_sites: Vec<ExtractedCallScopeSite>,
+    /// Scope or constructor evidence for JavaScript member calls, keyed by terminal token end.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub javascript_member_calls: Vec<JavascriptMemberCallContext>,
     /// Source-ordered, privacy-safe static numerical evidence sites.
     pub numerical_sites: Vec<ExtractedNumericalSite>,
     /// Source-ordered ES module bindings used by project-wide resolution.
@@ -150,6 +153,26 @@ pub struct ExtractedCallScopeSite {
     pub span: SourceSpan,
     /// Scope established by the native syntax walk.
     pub kind: CallScopeKind,
+}
+
+/// Receiver evidence that does not change a reference's source identity or lookup key.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JavascriptMemberCallContext {
+    /// End byte of the terminal member token shared by its qualified and dynamic call facts.
+    pub end_byte: u64,
+    /// Exact lexical or direct-constructor context established by the source AST.
+    pub receiver: JavascriptMemberReceiver,
+}
+
+/// The receiver context relevant to bounded JavaScript member refinements.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JavascriptMemberReceiver {
+    /// A parameter, local, catch, destructuring, or uncertain enclosing binding.
+    Shadowed,
+    /// A local import binding whose existing import resolution must remain available.
+    LocalImport,
+    /// A direct member access on a named, unshadowed constructor expression.
+    Constructor(String),
 }
 
 /// One exact source site where static syntax exposes numerical behavior or risk.

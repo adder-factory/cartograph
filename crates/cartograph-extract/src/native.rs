@@ -285,6 +285,7 @@ fn degraded_file(snapshot: &SourceSnapshot, diagnostic: DiagnosticCode) -> Extra
         containments: Vec::new(),
         references: Vec::new(),
         call_scope_sites: Vec::new(),
+        javascript_member_calls: Vec::new(),
         numerical_sites: Vec::new(),
         import_bindings: Vec::new(),
         has_inline_tests: false,

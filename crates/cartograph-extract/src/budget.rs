@@ -3,7 +3,7 @@ use std::mem::size_of;
 use crate::{
     Containment, ExtractError, ExtractedCallScopeSite, ExtractedFile, ExtractedImportBinding,
     ExtractedNumericalSite, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
-    SourceSnapshot,
+    JavascriptMemberCallContext, JavascriptMemberReceiver, SourceSnapshot,
 };
 
 // The transient construction budget charges two vector-growth slots per fact so an allocation
@@ -192,6 +192,18 @@ impl ExtractedFile {
                 })
             })
             .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<JavascriptMemberCallContext>(
+                    self.javascript_member_calls.capacity(),
+                ))
+            })
+            .and_then(|bytes| {
+                self.javascript_member_calls
+                    .iter()
+                    .try_fold(bytes, |total, call| {
+                        total.checked_add(javascript_call_context_string_bytes(call))
+                    })
+            })
+            .and_then(|bytes| {
                 bytes.checked_add(vector_bytes::<ExtractedNumericalSite>(
                     self.numerical_sites.capacity(),
                 ))
@@ -238,6 +250,18 @@ pub(crate) fn reference_budget_bytes(reference: &ExtractedReference) -> u64 {
 pub(crate) fn call_scope_site_budget_bytes(site: &ExtractedCallScopeSite) -> u64 {
     vector_growth_bytes::<ExtractedCallScopeSite>()
         .saturating_add(usize_to_u64(site.owner.as_str().len()))
+}
+
+pub(crate) fn javascript_call_context_budget_bytes(call: &JavascriptMemberCallContext) -> u64 {
+    vector_growth_bytes::<JavascriptMemberCallContext>()
+        .saturating_add(javascript_call_context_string_bytes(call))
+}
+
+fn javascript_call_context_string_bytes(call: &JavascriptMemberCallContext) -> u64 {
+    match &call.receiver {
+        JavascriptMemberReceiver::Constructor(name) => usize_to_u64(name.capacity()),
+        JavascriptMemberReceiver::Shadowed | JavascriptMemberReceiver::LocalImport => 0,
+    }
 }
 
 pub(crate) fn numerical_site_budget_bytes(site: &ExtractedNumericalSite) -> u64 {
