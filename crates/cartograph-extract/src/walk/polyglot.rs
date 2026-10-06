@@ -986,6 +986,16 @@ fn visit_rust_external_module(
     if !builder.owners.is_empty() {
         return emit_import_symbol_and_reference(builder, node, module_specifier);
     }
+    // Attributes can replace the conventional path or make the module conditional.
+    // Keep the import fact, but do not claim a default filesystem binding.
+    if node
+        .prev_named_sibling()
+        .is_some_and(|attribute| attribute.kind() == "attribute_item")
+    {
+        return emit_import_symbol_and_reference(builder, node, module_specifier);
+    }
+    let visibility = rust_visibility(builder, node);
+    let symbol_position = builder.facts.symbols.len();
     emit_import(
         builder,
         PolyglotImport {
@@ -996,7 +1006,14 @@ fn visit_rust_external_module(
             local_name,
             binding_node: name_node,
         },
-    )
+    )?;
+    let symbol = builder
+        .facts
+        .symbols
+        .get_mut(symbol_position)
+        .ok_or(ExtractError::OutputLimit)?;
+    symbol.export = crate::SymbolExportFlags::named(visibility == Some(Visibility::Public));
+    Ok(())
 }
 
 fn rust_external_module_specifier(

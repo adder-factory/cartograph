@@ -426,11 +426,13 @@ fn shell_family_enforces_source_nesting_and_output_bounds() {
 
 #[test]
 fn shell_family_facts_are_repeatable_and_locked() {
+    // Each fixture adds a literal source binding and an unknown-source fence.
+    // Removing those two facts restores all four previous digests exactly.
     let expected = [
-        "5b1cf0e734e8f4031dd206d9672592893da1c7bdea09e131a0b318c5a30ef23f",
-        "e53a03cf5c66e3c092a1967fc0e920a0dd0ce7ce054a1403ee16469687715512",
-        "dd5b99c1807dc8d6ae1a99ffe3a0e3aa910a39e0c2d46b9eaca8147ad87a22d0",
-        "5b33024a0ec233992fcd36eb8ad1ff0f6fc44121497b5dfdb97ffeb0266307d9",
+        "12e9c2a0aa0f5b954e35959d55baf1d62fb663884169516cf97b3ce015ec957c",
+        "99b11e0c86dcd99f0490adb174fd81dd4be09c25b4dc5e5f2816188ad8fd4107",
+        "3c8b344785d0ea479b7eba6d653c2989bd17db16e5d5640b1352e5806ecd9338",
+        "d2c9288c2b6acd8273a20585846c5baed84def46c22491be40356427585c446e",
     ];
     for ((path, source, _), expected) in fixture_cases().into_iter().zip(expected) {
         let first = extract(path, source);
@@ -438,6 +440,37 @@ fn shell_family_facts_are_repeatable_and_locked() {
         assert_eq!(canonical_facts(&first), canonical_facts(&second), "{path}");
         assert_unique_ids(&first);
         assert_eq!(locked_digest(&first), expected, "{path}");
+    }
+}
+
+#[test]
+fn source_bindings_and_uncertainty_are_the_only_frozen_shell_fact_changes() {
+    let previous = [
+        "5b1cf0e734e8f4031dd206d9672592893da1c7bdea09e131a0b318c5a30ef23f",
+        "e53a03cf5c66e3c092a1967fc0e920a0dd0ce7ce054a1403ee16469687715512",
+        "dd5b99c1807dc8d6ae1a99ffe3a0e3aa910a39e0c2d46b9eaca8147ad87a22d0",
+        "5b33024a0ec233992fcd36eb8ad1ff0f6fc44121497b5dfdb97ffeb0266307d9",
+    ];
+    for ((path, source, _), digest) in fixture_cases().into_iter().zip(previous) {
+        let current = extract(path, source);
+        assert_eq!(current.import_bindings.len(), 2, "{path}");
+        assert_eq!(
+            current
+                .import_bindings
+                .iter()
+                .filter(|binding| binding.module_specifier == "<shell-unknown-source>")
+                .count(),
+            1,
+            "{path}"
+        );
+        let mut legacy = extract(path, source);
+        legacy.import_bindings.clear();
+        assert_eq!(locked_digest(&legacy), digest, "{path}");
+        assert_eq!(
+            canonical_facts(&current).len(),
+            canonical_facts(&legacy).len() + 2
+        );
+        eprintln!("SOURCE_BINDING_DIGEST {path} {}", locked_digest(&current));
     }
 }
 
@@ -764,6 +797,20 @@ fn assert_single_literal_import(extracted: &ExtractedFile, expected: &str) {
         canonical_facts(extracted),
     );
     assert_eq!(references[0].name, expected);
+    assert_eq!(extracted.import_bindings.len(), 2);
+    let binding = extracted
+        .import_bindings
+        .iter()
+        .find(|binding| binding.module_specifier == expected)
+        .unwrap_or_else(|| panic!("missing literal source binding {expected}"));
+    assert!(
+        extracted
+            .import_bindings
+            .iter()
+            .any(|binding| binding.module_specifier == "<shell-unknown-source>")
+    );
+    assert_eq!(binding.module_specifier, expected);
+    assert_eq!(binding.span, references[0].span);
     assert!(
         imports
             .iter()
@@ -783,7 +830,11 @@ fn assert_clean(extracted: &ExtractedFile) {
         "facts={:?}",
         canonical_facts(extracted),
     );
-    assert_eq!(extracted.import_bindings, []);
+    assert!(extracted.import_bindings.iter().all(|binding| {
+        binding.kind == cartograph_extract::ImportBindingKind::Namespace
+            && binding.local_name == "*"
+            && binding.imported_name == "*"
+    }));
     assert_unique_ids(extracted);
     let rendered = format!("{extracted:?}");
     for forbidden in [

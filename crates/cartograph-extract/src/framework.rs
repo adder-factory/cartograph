@@ -1,4 +1,5 @@
 mod bridge_transaction;
+mod cargo_path_bindings;
 mod owner_index;
 
 use bridge_transaction::BridgeTransaction;
@@ -88,6 +89,7 @@ pub(crate) fn enrich(
         cancelled,
     )?;
     let mut builder = FrameworkBuilder::new(input, cancelled)?;
+    cargo_path_bindings::extract(&mut builder)?;
     crate::framework_bun::scan(&mut builder, &masked_source)?;
     crate::framework_codeigniter::scan(&mut builder, &masked_source)?;
     crate::framework_drupal::scan(&mut builder, &masked_source)?;

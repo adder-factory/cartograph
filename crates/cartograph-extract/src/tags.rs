@@ -29,6 +29,8 @@ use crate::{
     },
 };
 
+mod module_bindings;
+
 const QUERY_MATCH_LIMIT: u32 = 65_536;
 const MINIMUM_CAPTURE_LIMIT: usize = 1_024;
 const CAPTURES_PER_SOURCE_BYTE: usize = 8;
@@ -166,6 +168,8 @@ struct ReferenceEmissionInput<'tree, 'emitted> {
     calls: Vec<CallReference<'tree>>,
     owner_indices: Vec<Option<usize>>,
     emitted: &'emitted [EmittedDefinition],
+    source: &'emitted str,
+    language: SourceLanguage,
 }
 
 #[derive(Clone, Copy)]
@@ -352,15 +356,29 @@ pub(crate) fn extract(
         },
         cancelled,
     )?;
-    let references = emit_tag_references(
+    let (references, mut import_bindings) = emit_tag_references(
         ReferenceEmissionInput {
             calls,
             owner_indices: call_owner_indices,
             emitted: &facts.emitted,
+            source,
+            language: snapshot.language(),
         },
         &mut budget,
         cancelled,
     )?;
+
+    let mut public_members =
+        module_bindings::public_members((input, &facts.symbols), (&mut budget, cancelled))?;
+    import_bindings
+        .try_reserve(public_members.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    import_bindings.append(&mut public_members);
+    let mut module_imports = module_bindings::extract(input, &mut budget, cancelled)?;
+    import_bindings
+        .try_reserve(module_imports.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    import_bindings.append(&mut module_imports);
 
     let diagnostics = diagnostics(root, parse_status, cancelled)?;
     for _ in &diagnostics {
@@ -384,7 +402,7 @@ pub(crate) fn extract(
         local_type_scopes: Vec::new(),
         receiver_evidence: None,
         numerical_sites: Vec::new(),
-        import_bindings: Vec::new(),
+        import_bindings,
         has_inline_tests: false,
         test_search_text: String::new(),
         test_search_truncated: false,
@@ -634,14 +652,20 @@ fn emit_tag_references(
     input: ReferenceEmissionInput<'_, '_>,
     budget: &mut ExtractionBudget,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<Vec<ExtractedReference>, ExtractError> {
+) -> Result<(Vec<ExtractedReference>, Vec<crate::ExtractedImportBinding>), ExtractError> {
     let mut references = Vec::new();
+    let mut qualifiers = Vec::new();
     references
         .try_reserve(input.calls.len())
         .map_err(|_| ExtractError::OutputLimit)?;
     for (call, owner) in input.calls.into_iter().zip(input.owner_indices) {
         if cancelled() {
             return Err(ExtractError::Cancelled);
+        }
+        if let Some(binding) =
+            module_bindings::callee_binding(call.name_node, input.source, input.language)?
+        {
+            module_bindings::push_binding((&mut qualifiers, binding), budget)?;
         }
         let reference = ExtractedReference {
             owner: owner.and_then(|index| {
@@ -661,7 +685,7 @@ fn emit_tag_references(
         )?;
         references.push(reference);
     }
-    Ok(references)
+    Ok((references, qualifiers))
 }
 
 fn collect_matches<'tree>(
