@@ -30,6 +30,7 @@ pub(super) struct BridgeCall {
     pub(super) end: usize,
     pub(super) limit: usize,
     pub(super) supported: bool,
+    pub(super) line: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -262,6 +263,7 @@ impl<'source> BridgeOwnership<'source> {
                     end,
                     limit,
                     supported,
+                    line: reference.span.start_line(),
                 });
                 continue;
             }
@@ -374,6 +376,7 @@ fn expo_callee(language: SourceLanguage, name: &str) -> Option<(&'static str, bo
         (_, "Function") => ("Function", true),
         (_, "AsyncFunction") => ("AsyncFunction", true),
         (_, "Property") => ("Property", true),
+        (_, "Constants") => ("Constants", true),
         (_, name) if name.ends_with(".Name") => ("Name", false),
         _ => return None,
     })

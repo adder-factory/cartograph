@@ -9,6 +9,13 @@
 
 use std::collections::BTreeSet;
 
+mod call_receivers;
+mod constructors;
+mod scope_parameters;
+pub(super) use call_receivers::current_call;
+pub(super) use constructors::declaration_syntax;
+pub(super) use scope_parameters::unshadowed_receiver_parameters;
+
 use cartograph_domain::{
     ReferenceKind, SymbolId, SymbolKind, Visibility, callable_signature_is_literal_free,
 };
@@ -60,6 +67,7 @@ pub(super) fn capture_usage(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    constructors::capture_redirect(builder, node)?;
     let (target, kind) = match node.kind() {
         "selector" => (selector_call_target(builder, node)?, ReferenceKind::Calls),
         "new_expression" | "const_object_expression" => (
@@ -71,15 +79,13 @@ pub(super) fn capture_usage(
     let Some(name) = target else {
         return Ok(());
     };
-    references::push_reference(
-        builder,
-        PendingReference {
-            owner: builder.owners.last().cloned(),
-            name,
-            kind,
-            node,
-        },
-    )
+    let pending = PendingReference {
+        owner: builder.owners.last().cloned(),
+        name,
+        kind,
+        node,
+    };
+    references::push_reference(builder, pending)
 }
 
 /// The class a `new`/`const` expression constructs. `T.x(..)` is ambiguous
@@ -123,7 +129,10 @@ fn visit_type_declaration(
     depth: usize,
 ) -> Result<bool, ExtractError> {
     match node.kind() {
-        "class_definition" | "mixin_declaration" | "extension_declaration" => {
+        "class_definition"
+        | "mixin_declaration"
+        | "extension_declaration"
+        | "extension_type_declaration" => {
             visit_container(builder, Container::new(node, depth, SymbolKind::Class))?;
         }
         "enum_declaration" => {
@@ -283,14 +292,13 @@ fn visit_container(
             .find(|child| matches!(child.kind(), "class_body" | "extension_body" | "enum_body"))
     });
     let name = builder.context.owned_text(name_node)?;
-    in_symbol_scope(
-        builder,
-        SymbolScope { id, kind, name },
-        |builder| match body {
+    in_symbol_scope(builder, SymbolScope { id, kind, name }, |builder| {
+        constructors::emit_representation(builder, node)?;
+        match body {
             Some(body) => builder.visit_named_children(body, depth.saturating_add(1)),
             None => Ok(()),
-        },
-    )
+        }
+    })
 }
 
 /// `extends` (Extends), `with` (Inherits), and `implements` (Implements).
@@ -428,7 +436,7 @@ fn next_code_sibling(node: Node<'_>) -> Option<Node<'_>> {
 }
 
 /// The nearest preceding named sibling that is not a comment.
-fn previous_code_sibling(node: Node<'_>) -> Option<Node<'_>> {
+pub(super) fn previous_code_sibling(node: Node<'_>) -> Option<Node<'_>> {
     std::iter::successors(node.prev_named_sibling(), Node::prev_named_sibling)
         .take(MAXIMUM_COMMENT_RUN.saturating_add(1))
         .find(|sibling| !sibling.kind().contains("comment"))
@@ -537,7 +545,7 @@ fn visit_callable(
         async_symbol: callable
             .body
             .is_some_and(|body| has_child_kind(body, "async")),
-        static_member: has_child_kind(callable.signature, "static"),
+        static_member: constructors::static_context(callable),
         visibility: access.visibility,
         // The body, not the signature, carries what makes two callables
         // structurally distinct.
@@ -614,6 +622,7 @@ fn visit_callable_contents(
     for initializer in named_children(callable.signature)
         .filter(|child| matches!(child.kind(), "initializers" | "redirection"))
     {
+        constructors::capture_redirect(builder, initializer)?;
         builder.visit_named_children(initializer, depth)?;
     }
     match callable.body {

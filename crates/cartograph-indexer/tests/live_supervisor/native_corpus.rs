@@ -40,13 +40,14 @@ const EXPECTED_CORPUS_FINGERPRINT: &str =
 // the final per-file parity fixes add five resolved references and their edges.
 // V22 changes the digest domain; cross-file resolution parity also adds 39 edges and
 // resolves 48 more existing references in this corpus; the new resolver indexes raise
-// the resolve high-water mark by about 6%. Dynamic-import fixes preserve 33 skipped import() load
+// the resolve high-water mark by about 6%. V23 (v2.1.42) adds 28 file-path `imports`
+// edges and resolves 50 more references; the resolve high-water mark grows ~2.4%. Dynamic-import fixes preserve 33 skipped import() load
 // references in destructured initializers: 11 in cartograph-llm-service.ts, one each in
 // extraction-phases.ts, index.ts, and llm-setup-plan.ts, and 19 in mcp/tools/admin.ts.
 // All 33 are unresolved Imports facts; symbols, edges, documents, corpus bytes, and
 // ranking identities stay fixed. The added facts also raise modeled retention budgets.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "b6e342d7554791a3e047dd9ba3dca182f1df37c0d2decb12616129726c5287cb";
+    "aced86f5078a2a4c09bfd95a94fffa28cb9e307c7322fbad691166964f98c30a";
 const EXPECTED_BM25_DOCUMENT_IDS: [&str; 5] = [
     "5471dbfc-3ba3-87dd-8861-1ce1dd51ed32",
     "78f1eb97-24b2-8a80-ad44-6dd679456592",
@@ -64,11 +65,11 @@ const EXPECTED_TAGS_BM25_DOCUMENT_IDS: [&str; 6] = [
 ];
 const EXPECTED_FILES: i64 = 34;
 const EXPECTED_SYMBOLS: i64 = 6_362;
-const EXPECTED_EDGES: i64 = 11_250;
+const EXPECTED_EDGES: i64 = 11_278;
 const EXPECTED_REFERENCES: i64 = 21_320;
 const EXPECTED_NUMERICAL_SITES: i64 = 0;
 const EXPECTED_DOCUMENTS: i64 = 6_362;
-const EXPECTED_EDGE_KINDS: [&str; 11] = [
+const EXPECTED_EDGE_KINDS: [&str; 12] = [
     "calls",
     "contains",
     "def_use",
@@ -76,17 +77,18 @@ const EXPECTED_EDGE_KINDS: [&str; 11] = [
     "extends",
     "field_access",
     "implements",
+    "imports",
     "instantiates",
     "references",
     "returns",
     "type_of",
 ];
 const EXPECTED_SOURCE_BYTES: u64 = 1_052_564;
-const EXPECTED_RESOLVED_REFERENCES: u64 = 7_868;
-const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_464;
-const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_865_703;
-const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 124_463_255;
-const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_596_155;
+const EXPECTED_RESOLVED_REFERENCES: u64 = 7_918;
+const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_414;
+const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_873_168;
+const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 127_504_883;
+const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_624_135;
 const CORPUS_QUERY: &str = "detectSecretsHandling";
 const TAGS_CORPUS_QUERY: &str = "tagscanary";
 const LIVE_SECRET_SENTINEL: &str = "sk_live_secret";

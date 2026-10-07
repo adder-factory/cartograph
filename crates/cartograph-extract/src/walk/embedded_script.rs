@@ -304,6 +304,9 @@ pub(crate) struct EmbeddedFacts {
     pub(crate) references: Vec<ExtractedReference>,
     /// Module bindings of every script program.
     pub(crate) import_bindings: Vec<ExtractedImportBinding>,
+    /// Receiver and call-scope evidence remains in host coordinates.
+    pub(crate) call_scope_sites: Vec<crate::ExtractedCallScopeSite>,
+    pub(crate) javascript_member_calls: Vec<crate::JavascriptMemberCallContext>,
     /// Diagnostics of regions that lost facts: script syntax errors and template
     /// expressions too deep to walk (not yet charged to the budget).
     pub(crate) diagnostics: Vec<ExtractionDiagnostic>,
@@ -434,6 +437,10 @@ fn absorb_builder(builder: ExtractionBuilder<'_, '_>, facts: &mut EmbeddedFacts)
     facts.containments.append(&mut walked.containments);
     facts.references.append(&mut walked.references);
     facts.import_bindings.append(&mut walked.import_bindings);
+    facts.call_scope_sites.append(&mut walked.call_scope_sites);
+    facts
+        .javascript_member_calls
+        .append(&mut walked.javascript_member_calls);
     facts.shortened_canonical_names |= builder.shortened_canonical_names;
 }
 
@@ -441,6 +448,8 @@ fn absorb_builder(builder: ExtractionBuilder<'_, '_>, facts: &mut EmbeddedFacts)
 /// when the expression is dropped.
 struct ExpressionMark {
     start: ExpressionStart,
+    scope_sites: usize,
+    member_calls: usize,
     owners: usize,
     qualifiers: usize,
 }
@@ -452,6 +461,8 @@ impl ExpressionMark {
                 reference: builder.facts.references.len(),
                 binding: builder.facts.import_bindings.len(),
             },
+            scope_sites: builder.facts.call_scope_sites.len(),
+            member_calls: builder.facts.javascript_member_calls.len(),
             owners: builder.owners.len(),
             qualifiers: builder.qualifiers.len(),
         }
@@ -462,6 +473,11 @@ impl ExpressionMark {
     fn restore(&self, builder: &mut ExtractionBuilder<'_, '_>) {
         builder.facts.references.truncate(self.start.reference);
         builder.facts.import_bindings.truncate(self.start.binding);
+        builder.facts.call_scope_sites.truncate(self.scope_sites);
+        builder
+            .facts
+            .javascript_member_calls
+            .truncate(self.member_calls);
         builder.owners.truncate(self.owners);
         builder.qualifiers.truncate(self.qualifiers);
     }

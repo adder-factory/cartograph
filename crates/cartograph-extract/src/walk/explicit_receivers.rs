@@ -1,9 +1,10 @@
-//! Explicit Python/Go receiver declarations and direct JavaScript `this` fields.
-//! No factory return types, assignment propagation, or name-shape inference.
+//! Syntax-proven receivers. No assignment propagation or name-shape inference.
 
 mod go;
 mod javascript;
+mod nominal;
 mod python;
+mod scope_bindings;
 
 use std::{collections::HashMap, mem::size_of};
 
@@ -57,7 +58,14 @@ enum BindingType {
         name: String,
         type_scope: usize,
         position: Option<usize>,
+        origin: TypeOrigin,
+        raw_pointer: bool,
     },
+}
+
+enum TypeOrigin {
+    Annotation,
+    Constructor,
 }
 
 struct Binding {
@@ -72,6 +80,7 @@ struct Scope {
     bindings: HashMap<String, Binding>,
     heritage_supported: bool,
     fenced: bool,
+    this_barrier: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -110,6 +119,9 @@ struct SyntaxIndex<'tree> {
     class_scopes: HashMap<String, usize>,
     sites: HashMap<(usize, usize), MemberSite<'tree>>,
     assignments: Vec<MemberSite<'tree>>,
+    declared_returns: Vec<MemberSite<'tree>>,
+    value_writes: Vec<nominal::bindings::ValueWrite<'tree>>,
+    fallback_bindings: Vec<scope_bindings::FallbackBinding<'tree>>,
     non_methods: Vec<ExtractedReceiverBinding>,
 }
 
@@ -130,30 +142,59 @@ pub(super) fn enrich(
             depth: 0,
         },
     )?;
+    scope_bindings::finish(&mut index, builder)?;
+    nominal::bindings::fence_values(&mut index, &mut builder.context)?;
     index.fence_assignments(&mut builder.context)?;
-    builder.facts.receiver_bindings = std::mem::take(&mut index.non_methods);
+    scope_bindings::append_non_methods(builder, &mut index.non_methods)?;
+    for site in &index.declared_returns {
+        builder.context.ensure_active()?;
+        if let Some(lookup) = nominal::returns::lookup(&index, &mut builder.context, *site)? {
+            reserve_lookup(
+                &mut builder.context,
+                &mut builder.facts.receiver_lookups,
+                lookup,
+            )?;
+        }
+    }
     for reference in &builder.facts.references {
         builder.context.ensure_active()?;
         if let Some(lookup) = index.reference_lookup(&mut builder.context, reference)? {
-            builder.context.budget.reserve_fact(
-                u64::try_from(size_of::<ExtractedReceiverLookup>())
-                    .map_err(|_| ExtractError::OutputLimit)?
-                    .saturating_mul(2)
-                    .saturating_add(
-                        u64::try_from(lookup.lookup.len())
-                            .map_err(|_| ExtractError::OutputLimit)?,
-                    ),
-                [lookup.lookup.as_str()],
+            reserve_lookup(
+                &mut builder.context,
+                &mut builder.facts.receiver_lookups,
+                lookup,
             )?;
-            builder
-                .facts
-                .receiver_lookups
-                .try_reserve(1)
-                .map_err(|_| ExtractError::OutputLimit)?;
-            builder.facts.receiver_lookups.push(lookup);
         }
     }
     Ok(())
+}
+
+fn reserve_lookup(
+    context: &mut ExtractionContext<'_, '_>,
+    lookups: &mut Vec<ExtractedReceiverLookup>,
+    lookup: ExtractedReceiverLookup,
+) -> Result<(), ExtractError> {
+    context.budget.reserve_fact(
+        u64::try_from(size_of::<ExtractedReceiverLookup>())
+            .map_err(|_| ExtractError::OutputLimit)?
+            .saturating_mul(2)
+            .saturating_add(
+                u64::try_from(lookup.lookup.len()).map_err(|_| ExtractError::OutputLimit)?,
+            ),
+        [lookup.lookup.as_str()],
+    )?;
+    lookups
+        .try_reserve(1)
+        .map_err(|_| ExtractError::OutputLimit)?;
+    lookups.push(lookup);
+    Ok(())
+}
+
+pub(super) fn managed_call_name(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    target: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    nominal::managed_call_name(builder, target)
 }
 
 fn prepare_index<'tree>(
@@ -188,6 +229,7 @@ fn prepare_index<'tree>(
         },
         ScopeKind::Module,
     )?;
+    nominal::constructors::bind_imports(builder, &mut index, root.id())?;
     if builder.context.snapshot.language() == SourceLanguage::Go {
         for binding in &builder.facts.import_bindings {
             builder.context.ensure_active()?;
@@ -218,14 +260,6 @@ impl SyntaxIndex<'_> {
         {
             return self.parent_lookup(context, reference);
         }
-        if reference.kind == ReferenceKind::Calls
-            && !matches!(
-                context.snapshot.language(),
-                SourceLanguage::Python | SourceLanguage::Go
-            )
-        {
-            return Ok(None);
-        }
         if !matches!(
             reference.kind,
             ReferenceKind::Calls | ReferenceKind::FieldAccess
@@ -239,6 +273,9 @@ impl SyntaxIndex<'_> {
         let Some(site) = self.sites.get(&key) else {
             return Ok(None);
         };
+        if nominal::unsupported_site(context, reference, *site) {
+            return Ok(None);
+        }
         if let Some(receiver) = self.types().receiver_type(context, *site)? {
             let member = node_text(context, site.member);
             if !identifier(member) {
@@ -310,23 +347,19 @@ impl<'tree> SyntaxIndex<'tree> {
         push_visit(&mut builder.context, &mut pending, root)?;
         while let Some(mut visit) = pending.pop() {
             budget.observe(builder, visit.depth)?;
-            let kind = if builder.context.snapshot.language() == SourceLanguage::Python {
-                python::scope_kind(visit.node)
-            } else if builder.context.snapshot.language() == SourceLanguage::Go {
-                go::scope_kind(visit.node)
-            } else {
-                javascript::scope_kind(visit.node)
-            };
+            let kind = scope_kind(builder.context.snapshot.language(), visit.node);
             if let Some(kind) = kind {
                 self.add_scope(&mut builder.context, visit, kind)?;
                 visit.scope = visit.node.id();
             }
+            scope_bindings::collect(self, &mut builder.context, visit)?;
             if builder.context.snapshot.language() == SourceLanguage::Python {
                 python::collect(self, &mut builder.context, visit)?;
             } else if builder.context.snapshot.language() == SourceLanguage::Go {
                 go::collect(self, &mut builder.context, visit)?;
             } else {
-                javascript::collect(self, &mut builder.context, visit)?;
+                javascript::guard_constructor(self, builder, visit)?;
+                nominal::collect(self, &mut builder.context, visit)?;
             }
             for child in named_children(visit.node) {
                 push_visit(
@@ -369,6 +402,7 @@ impl<'tree> SyntaxIndex<'tree> {
                 bindings: HashMap::new(),
                 heritage_supported,
                 fenced: false,
+                this_barrier: nominal::unknown_this(context.snapshot.language(), visit.node),
             },
         );
         if let Some(nominal) = nominal {
@@ -379,26 +413,7 @@ impl<'tree> SyntaxIndex<'tree> {
                 .map_err(|_| ExtractError::OutputLimit)?;
             self.class_scopes
                 .insert(context.copy_text(nominal.as_str())?, id);
-            if let Some(name) = visit.node.child_by_field_name("name") {
-                self.bind(
-                    context,
-                    Bind {
-                        scope: visit.scope,
-                        name,
-                        kind: BindingType::Nominal(nominal),
-                        start: if context.snapshot.language() == SourceLanguage::Python
-                            || self
-                                .scopes
-                                .get(&visit.scope)
-                                .is_some_and(|scope| scope.kind != ScopeKind::Module)
-                        {
-                            visit.node.end_byte()
-                        } else {
-                            0
-                        },
-                    },
-                )?;
-            }
+            nominal::bind_class(self, context, (visit, nominal))?;
         }
         Ok(())
     }
@@ -425,7 +440,8 @@ impl<'tree> SyntaxIndex<'tree> {
         context: &mut ExtractionContext<'_, '_>,
         input: NamedBind<'_>,
     ) -> Result<(), ExtractError> {
-        let name = input.name;
+        let name = nominal::binding_key(context, input.name)?;
+        let name = name.as_ref();
         if !identifier(name) {
             return Ok(());
         }
@@ -591,6 +607,7 @@ impl ReceiverTypes<'_> {
         context: &mut ExtractionContext<'_, '_>,
         query: TypeQuery<'_>,
     ) -> Result<Option<&Binding>, ExtractError> {
+        let name = nominal::binding_key(context, query.name)?;
         let mut scope = query.scope;
         for _ in 0..=super::MAX_AST_DEPTH {
             context.ensure_active()?;
@@ -603,8 +620,10 @@ impl ReceiverTypes<'_> {
             if entry.kind == ScopeKind::Opaque {
                 return Ok(None);
             }
-            if (entry.kind != ScopeKind::Class || query.class_bindings && scope == query.scope)
-                && let Some(binding) = entry.bindings.get(query.name)
+            if (entry.kind != ScopeKind::Class
+                || query.class_bindings
+                    && (scope == query.scope || nominal::supported(context.snapshot.language())))
+                && let Some(binding) = entry.bindings.get(name.as_ref())
             {
                 return Ok(Some(binding));
             }
@@ -649,7 +668,7 @@ impl ReceiverTypes<'_> {
             let Some(entry) = self.scopes.get(&scope) else {
                 return Ok(None);
             };
-            if entry.fenced || entry.kind == ScopeKind::Barrier {
+            if entry.fenced || entry.kind == ScopeKind::Barrier || entry.this_barrier {
                 return Ok(Some("?".into()));
             }
             if entry.kind == ScopeKind::Class {
@@ -675,6 +694,9 @@ impl ReceiverTypes<'_> {
         if depth > MAX_RECEIVER_FIELDS {
             return Ok(Some("?".into()));
         }
+        if nominal::supported(context.snapshot.language()) {
+            return nominal::expression_type(self, context, (site, depth));
+        }
         if site.receiver.kind() == "identifier" {
             let name = node_text(context, site.receiver);
             let Some(binding) = self.find_binding(
@@ -694,6 +716,14 @@ impl ReceiverTypes<'_> {
             }
             return self.bound_type(context, binding);
         }
+        self.field_expression_type(context, (site, depth))
+    }
+
+    fn field_expression_type(
+        &self,
+        context: &mut ExtractionContext<'_, '_>,
+        (site, depth): (MemberSite<'_>, usize),
+    ) -> Result<Option<String>, ExtractError> {
         let (Some(receiver), Some(member)) = (
             site.receiver
                 .child_by_field_name("object")
@@ -742,14 +772,21 @@ impl ReceiverTypes<'_> {
                 name,
                 type_scope,
                 position,
-            } => self.explicit_type(
+                origin,
+                ..
+            } => nominal::constructors::explicit_type(
+                self,
                 context,
-                TypeQuery {
-                    name,
-                    scope: *type_scope,
-                    class_bindings: false,
-                    position: *position,
-                },
+                (
+                    TypeQuery {
+                        name,
+                        scope: *type_scope,
+                        class_bindings: false,
+                        position: *position,
+                    },
+                    matches!(origin, TypeOrigin::Constructor)
+                        && nominal::supported(context.snapshot.language()),
+                ),
             ),
             BindingType::Unknown | BindingType::Method => Ok(Some("?".into())),
         }
@@ -761,12 +798,13 @@ impl ReceiverTypes<'_> {
         mut query: TypeQuery<'_>,
     ) -> Result<Option<String>, ExtractError> {
         let name = query.name;
-        query.class_bindings = context.snapshot.language() == SourceLanguage::Python
-            && self
-                .scopes
-                .get(&query.scope)
-                .is_some_and(|scope| scope.kind == ScopeKind::Class);
-        let Some(head) = name.split('.').next().filter(|_| type_path(name)) else {
+        query.class_bindings = nominal::supported(context.snapshot.language())
+            || context.snapshot.language() == SourceLanguage::Python
+                && self
+                    .scopes
+                    .get(&query.scope)
+                    .is_some_and(|scope| scope.kind == ScopeKind::Class);
+        let Some(head) = name.split(['.', ':']).next().filter(|_| type_path(name)) else {
             return Ok(Some("?".into()));
         };
         let binding = self.find_binding(
@@ -787,6 +825,9 @@ impl ReceiverTypes<'_> {
             Some(BindingType::Nominal(id)) if head == name => nominal_marker(context, id).map(Some),
             Some(BindingType::Import) => {
                 prefixed_type(context, (EXPLICIT_RECEIVER_IMPORT_PREFIX, name)).map(Some)
+            }
+            None if nominal::supported(context.snapshot.language()) => {
+                prefixed_type(context, ("type::", name)).map(Some)
             }
             _ => Ok(Some("?".into())),
         }
@@ -822,7 +863,7 @@ fn nominal_marker(
     prefixed_type(context, ("@", id.as_str()))
 }
 
-fn record_non_method(
+pub(super) fn record_non_method(
     context: &mut ExtractionContext<'_, '_>,
     facts: &mut Vec<ExtractedReceiverBinding>,
     binding: (Option<&SymbolId>, Option<&str>, bool),
@@ -896,9 +937,10 @@ fn explicit(
     name: Option<Node<'_>>,
     scope: usize,
 ) -> Result<BindingType, ExtractError> {
-    let position = (context.snapshot.language() == SourceLanguage::Go)
-        .then(|| name.map(|node| node.start_byte()))
-        .flatten();
+    let position = (context.snapshot.language() == SourceLanguage::Go
+        || nominal::supported(context.snapshot.language()))
+    .then(|| name.map(|node| node.start_byte()))
+    .flatten();
     let Some(name) = name
         .map(|name| node_text(context, name))
         .filter(|name| type_path(name))
@@ -910,6 +952,8 @@ fn explicit(
         name: context.copy_text(name)?,
         type_scope: scope,
         position,
+        origin: TypeOrigin::Annotation,
+        raw_pointer: false,
     })
 }
 
@@ -919,8 +963,12 @@ fn initializer(
     scope: usize,
 ) -> Result<BindingType, ExtractError> {
     let mut kind = explicit(context, name, scope)?;
-    if let BindingType::Explicit { position, .. } = &mut kind {
+    if let BindingType::Explicit {
+        position, origin, ..
+    } = &mut kind
+    {
         *position = name.map(|node| node.start_byte());
+        *origin = TypeOrigin::Constructor;
     }
     Ok(kind)
 }
@@ -937,19 +985,28 @@ fn identifier(name: &str) -> bool {
 }
 
 fn type_path(name: &str) -> bool {
-    name.len() <= MAX_NAME_BYTES && name.split('.').all(identifier)
+    name.len() <= MAX_NAME_BYTES && name.split("::").all(|part| part.split('.').all(identifier))
 }
 
 fn supported(language: SourceLanguage) -> bool {
-    matches!(
-        language,
-        SourceLanguage::Python
-            | SourceLanguage::Go
-            | SourceLanguage::TypeScript
-            | SourceLanguage::Tsx
-            | SourceLanguage::JavaScript
-            | SourceLanguage::Jsx
-    )
+    nominal::supported(language)
+        || matches!(
+            language,
+            SourceLanguage::Python
+                | SourceLanguage::Go
+                | SourceLanguage::TypeScript
+                | SourceLanguage::Tsx
+                | SourceLanguage::JavaScript
+                | SourceLanguage::Jsx
+        )
+}
+
+fn scope_kind(language: SourceLanguage, node: Node<'_>) -> Option<ScopeKind> {
+    match language {
+        SourceLanguage::Python => python::scope_kind(node),
+        SourceLanguage::Go => go::scope_kind(node),
+        _ => scope_bindings::scope_kind(node).or_else(|| nominal::scope_kind(language, node)),
+    }
 }
 
 fn reserve_map<T>(context: &mut ExtractionContext<'_, '_>) -> Result<(), ExtractError> {

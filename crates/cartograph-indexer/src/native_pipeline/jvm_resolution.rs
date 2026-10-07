@@ -91,7 +91,7 @@ pub(super) fn syntax_abstention(name: &str) -> bool {
 
 pub(super) fn reference_abstains(index: &ResolutionIndex, input: (&FileId, SourceSpan)) -> bool {
     let (file, span) = input;
-    index.jvm.files.get(file).is_some_and(|hints| {
+    index.languages.jvm.files.get(file).is_some_and(|hints| {
         hints
             .abstentions
             .contains(&(span.start_byte(), span.end_byte()))
@@ -175,12 +175,14 @@ where
     )?;
     target
         .index
+        .languages
         .jvm
         .files
         .try_reserve(1)
         .map_err(|_| StageItemFailure)?;
     target
         .index
+        .languages
         .jvm
         .files
         .insert(file.file.file_id.clone(), hints);
@@ -206,7 +208,7 @@ where
                 .contains(&(symbol.input.start_byte, symbol.input.end_byte))
         {
             block_construction(
-                &mut target.index.jvm,
+                &mut target.index.languages.jvm,
                 &symbol.input.symbol_id,
                 target.budget,
             )?;
@@ -231,7 +233,7 @@ fn record_declared_type(
         return Ok(());
     };
     record_unique(
-        &mut target.index.jvm.declared_types,
+        &mut target.index.languages.jvm.declared_types,
         UniqueName {
             key: owner.clone(),
             key_bytes: usize_to_u64(owner.as_str().len()),
@@ -273,7 +275,8 @@ pub(super) fn constructor_target_abstains(
     let (request, id, kind) = input;
     request.language == "kotlin"
         && request.kind == ReferenceKind::Instantiates
-        && (kind == SymbolKind::TypeAlias || index.jvm.constructor_abstentions.contains(id))
+        && (kind == SymbolKind::TypeAlias
+            || index.languages.jvm.constructor_abstentions.contains(id))
 }
 
 fn index_abstentions<Cancel>(
@@ -340,7 +343,7 @@ pub(super) fn lexical_type_visible(
     if request.language != "java" || !nominal_type(candidate.kind) {
         return true;
     }
-    let Some(hints) = index.jvm.files.get(request.file_id) else {
+    let Some(hints) = index.languages.jvm.files.get(request.file_id) else {
         return false;
     };
     if let Some(block) = hints.local_type_blocks.get(&candidate.declaration_span) {
@@ -434,11 +437,11 @@ pub(super) fn declared_type<'index>(
     index: &'index ResolutionIndex,
     id: &SymbolId,
 ) -> Option<&'index str> {
-    index.jvm.declared_types.get(id)?.as_deref()
+    index.languages.jvm.declared_types.get(id)?.as_deref()
 }
 
 pub(super) fn same_package(index: &ResolutionIndex, files: [&FileId; 2]) -> bool {
-    let [source, target] = files.map(|id| index.jvm.files.get(id));
+    let [source, target] = files.map(|id| index.languages.jvm.files.get(id));
     matches!((source, target), (Some(source), Some(target)) if source.package == target.package)
 }
 
@@ -538,6 +541,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let hints = index
+        .languages
         .jvm
         .files
         .get(request.file_id)
@@ -646,6 +650,7 @@ where
         let Some(visibility) = query.index.types.visibility(id) else {
             return Ok(query
                 .index
+                .languages
                 .jvm
                 .files
                 .get(&candidate.file_id)

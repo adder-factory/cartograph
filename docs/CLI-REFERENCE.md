@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-06 (`v2.1.41`).
+Last release audit: 2026-10-07 (`v2.1.42`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds in the installed version; destructive-operation confirmation
@@ -332,7 +332,7 @@ function/class categories.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.41 top-level command advertised
+This inventory contains every non-hidden v2.1.42 top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 

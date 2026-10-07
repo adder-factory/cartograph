@@ -160,6 +160,7 @@ pub(super) fn visit_list(
         Form::Data => Ok(true),
         Form::NonCall => Ok(false),
         Form::Call => {
+            recursion::capture(builder, (node, head_node, head))?;
             emit_owned_reference(
                 builder,
                 OwnedReference {
@@ -444,3 +445,4 @@ fn binds_only_symbols(vector: Node<'_>) -> bool {
         .filter(Node::is_named)
         .all(|node| matches!(node.kind(), "vec_lit" | "sym_lit" | "sym_name" | "sym_ns"))
 }
+mod recursion;

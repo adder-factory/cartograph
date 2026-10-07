@@ -3,7 +3,7 @@ use super::{
     DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE, EXACT_SAME_FILE_PROVENANCE, EdgeKind,
     FRAMEWORK_CONVENTION_PROVENANCE, IMPORT_BINDING_PROVENANCE,
     JAVASCRIPT_INTRINSIC_UNRESOLVED_PROVENANCE, ReferenceKind, build_capability_generation,
-    capability_file_symbol, capability_symbol,
+    capability_file_symbol, capability_symbol, native_bridge_details,
 };
 
 fn generation(fixtures: &[(&str, &str)]) -> CanonicalGenerationFacts {
@@ -116,6 +116,8 @@ fn expo_bridge_member_calls_keep_explicit_native_resolution() {
             (
                 "android/SettingsModule.kt",
                 &format!("android/SettingsModule.kt::expo-module-method::ExpoSettings::{method}"),
+                native_bridge_details::ALIAS_PROVENANCE,
+                native_bridge_details::CONVENTION_CONFIDENCE,
             ),
         );
     }
@@ -139,12 +141,25 @@ fn react_native_destructured_and_qualified_members_keep_native_resolution() {
         ("loadThing::other", "getThing"),
     ] {
         let owner = capability_symbol(&facts, "src/native.js", owner);
+        let (provenance, confidence) = if method == "doSomething" {
+            (
+                native_bridge_details::ALIAS_PROVENANCE,
+                native_bridge_details::CONVENTION_CONFIDENCE,
+            )
+        } else {
+            (
+                DYNAMIC_DISPATCH_PROVENANCE,
+                super::DYNAMIC_DISPATCH_CONFIDENCE,
+            )
+        };
         assert_native_bridge_member(
             &facts,
             (owner, method),
             (
                 "ios/RN/RNThing.m",
                 &format!("ios/RN/RNThing.m::react-native-method::RNThing::{method}"),
+                provenance,
+                confidence,
             ),
         );
     }
@@ -168,7 +183,7 @@ fn assert_unexported_bridge_member(
 fn assert_native_bridge_member(
     facts: &CanonicalGenerationFacts,
     (owner, name): (&super::super::SymbolInput, &str),
-    (path, qualified): (&str, &str),
+    (path, qualified, provenance, confidence): (&str, &str, &str, f32),
 ) {
     let target = capability_symbol(facts, path, qualified);
     let references = facts
@@ -178,7 +193,7 @@ fn assert_native_bridge_member(
             reference.owner_symbol_id.as_ref() == Some(&owner.symbol_id)
                 && reference.reference_name == name
                 && reference.reference_kind == ReferenceKind::Calls.as_str()
-                && reference.resolution_provenance == DYNAMIC_DISPATCH_PROVENANCE
+                && reference.resolution_provenance == provenance
         })
         .collect::<Vec<_>>();
     assert_eq!(references.len(), 1, "{name}: {:?}", facts.references());
@@ -186,7 +201,7 @@ fn assert_native_bridge_member(
         references[0].target_symbol_id.as_ref(),
         Some(&target.symbol_id)
     );
-    assert!((references[0].confidence - 0.65).abs() < f32::EPSILON);
+    assert_eq!(references[0].confidence, confidence);
 }
 
 const EXPO_COLLISION_MODULE: (&str, &str) = (
@@ -580,7 +595,7 @@ fn implicit_public_methods_keep_explicit_public_same_file_exclusion() {
 }
 
 #[test]
-fn constructor_member_calls_keep_base_dynamic_dispatch() {
+fn constructor_member_calls_have_explicit_receiver_proof() {
     for modifier in ["public ", ""] {
         let source = format!("export class Cache {{ {modifier}invalidate() {{}} }}");
         let facts = generation(&[
@@ -595,8 +610,11 @@ fn constructor_member_calls_keep_base_dynamic_dispatch() {
         let reference =
             CapabilityReferenceQuery::new(&facts, owner).named("invalidate", ReferenceKind::Calls);
         assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
-        assert_eq!(reference.resolution_provenance, DYNAMIC_DISPATCH_PROVENANCE);
-        assert!((reference.confidence - 0.65).abs() < f32::EPSILON);
+        assert_eq!(
+            reference.resolution_provenance,
+            "native-explicit-receiver-type"
+        );
+        assert!((reference.confidence - 0.95).abs() < f32::EPSILON);
     }
 }
 
@@ -1316,7 +1334,10 @@ fn frozen_typescript_corpus_keeps_the_v1_default_public_cache_target() {
     let reference =
         CapabilityReferenceQuery::new(&facts, owner).named("remember", ReferenceKind::Calls);
     assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
-    assert_eq!(reference.resolution_provenance, DYNAMIC_DISPATCH_PROVENANCE);
+    assert_eq!(
+        reference.resolution_provenance,
+        "native-explicit-receiver-type"
+    );
 }
 
 #[test]

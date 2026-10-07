@@ -315,7 +315,8 @@ pub(crate) fn javascript_call_context_budget_bytes(call: &JavascriptMemberCallCo
 
 fn javascript_call_context_string_bytes(call: &JavascriptMemberCallContext) -> u64 {
     match &call.receiver {
-        JavascriptMemberReceiver::Constructor(name) => usize_to_u64(name.capacity()),
+        JavascriptMemberReceiver::Constructor(name)
+        | JavascriptMemberReceiver::UnprovenConstructor(name) => usize_to_u64(name.capacity()),
         JavascriptMemberReceiver::Shadowed
         | JavascriptMemberReceiver::Uncertain
         | JavascriptMemberReceiver::LocalImport => 0,

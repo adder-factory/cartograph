@@ -75,6 +75,57 @@ const HISTORY_THIRD_PATH: &str = "src/c.ts";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn v22_generation_is_stale_until_unchanged_source_republishes() {
+    let (schema, settings, project) = live_project_fixture("4");
+    write_incremental_fixture(project.path());
+    let runtime = ProjectRuntime::connect(project.path(), &settings)
+        .await
+        .unwrap_or_else(|error| panic!("visibility-contract runtime failed: {error}"));
+    let options = IndexOptions::default().with_history_refresh(false);
+    let first = initial_incremental_index(&runtime, options.clone()).await;
+    let pool = cartograph_db::connect(&settings)
+        .await
+        .unwrap_or_else(|error| panic!("visibility-contract connection failed: {error}"));
+    let downgraded = query(AssertSqlSafe(format!(
+        r#"UPDATE "{schema}"."index_generations" SET content_digest_version = $1
+            WHERE project_id = CAST($2 AS uuid) AND state = 'current'"#
+    )))
+    .bind(GenerationDigestVersion::V22.database_value())
+    .bind(first.project_id.as_str())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("V22 fixture downgrade failed: {error}"));
+    assert_eq!(downgraded.rows_affected(), 1);
+    assert!(
+        !runtime
+            .status()
+            .await
+            .unwrap_or_else(|error| panic!("V22 fixture status failed: {error}"))
+            .fresh
+    );
+    let upgraded = runtime
+        .index(options)
+        .await
+        .unwrap_or_else(|error| panic!("visibility-contract republication failed: {error}"));
+    assert!(upgraded.published);
+    assert_eq!(first.source_revision, upgraded.source_revision);
+    assert_ne!(first.generation_id, upgraded.generation_id);
+    let status = runtime
+        .status()
+        .await
+        .unwrap_or_else(|error| panic!("visibility-contract status failed: {error}"));
+    assert!(status.fresh);
+    assert_matches!(
+        status.snapshot.as_ref().and_then(|snapshot| snapshot.current.as_ref()),
+        Some(current) if current.digest_version == GenerationDigestVersion::V23
+    );
+    runtime.close().await;
+    pool.close().await;
+    drop_schema(&settings, &schema).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn blocked_latest_migration_reports_exact_older_schema_versions() {
     let (schema, settings, project) = live_project_fixture("4");
     let runtime = ProjectRuntime::connect(project.path(), &settings)

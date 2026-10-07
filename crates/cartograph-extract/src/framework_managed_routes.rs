@@ -1,4 +1,6 @@
-use cartograph_domain::{SourceLanguage, SymbolKind};
+mod details;
+
+use cartograph_domain::{SourceLanguage, SymbolId, SymbolKind};
 
 use crate::{
     ExtractError,
@@ -34,6 +36,7 @@ pub(crate) fn scan(
 }
 
 fn scan_spring(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(), ExtractError> {
+    let members = details::Members::build(builder)?;
     for class_index in 0..builder.original_symbol_count() {
         builder.check_cancelled()?;
         let Some(class) = original_declaration(builder, class_index, SymbolKind::Class) else {
@@ -44,7 +47,8 @@ fn scan_spring(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(
         let base = class_mapping
             .as_ref()
             .map_or("", |argument| argument.value_or_empty());
-        for method_index in 0..builder.original_symbol_count() {
+        for &method_index in members.of(&class.id) {
+            builder.bridge.charge_work(1)?;
             let Some(method) = original_callable(builder, method_index) else {
                 continue;
             };
@@ -74,29 +78,33 @@ fn scan_spring(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(
             })?;
         }
     }
-    Ok(())
+    details::landmarks(builder, source, true)
 }
 
 fn scan_aspnet(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(), ExtractError> {
+    let members = details::Members::build(builder)?;
     for class_index in 0..builder.original_symbol_count() {
         builder.check_cancelled()?;
         let Some(class) = original_declaration(builder, class_index, SymbolKind::Class) else {
             continue;
         };
-        scan_aspnet_class(builder, source, &class)?;
+        scan_aspnet_class(builder, source, (&class, members.of(&class.id)))?;
     }
-    Ok(())
+    details::landmarks(builder, source, false)
 }
 
 fn scan_aspnet_class(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
-    class: &OriginalDeclaration,
+    input: (&OriginalDeclaration, &[usize]),
 ) -> Result<(), ExtractError> {
+    let (class, members) = input;
     let class_context = declaration_context(source, class.start, class.end);
-    let Some(class_route) = annotation_argument(class_context, "[Route") else {
-        return Ok(());
-    };
+    let class_route =
+        annotation_argument(class_context, "[Route").unwrap_or(AnnotationArgument::Empty {
+            start: class.start,
+            end: class.start,
+        });
     if matches!(class_route, AnnotationArgument::Dynamic) {
         return Ok(());
     }
@@ -105,7 +113,8 @@ fn scan_aspnet_class(
     else {
         return Ok(());
     };
-    for method_index in 0..builder.original_symbol_count() {
+    for &method_index in members {
+        builder.bridge.charge_work(1)?;
         let Some(method) = original_callable(builder, method_index) else {
             continue;
         };
@@ -137,16 +146,28 @@ fn add_aspnet_method_route(
     builder: &mut FrameworkBuilder<'_, '_>,
     input: AspNetMethodRoute<'_>,
 ) -> Result<(), ExtractError> {
-    let AspNetMethodRoute {
-        source,
-        base,
-        class_route,
-        method,
-    } = input;
+    let AspNetMethodRoute { source, method, .. } = input;
     let method_context = declaration_context(source, method.start, method.end);
-    let Some(http) = aspnet_http_mapping(method_context) else {
-        return Ok(());
-    };
+    for http in details::aspnet_mappings(method_context) {
+        add_aspnet_mapping_route(builder, (input, &http))?;
+    }
+    Ok(())
+}
+
+fn add_aspnet_mapping_route(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    input: (AspNetMethodRoute<'_>, &Mapping<'_>),
+) -> Result<(), ExtractError> {
+    let (
+        AspNetMethodRoute {
+            source,
+            base,
+            class_route,
+            method,
+        },
+        http,
+    ) = input;
+    let method_context = declaration_context(source, method.start, method.end);
     let route_override = annotation_argument(method_context, "[Route");
     let selected = match route_override.as_ref() {
         Some(AnnotationArgument::Dynamic) => return Ok(()),
@@ -256,25 +277,9 @@ fn spring_mapping(context: DeclarationContext<'_>) -> Option<Mapping<'_>> {
     Some(Mapping { method, argument })
 }
 
-fn aspnet_http_mapping(context: DeclarationContext<'_>) -> Option<Mapping<'_>> {
-    for (annotation, method) in [
-        ("[HttpGet", "GET"),
-        ("[HttpPost", "POST"),
-        ("[HttpPut", "PUT"),
-        ("[HttpPatch", "PATCH"),
-        ("[HttpDelete", "DELETE"),
-        ("[HttpHead", "HEAD"),
-        ("[HttpOptions", "OPTIONS"),
-    ] {
-        if let Some(argument) = annotation_argument(context, annotation) {
-            return Some(Mapping { method, argument });
-        }
-    }
-    None
-}
-
 #[derive(Clone)]
 struct OriginalDeclaration {
+    id: SymbolId,
     name: String,
     start: usize,
     end: usize,
@@ -290,6 +295,7 @@ fn original_declaration(
         return None;
     }
     Some(OriginalDeclaration {
+        id: symbol.id.clone(),
         name: symbol.name.clone(),
         start: usize::try_from(symbol.span.start_byte()).ok()?,
         end: usize::try_from(symbol.span.end_byte()).ok()?,
@@ -305,6 +311,7 @@ fn original_callable(
         return None;
     }
     Some(OriginalDeclaration {
+        id: symbol.id.clone(),
         name: symbol.name.clone(),
         start: usize::try_from(symbol.span.start_byte()).ok()?,
         end: usize::try_from(symbol.span.end_byte()).ok()?,
@@ -418,8 +425,9 @@ fn parse_annotation_parentheses(
             end: name.1,
         });
     }
-    if let Some(quoted) =
-        quoted_literal_after(argument, 0).map(|quoted| quoted.with_offset(slice.offset + open + 1))
+    if let Some(quoted) = quoted_literal_after(argument, 0)
+        .filter(|quoted| !square_bracketed || details::literal_operand(argument, quoted))
+        .map(|quoted| quoted.with_offset(slice.offset + open + 1))
     {
         return Some(AnnotationArgument::Literal {
             value: quoted.value,

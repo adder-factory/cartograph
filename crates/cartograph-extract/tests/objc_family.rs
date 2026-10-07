@@ -365,7 +365,7 @@ fn react_native_export_macros_become_native_selector_methods() {
         extracted
             .symbols
             .iter()
-            .all(|symbol| symbol.name != "getThing"),
+            .all(|symbol| symbol.name != "getThing" || is_bridge_landmark(symbol)),
         "the REMAP JS name is not the native method: {extracted:?}"
     );
     assert!(
@@ -461,7 +461,8 @@ fn react_native_macro_methods_keep_exact_original_spans_and_lines() {
         extracted
             .symbols
             .iter()
-            .all(|symbol| !matches!(symbol.name.as_str(), "jsName" | "getMap" | "NSDictionary")),
+            .all(|symbol| is_bridge_landmark(symbol)
+                || !matches!(symbol.name.as_str(), "jsName" | "getMap" | "NSDictionary")),
         "REMAP leading arguments leaked: {extracted:?}"
     );
 }

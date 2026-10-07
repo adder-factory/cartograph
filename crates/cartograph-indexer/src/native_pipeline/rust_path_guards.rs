@@ -55,7 +55,12 @@ where
         retain_file(
             target.budget,
             (
-                &mut target.index.rust_paths.declarations.standard_files,
+                &mut target
+                    .index
+                    .languages
+                    .rust_paths
+                    .declarations
+                    .standard_files,
                 &file.file.file_id,
             ),
         )?;
@@ -66,7 +71,7 @@ where
                 size_of::<(FileId, HashMap<String, bool>)>() + file.file.file_id.as_str().len(),
             ),
     )?;
-    let declarations = &mut target.index.rust_paths.declarations.modules;
+    let declarations = &mut target.index.languages.rust_paths.declarations.modules;
     declarations.try_reserve(1).map_err(|_| StageItemFailure)?;
     declarations.insert(file.file.file_id.clone(), modules);
     Ok(())
@@ -140,7 +145,12 @@ fn retain_raw_aliases(
         target.budget.charge(usize_to_u64(original.len()))?;
         let normalized = normalized_path(original)?;
         super::push_candidate(
-            &mut target.index.rust_paths.declarations.raw_candidates,
+            &mut target
+                .index
+                .languages
+                .rust_paths
+                .declarations
+                .raw_candidates,
             super::ResolutionCandidateInsertion {
                 key: &normalized,
                 symbol,
@@ -163,6 +173,7 @@ pub(super) fn raw_candidates_for_file<'a>(
         return &[];
     };
     index
+        .languages
         .rust_paths
         .declarations
         .raw_candidates
@@ -194,7 +205,13 @@ where
     Cancel: FnMut() -> bool,
 {
     let mut roots = HashSet::new();
-    for file in &target.index.rust_paths.declarations.standard_files {
+    for file in &target
+        .index
+        .languages
+        .rust_paths
+        .declarations
+        .standard_files
+    {
         if cancelled() {
             return Err(StageItemFailure);
         }
@@ -202,12 +219,17 @@ where
             retain_file(target.budget, (&mut roots, root))?;
         }
     }
-    target.index.rust_paths.declarations.standard_roots = roots;
+    target
+        .index
+        .languages
+        .rust_paths
+        .declarations
+        .standard_roots = roots;
     Ok(())
 }
 
 pub(super) fn namespace_overridden(index: &ResolutionIndex, file: &FileId) -> bool {
-    let declarations = &index.rust_paths.declarations;
+    let declarations = &index.languages.rust_paths.declarations;
     declarations.standard_files.contains(file)
         || super::rust_root_ownership::root(index, file)
             .is_some_and(|root| declarations.standard_roots.contains(root))
@@ -215,6 +237,7 @@ pub(super) fn namespace_overridden(index: &ResolutionIndex, file: &FileId) -> bo
 
 pub(super) fn module_declared(index: &ResolutionIndex, query: (&FileId, &str)) -> Option<bool> {
     index
+        .languages
         .rust_paths
         .declarations
         .modules

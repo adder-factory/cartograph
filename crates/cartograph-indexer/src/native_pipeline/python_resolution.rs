@@ -166,6 +166,13 @@ fn module_lookup<'a>(
     path_lookup(modules, &path, absolute)
 }
 
+pub(super) fn project_module_may_exist(
+    modules: &ModulePathIndex,
+    request: ModuleResolutionRequest<'_>,
+) -> bool {
+    !matches!(module_lookup(modules, request), ModuleLookup::Missing)
+}
+
 fn package_descendant_lookup<'a>(
     modules: &'a ModulePathIndex,
     parent: ModuleTarget<'a>,
@@ -320,7 +327,7 @@ where
             if query.input.reference.name != query.binding.local_name
                 && !matches!(query.input.site, super::ImportReferenceSite::Declaration)
             {
-                return Ok(ImportResolution::Unresolved);
+                return super::python_class_members::resolve(query, candidate, cancelled);
             }
             let ModuleLookup::Unique(target) = module else {
                 return Err(StageItemFailure);

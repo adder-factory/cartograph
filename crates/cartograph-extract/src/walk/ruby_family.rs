@@ -8,6 +8,8 @@
 //! `private`/`protected`/`public` set the visibility of instance methods.
 
 mod locals;
+mod member_uncertainty;
+mod relationships;
 mod state;
 
 use cartograph_domain::{ReferenceKind, SymbolId, SymbolKind, Visibility};
@@ -126,6 +128,7 @@ pub(super) fn capture_usage(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    relationships::capture(builder, node)?;
     match node.kind() {
         "call" => capture_call(builder, node),
         "identifier" => capture_bare_call(builder, node),
@@ -166,11 +169,15 @@ fn visit_container(
         kind,
         name: &name,
     };
-    with_owner(builder, scope, |builder| {
+    let saved = builder.script.ruby.include_blocked;
+    builder.script.ruby.include_blocked = member_uncertainty::capture(builder, (node, &id))?;
+    let result = with_owner(builder, scope, |builder| {
         with_singleton_context(builder, SingletonContext::Instance, |builder| {
             visit_fresh_body(builder, node.child_by_field_name("body"), depth)
         })
-    })?;
+    });
+    builder.script.ruby.include_blocked = saved;
+    result?;
     Ok(true)
 }
 

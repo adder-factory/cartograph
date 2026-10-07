@@ -1,5 +1,5 @@
-//! Internal visibility proves at least the declaring module's parent subtree.
-//! This is the common exact subset of `pub(crate)` and `pub(super)` evidence.
+//! Restricted visibility retains local owner and parent-subtree proofs.
+//! Explicit `pub(crate)` additionally requires a shared, proven crate root.
 use super::{
     ResolutionCandidate, ResolutionIndex, ResolutionRequest, StageItemFailure, Visibility,
     resolution_candidates_for_file,
@@ -21,7 +21,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let (request, scope, name, candidate) = query;
-    if !declaration_visible(index, (request, scope, candidate.visibility), cancelled)? {
+    if !candidate_visible(index, (request, scope, candidate), cancelled)? {
         return Ok(false);
     }
     if rust_inline_modules::owns(scope, candidate) {
@@ -58,8 +58,37 @@ where
     }
     Ok(
         candidate.parent_symbol_id.as_ref() == Some(&parent.symbol_id)
-            && declaration_visible(index, (request, scope, parent.visibility), cancelled)?,
+            && candidate_visible(index, (request, scope, parent), cancelled)?,
     )
+}
+
+fn candidate_visible<Cancel>(
+    index: &ResolutionIndex,
+    (request, scope, candidate): (
+        &ResolutionRequest<'_>,
+        ModuleScope<'_>,
+        &ResolutionCandidate,
+    ),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if declaration_visible(index, (request, scope, candidate.visibility), cancelled)? {
+        return Ok(true);
+    }
+    Ok(
+        candidate.declaration_syntax == super::DeclarationSyntax::RustCrateVisible
+            && crate_visible(index, (request, scope)),
+    )
+}
+
+pub(super) fn crate_visible(
+    index: &ResolutionIndex,
+    (request, scope): (&ResolutionRequest<'_>, ModuleScope<'_>),
+) -> bool {
+    rust_root_ownership::root(index, scope.file)
+        .is_some_and(|root| rust_root_ownership::root(index, request.file_id) == Some(root))
 }
 
 pub(super) fn declaration_visible<Cancel>(

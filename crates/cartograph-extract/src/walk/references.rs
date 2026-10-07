@@ -1151,14 +1151,18 @@ pub(super) fn capture_jsx_reference(
     if !starts_uppercase(&name) {
         return Ok(());
     }
-    push_reference(
+    let resolution_name = super::jsx_context::resolution_name(builder, target)?;
+    push_resolved_reference(
         builder,
-        PendingReference {
-            owner: builder.owners.last().cloned(),
-            name,
-            kind: ReferenceKind::References,
-            node: target,
-        },
+        (
+            PendingReference {
+                owner: builder.owners.last().cloned(),
+                name,
+                kind: ReferenceKind::References,
+                node: target,
+            },
+            resolution_name,
+        ),
     )
 }
 
@@ -1236,6 +1240,18 @@ pub(super) fn push_reference(
     builder: &mut ExtractionBuilder<'_, '_>,
     pending: PendingReference<'_>,
 ) -> Result<(), ExtractError> {
+    let resolution_name = super::jsx_context::non_jsx_resolution_name((
+        builder.context.snapshot.language(),
+        pending.kind,
+        &pending.name,
+    ))?;
+    push_resolved_reference(builder, (pending, resolution_name))
+}
+
+fn push_resolved_reference(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    (pending, resolution_name): (PendingReference<'_>, Option<String>),
+) -> Result<(), ExtractError> {
     if pending.name.is_empty() {
         return Ok(());
     }
@@ -1243,7 +1259,7 @@ pub(super) fn push_reference(
     builder.emit_reference(ExtractedReference {
         owner: pending.owner,
         name: pending.name,
-        resolution_name: None,
+        resolution_name,
         kind: pending.kind,
         span: span_for(pending.node)?,
     })

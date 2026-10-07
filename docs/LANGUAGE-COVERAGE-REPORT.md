@@ -4,7 +4,7 @@
 [Grammar provenance](GRAMMAR-ASSETS.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-10-06 (`v2.1.41`).
+Last release audit: 2026-10-07 (`v2.1.42`).
 
 This report states what "supported" means for a language mode and where the
 evidence for each admitted mode lives. For the per-language inventory, read the
@@ -18,7 +18,7 @@ evidence for each admitted mode lives. For the per-language inventory, read the
 
 ## Current inventory
 
-Cartograph v2.1.41 production-admits all 73 v1.1.33 language modes and all 163 v1
+Cartograph v2.1.42 production-admits all 73 v1.1.33 language modes and all 163 v1
 extensions, plus additive Python `.pyi`, native TOML, and 52 dedicated textual
 game-scripting modes, the WGSL and Metal shader modes added in v2.1.12, and
 Slang and WESL added in v2.1.15, plus Ada/SPARK and VHDL added in v2.1.27: 132
@@ -160,11 +160,10 @@ after the extraction fixes are:
 
 | Disposition | Distinct selectors |
 | --- | ---: |
-| Identity | 6,038 |
-| Aligned | 1,957 |
-| Pending, wave 2 | 16 |
-| Pending, wave 3 | 109 |
-| Intentional | 45 |
+| Identity | 6,052 |
+| Aligned | 2,037 |
+| Pending, wave 3 | 3 |
+| Intentional | 73 |
 
 This gate proves per-file observations. Correction alignments marked
 `v1-target-misresolution-*` preserve only the corrected source occurrence under
@@ -222,12 +221,12 @@ target file and declaration, a pinned alignment, or a ledger entry. Its
 [README](../crates/cartograph-indexer/tests/fixtures/v1_resolution/README.md)
 owns the tables, update procedure and pending inventory.
 
-| Disposition (v2.1.41) | Distinct facts |
+| Disposition (v2.1.42) | Distinct facts |
 | --- | ---: |
-| Matched exactly | 602 |
-| Aligned by exact pins | 295 |
-| Intentional | 406 |
-| Pending, wave 3 | 421 |
+| Matched exactly | 679 |
+| Aligned by exact pins | 386 |
+| Intentional | 563 |
+| Pending, wave 3 | 96 |
 
 Run it with
 `cargo test --locked -p cartograph-indexer --lib v1_resolution_oracle -- --nocapture`.

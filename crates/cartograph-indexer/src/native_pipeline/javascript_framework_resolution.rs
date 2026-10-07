@@ -3,14 +3,16 @@
 //! Only a unique best convention in the same package scope binds, at lowered
 //! framework confidence; an existing exact-name bucket remains authoritative.
 
-use std::collections::HashMap;
+mod context_member;
+
+use std::collections::{HashMap, HashSet};
 
 use super::javascript_member_resolution::{charge_entry, class_member, unique_candidate};
 use super::{
     FileId, MAX_SYMBOL_QUALIFIED_NAME_BYTES, ResolutionCandidate, ResolutionIndex,
-    ResolutionIndexFileInput, ResolutionRequest, ResolveBudget, ResolvedTarget, StageItemFailure,
-    SymbolKind, Visibility, directory_has_any, framework_convention_target, javascript_family_name,
-    reference_kind_candidate, try_clone_text,
+    ResolutionIndexFileInput, ResolutionRequest, ResolveBudget, ResolvedTarget, SourceSpan,
+    StageItemFailure, SymbolKind, Visibility, directory_has_any, framework_convention_target,
+    javascript_family_name, reference_kind_candidate, try_clone_text,
 };
 
 const MAX_CASE_VARIANTS: usize = 16;
@@ -40,6 +42,7 @@ pub(super) struct JavascriptFrameworkIndex {
     packages: HashMap<String, Frameworks>,
     files: HashMap<FileId, Frameworks>,
     middleware_names: HashMap<String, Option<Vec<String>>>,
+    unbound_context_sites: HashMap<FileId, HashSet<SourceSpan>>,
 }
 
 pub(super) fn index_file<Cancel>(
@@ -55,8 +58,11 @@ where
     if !manifest && !javascript {
         return Ok(());
     }
+    if javascript {
+        context_member::index_sites(input)?;
+    }
     let flags = index_detection(input)?;
-    let index = &mut input.index.javascript_frameworks;
+    let index = &mut input.index.javascript.frameworks;
     if manifest {
         let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
         charge_entry::<(String, Frameworks)>(input.budget, directory.len())?;
@@ -99,7 +105,7 @@ where
         }
         if symbol.input.qualified_name == symbol.name && middleware_name(&symbol.name) {
             insert_middleware_name(
-                &mut input.index.javascript_frameworks.middleware_names,
+                &mut input.index.javascript.frameworks.middleware_names,
                 &symbol.name,
                 input.budget,
             )?;
@@ -308,7 +314,7 @@ where
     if !javascript_family_name(request.language) {
         return Ok(None);
     }
-    let frameworks = &index.javascript_frameworks;
+    let frameworks = &index.javascript.frameworks;
     let (scope, flags) = frameworks.package(request.file_path);
     let flags = flags.merge(
         frameworks
@@ -317,6 +323,11 @@ where
             .copied()
             .unwrap_or_default(),
     );
+    if flags.react
+        && let Some(target) = context_member::resolve(index, request, cancelled)?
+    {
+        return Ok(Some(target));
+    }
     let Some(transform) = Transform::detect(request.name, flags) else {
         return Ok(None);
     };
@@ -377,7 +388,7 @@ fn candidate_in_scope(query: &TransformQuery<'_, '_>, candidate: &ResolutionCand
         .get(&candidate.file_id)
         .is_some_and(|file| {
             javascript_family_name(&file.language)
-                && query.index.javascript_frameworks.package(&file.path).0 == query.scope
+                && query.index.javascript.frameworks.package(&file.path).0 == query.scope
         })
 }
 
@@ -460,7 +471,7 @@ where
 {
     let name = query.transform.name();
     let variants = match query.transform {
-        Transform::Middleware(_) => query.index.javascript_frameworks.case_variants(name),
+        Transform::Middleware(_) => query.index.javascript.frameworks.case_variants(name),
         Transform::Context(_) | Transform::Member { .. } => CaseVariants::Missing,
     };
     let variants = match variants {

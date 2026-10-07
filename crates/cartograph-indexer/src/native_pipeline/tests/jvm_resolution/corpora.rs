@@ -32,7 +32,7 @@ fn frozen_v1_correspondences_resolve_to_the_declared_import_target() {
             "service/FooConverter.java",
             "com.acme.shop.service.converter::FooConverter::convert",
         ),
-        "native-dynamic-dispatch",
+        "native-explicit-receiver-type",
     );
     let field = capability_symbol(
         &facts,

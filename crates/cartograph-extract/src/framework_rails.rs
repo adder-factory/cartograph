@@ -4,7 +4,7 @@ use crate::{
     ExtractError,
     framework::{
         FrameworkBuilder, FrameworkRouteInput, LandmarkInput, Quoted, quoted_literal_after,
-        skip_ascii_whitespace,
+        segments::Segments, skip_ascii_whitespace,
     },
     source_lines::physical_lines,
 };
@@ -33,15 +33,18 @@ pub(crate) fn scan(
         .try_reserve_exact(MAX_SCOPE_DEPTH)
         .map_err(|_| ExtractError::OutputLimit)?;
     for (line_start, line) in physical_lines(source) {
-        builder.check_cancelled()?;
-        scan_route_line(
-            builder,
-            MutableRouteLine {
-                line_start,
-                line,
-                scopes: &mut scopes,
-            },
-        )?;
+        builder.bridge.charge_work(line.len())?;
+        for (offset, statement) in Segments::new(line, b';') {
+            builder.check_cancelled()?;
+            scan_route_line(
+                builder,
+                MutableRouteLine {
+                    line_start: line_start + offset,
+                    line: statement,
+                    scopes: &mut scopes,
+                },
+            )?;
+        }
     }
     Ok(())
 }

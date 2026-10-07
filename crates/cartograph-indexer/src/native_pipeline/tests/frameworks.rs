@@ -1,6 +1,10 @@
 //! Framework bindings must identify one target and preserve uncertainty.
 
+mod drupalsf;
+mod drupalsf_repairs;
+mod fwjs;
 mod repairs;
+mod routes;
 
 use super::*;
 

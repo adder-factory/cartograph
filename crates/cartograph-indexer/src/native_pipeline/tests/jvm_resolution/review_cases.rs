@@ -16,7 +16,7 @@ fn field_receiver_types_use_the_declaration_scope() {
     targets(
         CapabilityReferenceQuery::new(&facts, run).named("value.go", ReferenceKind::Calls),
         capability_symbol(&facts, "p/Converter.java", "p::Converter::go"),
-        "native-dynamic-dispatch",
+        "native-explicit-receiver-type",
     );
     let missing =
         CapabilityReferenceQuery::new(&facts, run).named("missing.go", ReferenceKind::Calls);
@@ -69,7 +69,12 @@ fn abstract_instance_overloads_remain_ambiguous_for_typed_receivers() {
         targets(
             CapabilityReferenceQuery::new(&facts, run).named("value.unique", ReferenceKind::Calls),
             capability_symbol(&facts, path, "Builder::unique"),
-            "native-dynamic-dispatch",
+            if path == "Builder.kt" {
+                // Recovery of the abstract declaration withholds optional evidence.
+                "native-dynamic-dispatch"
+            } else {
+                "native-explicit-receiver-type"
+            },
         );
     }
 }

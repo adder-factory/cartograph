@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 #[doc(hidden)]
 pub const DYNAMIC_DISPATCH_RESOLUTION_PREFIX: &str = "cartograph.dynamic-dispatch::";
 
+/// A proven native-module alias hint; unresolved hints retain ordinary lookup.
+#[doc(hidden)]
+pub const NATIVE_MODULE_ALIAS_RESOLUTION_PREFIX: &str = "cartograph.native-module-alias::";
+
 /// A Python use whose file-wide bindings block import fallback, preserving lexical lookup.
 pub const PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX: &str = "cartograph.python-unbound-import::";
 
@@ -95,10 +99,19 @@ pub const PHP_EXACT_RESOLUTION_PREFIX: &str = "cartograph.php-exact::";
 #[doc(hidden)]
 pub const SALESFORCE_CONTROLLER_MODULE: &str = "cartograph.salesforce-controller";
 
+/// Internal occurrence marker for an unmodified Aura client action receiver.
+#[doc(hidden)]
+pub const SALESFORCE_CLIENT_MODULE: &str = "cartograph.salesforce-client";
+
 /// Internal module identity of an implicit Salesforce component binding.
 /// Its imported name preserves bundle case independently of the reference name.
 #[doc(hidden)]
 pub const SALESFORCE_COMPONENT_MODULE: &str = "cartograph.salesforce-component";
+
+/// Internal binding identity for a Drupal YAML scalar that names a PHP class.
+/// Its exact span distinguishes class/factory literals from service aliases.
+#[doc(hidden)]
+pub const DRUPAL_CLASS_MODULE: &str = "cartograph.drupal-class";
 
 /// Internal namespace-block marker, including PHP's unnamed global blocks.
 #[doc(hidden)]
@@ -164,6 +177,8 @@ pub struct ExtractedFile {
 pub enum CallScopeKind {
     /// A direct method or its lexical receiver closure preserves current-class ownership.
     CurrentClass,
+    /// An explicit instance receiver cannot invoke a static member.
+    CurrentInstance,
     /// A call stays in the retained callable's binding scope without an anonymous boundary.
     DirectCallable,
 }
@@ -199,6 +214,8 @@ pub enum JavascriptMemberReceiver {
     LocalImport,
     /// A direct member access on a named, unshadowed constructor expression.
     Constructor(String),
+    /// The original constructor binding remains available, but local value proof is absent.
+    UnprovenConstructor(String),
 }
 
 /// One exact source site where static syntax exposes numerical behavior or risk.
@@ -238,6 +255,10 @@ pub enum DeclarationSyntax {
     Other,
     /// A Kotlin primary or secondary constructor, rather than a same-named function.
     KotlinConstructor,
+    /// A Dart generative, factory, or extension-type representation constructor.
+    DartConstructor,
+    /// A Rust declaration explicitly visible throughout its own crate.
+    RustCrateVisible,
 }
 
 /// One normalized declaration emitted by a native language extractor.

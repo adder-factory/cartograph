@@ -1,5 +1,6 @@
-//! V22 retains the merged tracks' facts while reconstructing the removed Lua
+//! V23 retains the merged tracks' facts while reconstructing the removed Lua
 //! subfeature: three symbol flags, three document records and two provenances.
+//! V23 changes the digest domain; facts unchanged in the restored projection.
 use super::{
     CanonicalGenerationFacts, EXPECTED_GENERIC_FAMILY_DIGEST, GenerationFacts, PipelineStage,
     SERIAL_WORKERS, SearchDocumentInput, SymbolExportFlags, TEST_GENERATION_BYTES, build,
@@ -12,7 +13,9 @@ async fn deleting_lua_proof_restores_the_legacy_digest_fact_by_fact() {
     let directory = tempdir().unwrap_or_else(|error| panic!("fixture directory failed: {error}"));
     write_generic_family_project(directory.path());
     let generation = build(directory.path(), SERIAL_WORKERS).await;
-    let current = generation.facts();
+    let receiver_restored = super::types_digest_proof::restore_receiver_delta(generation.facts());
+    let baseline = super::bridge_digest_proof::restore(&receiver_restored);
+    let current = &baseline;
     let mut legacy = raw_facts(current);
     for (name, default) in [("M", true), ("M.pack", false), ("M:size", false)] {
         let symbol = capability_symbol(current, "generic/fixture.lua", name);
@@ -54,13 +57,16 @@ async fn deleting_lua_proof_restores_the_legacy_digest_fact_by_fact() {
         .unwrap_or_else(|error| panic!("legacy fact validation failed: {error}"));
     assert_eq!(
         legacy.digest().as_str(),
-        "e6cdcadd772f9e15bf24636830f1c3ea9de3f7e178c8b85d9e5d7081ecf4749b"
+        "64a235d60b4dbea66e4bf387b2e1053c42160463b81a98007fa3676568145647"
     );
     assert_eq!(current.edges(), legacy.edges());
-    assert_eq!(current.digest().as_str(), EXPECTED_GENERIC_FAMILY_DIGEST);
+    assert_eq!(
+        generation.facts().digest().as_str(),
+        EXPECTED_GENERIC_FAMILY_DIGEST
+    );
 }
 
-fn raw_facts(facts: &CanonicalGenerationFacts) -> GenerationFacts {
+pub(super) fn raw_facts(facts: &CanonicalGenerationFacts) -> GenerationFacts {
     GenerationFacts {
         files: facts.files().to_vec(),
         symbols: facts.symbols().to_vec(),

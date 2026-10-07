@@ -72,7 +72,7 @@ fn jvm_explicit_imports_and_aliases_disambiguate_declared_packages() {
             "generated/Service.java",
             "service::Converter::convert",
         ),
-        "native-dynamic-dispatch",
+        "native-explicit-receiver-type",
     );
 }
 

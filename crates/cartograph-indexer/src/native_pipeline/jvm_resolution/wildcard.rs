@@ -39,7 +39,7 @@ where
         {
             continue;
         }
-        if !target.index.jvm.packages.contains_key(package) {
+        if !target.index.languages.jvm.packages.contains_key(package) {
             target.budget.charge(
                 RESOLUTION_MAP_NODE_ALLOWANCE
                     .saturating_add(usize_to_u64(size_of::<(
@@ -50,18 +50,21 @@ where
             )?;
             target
                 .index
+                .languages
                 .jvm
                 .packages
                 .try_reserve(1)
                 .map_err(|_| StageItemFailure)?;
             target
                 .index
+                .languages
                 .jvm
                 .packages
                 .insert(try_clone_text(package)?, std::collections::HashMap::new());
         }
         let names = target
             .index
+            .languages
             .jvm
             .packages
             .get_mut(package)
@@ -86,7 +89,7 @@ pub(in crate::native_pipeline) fn prepare<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let jvm = &mut target.index.jvm;
+    let jvm = &mut target.index.languages.jvm;
     for hints in jvm.files.values_mut() {
         for package in &hints.wildcards {
             if cancelled() {
@@ -181,7 +184,7 @@ mod tests {
             ..ImportHints::default()
         };
         let mut index = ResolutionIndex::default();
-        index.jvm.files.insert(file.clone(), hints);
+        index.languages.jvm.files.insert(file.clone(), hints);
         let mut budget =
             ResolveBudget::new(0, 8 * 1024 * 1024).unwrap_or_else(|_| panic!("budget"));
         let imports = FileImportBindingIndex::new(&bindings, &mut budget, "java")

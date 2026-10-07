@@ -30,6 +30,7 @@ use crate::{
 };
 
 mod module_bindings;
+mod ocaml_bindings;
 
 const QUERY_MATCH_LIMIT: u32 = 65_536;
 const MINIMUM_CAPTURE_LIMIT: usize = 1_024;
@@ -170,6 +171,12 @@ struct ReferenceEmissionInput<'tree, 'emitted> {
     emitted: &'emitted [EmittedDefinition],
     source: &'emitted str,
     language: SourceLanguage,
+}
+
+struct TagImportInput<'tree, 'source, 'facts> {
+    extraction: TagExtractionInput<'tree, 'source>,
+    symbols: &'facts [ExtractedSymbol],
+    bindings: &'facts mut Vec<crate::ExtractedImportBinding>,
 }
 
 #[derive(Clone, Copy)]
@@ -368,17 +375,15 @@ pub(crate) fn extract(
         cancelled,
     )?;
 
-    let mut public_members =
-        module_bindings::public_members((input, &facts.symbols), (&mut budget, cancelled))?;
-    import_bindings
-        .try_reserve(public_members.len())
-        .map_err(|_| ExtractError::OutputLimit)?;
-    import_bindings.append(&mut public_members);
-    let mut module_imports = module_bindings::extract(input, &mut budget, cancelled)?;
-    import_bindings
-        .try_reserve(module_imports.len())
-        .map_err(|_| ExtractError::OutputLimit)?;
-    import_bindings.append(&mut module_imports);
+    append_tag_imports(
+        TagImportInput {
+            extraction: input,
+            symbols: &facts.symbols,
+            bindings: &mut import_bindings,
+        },
+        &mut budget,
+        cancelled,
+    )?;
 
     let diagnostics = diagnostics(root, parse_status, cancelled)?;
     for _ in &diagnostics {
@@ -412,6 +417,35 @@ pub(crate) fn extract(
         return Err(ExtractError::OutputLimit);
     }
     Ok(extracted)
+}
+
+fn append_tag_imports(
+    input: TagImportInput<'_, '_, '_>,
+    budget: &mut ExtractionBudget,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), ExtractError> {
+    let TagImportInput {
+        extraction,
+        symbols,
+        bindings,
+    } = input;
+    let mut public_members =
+        module_bindings::public_members((extraction, symbols), (budget, cancelled))?;
+    bindings
+        .try_reserve(public_members.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    bindings.append(&mut public_members);
+    let mut module_imports = module_bindings::extract(extraction, budget, cancelled)?;
+    bindings
+        .try_reserve(module_imports.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    bindings.append(&mut module_imports);
+    let mut ocaml_imports = ocaml_bindings::extract(extraction, budget, cancelled)?;
+    bindings
+        .try_reserve(ocaml_imports.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    bindings.append(&mut ocaml_imports);
+    Ok(())
 }
 
 fn prepare_tag_records<'tree>(
@@ -664,6 +698,10 @@ fn emit_tag_references(
         }
         if let Some(binding) =
             module_bindings::callee_binding(call.name_node, input.source, input.language)?
+        {
+            module_bindings::push_binding((&mut qualifiers, binding), budget)?;
+        }
+        if let Some(binding) = ocaml_bindings::callee(call.name_node, input.source, input.language)?
         {
             module_bindings::push_binding((&mut qualifiers, binding), budget)?;
         }

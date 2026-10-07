@@ -18,7 +18,7 @@ mod import_index;
 mod parameter_bindings;
 mod python_import_scopes;
 mod python_members;
-mod qualified_path;
+pub(super) mod qualified_path;
 mod rust_attributes;
 mod rust_members;
 mod rust_module_scopes;
@@ -1019,6 +1019,7 @@ fn visit_rust_external_module(
         .get_mut(symbol_position)
         .ok_or(ExtractError::OutputLimit)?;
     symbol.export = crate::SymbolExportFlags::named(visibility == Some(Visibility::Public));
+    symbol.visibility = visibility;
     Ok(())
 }
 
@@ -1857,10 +1858,22 @@ fn go_exported(builder: &ExtractionBuilder<'_, '_>, name: Node<'_>) -> bool {
         .is_some_and(char::is_uppercase)
 }
 
-fn rust_visibility(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> Option<Visibility> {
-    let visibility = named_children(node)
+pub(super) fn crate_visible(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> bool {
+    builder.context.snapshot.language() == SourceLanguage::Rust
+        && rust_visibility_text(builder, node) == Some("pub(crate)")
+}
+
+fn rust_visibility_text<'builder>(
+    builder: &'builder ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Option<&'builder str> {
+    named_children(node)
         .find(|child| child.kind() == "visibility_modifier")
-        .map(|node| builder.context.text(node).trim())?;
+        .map(|node| builder.context.text(node).trim())
+}
+
+fn rust_visibility(builder: &ExtractionBuilder<'_, '_>, node: Node<'_>) -> Option<Visibility> {
+    let visibility = rust_visibility_text(builder, node)?;
     match visibility {
         "pub" => Some(Visibility::Public),
         "pub(crate)" | "pub(super)" => Some(Visibility::Internal),

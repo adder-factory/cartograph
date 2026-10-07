@@ -1,3 +1,5 @@
+mod require_arguments;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolId, SymbolKind};
@@ -501,10 +503,7 @@ fn commonjs_require_source<'tree>(
         return None;
     }
     let arguments = call.child_by_field_name("arguments")?;
-    if arguments.named_child_count() != 1 {
-        return None;
-    }
-    screened_import_source(builder, arguments.named_child(0)?)
+    screened_import_source(builder, require_arguments::single_value(arguments)?)
 }
 
 /// Record the module loaded by a `require(..)` (or `createRequire` alias)

@@ -1,15 +1,13 @@
-use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind, Visibility};
+mod loads;
+mod property_bindings;
+mod resources;
+
+use cartograph_domain::{SourceLanguage, SymbolKind, Visibility};
 
 use crate::{
     ExtractError,
-    framework::{
-        DelimiterInput, FrameworkBuilder, FrameworkNearReferenceInput, FrameworkRouteInput,
-        matching_delimiter, skip_ascii_whitespace,
-    },
+    framework::{FrameworkBuilder, FrameworkRouteInput},
 };
-
-const MAX_LOADED_RESOURCES: usize = 256;
-const MAX_SCAN_BYTES: usize = 4_096;
 
 pub(crate) fn scan(
     builder: &mut FrameworkBuilder<'_, '_>,
@@ -21,7 +19,10 @@ pub(crate) fn scan(
     let path = builder.path().to_ascii_lowercase();
     if path.starts_with("application/controllers/") {
         scan_controller_routes(builder, source)?;
-        scan_loaded_resources(builder, source)?;
+    }
+    if path.starts_with("application/") || source.contains("extends CI_") {
+        let loaded = loads::scan(builder, source)?;
+        resources::scan_calls(builder, source, &loaded)?;
     }
     Ok(())
 }
@@ -95,92 +96,20 @@ fn scan_controller_routes(
     Ok(())
 }
 
-fn scan_loaded_resources(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-) -> Result<(), ExtractError> {
-    let mut resources = Vec::new();
-    resources
-        .try_reserve_exact(MAX_LOADED_RESOURCES)
-        .map_err(|_| ExtractError::OutputLimit)?;
-    for marker in ["$this->load->model(", "$this->load->library("] {
-        let mut cursor = 0_usize;
-        while resources.len() < MAX_LOADED_RESOURCES
-            && let Some(relative) = source[cursor..].find(marker)
-        {
-            builder.check_cancelled()?;
-            let call = cursor + relative;
-            let Some(close) = matching_delimiter(DelimiterInput::bounded_parentheses(
-                source,
-                call + marker.len() - 1,
-                MAX_SCAN_BYTES,
-            )) else {
-                cursor = call + marker.len();
-                continue;
-            };
-            let Some(resource) = quoted_after(source, call + marker.len(), close) else {
-                cursor = close + 1;
-                continue;
-            };
-            let alias = next_quoted_after_comma(source, resource.quote_end + 1, close);
-            let Some(loaded) = screened_loaded_resource(&resource, alias) else {
-                cursor = close + 1;
-                continue;
-            };
-            builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
-                name: resource.value,
-                resolution_name: Some(&loaded.class),
-                kind: ReferenceKind::References,
-                start: resource.start,
-                end: resource.end,
-            })?;
-            resources.push(loaded);
-            cursor = close + 1;
-        }
-    }
-    for resource in resources {
-        let marker = format!("$this->{}->", resource.alias);
-        let mut cursor = 0_usize;
-        while let Some(relative) = source[cursor..].find(&marker) {
-            builder.check_cancelled()?;
-            let method_start = cursor + relative + marker.len();
-            let Some((method_end, method)) = identifier_at(source, method_start) else {
-                cursor = method_start;
-                continue;
-            };
-            let open = skip_ascii_whitespace(source, method_end);
-            if source.as_bytes().get(open) == Some(&b'(') {
-                builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
-                    name: method,
-                    resolution_name: Some(&format!("{}::{method}", resource.class)),
-                    kind: ReferenceKind::Calls,
-                    start: method_start,
-                    end: method_end,
-                })?;
-            }
-            cursor = method_end;
-        }
-    }
-    Ok(())
-}
-
 struct LoadedResource {
     alias: String,
     class: String,
+    path: String,
+    kind: &'static str,
 }
 
 /// Screen source operands before basename/capitalization and alias registration.
 fn screened_loaded_resource(
     resource: &Quoted<'_>,
     alias: Option<Quoted<'_>>,
+    kind: &'static str,
 ) -> Option<LoadedResource> {
-    if resource.unsupported_escape
-        || crate::walk::specifier_safety::specifier_may_carry_credential(resource.value)
-        || alias.as_ref().is_some_and(|alias| {
-            alias.unsupported_escape
-                || crate::walk::specifier_safety::specifier_may_carry_credential(alias.value)
-        })
-    {
+    if unsafe_resource_operand(resource) || alias.as_ref().is_some_and(unsafe_resource_operand) {
         return None;
     }
     let alias = alias.map_or_else(
@@ -190,14 +119,27 @@ fn screened_loaded_resource(
                 .rsplit('/')
                 .next()
                 .unwrap_or(resource.value)
-                .to_owned()
+                .to_ascii_lowercase()
         },
         |quoted| quoted.value.to_owned(),
     );
+    let class = ci_class_name(resource.value);
+    let path = resource.value.rsplit_once('/').map_or_else(
+        || class.clone(),
+        |(directory, _)| format!("{directory}/{class}"),
+    );
     Some(LoadedResource {
         alias,
-        class: ci_class_name(resource.value),
+        class,
+        path,
+        kind,
     })
+}
+
+fn unsafe_resource_operand(quoted: &Quoted<'_>) -> bool {
+    !quoted.value.is_ascii()
+        || quoted.unsupported_escape
+        || crate::walk::specifier_safety::specifier_may_carry_credential(quoted.value)
 }
 
 fn ci_class_name(resource: &str) -> String {
@@ -207,11 +149,6 @@ fn ci_class_name(resource: &str) -> String {
         class.replace_range(..1, &char::from(first.to_ascii_uppercase()).to_string());
     }
     class
-}
-
-fn next_quoted_after_comma(value: &str, from: usize, limit: usize) -> Option<Quoted<'_>> {
-    let comma = value[from..limit].find(',')? + from + 1;
-    quoted_after(value, comma, limit)
 }
 
 struct Quoted<'source> {

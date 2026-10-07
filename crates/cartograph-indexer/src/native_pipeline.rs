@@ -1,15 +1,23 @@
 mod codeigniter_resolution;
+mod codeigniter_resources;
+mod component_imports;
 mod csharp_constructors;
 mod declaration_resolution;
+mod drupal_resolution;
+mod drupal_tags;
 mod enum_resolution;
 mod explicit_edge_resolution;
 mod file_path_resolution;
 mod framework_conventions;
+mod framework_imports;
 mod framework_methods;
+mod framework_provided;
 mod framework_resolution;
 mod generic_resolution;
+mod go_module_paths;
 mod go_path_resolution;
 mod intrinsic_names;
+mod javascript_alias_exports;
 mod javascript_config;
 mod javascript_exports;
 mod javascript_framework_resolution;
@@ -20,10 +28,14 @@ mod jvm_nested_resolution;
 mod jvm_resolution;
 mod module_call_resolution;
 mod namespace_types;
+mod native_bridge_details;
+mod native_event_calls;
 mod nominal_scope_resolution;
+mod ocaml_module_resolution;
 mod pascal_resolution;
 mod php_resolution;
 mod play_resolution;
+mod python_class_members;
 mod python_resolution;
 mod python_type_variables;
 mod qualified_member_resolution;
@@ -31,9 +43,12 @@ mod qualtype_generics;
 mod qualtype_resolution;
 mod qualtype_source;
 mod receiver_resolution;
+mod reference_dispatch;
 mod reference_tiers;
+mod repr_file_imports;
 mod rescript_resolution;
 mod resource_resolution;
+mod route_bridges;
 mod rust_dependency_paths;
 mod rust_facade_resolution;
 mod rust_inline_modules;
@@ -88,8 +103,9 @@ use cartograph_extract::{
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DeclarationSyntax, DiagnosticCode, DiscoveredSource,
     DiscoveryLimits, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedCallScopeSite,
     ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite, ExtractedReceiverEvidence,
-    ExtractedReference, ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
-    LEXICAL_SCOPE_RESOLUTION_PREFIX, MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor,
+    ExtractedReference, ImportBindingKind, JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX,
+    JavascriptMemberCallContext, JavascriptMemberReceiver, LEXICAL_SCOPE_RESOLUTION_PREFIX,
+    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NATIVE_MODULE_ALIAS_RESOLUTION_PREFIX, NativeExtractor,
     PHP_EXACT_RESOLUTION_PREFIX, PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX,
     RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
     SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
@@ -2968,6 +2984,7 @@ struct SpilledResolutionState {
     centrality_enabled: bool,
     centrality: GenerationFacts,
     centrality_budget: ResolveBudget,
+    event_handlers: native_event_calls::HandlerIndex,
     validation_limits: GenerationValidationLimits,
 }
 
@@ -2976,6 +2993,7 @@ struct ResolvedFileFacts {
     facts: GenerationFacts,
     report: ResolutionReport,
     high_water: u64,
+    event_handlers: native_event_calls::HandlerIndex,
 }
 
 struct SpilledFactTransaction<'spill> {
@@ -3137,6 +3155,17 @@ impl<'context> SpilledResolutionFold<'context> {
             .checked_add(resolved.report.unresolved)
             .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
         self.state.high_water = self.state.high_water.max(resolved.high_water);
+        self.state
+            .event_handlers
+            .merge(
+                (resolved.event_handlers, &mut self.state.centrality_budget),
+                &mut || self.cancellation.is_cancelled(),
+            )
+            .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+        self.state.high_water = self
+            .state
+            .high_water
+            .max(self.state.centrality_budget.charged_bytes);
         scip_spill::filter_native(
             self.state.overlay.as_ref(),
             &mut resolved.facts,
@@ -3473,6 +3502,7 @@ async fn initialize_spilled_resolution(
         centrality_enabled,
         centrality: GenerationFacts::default(),
         centrality_budget,
+        event_handlers: native_event_calls::HandlerIndex::default(),
         validation_limits,
     })
 }
@@ -3624,6 +3654,7 @@ fn resolve_file_facts(
     let maximum_bytes = config.limits.retained.max_generation_bytes;
     let mut facts = GenerationFacts::default();
     let mut report = ResolutionReport::default();
+    let mut event_handlers = native_event_calls::HandlerIndex::default();
     let working_limit = maximum_bytes
         .checked_mul(RESOLVE_WORKING_MULTIPLIER)
         .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
@@ -3635,6 +3666,7 @@ fn resolve_file_facts(
             facts: &mut facts,
             report: &mut report,
             budget: &mut budget,
+            event_handlers: &mut event_handlers,
         };
         output
             .append_file(file, &mut || cancellation.is_cancelled())
@@ -3648,6 +3680,7 @@ fn resolve_file_facts(
         facts,
         report,
         high_water: budget.charged_bytes,
+        event_handlers,
     })
 }
 
@@ -3720,8 +3753,15 @@ fn derive_spilled_fact_batch(
         bound,
     } = request;
     let cancellation = bound.cancellation;
-    let (mut facts, charged) = derive_spilled_facts(&state.index, bound, kind)
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+    let (mut facts, charged) = derive_spilled_facts(
+        &state.index,
+        bound,
+        SpilledDerivedEvidence {
+            kind,
+            event_handlers: &state.event_handlers,
+        },
+    )
+    .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
     state.high_water = state.high_water.max(charged);
     scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
     if generation_facts_are_empty(&facts) {
@@ -3908,10 +3948,16 @@ impl SpilledDerivedFactKind {
     const ALL: [Self; 4] = [Self::Framework, Self::Go, Self::Reexport, Self::Test];
 }
 
+#[derive(Clone, Copy)]
+struct SpilledDerivedEvidence<'evidence> {
+    kind: SpilledDerivedFactKind,
+    event_handlers: &'evidence native_event_calls::HandlerIndex,
+}
+
 fn derive_spilled_facts(
     index: &ResolutionIndex,
     bound: DerivedFactBound<'_>,
-    kind: SpilledDerivedFactKind,
+    evidence: SpilledDerivedEvidence<'_>,
 ) -> Result<(GenerationFacts, u64), StageItemFailure> {
     let DerivedFactBound {
         cancellation,
@@ -3923,7 +3969,7 @@ fn derive_spilled_facts(
     let mut facts = GenerationFacts::default();
     let mut budget = ResolveBudget::new(0, working_limit)?;
     let mut cancelled = || cancellation.is_cancelled();
-    match kind {
+    match evidence.kind {
         SpilledDerivedFactKind::Framework => {
             append_framework_bridge_edges(ResolutionMutation {
                 index,
@@ -3931,6 +3977,15 @@ fn derive_spilled_facts(
                 budget: &mut budget,
                 cancelled: &mut cancelled,
             })?;
+            native_event_calls::append(
+                ResolutionMutation {
+                    index,
+                    facts: &mut facts,
+                    budget: &mut budget,
+                    cancelled: &mut cancelled,
+                },
+                evidence.event_handlers,
+            )?;
         }
         SpilledDerivedFactKind::Go => {
             append_go_structural_edges(GoStructuralEdges {
@@ -4946,7 +5001,9 @@ impl NativeFileFacts {
                 ));
         }
         for call in &self.javascript_member_calls {
-            if let JavascriptMemberReceiver::Constructor(name) = &call.receiver {
+            if let JavascriptMemberReceiver::Constructor(name)
+            | JavascriptMemberReceiver::UnprovenConstructor(name) = &call.receiver
+            {
                 bytes = bytes.saturating_add(usize_to_u64(name.capacity()));
             }
         }
@@ -5320,8 +5377,9 @@ struct TypeScriptPathMapping {
 
 #[derive(Default)]
 struct ResolutionIndex {
-    javascript_members: javascript_member_resolution::JavascriptMemberIndex,
-    javascript_frameworks: javascript_framework_resolution::JavascriptFrameworkIndex,
+    javascript: JavaScriptResolutionIndexes,
+    frameworks: FrameworkResolutionIndexes,
+    languages: LanguageResolutionIndexes,
     candidates: CandidateMap,
     candidate_order: Vec<String>,
     default_exports: DefaultExportMap,
@@ -5333,18 +5391,41 @@ struct ResolutionIndex {
     re_exports: Vec<ProjectReExport>,
     rust_named_re_exports: Vec<RustNamedReExport>,
     test_files: Vec<TestFileEvidence>,
-    php: php_resolution::PhpResolutionIndex,
-    javascript_exports: javascript_exports::ExportIndex,
-    salesforce: salesforce_resolution::SalesforceIndex,
-    framework_methods: framework_methods::MethodIndex,
-    generic: generic_resolution::GenericResolutionIndex,
-    jvm: jvm_resolution::JvmResolutionIndex,
     types: qualified_member_resolution::TypeIndex,
     receivers: receiver_resolution::ReceiverIndex,
     qualtype: qualtype_resolution::TypeIndex,
     module_calls: module_call_resolution::ModuleCallIndex,
+}
+
+#[derive(Default)]
+struct JavaScriptResolutionIndexes {
+    members: javascript_member_resolution::JavascriptMemberIndex,
+    frameworks: javascript_framework_resolution::JavascriptFrameworkIndex,
+    exports: javascript_exports::ExportIndex,
+    aliases: javascript_alias_exports::AliasIndex,
+}
+
+#[derive(Default)]
+struct FrameworkResolutionIndexes {
+    native_bridges: native_bridge_details::BridgeIndex,
+    native_event_consumers: native_event_calls::ConsumerIndex,
+    salesforce: salesforce_resolution::SalesforceIndex,
+    drupal_tags: drupal_tags::TagIndex,
+    drupal_classes: drupal_resolution::ClassIndex,
+    drupal_services: drupal_resolution::ServiceIndex,
+    framework_methods: framework_methods::MethodIndex,
+    route_bridges: route_bridges::Owners,
+}
+
+#[derive(Default)]
+struct LanguageResolutionIndexes {
+    php: php_resolution::PhpResolutionIndex,
+    generic: generic_resolution::GenericResolutionIndex,
+    jvm: jvm_resolution::JvmResolutionIndex,
     rust_paths: rust_path_resolution::PathIndex,
     shell_sources: shell_resolution::SourceIndex,
+    go_modules: go_module_paths::ModuleIndex,
+    ocaml_modules: ocaml_module_resolution::ModuleIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -7402,6 +7483,7 @@ struct DerivedResolutionEvidence<'context, Cancel> {
     budget: &'context mut ResolveBudget,
     policy: NativeEvidencePolicy,
     cancelled: &'context mut Cancel,
+    event_handlers: &'context native_event_calls::HandlerIndex,
 }
 
 fn resolve_generation<Cancel>(
@@ -7460,12 +7542,14 @@ where
     let mut facts = GenerationFacts::default();
     reserve_generation_vectors(&mut facts, &extracted, &mut budget)
         .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
+    let mut event_handlers = native_event_calls::HandlerIndex::default();
     {
         let mut output = ResolutionOutput {
             index: &index,
             facts: &mut facts,
             report: &mut report,
             budget: &mut budget,
+            event_handlers: &mut event_handlers,
         };
         for file in extracted.files {
             output
@@ -7479,6 +7563,7 @@ where
         budget: &mut budget,
         policy: evidence_policy,
         cancelled: &mut cancelled,
+        event_handlers: &event_handlers,
     })
     .map_err(|_| classify_resolve_failure(&budget))?;
     // Unordered facts are the resolver's bounded working set. Canonical
@@ -7529,6 +7614,7 @@ where
         budget,
         policy,
         cancelled,
+        event_handlers,
     } = input;
     append_framework_bridge_edges(ResolutionMutation {
         index,
@@ -7536,6 +7622,15 @@ where
         budget: &mut *budget,
         cancelled: &mut *cancelled,
     })?;
+    native_event_calls::append(
+        ResolutionMutation {
+            index,
+            facts: &mut *facts,
+            budget: &mut *budget,
+            cancelled: &mut *cancelled,
+        },
+        event_handlers,
+    )?;
     append_go_structural_edges(GoStructuralEdges {
         index,
         facts: &mut *facts,
@@ -7796,11 +7891,6 @@ fn finish_spilled_resolution_preparation(
         },
     )?;
     finalize_resolution_candidate_order(
-        &mut preparation.index,
-        &mut preparation.budget,
-        &mut cancelled,
-    )?;
-    javascript_exports::prepare(
         &mut preparation.index,
         &mut preparation.budget,
         &mut cancelled,
@@ -8699,6 +8789,12 @@ where
         budget: &mut *budget,
         cancelled: &mut *cancelled,
     })?;
+    native_bridge_details::append(&mut ResolutionMutation {
+        index,
+        facts: &mut *facts,
+        budget: &mut *budget,
+        cancelled: &mut *cancelled,
+    })?;
     append_named_framework_bridges(ResolutionMutation {
         index,
         facts,
@@ -9076,6 +9172,9 @@ where
         cancelled,
         ..
     } = input;
+    if !native_event_calls::resource_fanout_fits(candidates, cancelled)? {
+        return Ok(());
+    }
     for producer in candidates.iter().filter(|candidate| {
         candidate.kind == SymbolKind::Resource
             && candidate
@@ -9363,73 +9462,7 @@ fn append_drupal_tag_bridges<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let FrameworkCandidateMutation {
-        index,
-        facts,
-        budget,
-        candidates,
-        cancelled,
-    } = input;
-    let hub = candidates
-        .iter()
-        .filter(|candidate| drupal_tag_role(candidate).is_some())
-        .min_by(|left, right| left.symbol_id.as_str().cmp(right.symbol_id.as_str()));
-    let Some(hub) = hub else {
-        return Ok(());
-    };
-    for fact in candidates {
-        if cancelled() {
-            return Err(StageItemFailure);
-        }
-        let Some((provider, service_id)) = drupal_tag_role(fact) else {
-            continue;
-        };
-        let Some(service) = unique_drupal_service(DrupalServiceQuery {
-            index,
-            file_id: &fact.file_id,
-            service_id,
-            cancelled,
-        })?
-        else {
-            continue;
-        };
-        if provider {
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source: service,
-                    target: hub,
-                    confidence: FRAMEWORK_CONVENTION_CONFIDENCE,
-                    provenance: DRUPAL_TAG_PROVIDES_PROVENANCE,
-                },
-            )?;
-        } else {
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source: hub,
-                    target: service,
-                    confidence: FRAMEWORK_CONVENTION_CONFIDENCE,
-                    provenance: DRUPAL_TAG_CONSUMES_PROVENANCE,
-                },
-            )?;
-        }
-        if fact.symbol_id != hub.symbol_id {
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source: fact,
-                    target: hub,
-                    confidence: FRAMEWORK_CONVENTION_CONFIDENCE,
-                    provenance: DRUPAL_TAG_EVIDENCE_PROVENANCE,
-                },
-            )?;
-        }
-    }
-    Ok(())
+    drupal_tags::append(input)
 }
 
 fn drupal_tag_role(candidate: &ResolutionCandidate) -> Option<(bool, &str)> {
@@ -9506,7 +9539,10 @@ where
             module,
             cancelled,
         })? {
-            let target = objc_alias_method(index, target).unwrap_or(target);
+            let target = native_bridge_details::physical_candidate(
+                index,
+                objc_alias_method(index, target).unwrap_or(target),
+            );
             append_framework_edge(
                 facts,
                 budget,
@@ -9896,7 +9932,6 @@ where
         })?;
     }
     finalize_resolution_candidate_order(&mut index, context.budget, context.cancelled)?;
-    javascript_exports::prepare(&mut index, context.budget, context.cancelled)?;
     Ok(index)
 }
 
@@ -9909,7 +9944,7 @@ where
     Cancel: FnMut() -> bool,
 {
     python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
-    receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    ocaml_module_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     shell_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_root_ownership::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_path_guards::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
@@ -9927,7 +9962,9 @@ where
     }
     order.sort_unstable();
     index.candidate_order = order;
-    jvm_resolution::prepare_wildcards(&mut ResolutionIndexTarget { index, budget }, cancelled)
+    native_bridge_details::prepare(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    native_event_calls::prepare(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    receiver_resolution::prepare_index(&mut ResolutionIndexTarget { index, budget }, cancelled)
 }
 
 fn ordered_resolution_candidates(
@@ -10292,7 +10329,7 @@ where
         insert_parent(&mut index.parents, containment, budget)?;
     }
     generic_resolution::index_calls(
-        &mut index.generic,
+        &mut index.languages.generic,
         (&file.call_scope_sites, budget),
         cancelled,
     )?;
@@ -10468,6 +10505,16 @@ where
         file,
         cancelled,
     )?;
+    go_module_paths::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    ocaml_module_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     let file_ordinal = *index
         .file_ordinals
         .get(&file.file.file_id)
@@ -10521,7 +10568,7 @@ fn index_resolution_symbol(
     };
     push_symbol_candidates(&mut index.candidates, insertion, budget)?;
     framework_methods::index_method(
-        &mut index.framework_methods,
+        &mut index.frameworks.framework_methods,
         framework_methods::MethodInput {
             symbol,
             parent: parent_symbol_id.as_ref(),
@@ -10529,7 +10576,8 @@ fn index_resolution_symbol(
         },
         budget,
     )?;
-    generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
+    generic_resolution::index_symbol(&mut index.languages.generic, insertion, budget)?;
+    route_bridges::index_symbol(&mut index.frameworks.route_bridges, insertion, budget)?;
     if symbol.export.default_export {
         push_default_export(
             &mut index.default_exports,
@@ -10559,9 +10607,20 @@ where
     Cancel: FnMut() -> bool,
 {
     let ResolutionIndexTarget { index, budget } = target;
+    drupal_tags::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    drupal_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    javascript_alias_exports::index_file(&mut index.javascript.aliases, file, (budget, cancelled))?;
     salesforce_resolution::index_file(
         salesforce_resolution::SalesforceFileInput {
-            index: &mut index.salesforce,
+            index: &mut index.frameworks.salesforce,
             file,
             budget,
         },
@@ -10570,7 +10629,7 @@ where
     qualified_member_resolution::index_ancestors(index, file, cancelled)?;
     php_resolution::index_file(
         php_resolution::PhpFileIndexInput {
-            index: &mut index.php,
+            index: &mut index.languages.php,
             file,
             budget,
         },
@@ -10674,7 +10733,7 @@ fn index_project_reexports(
     for binding in &file.import_bindings {
         if binding.kind == ImportBindingKind::ReExportUncertain {
             javascript_exports::mark_uncertain(
-                &mut index.javascript_exports,
+                &mut index.javascript.exports,
                 &file.file.file_id,
                 budget,
             )?;
@@ -10879,6 +10938,7 @@ struct ResolutionOutput<'a> {
     facts: &'a mut GenerationFacts,
     report: &'a mut ResolutionReport,
     budget: &'a mut ResolveBudget,
+    event_handlers: &'a mut native_event_calls::HandlerIndex,
 }
 
 struct FileDocumentIdentity {
@@ -10921,6 +10981,9 @@ impl<'a> FileImportBindingIndex<'a> {
             .try_reserve_exact(bindings.len())
             .map_err(|_| StageItemFailure)?;
         for (position, binding) in bindings.iter().enumerate() {
+            if binding.module_specifier == cartograph_extract::DRUPAL_CLASS_MODULE {
+                continue;
+            }
             if salesforce_resolution::implicit_binding(binding, language) {
                 continue;
             }
@@ -11103,8 +11166,14 @@ impl<'reference> ReferenceLookup<'reference> {
         let fenced_name = resolution_name
             .and_then(|name| name.strip_prefix(PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX));
         let resolution_name = fenced_name.or(resolution_name);
-        let dynamic_dispatch_name =
-            resolution_name.and_then(|name| name.strip_prefix(DYNAMIC_DISPATCH_RESOLUTION_PREFIX));
+        let resolution_name = resolution_name
+            .and_then(|name| name.strip_prefix(JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX))
+            .or(resolution_name);
+        let native_alias_name =
+            native_bridge_details::alias_lookup(resolution_name).map(|_| reference.name.as_str());
+        let dynamic_dispatch_name = resolution_name
+            .and_then(|name| name.strip_prefix(DYNAMIC_DISPATCH_RESOLUTION_PREFIX))
+            .map(|name| native_alias_name.unwrap_or(name));
         let rust_self_receiver_name = resolution_name
             .and_then(|name| name.strip_prefix(RUST_SELF_RECEIVER_RESOLUTION_PREFIX));
         let rust_macro_name =
@@ -11122,6 +11191,7 @@ impl<'reference> ReferenceLookup<'reference> {
             .or(rust_macro_name)
             .or(type_query_value_name)
             .or(lexical_scope_name)
+            .or(native_alias_name)
             .or_else(|| embedded_sql.as_ref().map(|lookup| lookup.table))
             .or_else(|| php_exact.map(php_resolution::PhpExactLookup::key))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
@@ -11193,47 +11263,49 @@ where
             .as_deref()
             .is_some_and(jvm_resolution::syntax_abstention)
     {
-        return Ok(ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE));
-    }
-    let lookup = ReferenceLookup::classify(reference);
-    let binding_name =
-        javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
-            .unwrap_or(lookup.lookup_name);
-    let mut resolution = if let Some(resolution) =
-        resolve_prefixed_reference(index, (context, reference, &lookup), cancelled)?
-    {
-        resolution
-    } else {
-        resolve_reference_or_source_name(
+        return receiver_resolution::resolve_abstention(
             index,
-            SourceNameFallbackQuery {
-                request: &ResolutionRequest {
-                    file_id: &context.identity.file_id,
-                    file_path: &context.identity.path,
-                    language: &context.identity.language,
-                    import_bindings: jvm_resolution::select_import_bindings(
-                        (context, &lookup, reference.kind, binding_name),
-                        import_binding_scratch,
-                    )
-                    .with_fallback_blocked(lookup.python_import_fenced),
-                    owner: reference.owner.as_ref(),
-                    name: lookup.lookup_name,
-                    dispatch: lookup.dispatch(),
-                    kind: lookup.request_kind(reference.kind),
-                    span: reference.span,
-                },
-                source_name: &reference.name,
+            receiver_resolution::ReceiverQuery {
+                context,
+                reference,
+                import_binding_scratch,
             },
             cancelled,
-        )?
-    };
+        );
+    }
+    let lookup = ReferenceLookup::classify(reference);
+    let mut resolution = resolve_lookup_reference(
+        index,
+        (
+            ExtractedReferenceQuery {
+                context,
+                reference,
+                import_binding_scratch,
+            },
+            &lookup,
+        ),
+        cancelled,
+    )?;
     if lookup.dynamic_dispatch_name.is_some()
         && let Some(target) = resolution.target.as_mut()
         && target.provenance != generic_resolution::CURRENT_CLASS_PROVENANCE
+        && target.provenance != native_bridge_details::ALIAS_PROVENANCE
     {
         target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
         target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
     }
+    let resolution = go_module_paths::prefer(
+        index,
+        (
+            resolution,
+            receiver_resolution::ReceiverQuery {
+                context,
+                reference,
+                import_binding_scratch,
+            },
+        ),
+        cancelled,
+    )?;
     let receiver = receiver_resolution::resolve(
         index,
         receiver_resolution::ReceiverQuery {
@@ -11243,7 +11315,60 @@ where
         },
         cancelled,
     )?;
-    Ok(receiver_resolution::prefer_base(resolution, receiver))
+    Ok(native_bridge_details::physical_resolution(
+        index,
+        (
+            context,
+            reference,
+            receiver_resolution::prefer_base(resolution, receiver),
+        ),
+    ))
+}
+
+/// Select import bindings and honor resolver prefixes before source-name fallback.
+fn resolve_lookup_reference<Cancel>(
+    index: &ResolutionIndex,
+    (query, lookup): (ExtractedReferenceQuery<'_, '_>, &ReferenceLookup<'_>),
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ExtractedReferenceQuery {
+        context,
+        reference,
+        import_binding_scratch,
+    } = query;
+    let binding_name =
+        javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
+            .unwrap_or(lookup.lookup_name);
+    if let Some(resolution) =
+        resolve_prefixed_reference(index, (context, reference, lookup), cancelled)?
+    {
+        return Ok(resolution);
+    }
+    resolve_reference_or_source_name(
+        index,
+        SourceNameFallbackQuery {
+            request: &ResolutionRequest {
+                file_id: &context.identity.file_id,
+                file_path: &context.identity.path,
+                language: &context.identity.language,
+                import_bindings: jvm_resolution::select_import_bindings(
+                    (context, lookup, reference.kind, binding_name),
+                    import_binding_scratch,
+                )
+                .with_fallback_blocked(lookup.python_import_fenced),
+                owner: reference.owner.as_ref(),
+                name: lookup.lookup_name,
+                dispatch: lookup.dispatch(),
+                kind: lookup.request_kind(reference.kind),
+                span: reference.span,
+            },
+            source_name: &reference.name,
+        },
+        cancelled,
+    )
 }
 
 /// Honor resolver-prefix routes before the ordinary source-name fallback.
@@ -11259,6 +11384,11 @@ fn resolve_prefixed_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(resolution) =
+        native_bridge_details::alias_hint(index, (context, reference), cancelled)?
+    {
+        return Ok(Some(resolution));
+    }
     let resolution = if lookup.rust_macro_name.is_some() {
         ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
     } else if let Some(sql) = lookup.embedded_sql {
@@ -11534,6 +11664,13 @@ impl ResolutionOutput<'_> {
             },
             cancelled,
         )?;
+        self.event_handlers
+            .record(native_event_calls::HandlerObservation {
+                consumers: &self.index.frameworks.native_event_consumers,
+                reference: &reference,
+                resolution: &resolution,
+                budget: self.budget,
+            })?;
         self.count_resolution(resolution.target.is_some())?;
         let source_symbol_id = reference
             .owner
@@ -12414,6 +12551,9 @@ impl ImportCandidateFilter<'_, '_> {
         if !reference_kind_candidate(self.reference.kind, candidate) {
             return false;
         }
+        if !receiver_resolution::lexical_member_eligible(self.index, self.reference, candidate) {
+            return false;
+        }
         if self.javascript_value_usage && !javascript_runtime_import_candidate(candidate) {
             return false;
         }
@@ -12620,6 +12760,9 @@ fn resolve_module_declaration_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(target) = repr_file_imports::resolve(index, request, cancelled)? {
+        return Ok(Some(ReferenceResolution::resolved(target)));
+    }
     if request.language == SourceLanguage::Liquid.as_str()
         && let Some(target) = file_path_resolution::resolve_reference(index, request, cancelled)?
     {
@@ -12741,6 +12884,7 @@ where
     // no packaged declaration exists at all.
     if resolution.target.is_some()
         || request.language != SourceLanguage::Xml.as_str()
+        || route_bridges::authoritative_lookup(request.name)
         || !package_qualified
         || index.candidates.contains_key(request.name)
     {
@@ -12772,10 +12916,26 @@ fn resolve_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    match rust_path_guards::resolve(index, request, cancelled)? {
+    if let Some(target) = framework_imports::resolve(index, request, cancelled)? {
+        return Ok(ReferenceResolution::resolved(target));
+    }
+    if let Some(resolution) =
+        receiver_resolution::resolve_constructor_redirect(index, request, cancelled)?
+    {
+        return Ok(resolution);
+    }
+    let base = match rust_path_guards::resolve(index, request, cancelled)? {
         Some(resolution) => Ok(resolution),
         None => resolve_reference_body(index, request, cancelled),
+    }?;
+    let mut resolution = generic_resolution::refine_member(index, (request, base), cancelled)?;
+    if resolution.target.is_none()
+        && !index.candidates.contains_key(request.name)
+        && let Some(provenance) = framework_provided::provenance(request, cancelled)?
+    {
+        resolution = ReferenceResolution::unresolved(provenance);
     }
+    Ok(resolution)
 }
 
 fn resolve_reference_body<Cancel>(
@@ -12809,26 +12969,7 @@ where
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
-    if let Some(resolution) = reference_tiers::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if request.import_bindings.fallback_blocked {
-        return Ok(ReferenceResolution::unresolved(
-            UNRESOLVED_IMPORT_PROVENANCE,
-        ));
-    }
-    if rust_self_has_local_nominal(index, request, cancelled)? {
-        return Ok(ReferenceResolution::unresolved(
-            DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
-        ));
-    }
-    if let Some(resolution) = explicit_edge_resolution::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(target) = resolve_rust_qualified_path(index, request, cancelled)? {
-        return Ok(ReferenceResolution::resolved(target));
-    }
-    resolve_import_or_project_reference(index, request, cancelled)
+    reference_dispatch::resolve_remaining(index, request, cancelled)
 }
 
 /// Try module and import bindings before the permitted project-wide fallbacks.
@@ -13135,6 +13276,7 @@ fn import_reference_resolution(resolution: ImportResolution) -> Option<Reference
 fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
     if request.dispatch == ReferenceDispatch::RustSelf
         || pascal_resolution::runtime_reference(request.language, request.name)
+        || receiver_resolution::explicit_instance(index, request)
     {
         return false;
     }
@@ -13160,6 +13302,28 @@ fn wildcard_import_yields_to_project(language: &str, binding: &ExtractedImportBi
             || language == SourceLanguage::ObjectiveC.as_str())
 }
 
+/// The candidate is declared in the requesting file under exactly this name.
+fn same_file_exact_name(
+    request: &ResolutionRequest<'_>,
+    (exact_name, candidate): (&str, &ResolutionCandidate),
+) -> bool {
+    &candidate.file_id == request.file_id && candidate.qualified_name == exact_name
+}
+
+/// Lexical eligibility: receiver rules, no self-target outside Rust `self::`,
+/// and a kind the reference can name.
+fn lexical_target_allowed(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    let not_self = request.dispatch == ReferenceDispatch::RustSelf
+        || request.owner != Some(&candidate.symbol_id);
+    not_self
+        && receiver_resolution::lexical_member_eligible(index, request, candidate)
+        && reference_kind_candidate(request.kind, candidate)
+}
+
 fn resolve_lexical<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
@@ -13177,11 +13341,8 @@ where
     if let Some(candidate) = select_candidate(
         candidates,
         |candidate| {
-            &candidate.file_id == request.file_id
-                && candidate.qualified_name == exact_name
-                && (request.dispatch == ReferenceDispatch::RustSelf
-                    || request.owner != Some(&candidate.symbol_id))
-                && reference_kind_candidate(request.kind, candidate)
+            same_file_exact_name(request, (exact_name, candidate))
+                && lexical_target_allowed(index, request, candidate)
         },
         cancelled,
     )? {
@@ -13322,6 +13483,7 @@ fn lexical_candidate_matches(
     (is_lexical_candidate(request.kind, request.name, candidate)
         || swift_implicit_member_call(request, candidate))
         && &candidate.file_id == request.file_id
+        && receiver_resolution::lexical_member_eligible(index, request, candidate)
         && (request.owner != Some(&candidate.symbol_id)
             || generic_resolution::recursive_owner_call(index, request, candidate))
 }
@@ -13671,6 +13833,7 @@ where
     }
     let mut bound = false;
     let mut matched = None;
+    let mut default_only = true;
     for binding in request.import_bindings.iter() {
         if cancelled() {
             return Err(StageItemFailure);
@@ -13684,6 +13847,7 @@ where
             continue;
         }
         bound = true;
+        default_only &= binding.kind == ImportBindingKind::Default;
         let Some(file_id) = resolve_module_file(
             &index.modules,
             ModuleResolutionRequest {
@@ -13705,12 +13869,14 @@ where
     }
     match matched {
         Some(symbol_id) => {
-            let mut target = ResolvedTarget {
-                symbol_id: symbol_id.clone(),
-                kind: SymbolKind::File,
-                confidence: IMPORT_BINDING_CONFIDENCE,
-                provenance: MODULE_IMPORT_PROVENANCE,
-            };
+            let mut target =
+                component_imports::module_target(index, (request, default_only), cancelled)?
+                    .unwrap_or(ResolvedTarget {
+                        symbol_id: symbol_id.clone(),
+                        kind: SymbolKind::File,
+                        confidence: IMPORT_BINDING_CONFIDENCE,
+                        provenance: MODULE_IMPORT_PROVENANCE,
+                    });
             javascript_modules::lower_fallback_target(
                 &mut target,
                 &index.modules,
@@ -14189,6 +14355,14 @@ where
     let mut target =
         select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
             .map(import_binding_target);
+    if target
+        .as_ref()
+        .is_some_and(|target| target.kind == SymbolKind::Export)
+        && javascript_family_name(import.reference.language)
+        && javascript_alias_exports::is_alias(query)
+    {
+        target = javascript_alias_exports::resolve(query, target, cancelled)?;
+    }
     if target.is_none() {
         target = javascript_exports::resolve_import(query, cancelled)?;
     }
@@ -16578,6 +16752,9 @@ fn php_route_candidate(input: PhpRouteCandidateInput<'_>) -> bool {
 }
 
 fn php_route_resolution_fallbacks(reference_name: &str) -> [Option<String>; 2] {
+    if codeigniter_resources::typed_lookup(reference_name) {
+        return [None, None];
+    }
     let Some((owner, member)) = reference_name.rsplit_once("::") else {
         return [None, None];
     };
@@ -17098,6 +17275,10 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod bridge_details;
+    mod bridge_digest_proof;
+    mod bridge_repairs;
+    mod event_spill;
     mod frameworks;
     mod generic_digest_proof;
     mod generic_repair;
@@ -17106,18 +17287,26 @@ mod tests {
     mod javascript_modules;
     mod javascript_parity;
     mod jvm_resolution;
+    mod members;
+    mod modules;
     mod pascal_units;
     mod php_namespaces;
     mod polyglot_parity;
     mod python_imports;
     mod qualified_types;
     mod receiver_types;
+    mod repr;
     mod rust_module_paths;
     mod rust_receivers;
     mod rust_review_regressions;
     mod rust_use_bindings;
     mod rust_use_regressions;
     mod script_modules;
+    mod types_digest_proof;
+    mod types_final;
+    mod types_scope_repair;
+    mod types_shadowing;
+    mod types_track;
     mod unqual_digests;
     mod unqual_repair;
     mod unqual_resolution;
@@ -17194,14 +17383,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V22 changes the digest domain; facts unchanged in these fixtures.
+    // V23 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "f483007b8c7865ce060e125c6c1192d44245d21f9d8c29ede69cf80933d8da4b";
+        "c815a90bbd9ef26e7c1e78e8815521b093c5201bfd083a70a569de8010005c40";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "f2ab906f518d9e51853532b887e8ffe33049270a5c049fd5b02cbafdcc9da8d4";
+        "27bbe648cd9df325036cdc45b0a0a5da3543b8ab5426776c264f54f0595e05b0";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -17222,17 +17411,24 @@ mod tests {
     // Resolution adds CounterView::build -> CounterView::increment (ArkTS)
     // and targets for its two existing references. generic_digest_proof removes
     // that one Calls edge and restores those references to reproduce the
-    // previous fact set under V22 (8fe8df25...); the extraction facts stay fixed.
+    // previous fact set under V23 (27faff00...); the extraction facts stay fixed.
+    // Wave 3 adds six ObjC physical alias links plus the Ruby and Dart
+    // process -> Container::add calls. types_digest_proof restores both call
+    // references and centrality; bridge_digest_proof then removes six alias
+    // links to recover 04a9f9b9... exactly under the V23 domain.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "a4e55aab2f0dbbaa33046f1a9975810b75c6cee9ea831482cdda5b958a437e2b";
+        "f8fcb94e21167161c49c6b3afb36b2761f07f53ab7ea2a84e8fd138b20f58ea6";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 260, 284, 135, 260);
+        (28, 260, 292, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
     // spans from its `IF` line and is named by its head line, and an LSX
     // resource starts at its `<node>` tag (same projection, new identities).
+    // The local MyBatis SQL-role hint preserves every canonical fact; the
+    // frameworks::routes::mybatis_local_sql_roles_preserve_the_frozen_custom_digest
+    // regression removes the hint and compares every fact table and digest.
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "6ef2ddf7ec04c15deb9fbad64b9f080695c8048396e465c2115893ec03d6a64d";
+        "bbe52f322847c48aa491ac48c2308911553640a03945e73218b795c1be53ed28";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
@@ -17759,9 +17955,9 @@ mod tests {
             caller_path: "use_barrel.ts",
             caller_name: "consume",
             reference_name: "renamed",
-            target_path: "barrel.ts",
-            target_name: "renamed",
-            provenance: IMPORT_BINDING_PROVENANCE,
+            target_path: "core.ts",
+            target_name: "core",
+            provenance: "native-reexport-alias",
         },
         ExpectedResolvedReference {
             caller_path: "use_local_alias.ts",
@@ -19771,10 +19967,8 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             "ios/RCTGeolocation.m",
             "ios/RCTGeolocation.m::react-native-method::Geolocation::getCurrentPosition",
         );
-        NamedReferenceAssertion::new(&forward, "startScan").targets(
-            "android/ScannerModule.kt",
-            "android/ScannerModule.kt::react-native-method::Scanner::startScan",
-        );
+        NamedReferenceAssertion::new(&forward, "startScan")
+            .targets("android/ScannerModule.kt", "ScannerModule::startScan");
         NamedReferenceAssertion::new(&forward, "notificationAsync").targets(
             "ios/HapticsModule.swift",
             "ios/HapticsModule.swift::expo-module-method::ExpoHaptics::notificationAsync",
@@ -19783,12 +19977,9 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             "src/NativeDeviceInfo.ts",
             "src/NativeDeviceInfo.ts::turbo-module-spec-method::DeviceInfo::getConstants",
         );
-        assert!(
-            forward
-                .references()
-                .iter()
-                .filter(|reference| reference.reference_name == "addListener")
-                .all(|reference| reference.target_symbol_id.is_none())
+        NamedReferenceAssertion::new(&forward, "addListener").targets(
+            "ios/RCTGeolocation.m",
+            "ios/RCTGeolocation.m::react-native-method::Geolocation::addListener",
         );
 
         let module_spec = capability_symbol(
@@ -20460,8 +20651,8 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             })
             .unwrap_or_else(|| panic!("missing Drupal provider edge: {:?}", forward.edges()));
         assert!(forward.edges().iter().any(|edge| {
-            edge.source_symbol_id == provider_edge.target_symbol_id
-                && edge.target_symbol_id == consumer.symbol_id
+            edge.source_symbol_id == consumer.symbol_id
+                && edge.target_symbol_id == provider_edge.target_symbol_id
                 && edge.provenance == DRUPAL_TAG_CONSUMES_PROVENANCE
         }));
     }
@@ -20582,7 +20773,6 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let reversed = build_capability_generation(&fixtures, true);
         assert_eq!(forward.digest(), reversed.digest());
 
-        let svelte_card_file = capability_file_symbol(&forward, "src/lib/Card.svelte");
         let svelte_card = capability_symbol(&forward, "src/lib/Card.svelte", "Card");
         let local_svelte_button = capability_symbol(&forward, "src/routes/Button.svelte", "Button");
         let count = capability_symbol(&forward, "src/stores.ts", "count");
@@ -20590,7 +20780,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             capability_reference_in_file(&forward, "src/routes/+page.svelte", "$lib/Card");
         assert_eq!(
             module_reference.target_symbol_id.as_ref(),
-            Some(&svelte_card_file.symbol_id)
+            Some(&svelte_card.symbol_id)
         );
         assert_eq!(
             module_reference.resolution_provenance,
@@ -20619,14 +20809,13 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             Some(&count.symbol_id)
         );
 
-        let vue_card_file = capability_file_symbol(&forward, "src/components/Card.vue");
         let vue_card = capability_symbol(&forward, "src/components/Card.vue", "Card");
         let local_vue_button = capability_symbol(&forward, "pages/Button.vue", "Button");
         let vue_module =
             capability_reference_in_file(&forward, "pages/index.vue", "@/components/Card");
         assert_eq!(
             vue_module.target_symbol_id.as_ref(),
-            Some(&vue_card_file.symbol_id)
+            Some(&vue_card.symbol_id)
         );
         assert_eq!(
             vue_module.resolution_provenance,

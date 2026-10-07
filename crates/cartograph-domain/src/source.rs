@@ -4,6 +4,8 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
+mod go_manifest;
+
 const MAX_NORMALIZED_PATH_BYTES: usize = 4_096;
 const LITERAL_SIGNATURE_KEYWORDS: &[&str] = &[
     "default",
@@ -691,6 +693,9 @@ impl SourceLanguage {
 }
 
 fn is_candidate_path_with(path: &str, enabled: impl Fn(SourceLanguage) -> bool) -> bool {
+    if let Some(language) = go_manifest::language(path) {
+        return enabled(language);
+    }
     if is_play_routes_file(path) {
         return enabled(SourceLanguage::Yaml);
     }
@@ -838,6 +843,7 @@ fn fixed_path_language(path: &str) -> Option<SourceLanguage> {
     is_play_routes_file(path)
         .then_some(SourceLanguage::Yaml)
         .or_else(|| v1_path_specific_language(path))
+        .or_else(|| go_manifest::language(path))
 }
 
 fn is_liquid_with_front_matter(extension: &str, source: Option<&str>) -> bool {

@@ -63,6 +63,7 @@ where
         )?;
         target
             .index
+            .languages
             .rust_paths
             .dependencies
             .by_source
@@ -70,6 +71,7 @@ where
             .map_err(|_| StageItemFailure)?;
         target
             .index
+            .languages
             .rust_paths
             .dependencies
             .by_source
@@ -127,7 +129,7 @@ fn register_manifest(
     target.budget.charge(
         RESOLUTION_MAP_NODE_ALLOWANCE + usize_to_u64(directory.len() + size_of::<String>()),
     )?;
-    let manifests = &mut target.index.rust_paths.dependencies.manifests;
+    let manifests = &mut target.index.languages.rust_paths.dependencies.manifests;
     manifests.try_reserve(1).map_err(|_| StageItemFailure)?;
     manifests.insert(try_clone_text(directory)?);
     Ok(())
@@ -141,7 +143,12 @@ fn register_library(
         RESOLUTION_MAP_NODE_ALLOWANCE
             .saturating_add(usize_to_u64(directory.len() + size_of::<String>())),
     )?;
-    let libraries = &mut target.index.rust_paths.dependencies.conventional_libraries;
+    let libraries = &mut target
+        .index
+        .languages
+        .rust_paths
+        .dependencies
+        .conventional_libraries;
     libraries.try_reserve(1).map_err(|_| StageItemFailure)?;
     libraries.insert(try_clone_text(directory)?);
     Ok(())
@@ -151,6 +158,7 @@ pub(super) fn entry<'a>(index: &'a ResolutionIndex, query: (&str, &str)) -> Opti
     let (source, name) = query;
     let directory = source_directory(index, source)?;
     let dependency = index
+        .languages
         .rust_paths
         .dependencies
         .by_source
@@ -176,6 +184,7 @@ pub(super) fn entry<'a>(index: &'a ResolutionIndex, query: (&str, &str)) -> Opti
         package
     };
     index
+        .languages
         .rust_paths
         .dependencies
         .conventional_libraries
@@ -187,6 +196,7 @@ pub(super) fn namespace_override(index: &ResolutionIndex, query: (&str, &str)) -
     let (source, name) = query;
     source_directory(index, source).is_some_and(|directory| {
         index
+            .languages
             .rust_paths
             .dependencies
             .by_source
@@ -207,7 +217,13 @@ fn nearest_manifest<'a>(index: &ResolutionIndex, source: &'a str) -> Option<&'a 
         .rsplit_once('/')
         .map_or("", |(directory, _)| directory);
     loop {
-        if index.rust_paths.dependencies.manifests.contains(directory) {
+        if index
+            .languages
+            .rust_paths
+            .dependencies
+            .manifests
+            .contains(directory)
+        {
             return Some(directory);
         }
         if directory.is_empty() {
@@ -231,14 +247,17 @@ fn register_target(
     let (directory, manifest) = source;
     let (paths, path) = if binding.local_name == "<cargo-auto-bins>" {
         (
-            &mut target.index.rust_paths.dependencies.auto_bins,
+            &mut target.index.languages.rust_paths.dependencies.auto_bins,
             try_clone_text(directory)?,
         )
     } else if binding.local_name == "<cargo-target-root>" {
         let Some(path) = normalize_joined_project_path(manifest, &binding.module_specifier) else {
             return Ok(());
         };
-        (&mut target.index.rust_paths.dependencies.target_paths, path)
+        (
+            &mut target.index.languages.rust_paths.dependencies.target_paths,
+            path,
+        )
     } else {
         return Ok(());
     };
@@ -251,7 +270,7 @@ fn register_target(
 }
 
 pub(super) fn target_root(index: &ResolutionIndex, path: &str) -> bool {
-    let dependencies = &index.rust_paths.dependencies;
+    let dependencies = &index.languages.rust_paths.dependencies;
     if dependencies.target_paths.contains(path) {
         return true;
     }

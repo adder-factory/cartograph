@@ -70,7 +70,11 @@ where
     Cancel: FnMut() -> bool,
 {
     let (declaration, name) = handler;
-    let Some(key) = index.framework_methods.key(&declaration.symbol_id, name) else {
+    let Some(key) = index
+        .frameworks
+        .framework_methods
+        .key(&declaration.symbol_id, name)
+    else {
         return Ok(None);
     };
     let Some(methods) = index.candidates.get(key) else {

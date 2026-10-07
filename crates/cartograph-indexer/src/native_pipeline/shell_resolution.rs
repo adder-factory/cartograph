@@ -72,12 +72,14 @@ where
     )?;
     target
         .index
+        .languages
         .shell_sources
         .loads
         .try_reserve(1)
         .map_err(|_| StageItemFailure)?;
     target
         .index
+        .languages
         .shell_sources
         .loads
         .insert(file.file.file_id.clone(), proven.then_some(loads));
@@ -122,7 +124,7 @@ where
 {
     let blocked = blocked_sources(target, cancelled)?;
     let functions = index_functions(target, cancelled)?;
-    for (source, loads) in std::mem::take(&mut target.index.shell_sources.loads) {
+    for (source, loads) in std::mem::take(&mut target.index.languages.shell_sources.loads) {
         if cancelled() {
             return Err(StageItemFailure);
         }
@@ -139,11 +141,17 @@ where
         )?;
         target
             .index
+            .languages
             .shell_sources
             .functions
             .try_reserve(1)
             .map_err(|_| StageItemFailure)?;
-        target.index.shell_sources.functions.insert(source, names);
+        target
+            .index
+            .languages
+            .shell_sources
+            .functions
+            .insert(source, names);
     }
     Ok(())
 }
@@ -220,7 +228,7 @@ where
     let mut parents = HashMap::<FileId, Vec<FileId>>::new();
     let mut blocked = HashSet::new();
     let mut queue = Vec::new();
-    for (source, loads) in &target.index.shell_sources.loads {
+    for (source, loads) in &target.index.languages.shell_sources.loads {
         if cancelled() {
             return Err(StageItemFailure);
         }
@@ -404,6 +412,7 @@ where
         return Ok(None);
     }
     let function = index
+        .languages
         .shell_sources
         .functions
         .get(request.file_id)

@@ -263,11 +263,11 @@ pub(super) fn caller_class<'index>(
     owner: Option<&SymbolId>,
 ) -> Option<&'index SymbolId> {
     let owner = owner?;
-    index.php.classes.get(owner).or_else(|| {
+    index.languages.php.classes.get(owner).or_else(|| {
         index
             .parents
             .get(owner)
-            .filter(|parent| index.php.classes.contains(*parent))
+            .filter(|parent| index.languages.php.classes.contains(*parent))
     })
 }
 
@@ -639,7 +639,7 @@ impl<'query> ExactQuery<'query, '_> {
     where
         Cancel: FnMut() -> bool,
     {
-        let Some(spellings) = self.index.php.spellings(self.key) else {
+        let Some(spellings) = self.index.languages.php.spellings(self.key) else {
             return Ok(true);
         };
         for candidate in self.filed(spellings) {
@@ -676,7 +676,7 @@ impl<'query> ExactQuery<'query, '_> {
     where
         Cancel: FnMut() -> bool,
     {
-        let Some(spellings) = self.index.php.spellings(self.key) else {
+        let Some(spellings) = self.index.languages.php.spellings(self.key) else {
             return Ok(None);
         };
         select_candidate(
@@ -758,7 +758,7 @@ impl<'query> ExactQuery<'query, '_> {
             if cancelled() {
                 return Err(StageItemFailure);
             }
-            let Some(Some(parent)) = self.index.php.parents.get(descendant) else {
+            let Some(Some(parent)) = self.index.languages.php.parents.get(descendant) else {
                 return Ok(false);
             };
             let Some(class) = self
@@ -832,7 +832,7 @@ where
         )? {
             return Ok(None);
         }
-        let Some(Some(parent)) = exact.index.php.parents.get(&current.symbol_id) else {
+        let Some(Some(parent)) = exact.index.languages.php.parents.get(&current.symbol_id) else {
             return Ok(None);
         };
         if exact.declares_member([parent, member], cancelled)? {
@@ -931,7 +931,13 @@ impl<'query> ExactQuery<'query, '_> {
         Cancel: FnMut() -> bool,
     {
         let (composition, pending) = traversal;
-        let keys = match self.index.php.composed.get(&composition.class.symbol_id) {
+        let keys = match self
+            .index
+            .languages
+            .php
+            .composed
+            .get(&composition.class.symbol_id)
+        {
             None => return Ok(false),
             Some(None) => return Ok(true),
             Some(Some(keys)) => keys,
@@ -1036,6 +1042,7 @@ where
         } else {
             factory
                 .index
+                .languages
                 .php
                 .returns
                 .get(&method.symbol_id)

@@ -2,6 +2,8 @@
 
 use std::collections::HashSet;
 
+mod ancestry;
+
 use super::{
     ExtractedImportBinding, FileId, HashMap, ImportBindingKind, NativeFileFacts,
     RESOLUTION_MAP_NODE_ALLOWANCE, ReferenceResolution, ResolutionCandidate, ResolutionIndex,
@@ -264,8 +266,11 @@ where
     }
     // Enclosing namespaces and root types take precedence over root usings.
     // This path proves only a nearest match or imports in one namespace level.
-    if enclosing.contains(['.', ':']) || index.qualtype.csharp.root_types.contains(lookup.name) {
+    if index.qualtype.csharp.root_types.contains(lookup.name) {
         return Ok(selected);
+    }
+    if enclosing.contains(['.', ':']) {
+        return ancestry::select(index, (request, imports, enclosing, lookup.name), cancelled);
     }
     for namespace in &imports.namespaces {
         retain_qualified(

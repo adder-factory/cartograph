@@ -209,7 +209,7 @@ fn doctor_warns_for_uninitialized_behind_schema_and_fails_for_real_state() {
             migration["message"]
                 .as_str()
                 .is_some_and(|message| message.contains(
-                    "database schema version 48 is below required version 49; next pending migration is 49"
+                    "database schema version 49 is below required version 50; next pending migration is 50"
                 ))
         );
     }));
@@ -1874,7 +1874,7 @@ fn invoke(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) -> 
 }
 
 fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
-    const RESOLUTION_PARITY_SCHEMA_VERSION: i64 = 49;
+    const FRAMEWORK_PARITY_SCHEMA_VERSION: i64 = 50;
     let settings =
         cartograph_config::DatabaseSettings::parse(database_url, Some("2"), Some("10000"))
             .and_then(|settings| settings.with_schema(schema))
@@ -1886,7 +1886,7 @@ fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
     runtime.block_on(async {
         assert_eq!(
             cartograph_db::latest_schema_version(),
-            RESOLUTION_PARITY_SCHEMA_VERSION,
+            FRAMEWORK_PARITY_SCHEMA_VERSION,
             "schema-behind fixture must track the current migration"
         );
         let pool = cartograph_db::connect(&settings)
@@ -1901,7 +1901,7 @@ fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
             r#"ALTER TABLE "{schema}"."index_generations"
                 DROP CONSTRAINT index_generations_digest_version_check,
                 ADD CONSTRAINT index_generations_digest_version_check
-                    CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21))"#
+                    CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22))"#
         )))
         .execute(&pool)
         .await
@@ -1909,7 +1909,7 @@ fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
         query(AssertSqlSafe(format!(
             r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#
         )))
-        .bind(RESOLUTION_PARITY_SCHEMA_VERSION)
+        .bind(FRAMEWORK_PARITY_SCHEMA_VERSION)
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("schema-behind ledger rollback failed: {error}"));

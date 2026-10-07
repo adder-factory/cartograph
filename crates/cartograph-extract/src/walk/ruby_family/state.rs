@@ -16,6 +16,8 @@ pub(in crate::walk) struct RubyState {
     pub(super) locals: RubyLocals,
     /// Whether the innermost definition scope is a `class << self` body.
     pub(super) singleton_body: bool,
+    /// A method definition or unmodelled mutation withholds builtin include proof.
+    pub(super) include_blocked: bool,
     /// Every method emitted so far, by qualified name and staticness, with the
     /// latest retroactive restriction (`private :name`) naming it.
     methods: BTreeMap<MethodKey, MethodDefinitions>,

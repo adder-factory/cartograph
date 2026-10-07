@@ -1,3 +1,5 @@
+mod method_map;
+mod registration;
 use cartograph_domain::SourceLanguage;
 
 use crate::{
@@ -28,49 +30,7 @@ pub(crate) fn scan(
     while let Some(relative) = source[cursor..].find("Bun.serve") {
         builder.check_cancelled()?;
         let call = cursor + relative;
-        if call > 0 && identifier_byte(source.as_bytes()[call - 1]) {
-            cursor = call + "Bun.serve".len();
-            continue;
-        }
-        let open_paren = skip_ascii_whitespace(source, call + "Bun.serve".len());
-        if source.as_bytes().get(open_paren) != Some(&b'(') {
-            cursor = call + "Bun.serve".len();
-            continue;
-        }
-        let Some(close_paren) = matching_delimiter(DelimiterInput::parentheses(source, open_paren))
-        else {
-            cursor = open_paren + 1;
-            continue;
-        };
-        let config_open = skip_ascii_whitespace(source, open_paren + 1);
-        if source.as_bytes().get(config_open) != Some(&b'{') {
-            cursor = close_paren + 1;
-            continue;
-        }
-        let Some(config_close) = matching_delimiter(DelimiterInput::braces(source, config_open))
-        else {
-            cursor = close_paren + 1;
-            continue;
-        };
-        if config_close > close_paren {
-            cursor = close_paren + 1;
-            continue;
-        }
-        if let Some(routes_open) = top_level_routes_object(source, config_open + 1, config_close)
-            && let Some(routes_close) =
-                matching_delimiter(DelimiterInput::braces(source, routes_open))
-            && routes_close <= config_close
-        {
-            scan_route_entries(
-                builder,
-                source,
-                ScanRange {
-                    start: routes_open + 1,
-                    end: routes_close,
-                },
-            )?;
-        }
-        cursor = close_paren + 1;
+        cursor = registration::scan_call(builder, source, call)?;
     }
     Ok(())
 }
@@ -229,7 +189,7 @@ fn scan_route_entry(
     if map_close > end {
         return Ok(None);
     }
-    scan_method_map(
+    method_map::scan(
         builder,
         source,
         MethodMapInput {
@@ -247,65 +207,6 @@ fn scan_route_entry(
 struct MethodMapInput<'path, 'source> {
     path: &'path Quoted<'source>,
     range: ScanRange,
-}
-
-fn scan_method_map(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-    input: MethodMapInput<'_, '_>,
-) -> Result<(), ExtractError> {
-    let MethodMapInput {
-        path,
-        range: ScanRange { start, end },
-    } = input;
-    let bytes = source.as_bytes();
-    let first = skip_ascii_whitespace(source, start);
-    let Some((first_end, first_method)) = identifier_at(source, first) else {
-        return Ok(());
-    };
-    if !METHODS.contains(&first_method)
-        || bytes.get(skip_ascii_whitespace(source, first_end)) != Some(&b':')
-    {
-        return Ok(());
-    }
-    let mut cursor = start;
-    let mut depth = 0_usize;
-    while cursor < end {
-        builder.check_cancelled()?;
-        match bytes[cursor] {
-            b'{' | b'[' | b'(' => {
-                depth = depth.saturating_add(1);
-                cursor += 1;
-            }
-            b'}' | b']' | b')' => {
-                depth = depth.saturating_sub(1);
-                cursor += 1;
-            }
-            byte if depth == 0 && (byte == b'_' || byte.is_ascii_alphabetic()) => {
-                let (method_end, method) =
-                    identifier_at(source, cursor).ok_or(ExtractError::InvalidSpan)?;
-                let colon = skip_ascii_whitespace(source, method_end);
-                if METHODS.contains(&method) && bytes.get(colon) == Some(&b':') {
-                    let value = skip_ascii_whitespace(source, colon + 1);
-                    let handler = direct_handler(source, value, end);
-                    builder.add_route(FrameworkRouteInput {
-                        method,
-                        path: path.value,
-                        start: path.start,
-                        end: path.end,
-                        command: false,
-                        handler,
-                    })?;
-                }
-                cursor = method_end;
-            }
-            b'\'' | b'"' | b'`' => {
-                cursor = quoted_at(source, cursor, end).map_or(end, |quoted| quoted.quote_end + 1);
-            }
-            _ => cursor += 1,
-        }
-    }
-    Ok(())
 }
 
 fn direct_handler(source: &str, start: usize, limit: usize) -> Option<(&str, usize, usize)> {
@@ -346,8 +247,4 @@ fn quoted_at(value: &str, quote_start: usize, limit: usize) -> Option<Quoted<'_>
         cursor += 1;
     }
     None
-}
-
-fn identifier_byte(byte: u8) -> bool {
-    byte == b'_' || byte == b'$' || byte.is_ascii_alphanumeric()
 }

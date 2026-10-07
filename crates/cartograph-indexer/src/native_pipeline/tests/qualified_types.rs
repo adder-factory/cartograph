@@ -919,8 +919,18 @@ fn csharp_enclosing_and_root_types_preserve_base_before_imports() {
             ("Local.cs", local.as_str()),
             ("Use.cs", source.as_str()),
         ];
-        assert_base_resolution(&fixtures, ("Use.cs", "Item", ReferenceKind::Returns));
+        if scope == "Client" {
+            assert_base_resolution(&fixtures, ("Use.cs", "Item", ReferenceKind::Returns));
+        }
         let facts = generation(&fixtures);
+        if scope == "X.Y" {
+            let owner = capability_symbol(&facts, "Use.cs", "X.Y::Use::Read");
+            assert_target(
+                &facts,
+                CapabilityReferenceQuery::new(&facts, owner).named("Item", ReferenceKind::Returns),
+                ("Parent.cs", "X::Item", namespace_types::PROVENANCE),
+            );
+        }
         let owner = capability_symbol(&facts, "Use.cs", &format!("{scope}::Use::Direct"));
         assert_target(
             &facts,

@@ -29,13 +29,32 @@ fn managed_value_parameters_cannot_be_resolved_as_static_type_receivers() {
         ),
     ] {
         let facts = generation(&[(path, source), (target_path, target_source)]);
-        for method in ["direct", "lambda", "caught"] {
+        for method in ["lambda", "caught"] {
             let caller = capability_symbol(&facts, path, &format!("{owner}::{method}"));
             let reference = CapabilityReferenceQuery::new(&facts, caller)
                 .named("Builder.create", ReferenceKind::Calls);
             assert!(
                 reference.target_symbol_id.is_none(),
                 "{path}: {reference:?}"
+            );
+        }
+        let caller = capability_symbol(&facts, path, &format!("{owner}::direct"));
+        let other = if path == "Use.cs" {
+            "Other::create"
+        } else {
+            "client::Other::create"
+        };
+        let direct = CapabilityReferenceQuery::new(&facts, caller)
+            .named("Builder.create", ReferenceKind::Calls);
+        if path == "client/Use.kt" {
+            // The lambda/catch grammar recovery makes this file partial; optional
+            // receiver evidence must abstain without changing base resolution.
+            assert!(direct.target_symbol_id.is_none(), "{direct:?}");
+        } else {
+            targets(
+                direct,
+                capability_symbol(&facts, path, other),
+                "native-explicit-receiver-type",
             );
         }
         let caller = capability_symbol(&facts, path, &format!("{owner}::exact"));

@@ -34,6 +34,7 @@ mod explicit_receivers;
 mod family_support;
 mod fsharp_family;
 mod generic_family;
+mod go_module_evidence;
 mod graphql_family;
 mod hcl_family;
 mod javascript_bindings;
@@ -45,6 +46,7 @@ mod javascript_reads;
 mod javascript_scopes;
 mod javascript_state;
 mod javascript_types;
+mod jsx_context;
 mod jvm_dynamic_family;
 mod jvm_type_lookup;
 mod lean_family;
@@ -78,10 +80,13 @@ pub(crate) mod specifier_safety;
 mod sql_family;
 mod swift_family;
 pub(crate) mod syntax;
+mod tagged_receivers;
 mod type_contracts;
 mod value_references;
 mod vbnet_family;
 
+pub use jsx_context::JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX;
+pub(crate) use jsx_context::non_jsx_resolution_name;
 use optional_facts::{OptionalFactGate, OptionalFacts, PassFailure, WalkedFile};
 pub(crate) use optional_facts::{extract_with_optional_fact_fallback, note_optional_omission};
 use syntax::{
@@ -243,8 +248,12 @@ fn enrich_visited(
     embedded_sql::enrich(builder, root)?;
     value_references::enrich(builder, root)?;
     javascript_reads::enrich_binding_tables(builder, root)?;
+    go_module_evidence::enrich(builder, root)?;
     explicit_receivers::enrich(builder, root)
 }
+
+/// OCaml's tag extraction shares the same bounded receiver-evidence collector.
+pub(crate) use tagged_receivers::extract as extract_tagged_receivers;
 
 fn collect_extraction_diagnostics(
     builder: &mut ExtractionBuilder<'_, '_>,
@@ -1628,10 +1637,16 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
                 async_symbol: pending.async_symbol,
                 static_member: pending.static_member,
             },
-            declaration_syntax: jvm_type_lookup::declaration_syntax((
-                self.context.snapshot.language(),
-                pending.structural_node,
-            )),
+            declaration_syntax: if self.context.snapshot.language() == SourceLanguage::Dart {
+                dart_family::declaration_syntax((pending.span_node, pending.kind))
+            } else if polyglot::crate_visible(self, pending.span_node) {
+                crate::DeclarationSyntax::RustCrateVisible
+            } else {
+                jvm_type_lookup::declaration_syntax((
+                    self.context.snapshot.language(),
+                    pending.structural_node,
+                ))
+            },
             visibility: pending.visibility,
             structural_digest,
             clone_shape_digest,

@@ -23,7 +23,7 @@ pub(super) fn index<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let facades = &mut target.index.rust_paths.facades;
+    let facades = &mut target.index.languages.rust_paths.facades;
     for (position, export) in target.index.rust_named_re_exports.iter().enumerate() {
         if cancelled() {
             return Err(StageItemFailure);
@@ -70,7 +70,7 @@ fn index_public_targets<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let facades = &mut target.index.rust_paths.facades;
+    let facades = &mut target.index.languages.rust_paths.facades;
     for bucket in target.index.candidates.values() {
         for candidate in bucket.as_slice() {
             if cancelled() {
@@ -198,6 +198,7 @@ where
         return Ok(None);
     };
     Ok(index
+        .languages
         .rust_paths
         .facades
         .public_targets
@@ -214,7 +215,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let (file, mut name) = query;
-    let Some(names) = index.rust_paths.facades.by_file.get(file) else {
+    let Some(names) = index.languages.rust_paths.facades.by_file.get(file) else {
         return Ok(None);
     };
     let mut retained = None;

@@ -494,6 +494,9 @@ fn textual_declaration(
         }
         _ => None,
     };
+    let candidate = candidate.filter(|(_, name)| {
+        !crate::framework_salesforce::is_lwc_use(builder.context.snapshot.path().as_str(), name)
+    });
     candidate
         .map(|(kind, name)| builder.context.copy_text(&name).map(|name| (kind, name)))
         .transpose()

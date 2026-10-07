@@ -1,5 +1,7 @@
 //! Output admission and rollback for the optional bridge extraction pass.
 
+mod native_alias_refinement;
+
 use super::owner_index::{OWNER_INDEX_ENTRY_BYTES, SourceOwnerIndex};
 use crate::{
     ExtractError, ExtractedFile, SourceSnapshot,
@@ -21,6 +23,7 @@ pub(crate) struct BridgeTransaction<'cancel> {
     pub(super) budget: ExtractionBudget,
     pub(super) cancelled: &'cancel mut dyn FnMut() -> bool,
     pub(super) original_symbols: usize,
+    pub(super) original_references: usize,
     pub(super) original_ownership: Option<SourceOwnerIndex>,
     work: usize,
     reference_refinements: Vec<(usize, Option<String>)>,
@@ -35,6 +38,7 @@ impl<'cancel> BridgeTransaction<'cancel> {
         let mut budget = ExtractionBudget::new(snapshot)?;
         reserve_initial_facts(&mut budget, &file)?;
         let original_symbols = file.symbols.len();
+        let original_references = file.references.len();
         let work = snapshot
             .source()
             .len()
@@ -46,6 +50,7 @@ impl<'cancel> BridgeTransaction<'cancel> {
             budget,
             cancelled,
             original_symbols,
+            original_references,
             original_ownership: None,
             work,
             reference_refinements: Vec::new(),
@@ -65,6 +70,9 @@ impl<'cancel> BridgeTransaction<'cancel> {
     }
 
     pub(crate) fn index_owners(&mut self) -> Result<(), ExtractError> {
+        if self.original_ownership.is_some() {
+            return Ok(());
+        }
         let count = self.original_symbols;
         let work = count.saturating_mul(
             usize::try_from(count.max(1).ilog2())
@@ -124,9 +132,12 @@ impl<'cancel> BridgeTransaction<'cancel> {
         index: usize,
         resolution_name: String,
     ) -> Result<(), ExtractError> {
-        if self.file.references[index].resolution_name.is_some() {
+        let Some(resolution_name) = native_alias_refinement::prepare(
+            self.file.references[index].resolution_name.as_deref(),
+            resolution_name,
+        ) else {
             return Ok(());
-        }
+        };
         self.budget.reserve_additional_string(&resolution_name)?;
         self.reserve_working_bytes(REFERENCE_REFINEMENT_ENTRY_BYTES)?;
         self.reference_refinements
@@ -139,6 +150,9 @@ impl<'cancel> BridgeTransaction<'cancel> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod work_tests;
 
 fn reserve_initial_facts(
     budget: &mut ExtractionBudget,

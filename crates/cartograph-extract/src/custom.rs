@@ -27,6 +27,7 @@ const CUSTOM_CANCELLATION_POLL_BYTES: usize = 4_096;
 mod bg3;
 mod bg3_tokens;
 mod game_scripting;
+mod go_manifest;
 mod liquid;
 mod pascal_form;
 mod rhai;
@@ -37,7 +38,7 @@ pub(crate) use web_component::file_component_symbol;
 /// Whether a grammar-backed language's snapshot is scanned here instead,
 /// such as a Delphi form file in the Pascal language mode.
 pub(crate) fn scans_snapshot(snapshot: &SourceSnapshot) -> bool {
-    pascal_form::supports(snapshot)
+    pascal_form::supports(snapshot) || go_manifest::supports(snapshot)
 }
 
 fn poll_cancellation(
@@ -63,6 +64,10 @@ pub(crate) fn extract(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<ExtractedFile, ExtractError> {
     let mut builder = CustomBuilder::new(snapshot, maximum_ast_depth, cancelled)?;
+    if go_manifest::supports(snapshot) {
+        let parse_status = go_manifest::extract(&mut builder)?;
+        return builder.finish(parse_status);
+    }
     if pascal_form::supports(snapshot) {
         let parse_status = pascal_form::extract(&mut builder, maximum_ast_depth)?;
         return builder.finish(parse_status);
@@ -272,6 +277,8 @@ struct CustomBuilder<'source, 'cancel> {
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
     import_bindings: Vec<ExtractedImportBinding>,
+    call_scope_sites: Vec<crate::ExtractedCallScopeSite>,
+    javascript_member_calls: Vec<crate::JavascriptMemberCallContext>,
     /// Whether a synthesized qualified name was shortened to its canonical bound.
     shortened_canonical_names: bool,
     /// Diagnostics of embedded component regions that lost facts (script
@@ -295,6 +302,8 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             budget: ExtractionBudget::new(snapshot)?,
             identities: SymbolIdentity::new(snapshot.path()),
             symbols: Vec::new(),
+            call_scope_sites: Vec::new(),
+            javascript_member_calls: Vec::new(),
             containments: Vec::new(),
             references: Vec::new(),
             import_bindings: Vec::new(),
@@ -510,8 +519,8 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             symbols: self.symbols,
             containments: self.containments,
             references: self.references,
-            call_scope_sites: Vec::new(),
-            javascript_member_calls: Vec::new(),
+            call_scope_sites: self.call_scope_sites,
+            javascript_member_calls: self.javascript_member_calls,
             resolution_abstentions: Vec::new(),
             local_type_scopes: Vec::new(),
             receiver_evidence: None,

@@ -40,8 +40,31 @@ pub(super) struct PathIndex {
 
 pub(super) struct ModuleEdge {
     pub(super) file: Option<FileId>,
-    pub(super) public: bool,
+    pub(super) visibility: ModuleVisibility,
     pub(super) parent_module: Option<super::SymbolId>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum ModuleVisibility {
+    #[default]
+    Private,
+    Parent,
+    Crate,
+    Public,
+}
+
+impl ModuleVisibility {
+    fn from_symbol(symbol: &super::NativeSymbolFacts) -> Self {
+        if symbol.export.exported {
+            Self::Public
+        } else if symbol.declaration_syntax == super::DeclarationSyntax::RustCrateVisible {
+            Self::Crate
+        } else if symbol.visibility == Some(Visibility::Internal) {
+            Self::Parent
+        } else {
+            Self::Private
+        }
+    }
 }
 
 pub(super) fn index_file<Cancel>(
@@ -56,7 +79,7 @@ where
         return Ok(());
     }
     super::rust_use_bindings::index_file(target, file, cancelled)?;
-    let public = collect_module_visibility(target, file, cancelled)?;
+    let visibility = collect_module_visibility(target, file, cancelled)?;
     let mut edges = HashMap::<String, Option<ModuleEdge>>::new();
     for binding in &file.import_bindings {
         if cancelled() {
@@ -91,10 +114,10 @@ where
             try_clone_text(&binding.local_name)?,
             Some(ModuleEdge {
                 file: module.cloned(),
-                public: public
+                visibility: visibility
                     .get(binding.module_specifier.as_str())
                     .copied()
-                    .unwrap_or(false),
+                    .unwrap_or_default(),
                 parent_module: None,
             }),
         );
@@ -110,12 +133,14 @@ where
         )?;
         target
             .index
+            .languages
             .rust_paths
             .modules
             .try_reserve(1)
             .map_err(|_| StageItemFailure)?;
         target
             .index
+            .languages
             .rust_paths
             .modules
             .insert(file.file.file_id.clone(), edges);
@@ -128,11 +153,11 @@ fn collect_module_visibility<'file, Cancel>(
     target: &mut ResolutionIndexTarget<'_>,
     file: &'file NativeFileFacts,
     cancelled: &mut Cancel,
-) -> Result<HashMap<&'file str, bool>, StageItemFailure>
+) -> Result<HashMap<&'file str, ModuleVisibility>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
-    let mut public = HashMap::new();
+    let mut visibility = HashMap::new();
     for symbol in &file.symbols {
         if cancelled() {
             return Err(StageItemFailure);
@@ -140,13 +165,13 @@ where
         if symbol.kind == SymbolKind::Import && symbol.name.starts_with("./") {
             target.budget.charge(
                 RESOLUTION_MAP_NODE_ALLOWANCE
-                    .saturating_add(usize_to_u64(size_of::<(&str, bool)>())),
+                    .saturating_add(usize_to_u64(size_of::<(&str, ModuleVisibility)>())),
             )?;
-            public.try_reserve(1).map_err(|_| StageItemFailure)?;
-            public.insert(symbol.name.as_str(), symbol.export.exported);
+            visibility.try_reserve(1).map_err(|_| StageItemFailure)?;
+            visibility.insert(symbol.name.as_str(), ModuleVisibility::from_symbol(symbol));
         }
     }
-    Ok(public)
+    Ok(visibility)
 }
 
 pub(super) fn resolve<Cancel>(
@@ -671,6 +696,7 @@ where
         return Ok(ModuleLookup::Ambiguous);
     }
     let edge = index
+        .languages
         .rust_paths
         .modules
         .get(current.file)
@@ -685,7 +711,11 @@ where
     if edge.parent_module.as_ref() != current.module {
         return Ok(ModuleLookup::Unproven);
     }
-    if !module_edge_visible(index, (current, request, external, edge.public), cancelled)? {
+    if !module_edge_visible(
+        index,
+        (current, request, external, edge.visibility),
+        cancelled,
+    )? {
         return inaccessible_edge(index, (current, request), cancelled);
     }
     Ok(edge.file.as_ref().map_or(ModuleLookup::Unproven, |file| {
@@ -754,16 +784,46 @@ where
 
 fn module_edge_visible<Cancel>(
     index: &ResolutionIndex,
-    query: (ModuleScope<'_>, &ResolutionRequest<'_>, bool, bool),
+    query: (
+        ModuleScope<'_>,
+        &ResolutionRequest<'_>,
+        bool,
+        ModuleVisibility,
+    ),
     cancelled: &mut Cancel,
 ) -> Result<bool, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
-    let (declaring, request, external, public) = query;
-    if public {
+    let (declaring, request, external, visibility) = query;
+    if visibility == ModuleVisibility::Public {
         return Ok(true);
     }
+    if private_module_edge_visible(index, (declaring, request, external), cancelled)? {
+        return Ok(true);
+    }
+    match visibility {
+        ModuleVisibility::Parent => super::rust_path_visibility::declaration_visible(
+            index,
+            (request, declaring, Some(Visibility::Internal)),
+            cancelled,
+        ),
+        ModuleVisibility::Crate => Ok(super::rust_path_visibility::crate_visible(
+            index,
+            (request, declaring),
+        )),
+        ModuleVisibility::Private | ModuleVisibility::Public => Ok(false),
+    }
+}
+
+fn private_module_edge_visible<Cancel>(
+    index: &ResolutionIndex,
+    (declaring, request, external): (ModuleScope<'_>, &ResolutionRequest<'_>, bool),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     if declaring.module.is_some() {
         return super::rust_path_visibility::declaration_visible(
             index,

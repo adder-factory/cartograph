@@ -14,11 +14,14 @@ use super::{
 
 mod casefold;
 mod class_scope;
+mod members;
 mod name_fallbacks;
 mod receiver_sites;
 mod scoped_names;
 
+pub(super) use class_scope::scope as call_scope;
 pub(super) use receiver_sites::ReceiverSites;
+pub(super) use scoped_names::members as scoped_members;
 
 pub(super) const CURRENT_CLASS_PROVENANCE: &str = "native-current-class-call";
 
@@ -34,6 +37,7 @@ pub(super) struct GenericResolutionIndex {
 struct ScopeSymbol {
     kind: SymbolKind,
     static_member: bool,
+    constructor: bool,
 }
 
 pub(super) fn call_scope_owned_bytes(sites: &Vec<ExtractedCallScopeSite>) -> u64 {
@@ -66,6 +70,7 @@ pub(super) fn index_symbol(
             ScopeSymbol {
                 kind: symbol.kind,
                 static_member: symbol.execution.static_member,
+                constructor: symbol.declaration_syntax == super::DeclarationSyntax::DartConstructor,
             },
         );
     }
@@ -92,6 +97,13 @@ fn class_language(language: &str) -> bool {
             | "swift"
             | "ruby"
             | "python"
+            | "apex"
+            | "dart"
+            | "groovy"
+            | "scala"
+            | "astro"
+            | "svelte"
+            | "vue"
     )
 }
 
@@ -105,7 +117,7 @@ fn implicit_receiver_language(language: &str) -> bool {
 fn type_kind(kind: SymbolKind) -> bool {
     matches!(
         kind,
-        SymbolKind::Class | SymbolKind::Struct | SymbolKind::Interface
+        SymbolKind::Class | SymbolKind::Struct | SymbolKind::Interface | SymbolKind::Module
     )
 }
 
@@ -115,6 +127,7 @@ fn callable_kind(kind: SymbolKind) -> bool {
 
 fn owning_class<'a>(index: &'a ResolutionIndex, owner: &SymbolId) -> Option<&'a SymbolId> {
     if !index
+        .languages
         .generic
         .kinds
         .get(owner)
@@ -124,11 +137,26 @@ fn owning_class<'a>(index: &'a ResolutionIndex, owner: &SymbolId) -> Option<&'a 
     }
     let parent = index.parents.get(owner)?;
     index
+        .languages
         .generic
         .kinds
         .get(parent)
         .is_some_and(|symbol| type_kind(symbol.kind))
         .then_some(parent)
+}
+
+pub(super) fn current_instance_class<'index>(
+    index: &'index ResolutionIndex,
+    reference: &ExtractedReference,
+) -> Option<&'index SymbolId> {
+    if !class_scope::reference_proven(index, reference) {
+        return None;
+    }
+    let owner = reference.owner.as_ref()?;
+    if index.languages.generic.kinds.get(owner)?.static_member {
+        return None;
+    }
+    owning_class(index, owner)
 }
 
 /// A receiverless call in these languages searches the immediate class scope.
@@ -149,7 +177,7 @@ fn implicit_member_call(
         .is_some_and(|class| candidate.parent_symbol_id.as_ref() == Some(class))
         && request
             .owner
-            .is_some_and(|owner| compatible_member(index, owner, &candidate.symbol_id))
+            .is_some_and(|owner| compatible_member(index, (owner, &candidate.symbol_id), request))
 }
 
 /// Only static calls to callable, non-framework members have an implicit receiver.
@@ -180,32 +208,24 @@ pub(super) fn recursive_owner_call(
         && callable_kind(candidate.kind)
         && (candidate.parent_symbol_id.as_ref().is_none_or(|parent| {
             !index
-                .generic
+                .languages.generic
                 .kinds
                 .get(parent)
                 .is_some_and(|symbol| type_kind(symbol.kind))
         }) || implicit_member_call(index, request, candidate))
 }
 
-fn compatible_member(index: &ResolutionIndex, owner: &SymbolId, target: &SymbolId) -> bool {
-    let Some(owner) = index.generic.kinds.get(owner) else {
-        return false;
-    };
-    let Some(target) = index.generic.kinds.get(target) else {
-        return false;
-    };
-    !owner.static_member || target.static_member
-}
+use members::compatible as compatible_member;
 
 fn explicit_member_compatible(
     index: &ResolutionIndex,
     owner: &SymbolId,
     target: &SymbolId,
 ) -> bool {
-    let Some(owner) = index.generic.kinds.get(owner) else {
+    let Some(owner) = index.languages.generic.kinds.get(owner) else {
         return false;
     };
-    let Some(target) = index.generic.kinds.get(target) else {
+    let Some(target) = index.languages.generic.kinds.get(target) else {
         return false;
     };
     owner.static_member == target.static_member
@@ -226,6 +246,12 @@ fn receiver_member<'a>(language: &str, name: &'a str) -> Option<&'a str> {
             | "csharp"
             | "cpp"
             | "cuda"
+            | "apex"
+            | "groovy"
+            | "scala"
+            | "astro"
+            | "svelte"
+            | "vue"
     ) {
         name.strip_prefix("this.")
     } else {
@@ -292,6 +318,7 @@ pub(super) use casefold::{
     resolve as resolve_casefold_project, resolve_local as resolve_casefold_local,
 };
 pub(super) use class_scope::{index_calls, resolve as resolve_class_scope};
+pub(super) use members::refine as refine_member;
 pub(super) use name_fallbacks::resolve_proximity;
 
 /// A weak fallback cannot prefer one implementation over another namespace's
