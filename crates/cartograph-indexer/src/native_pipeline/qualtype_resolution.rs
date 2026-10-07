@@ -14,6 +14,7 @@ pub(super) struct TypeIndex {
     pub(super) csharp: super::namespace_types::NamespaceImports,
     pub(super) rescript: super::rescript_resolution::Modules,
     pub(super) python: super::python_type_variables::TypeVariables,
+    pub(super) python_class_members: super::python_class_members::Members,
     pub(super) enums: super::enum_resolution::Receivers,
     pub(super) rust: super::rust_local_types::RootImports,
     pub(super) generics: super::qualtype_generics::Scopes,
@@ -37,7 +38,9 @@ where
     Cancel: FnMut() -> bool,
 {
     super::qualtype_generics::index_file(index, file, context)?;
+    super::javascript_alias_exports::index_syntax(index, file, context)?;
     super::enum_resolution::index_file(index, file, context)?;
+    super::python_class_members::index_file(index, file, context)?;
     super::python_type_variables::index_file(index, file, context)
 }
 

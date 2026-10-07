@@ -287,12 +287,12 @@ fn split_call(name: &str) -> Option<(&str, &str)> {
     Some((receiver, member))
 }
 
-struct Receiver {
-    target: ResolvedTarget,
-    instance: bool,
+pub(super) struct Receiver {
+    pub(super) target: ResolvedTarget,
+    pub(super) instance: bool,
 }
 
-enum ReceiverLookup {
+pub(super) enum ReceiverLookup {
     Absent,
     Blocked,
     Resolved(Receiver),
@@ -316,7 +316,7 @@ where
     }))
 }
 
-fn resolve_receiver<Cancel>(
+pub(super) fn resolve_receiver<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
     cancelled: &mut Cancel,

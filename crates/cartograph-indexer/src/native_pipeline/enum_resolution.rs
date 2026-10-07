@@ -10,6 +10,8 @@ use super::{
     try_clone_text, usize_to_u64,
 };
 
+mod java;
+
 pub(super) const PROVENANCE: &str = "native-enum-qualified-member";
 const RECEIVER_CONTEXT_BYTES: usize = 256;
 
@@ -136,6 +138,7 @@ where
             },
         );
     }
+    let type_sites = java::type_sites((file, source), context)?;
     let mut previous = None;
     let mut offset = 0;
     for chunk in source.split_inclusive(|character: char| !identifier_character(character)) {
@@ -149,15 +152,16 @@ where
             continue;
         }
         if let Some(uses) = names.get_mut(word) {
-            uses.valid &= allowed_occurrence(
-                uses,
-                WordUse {
-                    start,
-                    word,
-                    previous,
-                },
-                source,
-            );
+            uses.valid &= type_sites.contains(&(start, start + word.len()))
+                || allowed_occurrence(
+                    uses,
+                    WordUse {
+                        start,
+                        word,
+                        previous,
+                    },
+                    source,
+                );
         }
         previous = Some((start + word.len(), word));
     }
@@ -188,7 +192,7 @@ fn allowed_occurrence(uses: &mut NameUses, token: WordUse<'_>, source: &str) -> 
 fn supported(language: &str) -> bool {
     matches!(
         language,
-        "typescript" | "javascript" | "tsx" | "svelte" | "vue"
+        "typescript" | "javascript" | "tsx" | "svelte" | "vue" | "java"
     )
 }
 
@@ -265,6 +269,9 @@ where
     else {
         return Ok(None);
     };
+    if request.language == "java" {
+        return java::resolve(index, (request, receiver), cancelled);
+    }
     if !local_enum_name(index, (request, receiver), cancelled)? {
         return Ok(None);
     }

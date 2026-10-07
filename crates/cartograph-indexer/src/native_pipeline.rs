@@ -13,6 +13,7 @@ mod generic_resolution;
 mod go_module_paths;
 mod go_path_resolution;
 mod intrinsic_names;
+mod javascript_alias_exports;
 mod javascript_config;
 mod javascript_exports;
 mod javascript_framework_resolution;
@@ -28,6 +29,7 @@ mod ocaml_module_resolution;
 mod pascal_resolution;
 mod php_resolution;
 mod play_resolution;
+mod python_class_members;
 mod python_resolution;
 mod python_type_variables;
 mod qualified_member_resolution;
@@ -35,7 +37,9 @@ mod qualtype_generics;
 mod qualtype_resolution;
 mod qualtype_source;
 mod receiver_resolution;
+mod reference_dispatch;
 mod reference_tiers;
+mod repr_file_imports;
 mod rescript_resolution;
 mod resource_resolution;
 mod rust_dependency_paths;
@@ -5339,6 +5343,7 @@ struct ResolutionIndex {
     test_files: Vec<TestFileEvidence>,
     php: php_resolution::PhpResolutionIndex,
     javascript_exports: javascript_exports::ExportIndex,
+    javascript_aliases: javascript_alias_exports::AliasIndex,
     salesforce: salesforce_resolution::SalesforceIndex,
     drupal_tags: drupal_tags::TagIndex,
     drupal_classes: drupal_resolution::ClassIndex,
@@ -10523,6 +10528,7 @@ where
         file,
         cancelled,
     )?;
+    javascript_alias_exports::index_file(&mut index.javascript_aliases, file, (budget, cancelled))?;
     salesforce_resolution::index_file(
         salesforce_resolution::SalesforceFileInput {
             index: &mut index.salesforce,
@@ -12599,6 +12605,9 @@ fn resolve_module_declaration_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(target) = repr_file_imports::resolve(index, request, cancelled)? {
+        return Ok(Some(ReferenceResolution::resolved(target)));
+    }
     if request.language == SourceLanguage::Liquid.as_str()
         && let Some(target) = file_path_resolution::resolve_reference(index, request, cancelled)?
     {
@@ -12788,26 +12797,7 @@ where
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
-    if let Some(resolution) = reference_tiers::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if request.import_bindings.fallback_blocked {
-        return Ok(ReferenceResolution::unresolved(
-            UNRESOLVED_IMPORT_PROVENANCE,
-        ));
-    }
-    if rust_self_has_local_nominal(index, request, cancelled)? {
-        return Ok(ReferenceResolution::unresolved(
-            DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
-        ));
-    }
-    if let Some(resolution) = explicit_edge_resolution::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(target) = resolve_rust_qualified_path(index, request, cancelled)? {
-        return Ok(ReferenceResolution::resolved(target));
-    }
-    resolve_import_or_project_reference(index, request, cancelled)
+    reference_dispatch::resolve_remaining(index, request, cancelled)
 }
 
 /// Try module and import bindings before the permitted project-wide fallbacks.
@@ -14168,6 +14158,14 @@ where
     let mut target =
         select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
             .map(import_binding_target);
+    if target
+        .as_ref()
+        .is_some_and(|target| target.kind == SymbolKind::Export)
+        && javascript_family_name(import.reference.language)
+        && javascript_alias_exports::is_alias(query)
+    {
+        target = javascript_alias_exports::resolve(query, target, cancelled)?;
+    }
     if target.is_none() {
         target = javascript_exports::resolve_import(query, cancelled)?;
     }
@@ -17092,6 +17090,7 @@ mod tests {
     mod python_imports;
     mod qualified_types;
     mod receiver_types;
+    mod repr;
     mod rust_module_paths;
     mod rust_receivers;
     mod rust_review_regressions;
@@ -17739,9 +17738,9 @@ mod tests {
             caller_path: "use_barrel.ts",
             caller_name: "consume",
             reference_name: "renamed",
-            target_path: "barrel.ts",
-            target_name: "renamed",
-            provenance: IMPORT_BINDING_PROVENANCE,
+            target_path: "core.ts",
+            target_name: "core",
+            provenance: "native-reexport-alias",
         },
         ExpectedResolvedReference {
             caller_path: "use_local_alias.ts",
