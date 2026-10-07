@@ -29,6 +29,8 @@ use crate::{
     },
 };
 
+mod module_bindings;
+
 const QUERY_MATCH_LIMIT: u32 = 65_536;
 const MINIMUM_CAPTURE_LIMIT: usize = 1_024;
 const CAPTURES_PER_SOURCE_BYTE: usize = 8;
@@ -166,6 +168,8 @@ struct ReferenceEmissionInput<'tree, 'emitted> {
     calls: Vec<CallReference<'tree>>,
     owner_indices: Vec<Option<usize>>,
     emitted: &'emitted [EmittedDefinition],
+    source: &'emitted str,
+    language: SourceLanguage,
 }
 
 #[derive(Clone, Copy)]
@@ -352,15 +356,29 @@ pub(crate) fn extract(
         },
         cancelled,
     )?;
-    let references = emit_tag_references(
+    let (references, mut import_bindings) = emit_tag_references(
         ReferenceEmissionInput {
             calls,
             owner_indices: call_owner_indices,
             emitted: &facts.emitted,
+            source,
+            language: snapshot.language(),
         },
         &mut budget,
         cancelled,
     )?;
+
+    let mut public_members =
+        module_bindings::public_members((input, &facts.symbols), (&mut budget, cancelled))?;
+    import_bindings
+        .try_reserve(public_members.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    import_bindings.append(&mut public_members);
+    let mut module_imports = module_bindings::extract(input, &mut budget, cancelled)?;
+    import_bindings
+        .try_reserve(module_imports.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    import_bindings.append(&mut module_imports);
 
     let diagnostics = diagnostics(root, parse_status, cancelled)?;
     for _ in &diagnostics {
@@ -378,8 +396,13 @@ pub(crate) fn extract(
         symbols: facts.symbols,
         containments: facts.containments,
         references,
+        call_scope_sites: Vec::new(),
+        javascript_member_calls: Vec::new(),
+        resolution_abstentions: Vec::new(),
+        local_type_scopes: Vec::new(),
+        receiver_evidence: None,
         numerical_sites: Vec::new(),
-        import_bindings: Vec::new(),
+        import_bindings,
         has_inline_tests: false,
         test_search_text: String::new(),
         test_search_truncated: false,
@@ -612,6 +635,7 @@ fn build_tag_definition(
         implementation: SymbolImplementationFlags::default(),
         export: SymbolExportFlags::default(),
         execution: SymbolExecutionFlags::default(),
+        declaration_syntax: crate::DeclarationSyntax::Other,
         visibility: None,
         structural_digest: input.structural_digest,
         clone_shape_digest,
@@ -628,14 +652,20 @@ fn emit_tag_references(
     input: ReferenceEmissionInput<'_, '_>,
     budget: &mut ExtractionBudget,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<Vec<ExtractedReference>, ExtractError> {
+) -> Result<(Vec<ExtractedReference>, Vec<crate::ExtractedImportBinding>), ExtractError> {
     let mut references = Vec::new();
+    let mut qualifiers = Vec::new();
     references
         .try_reserve(input.calls.len())
         .map_err(|_| ExtractError::OutputLimit)?;
     for (call, owner) in input.calls.into_iter().zip(input.owner_indices) {
         if cancelled() {
             return Err(ExtractError::Cancelled);
+        }
+        if let Some(binding) =
+            module_bindings::callee_binding(call.name_node, input.source, input.language)?
+        {
+            module_bindings::push_binding((&mut qualifiers, binding), budget)?;
         }
         let reference = ExtractedReference {
             owner: owner.and_then(|index| {
@@ -655,7 +685,7 @@ fn emit_tag_references(
         )?;
         references.push(reference);
     }
-    Ok(references)
+    Ok((references, qualifiers))
 }
 
 fn collect_matches<'tree>(
@@ -1058,15 +1088,7 @@ fn tag_structural_digests(
     transient: &mut TagTransientBudget,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<DefinitionDigests, ExtractError> {
-    let mut targets = DefinitionDigests::new();
-    targets
-        .try_reserve(input.definitions.len())
-        .map_err(|_| ExtractError::OutputLimit)?;
-    transient.charge(targets.capacity().saturating_mul(MODELED_TREE_ENTRY_BYTES))?;
-    for definition in input.definitions {
-        targets.entry(definition.node.id()).or_insert(None);
-    }
-
+    let mut targets = prepare_definition_digests(input.definitions, transient)?;
     let node_limit = input
         .source
         .len()
@@ -1130,6 +1152,22 @@ fn tag_structural_digests(
 
     if child_digests.len() != 1 || targets.values().any(Option::is_none) {
         return Err(ExtractError::GrammarUnavailable);
+    }
+    Ok(targets)
+}
+
+/// Reserve and charge the digest targets before traversing any syntax nodes.
+fn prepare_definition_digests(
+    definitions: &[Definition<'_>],
+    transient: &mut TagTransientBudget,
+) -> Result<DefinitionDigests, ExtractError> {
+    let mut targets = DefinitionDigests::new();
+    targets
+        .try_reserve(definitions.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    transient.charge(targets.capacity().saturating_mul(MODELED_TREE_ENTRY_BYTES))?;
+    for definition in definitions {
+        targets.entry(definition.node.id()).or_insert(None);
     }
     Ok(targets)
 }

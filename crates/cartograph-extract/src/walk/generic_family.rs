@@ -661,14 +661,13 @@ fn capture_call(
     let Some(name) = normalize_reference_name(&name) else {
         return Ok(());
     };
-    let reference = ExtractedReference {
+    let reference = super::PendingReference {
         owner: builder.owners.last().cloned(),
         name,
-        resolution_name: None,
         kind: ReferenceKind::Calls,
-        span: span_for(target)?,
+        node: target,
     };
-    builder.emit_reference(reference)
+    super::references::push_reference(builder, reference)
 }
 
 fn capture_named_reference(

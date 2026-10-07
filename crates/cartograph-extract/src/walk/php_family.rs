@@ -134,6 +134,13 @@ fn visit_namespace(
         None => None,
     };
     let body = node.child_by_field_name("body");
+    builder.emit_import_binding(ExtractedImportBinding {
+        kind: ImportBindingKind::Namespace,
+        module_specifier: crate::PHP_NAMESPACE_SCOPE_MODULE.to_owned(),
+        imported_name: "namespace".to_owned(),
+        local_name: "namespace".to_owned(),
+        span: span_for(node)?,
+    })?;
     builder.php.enter_namespace(name.clone(), body.is_none());
     if name_node.is_some() && name.is_none() {
         builder.php.mark_aliases_incomplete();

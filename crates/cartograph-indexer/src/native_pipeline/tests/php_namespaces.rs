@@ -754,18 +754,33 @@ fn undeclared_static_members_of_eloquent_models_bind_to_the_model_class() {
         );
         assert!(reference.confidence < 0.9, "{reference:?}");
     }
-    for name in [
-        "Post::report",
-        "Tagged::search",
-        "Nested::search",
-        "Aliased::where",
+    for (name, path, method) in [
+        (
+            "Post::report",
+            "app/Models/BaseModel.php",
+            r"App\Models::BaseModel::report",
+        ),
+        (
+            "Nested::search",
+            "app/Models/Tagged.php",
+            r"App\Models::LocalQueries::search",
+        ),
     ] {
         let supplied = call(name);
-        assert!(
-            supplied.target_symbol_id.is_none(),
-            "a member a project ancestor or project trait supplies is not Eloquent forwarding: {supplied:?}"
+        assert_targets(supplied, capability_symbol(&facts, path, method));
+        assert_eq!(
+            supplied.resolution_provenance,
+            super::EXACT_PROJECT_PROVENANCE
         );
     }
+    assert!(
+        call("Tagged::search").target_symbol_id.is_none(),
+        "the external HasFactory trait may conflict"
+    );
+    assert!(
+        call("Aliased::where").target_symbol_id.is_none(),
+        "trait adaptations remain unknown"
+    );
     let aliased = capability_symbol(&facts, "app/Models/Tagged.php", r"App\Models::Aliased");
     assert_targets(
         CapabilityReferenceQuery::new(&facts, aliased)

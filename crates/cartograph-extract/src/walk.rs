@@ -8,8 +8,9 @@ use tree_sitter::Node;
 
 use crate::{
     Containment, DiagnosticCode, ExtractError, ExtractedFile, ExtractedImportBinding,
-    ExtractedReference, ExtractedSymbol, ExtractionDiagnostic, ExtractionStrategy, LanguageSpec,
-    SourceSnapshot, SymbolExecutionFlags, SymbolExportFlags, SymbolImplementationFlags,
+    ExtractedReceiverBinding, ExtractedReceiverLookup, ExtractedReference, ExtractedSymbol,
+    ExtractionDiagnostic, ExtractionStrategy, LanguageSpec, SourceSnapshot, SymbolExecutionFlags,
+    SymbolExportFlags, SymbolImplementationFlags,
     budget::{
         ExtractionBudget, containment_budget_bytes, diagnostic_budget_bytes,
         import_binding_budget_bytes, reference_budget_bytes, symbol_budget_bytes,
@@ -22,18 +23,21 @@ mod apex_family;
 mod arkts_family;
 mod astro_family;
 mod c_family;
+mod current_class_calls;
 mod dart_family;
 mod declarations;
 mod def_use;
 mod dynamic_dispatch;
 pub(crate) mod embedded_script;
 mod embedded_sql;
+mod explicit_receivers;
 mod family_support;
 mod fsharp_family;
 mod generic_family;
 mod graphql_family;
 mod hcl_family;
 mod javascript_bindings;
+mod javascript_call_context;
 mod javascript_decorators;
 mod javascript_members;
 mod javascript_owners;
@@ -42,11 +46,14 @@ mod javascript_scopes;
 mod javascript_state;
 mod javascript_types;
 mod jvm_dynamic_family;
+mod jvm_type_lookup;
 mod lean_family;
 mod lisp_family;
 mod lua_family;
 mod managed_family;
+mod managed_value_lookup;
 mod module_system;
+mod namespace_bindings;
 mod nix_family;
 mod numerical;
 mod objc_family;
@@ -66,6 +73,7 @@ mod script_support;
 mod shader_family;
 mod shell_family;
 mod solidity_family;
+mod source_bindings;
 pub(crate) mod specifier_safety;
 mod sql_family;
 mod swift_family;
@@ -234,7 +242,8 @@ fn enrich_visited(
     schema::enrich(builder, root)?;
     embedded_sql::enrich(builder, root)?;
     value_references::enrich(builder, root)?;
-    javascript_reads::enrich_binding_tables(builder, root)
+    javascript_reads::enrich_binding_tables(builder, root)?;
+    explicit_receivers::enrich(builder, root)
 }
 
 fn collect_extraction_diagnostics(
@@ -277,8 +286,12 @@ fn finish_extraction(
     input: WalkInput<'_>,
     diagnostics: Vec<ExtractionDiagnostic>,
 ) -> Result<ExtractedFile, ExtractError> {
+    let receiver_evidence = explicit_receivers::finish(&mut builder)?;
     let snapshot = builder.context.snapshot;
     let output_limit = builder.context.budget.output_limit();
+    polyglot::fence_python_import_uses(&mut builder, input.root)?;
+    namespace_bindings::fence(&mut builder, input.root)?;
+    source_bindings::fence(&mut builder, input.root)?;
     let has_inline_tests = has_inline_tests(&mut builder, input.root)?;
     // An embedded script region that failed to parse, or a template
     // expression too deep to walk, leaves a diagnostic even when the host
@@ -304,6 +317,11 @@ fn finish_extraction(
         symbols: builder.facts.symbols,
         containments: builder.facts.containments,
         references: builder.facts.references,
+        call_scope_sites: builder.facts.call_scope_sites,
+        javascript_member_calls: builder.facts.javascript_member_calls,
+        resolution_abstentions: builder.facts.resolution_abstentions,
+        local_type_scopes: builder.facts.local_type_scopes,
+        receiver_evidence,
         numerical_sites: builder.facts.numerical_sites,
         import_bindings: builder.facts.import_bindings,
         has_inline_tests,
@@ -443,6 +461,7 @@ struct ExtractionBuilder<'source, 'cancel> {
     vbnet_heritage: vbnet_family::HeritageSeen,
     /// JavaScript-family state shared between the walk and its passes.
     javascript: javascript_state::JavaScriptState<'source>,
+    current_class_calls: current_class_calls::MethodProofIndex,
     maximum_ast_depth: usize,
     /// Whether any synthesized name exceeded its canonical bound and had to be
     /// deterministically shortened for this file.
@@ -618,6 +637,12 @@ struct ExtractionFacts {
     symbols: Vec<ExtractedSymbol>,
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
+    call_scope_sites: Vec<crate::ExtractedCallScopeSite>,
+    javascript_member_calls: Vec<crate::JavascriptMemberCallContext>,
+    resolution_abstentions: Vec<cartograph_domain::SourceSpan>,
+    local_type_scopes: Vec<(cartograph_domain::SourceSpan, cartograph_domain::SourceSpan)>,
+    receiver_lookups: Vec<ExtractedReceiverLookup>,
+    receiver_bindings: Vec<ExtractedReceiverBinding>,
     numerical_sites: Vec<crate::ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
 }
@@ -1422,6 +1447,7 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             script: script_support::ScriptState::default(),
             vbnet_heritage: vbnet_family::HeritageSeen::default(),
             javascript: javascript_state::JavaScriptState::default(),
+            current_class_calls: current_class_calls::MethodProofIndex::default(),
             maximum_ast_depth,
             shortened_canonical_names: false,
             optional_facts: OptionalFactGate::new(OptionalFacts::Recorded),
@@ -1602,6 +1628,10 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
                 async_symbol: pending.async_symbol,
                 static_member: pending.static_member,
             },
+            declaration_syntax: jvm_type_lookup::declaration_syntax((
+                self.context.snapshot.language(),
+                pending.structural_node,
+            )),
             visibility: pending.visibility,
             structural_digest,
             clone_shape_digest,

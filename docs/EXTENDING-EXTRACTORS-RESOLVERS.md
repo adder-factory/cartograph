@@ -304,7 +304,8 @@ The key contract, correction policy and current disposition counts are in the
 Generation freshness includes the native generation-digest contract, so a
 change to the facts an existing language publishes needs a new contract;
 otherwise an unchanged checkout keeps reporting fresh with the old facts. The
-V21 contract (migration 48) is the latest example:
+V22 contract (migration 49) fences v1 cross-file resolution parity and is the
+latest example:
 
 - add the `GenerationDigestVersion` variant and move `CURRENT` in
   `crates/cartograph-domain/src/lib.rs`;

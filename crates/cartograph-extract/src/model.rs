@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 #[doc(hidden)]
 pub const DYNAMIC_DISPATCH_RESOLUTION_PREFIX: &str = "cartograph.dynamic-dispatch::";
 
+/// A Python use whose file-wide bindings block import fallback, preserving lexical lookup.
+pub const PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX: &str = "cartograph.python-unbound-import::";
+
 /// Internal marker for a Rust macro invocation whose declaration would require expansion.
 ///
 /// The persisted reference keeps the source-visible macro name. The indexer removes this marker
@@ -47,6 +50,18 @@ pub const TYPE_QUERY_VALUE_RESOLUTION_PREFIX: &str = "cartograph.type-query-valu
 #[doc(hidden)]
 pub const LEXICAL_SCOPE_RESOLUTION_PREFIX: &str = "cartograph.lexical-scope::";
 
+/// Internal receiver-evidence lookup for an explicit same-file type.
+/// The suffix is `import::type#member`, or `@symbol-id#member` for a local nominal type.
+/// `?#member` fences a closer binding without usable type evidence. This is
+/// syntax evidence only: project class identity and ancestry belong to resolution.
+/// An empty member records the declaration binding of a Python base reference.
+#[doc(hidden)]
+pub const EXPLICIT_RECEIVER_RESOLUTION_PREFIX: &str = "cartograph.explicit-receiver::";
+
+/// A receiver type bound by an import at its declaration, independent of locals at its use.
+#[doc(hidden)]
+pub const EXPLICIT_RECEIVER_IMPORT_PREFIX: &str = "import::";
+
 /// Internal lookup marker for a static SQL-literal table reference.
 ///
 /// The suffix is `<operation>::<qualified-table>`. The persisted reference keeps only the
@@ -75,6 +90,20 @@ pub const EMBEDDED_SQL_RESOLUTION_PREFIX: &str = "cartograph.embedded-sql::";
 #[doc(hidden)]
 pub const PHP_EXACT_RESOLUTION_PREFIX: &str = "cartograph.php-exact::";
 
+/// Internal module identity of an implicit Salesforce controller binding.
+/// Its import binding retains the exact controller attribute site and name.
+#[doc(hidden)]
+pub const SALESFORCE_CONTROLLER_MODULE: &str = "cartograph.salesforce-controller";
+
+/// Internal module identity of an implicit Salesforce component binding.
+/// Its imported name preserves bundle case independently of the reference name.
+#[doc(hidden)]
+pub const SALESFORCE_COMPONENT_MODULE: &str = "cartograph.salesforce-component";
+
+/// Internal namespace-block marker, including PHP's unnamed global blocks.
+#[doc(hidden)]
+pub const PHP_NAMESPACE_SCOPE_MODULE: &str = "cartograph.php-namespace-scope";
+
 /// Complete storage-independent output for one native source-file extraction.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedFile {
@@ -98,6 +127,24 @@ pub struct ExtractedFile {
     pub containments: Vec<Containment>,
     /// Source-ordered unresolved structural references.
     pub references: Vec<ExtractedReference>,
+    /// Syntax-proven callable scope at exact call sites, separate from reference identity.
+    #[serde(default)]
+    pub call_scope_sites: Vec<ExtractedCallScopeSite>,
+    /// Scope or constructor evidence for JavaScript member calls, keyed by terminal token end.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub javascript_member_calls: Vec<JavascriptMemberCallContext>,
+    /// Syntax-proven value shadows or object declarations that forbid a
+    /// nominal receiver or constructor interpretation at the recorded span.
+    /// Kept separate so source-visible reference lookup identities remain stable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolution_abstentions: Vec<SourceSpan>,
+    /// Java local type declarations paired with their exact enclosing block.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_type_scopes: Vec<(SourceSpan, SourceSpan)>,
+    /// Optional explicit receiver and member-shadowing evidence. An absent
+    /// payload keeps unrelated languages' core output within its original bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiver_evidence: Option<Box<ExtractedReceiverEvidence>>,
     /// Source-ordered, privacy-safe static numerical evidence sites.
     pub numerical_sites: Vec<ExtractedNumericalSite>,
     /// Source-ordered ES module bindings used by project-wide resolution.
@@ -110,6 +157,48 @@ pub struct ExtractedFile {
     pub test_search_truncated: bool,
     /// Bounded, credential-safe parse diagnostics.
     pub diagnostics: Vec<ExtractionDiagnostic>,
+}
+
+/// The bounded syntax proof that permits an enclosing-scope call lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallScopeKind {
+    /// A direct method or its lexical receiver closure preserves current-class ownership.
+    CurrentClass,
+    /// A call stays in the retained callable's binding scope without an anonymous boundary.
+    DirectCallable,
+}
+
+/// One call site whose syntax establishes retained callable or class ownership.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedCallScopeSite {
+    /// Retained declaration containing the call.
+    pub owner: SymbolId,
+    /// Exact source range of the call reference.
+    pub span: SourceSpan,
+    /// Scope established by the native syntax walk.
+    pub kind: CallScopeKind,
+}
+
+/// Receiver evidence that does not change a reference's source identity or lookup key.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JavascriptMemberCallContext {
+    /// End byte of the terminal member token shared by its qualified and dynamic call facts.
+    pub end_byte: u64,
+    /// Exact lexical or direct-constructor context established by the source AST.
+    pub receiver: JavascriptMemberReceiver,
+}
+
+/// The receiver context relevant to bounded JavaScript member refinements.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JavascriptMemberReceiver {
+    /// A parameter, local, catch, or destructuring binding in an enclosing scope.
+    Shadowed,
+    /// An enclosing scope whose receiver binding could not be established.
+    Uncertain,
+    /// A local import binding whose existing import resolution must remain available.
+    LocalImport,
+    /// A direct member access on a named, unshadowed constructor expression.
+    Constructor(String),
 }
 
 /// One exact source site where static syntax exposes numerical behavior or risk.
@@ -139,6 +228,16 @@ pub struct ExtractedNumericalSite {
     pub provenance: String,
     /// Stable comma-separated list of facts static analysis could not prove.
     pub unknowns: String,
+}
+
+/// Syntax facts that disambiguate declarations with the same symbol kind and name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeclarationSyntax {
+    /// No declaration-specific syntax is needed for resolution.
+    #[default]
+    Other,
+    /// A Kotlin primary or secondary constructor, rather than a same-named function.
+    KotlinConstructor,
 }
 
 /// One normalized declaration emitted by a native language extractor.
@@ -173,6 +272,9 @@ pub struct ExtractedSymbol {
     /// Async and static execution modifiers.
     #[serde(flatten)]
     pub execution: SymbolExecutionFlags,
+    /// Syntax-proven declaration category used for resolution.
+    #[serde(default)]
+    pub declaration_syntax: DeclarationSyntax,
     /// Explicit declaration visibility.
     pub visibility: Option<Visibility>,
     /// Whitespace/comment-independent concrete-syntax digest.
@@ -359,6 +461,40 @@ pub struct ExtractedReference {
     pub span: SourceSpan,
 }
 
+/// Bounded explicit receiver evidence consumed only by the project resolver.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedReceiverEvidence {
+    /// Existing references' spans/kinds and their explicit receiver lookup.
+    pub lookups: Vec<ExtractedReceiverLookup>,
+    /// Non-method bindings that fence inherited member lookup.
+    pub bindings: Vec<ExtractedReceiverBinding>,
+}
+
+/// One receiver lookup, separate from the reference's frozen syntax identity.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedReceiverLookup {
+    /// The syntax reference whose receiver was established.
+    pub span: SourceSpan,
+    /// Distinguishes a member call from a field read at the same syntax site.
+    pub kind: ReferenceKind,
+    /// An internal lookup marker containing only type/member identifiers.
+    pub lookup: String,
+}
+
+/// A class-body binding that cannot be assumed to be an inherited method.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractedReceiverBinding {
+    /// Exact local class owning the declaration. `None` retains an assignment
+    /// whose receiver class cannot be established during extraction.
+    pub class_id: Option<SymbolId>,
+    /// The declared or shadowed member. `None` fences all member lookup after
+    /// an unsupported class-body binding.
+    pub name: Option<String>,
+    /// An assignment through a receiver fences every lookup of this member.
+    #[serde(default)]
+    pub assigned: bool,
+}
+
 /// Source import/binding category with explicit module and visibility semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -371,6 +507,8 @@ pub enum ImportBindingKind {
     Namespace,
     /// `export * from './module'`, expanded after project-wide module resolution.
     ReExportAll,
+    /// Syntax-recovered wildcard exports remain explicitly unresolved.
+    ReExportUncertain,
     /// `export * as Local from './module'`, retaining the exported namespace owner.
     ReExportNamespace,
     /// Rust `pub use path::Name`, retaining its public facade path and exact source path.

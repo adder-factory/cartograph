@@ -49,6 +49,9 @@ pub(super) fn lookup_name(
     lookup
         .try_reserve(length)
         .map_err(|_| ExtractError::OutputLimit)?;
+    if separator == RUST_SEPARATOR && builder.context.text(path).trim_start().starts_with("::") {
+        lookup.push_str(RUST_SEPARATOR);
+    }
     for (index, text) in texts.enumerate() {
         if index > 0 {
             lookup.push_str(separator);

@@ -9,7 +9,8 @@ mod dependency_ownership;
 use cartograph_domain::{FileParseStatus, ReferenceKind, SourceLanguage, SymbolKind, Visibility};
 use cartograph_extract::{
     ExtractError, ExtractedFile, ExtractedReference, ExtractedSymbol, ImportBindingKind,
-    NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX, SourceLimits, SourceSnapshot,
+    NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX, PHP_NAMESPACE_SCOPE_MODULE, SourceLimits,
+    SourceSnapshot,
 };
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
@@ -353,11 +354,21 @@ fn traits_enum_cases_and_constants_keep_php_declaration_kinds() {
         "trait use is not a file import: {:?}",
         file.references
     );
-    assert!(
-        file.import_bindings.is_empty(),
-        "{:?}",
-        file.import_bindings
-    );
+    let [namespace] = file.import_bindings.as_slice() else {
+        panic!(
+            "trait use must only retain namespace context: {:?}",
+            file.import_bindings
+        );
+    };
+    assert_eq!(namespace.kind, ImportBindingKind::Namespace);
+    assert_eq!(namespace.module_specifier, PHP_NAMESPACE_SCOPE_MODULE);
+    assert_eq!(namespace.imported_name, "namespace");
+    assert_eq!(namespace.local_name, "namespace");
+    let start = usize::try_from(namespace.span.start_byte())
+        .unwrap_or_else(|error| panic!("namespace start byte: {error}"));
+    let end = usize::try_from(namespace.span.end_byte())
+        .unwrap_or_else(|error| panic!("namespace end byte: {error}"));
+    assert_eq!(&DECK_SOURCE[start..end], r"namespace App\Cards;");
 
     let suit = symbol(&file, SymbolKind::Enum, "Suit");
     assert_eq!(

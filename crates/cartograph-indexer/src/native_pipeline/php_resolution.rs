@@ -46,6 +46,13 @@ use super::{
     project_resolved_target, select_candidate, try_clone_text, usize_to_u64,
 };
 
+mod members;
+mod route_aliases;
+mod routes;
+
+pub(super) use route_aliases::implicit_binding as implicit_namespace_binding;
+pub(super) use routes::resolve as resolve_route;
+
 /// Separator between candidate-key segments.
 const KEY_SEPARATOR: &str = "::";
 /// Module specifier of a `use` clause that imports from the global namespace.
@@ -166,6 +173,7 @@ pub(super) struct PhpResolutionIndex {
     /// it implements or uses; `None` when one of them is unknown or is a
     /// trait used with an adaptation block, which can rename its methods.
     composed: HashMap<SymbolId, Option<Vec<String>>>,
+    route_aliases: route_aliases::RouteAliasIndex,
 }
 
 /// The distinct declared spellings of one case-folded qualified name.
@@ -199,6 +207,14 @@ where
     if file.file.language != SourceLanguage::Php.as_str() {
         return Ok(());
     }
+    route_aliases::index_file(
+        PhpFileIndexInput {
+            index,
+            file,
+            budget,
+        },
+        cancelled,
+    )?;
     for symbol in &file.symbols {
         if cancelled() {
             return Err(StageItemFailure);
@@ -467,6 +483,14 @@ where
             target
         }));
     }
+    if let Some(candidate) = members::resolve(exact, cancelled)? {
+        let target = exact_target(candidate, exact.file_id);
+        return Ok(ReferenceResolution::resolved(if lookup.intent.dispatch() {
+            dispatched(target)
+        } else {
+            target
+        }));
+    }
     if let Some(target) = undeclared_target(exact, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
     }
@@ -479,7 +503,7 @@ where
 /// the global function for an unqualified call in a namespace, and the model
 /// class for a static call on a Laravel Eloquent model.
 fn undeclared_target<Cancel>(
-    exact: ExactQuery<'_>,
+    exact: ExactQuery<'_, '_>,
     cancelled: &mut Cancel,
 ) -> Result<Option<ResolvedTarget>, StageItemFailure>
 where
@@ -509,7 +533,7 @@ fn dispatched(target: ResolvedTarget) -> ResolvedTarget {
 /// A missing member of a declared class is an unresolved project reference;
 /// a name with no PHP declaration anywhere in the project is external.
 fn unresolved_provenance<Cancel>(
-    query: ExactQuery<'_>,
+    query: ExactQuery<'_, '_>,
     cancelled: &mut Cancel,
 ) -> Result<&'static str, StageItemFailure>
 where
@@ -566,15 +590,15 @@ fn split_last_segment(key: &str) -> (&str, &str) {
 
 /// One exact candidate query.
 #[derive(Clone, Copy)]
-struct ExactQuery<'query> {
+struct ExactQuery<'query, 'lookup> {
     index: &'query ResolutionIndex,
-    file_id: &'query FileId,
-    caller_class: Option<&'query SymbolId>,
+    file_id: &'lookup FileId,
+    caller_class: Option<&'lookup SymbolId>,
     intent: Intent,
-    key: &'query str,
+    key: &'lookup str,
 }
 
-impl<'query> ExactQuery<'query> {
+impl<'query> ExactQuery<'query, '_> {
     /// The global function PHP tries when no namespaced function of an
     /// unqualified call's name exists.
     fn global_function(self) -> Self {
@@ -591,8 +615,9 @@ impl<'query> ExactQuery<'query> {
         self,
         spellings: &'query [String],
     ) -> impl Iterator<Item = &'query ResolutionCandidate> + 'query {
+        let index = self.index;
         spellings.iter().flat_map(move |spelling| {
-            self.index.candidates.get(spelling).map_or(
+            index.candidates.get(spelling).map_or(
                 &[] as &[ResolutionCandidate],
                 ResolutionCandidateBucket::as_slice,
             )
@@ -636,18 +661,29 @@ impl<'query> ExactQuery<'query> {
     where
         Cancel: FnMut() -> bool,
     {
-        let Some(spellings) = self.index.php.spellings(self.key) else {
-            return Ok(None);
-        };
-        let candidate = select_candidate(
-            self.filed(spellings),
-            |candidate| self.admits(candidate) && !candidate.augmentation,
-            cancelled,
-        )?;
+        let candidate = self.declaration(cancelled)?;
         match candidate {
             Some(candidate) if self.visible_from(candidate, cancelled)? => Ok(Some(candidate)),
             _ => Ok(None),
         }
+    }
+
+    /// The single declaration of this name, before caller access is checked.
+    fn declaration<Cancel>(
+        self,
+        cancelled: &mut Cancel,
+    ) -> Result<Option<&'query ResolutionCandidate>, StageItemFailure>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        let Some(spellings) = self.index.php.spellings(self.key) else {
+            return Ok(None);
+        };
+        select_candidate(
+            self.filed(spellings),
+            |candidate| self.admits(candidate) && !candidate.augmentation,
+            cancelled,
+        )
     }
 
     fn target<Cancel>(
@@ -665,13 +701,13 @@ impl<'query> ExactQuery<'query> {
     /// The single class-like declaration named `key`.
     fn class_like<Cancel>(
         self,
-        key: &'query str,
+        key: &str,
         cancelled: &mut Cancel,
     ) -> Result<Option<&'query ResolutionCandidate>, StageItemFailure>
     where
         Cancel: FnMut() -> bool,
     {
-        Self {
+        ExactQuery {
             intent: Intent::Class,
             key,
             ..self
@@ -770,7 +806,7 @@ fn php_candidate(index: &ResolutionIndex, candidate: &ResolutionCandidate) -> bo
 /// then reaches Eloquent's own static API or its `__callStatic` forwarding to
 /// a query builder, both on behalf of the model class.
 fn eloquent_model_target<Cancel>(
-    exact: ExactQuery<'_>,
+    exact: ExactQuery<'_, '_>,
     cancelled: &mut Cancel,
 ) -> Result<Option<ResolvedTarget>, StageItemFailure>
 where
@@ -831,7 +867,7 @@ struct Composition<'query> {
     member: &'query str,
 }
 
-impl<'query> ExactQuery<'query> {
+impl<'query> ExactQuery<'query, '_> {
     /// Whether `[class, member]` names a method some PHP declaration has,
     /// visible or not; an unrepresentable key counts as declared.
     fn declares_member<Cancel>(
@@ -931,7 +967,7 @@ impl<'query> ExactQuery<'query> {
 /// class, where PHP grants access; elsewhere the call could reach
 /// `__callStatic` or `__call` instead.
 fn resolve_returned_member<Cancel>(
-    exact: ExactQuery<'_>,
+    exact: ExactQuery<'_, '_>,
     cancelled: &mut Cancel,
 ) -> Result<ReferenceResolution, StageItemFailure>
 where
@@ -981,7 +1017,7 @@ where
 /// (a trait's methods can be replaced by the using class), and the returned
 /// class must be a single declaration that is not a trait.
 fn returned_class<'query, Cancel>(
-    factory: ExactQuery<'query>,
+    factory: ExactQuery<'query, '_>,
     method: &'query ResolutionCandidate,
     cancelled: &mut Cancel,
 ) -> Result<Option<&'query str>, StageItemFailure>

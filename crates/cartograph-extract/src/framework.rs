@@ -1,4 +1,5 @@
 mod bridge_transaction;
+mod cargo_path_bindings;
 mod owner_index;
 
 use bridge_transaction::BridgeTransaction;
@@ -88,6 +89,7 @@ pub(crate) fn enrich(
         cancelled,
     )?;
     let mut builder = FrameworkBuilder::new(input, cancelled)?;
+    cargo_path_bindings::extract(&mut builder)?;
     crate::framework_bun::scan(&mut builder, &masked_source)?;
     crate::framework_codeigniter::scan(&mut builder, &masked_source)?;
     crate::framework_drupal::scan(&mut builder, &masked_source)?;
@@ -587,6 +589,7 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             implementation: SymbolImplementationFlags::default(),
             export: SymbolExportFlags::named(true),
             execution: SymbolExecutionFlags::default(),
+            declaration_syntax: crate::DeclarationSyntax::Other,
             visibility: Some(Visibility::Public),
             clone_shape_digest: structural_digest.clone(),
             structural_digest,
@@ -1870,7 +1873,9 @@ fn php_method_resolution(class: &str, method: &str) -> Option<String> {
 }
 
 fn php_class_resolution(value: &str) -> Option<String> {
-    let value = value.trim().trim_start_matches('\\');
+    let value = value.trim();
+    let global = value.starts_with('\\');
+    let value = value.strip_prefix('\\').unwrap_or(value);
     if value.is_empty() || value.len() > MAX_SIGNAL_BYTES {
         return None;
     }
@@ -1888,9 +1893,17 @@ fn php_class_resolution(value: &str) -> Option<String> {
     }
     let class = collected.pop()?;
     if collected.is_empty() {
-        return Some(class.to_owned());
+        return Some(if global {
+            format!("\\{class}")
+        } else {
+            class.to_owned()
+        });
     }
-    Some(format!("{}::{class}", collected.join("\\")))
+    Some(format!(
+        "{}{}::{class}",
+        if global { "\\" } else { "" },
+        collected.join("\\")
+    ))
 }
 
 fn php_identifier(value: &str) -> bool {

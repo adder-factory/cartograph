@@ -501,13 +501,15 @@ fn capture_javascript_dispatch(
     let Some(dispatch) = javascript_dynamic_member_call_resolution(builder, capture.target)? else {
         return Ok(false);
     };
+    let span = span_for(dispatch.span)?;
+    super::javascript_call_context::capture(builder, (capture.target, span.end_byte()))?;
     let owner = builder.owners.last().cloned();
     builder.emit_reference(ExtractedReference {
         owner,
         name: dispatch.name,
         resolution_name: Some(dispatch.resolution_name),
         kind: capture.reference_kind,
-        span: span_for(dispatch.span)?,
+        span,
     })?;
     // A statically named chain can still resolve exactly through an import
     // binding, while its terminal method also represents interface/runtime
@@ -525,6 +527,14 @@ fn capture_default_invocation(
     else {
         return Ok(());
     };
+    if javascript_call_syntax(capture.shape.language)
+        && capture.shape.invocation == InvocationKind::Call
+    {
+        super::javascript_call_context::capture(
+            builder,
+            (name_node, span_for(reference_node)?.end_byte()),
+        )?;
+    }
     let owner = builder.owners.last().cloned();
     push_node_reference(
         builder,
@@ -1229,6 +1239,7 @@ pub(super) fn push_reference(
     if pending.name.is_empty() {
         return Ok(());
     }
+    super::current_class_calls::capture(builder, &pending)?;
     builder.emit_reference(ExtractedReference {
         owner: pending.owner,
         name: pending.name,

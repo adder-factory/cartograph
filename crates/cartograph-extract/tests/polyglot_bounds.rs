@@ -31,8 +31,9 @@ const SATURATING_PARAMETERS: usize = 4_200;
 /// Calls in a file whose core facts fill its output limit almost exactly.
 const FILLING_CALLS: usize = 4_500;
 /// Comment padding that leaves the filling file's core facts no room for
-/// another fact once its optional facts are omitted.
-const FILLING_PADDING_BYTES: usize = 9_225;
+/// another fact once its optional facts are omitted. Each vector field added to
+/// `ExtractedFile` moves this exact boundary.
+const FILLING_PADDING_BYTES: usize = 9_228;
 /// Names of a multi-name Go declaration whose facts fit the output limit.
 const MULTI_NAME_FIELDS: usize = 200;
 /// Names of a long multi-name Go constant declaration in a body.

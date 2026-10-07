@@ -1,7 +1,56 @@
+mod codeigniter_resolution;
+mod csharp_constructors;
+mod declaration_resolution;
+mod enum_resolution;
+mod explicit_edge_resolution;
+mod file_path_resolution;
+mod framework_conventions;
+mod framework_methods;
+mod framework_resolution;
+mod generic_resolution;
+mod go_path_resolution;
+mod intrinsic_names;
+mod javascript_config;
+mod javascript_exports;
+mod javascript_framework_resolution;
+mod javascript_member_resolution;
+mod javascript_modules;
+mod javascript_packages;
+mod jvm_nested_resolution;
+mod jvm_resolution;
+mod module_call_resolution;
+mod namespace_types;
+mod nominal_scope_resolution;
 mod pascal_resolution;
 mod php_resolution;
+mod play_resolution;
+mod python_resolution;
+mod python_type_variables;
+mod qualified_member_resolution;
+mod qualtype_generics;
+mod qualtype_resolution;
+mod qualtype_source;
+mod receiver_resolution;
+mod reference_tiers;
+mod rescript_resolution;
+mod resource_resolution;
+mod rust_dependency_paths;
+mod rust_facade_resolution;
+mod rust_inline_modules;
+mod rust_local_types;
+mod rust_path_guards;
+mod rust_path_resolution;
+mod rust_path_visibility;
+mod rust_root_ownership;
+mod rust_scoped_modules;
+mod rust_uniform_paths;
+mod rust_use_bindings;
+mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
+mod shell_resolution;
+
+use intrinsic_names::BuiltinVocabulary::{PythonExceptions, PythonValues};
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -36,10 +85,12 @@ use cartograph_domain::{
 };
 use cartograph_extract::{
     CloneTokenCount, CloneTokenProfile, Containment, DEFAULT_MAXIMUM_AST_DEPTH,
-    DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DiagnosticCode, DiscoveredSource, DiscoveryLimits,
-    EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedFile, ExtractedImportBinding,
-    ExtractedNumericalSite, ExtractedReference, ImportBindingKind, LEXICAL_SCOPE_RESOLUTION_PREFIX,
-    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
+    DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DeclarationSyntax, DiagnosticCode, DiscoveredSource,
+    DiscoveryLimits, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedCallScopeSite,
+    ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite, ExtractedReceiverEvidence,
+    ExtractedReference, ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
+    LEXICAL_SCOPE_RESOLUTION_PREFIX, MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor,
+    PHP_EXACT_RESOLUTION_PREFIX, PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX,
     RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
     SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
     SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
@@ -1725,28 +1776,17 @@ async fn run_spilled_parse_stage(
                 let spill = worker_spill.clone();
                 let failures = Arc::clone(&worker_failures);
                 async move {
-                    let cancellation = item.cancellation();
-                    let (sequence, _, batch) = item.into_parts();
-                    let result = stream_spilled_parse_batch(
+                    run_spilled_parse_item(
                         SpilledParseInputs {
                             spill: &spill,
                             source_root: &source_root,
                             parse_cache: parse_cache.as_ref(),
                             maximum_ast_depth,
                         },
-                        batch,
-                        cancellation,
+                        item,
+                        &failures,
                     )
-                    .await;
-                    match result {
-                        Ok(parsed) => Ok(parsed),
-                        Err(failure) => {
-                            if let Ok(mut retained) = failures.lock() {
-                                retained.insert(sequence, failure);
-                            }
-                            Err(StageItemFailure)
-                        }
-                    }
+                    .await
                 }
             },
         ),
@@ -1776,6 +1816,25 @@ async fn run_spilled_parse_stage(
         },
     )
     .await
+}
+
+/// Retain a parse item's detailed failure before returning the runner's worker error.
+async fn run_spilled_parse_item(
+    inputs: SpilledParseInputs<'_>,
+    item: StageWorkItem<u64, SpilledParseManifestBatch>,
+    failures: &Mutex<BTreeMap<StageSequence, ParseManifestFailure>>,
+) -> Result<SpilledParsedManifestBatch, StageItemFailure> {
+    let cancellation = item.cancellation();
+    let (sequence, _, batch) = item.into_parts();
+    match stream_spilled_parse_batch(inputs, batch, cancellation).await {
+        Ok(parsed) => Ok(parsed),
+        Err(failure) => {
+            if let Ok(mut retained) = failures.lock() {
+                retained.insert(sequence, failure);
+            }
+            Err(StageItemFailure)
+        }
+    }
 }
 
 struct SpilledParseCompletion {
@@ -4752,6 +4811,8 @@ fn append_degraded_files(
 fn compact_clone_file(mut file: NativeFileFacts) -> NativeFileFacts {
     file.containments = Vec::new();
     file.references = Vec::new();
+    file.call_scope_sites = Vec::new();
+    file.receiver_evidence = None;
     file.numerical_sites = Vec::new();
     file.import_bindings = Vec::new();
     file.test_search_text = String::new();
@@ -4772,6 +4833,11 @@ struct NativeFileFacts {
     symbols: Vec<NativeSymbolFacts>,
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
+    call_scope_sites: Vec<ExtractedCallScopeSite>,
+    javascript_member_calls: Vec<JavascriptMemberCallContext>,
+    resolution_abstentions: Vec<SourceSpan>,
+    local_type_scopes: Vec<(SourceSpan, SourceSpan)>,
+    receiver_evidence: Option<Box<ExtractedReceiverEvidence>>,
     numerical_sites: Vec<ExtractedNumericalSite>,
     import_bindings: Vec<ExtractedImportBinding>,
     has_inline_tests: bool,
@@ -4792,6 +4858,11 @@ impl NativeFileFacts {
             symbols,
             containments,
             references,
+            call_scope_sites,
+            javascript_member_calls,
+            resolution_abstentions,
+            local_type_scopes,
+            receiver_evidence,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4819,6 +4890,11 @@ impl NativeFileFacts {
             symbols: normalized_symbols,
             containments,
             references,
+            call_scope_sites,
+            javascript_member_calls,
+            resolution_abstentions,
+            local_type_scopes,
+            receiver_evidence,
             numerical_sites,
             import_bindings,
             has_inline_tests,
@@ -4833,6 +4909,15 @@ impl NativeFileFacts {
             .saturating_add(vector_capacity_bytes(&self.symbols))
             .saturating_add(vector_capacity_bytes(&self.containments))
             .saturating_add(vector_capacity_bytes(&self.references))
+            .saturating_add(generic_resolution::call_scope_owned_bytes(
+                &self.call_scope_sites,
+            ))
+            .saturating_add(vector_capacity_bytes(&self.javascript_member_calls))
+            .saturating_add(vector_capacity_bytes(&self.resolution_abstentions))
+            .saturating_add(vector_capacity_bytes(&self.local_type_scopes))
+            .saturating_add(receiver_resolution::evidence_bytes(
+                self.receiver_evidence.as_deref(),
+            ))
             .saturating_add(vector_capacity_bytes(&self.numerical_sites))
             .saturating_add(vector_capacity_bytes(&self.import_bindings))
             .saturating_add(usize_to_u64(self.test_search_text.capacity()));
@@ -4859,6 +4944,11 @@ impl NativeFileFacts {
                         .as_ref()
                         .map_or(0, String::capacity),
                 ));
+        }
+        for call in &self.javascript_member_calls {
+            if let JavascriptMemberReceiver::Constructor(name) = &call.receiver {
+                bytes = bytes.saturating_add(usize_to_u64(name.capacity()));
+            }
         }
         for site in &self.numerical_sites {
             bytes = bytes
@@ -4961,6 +5051,7 @@ fn normalize_native_symbol(
         implementation,
         export,
         execution,
+        declaration_syntax,
         visibility,
         structural_digest,
         clone_shape_digest,
@@ -4998,6 +5089,7 @@ fn normalize_native_symbol(
         implementation,
         export,
         execution,
+        declaration_syntax,
         visibility,
         clone_shape_digest,
         clone_token_profile,
@@ -5025,6 +5117,7 @@ struct NativeSymbolFacts {
     implementation: SymbolImplementationFlags,
     export: SymbolExportFlags,
     execution: SymbolExecutionFlags,
+    declaration_syntax: DeclarationSyntax,
     visibility: Option<Visibility>,
     clone_shape_digest: ContentDigest,
     clone_token_profile: Option<CloneTokenProfile>,
@@ -5099,6 +5192,9 @@ struct ResolutionCandidate {
     export: SymbolExportFlags,
     top_level: bool,
     augmentation: bool,
+    static_member: bool,
+    declaration_syntax: DeclarationSyntax,
+    declaration_span: (u64, u64),
 }
 
 #[derive(Clone)]
@@ -5151,6 +5247,7 @@ struct ResolutionCandidateRange {
 
 #[derive(Default)]
 struct ResolutionCandidateBucket {
+    native_bridge_member: bool,
     candidates: Vec<ResolutionCandidate>,
     by_file: Vec<ResolutionCandidateRange>,
     globally_visible: Vec<usize>,
@@ -5197,6 +5294,10 @@ struct ModulePathIndex {
     files: FileResolutionContextMap,
     rust_packages: RustPackageMap,
     typescript_aliases: TypeScriptAliasIndex,
+    python_source_roots: python_resolution::SourceRootIndex,
+    javascript_configs: javascript_config::ConfigIndex,
+    javascript_packages: javascript_packages::PackageIndex,
+    file_paths: file_path_resolution::SuffixIndex,
 }
 
 #[derive(Default)]
@@ -5206,8 +5307,10 @@ struct TypeScriptAliasIndex {
 
 struct TypeScriptAliasConfig {
     base_path: String,
+    explicit_base_url: Option<String>,
     mappings: Vec<TypeScriptPathMapping>,
     tsconfig: bool,
+    fallback: bool,
 }
 
 struct TypeScriptPathMapping {
@@ -5217,6 +5320,8 @@ struct TypeScriptPathMapping {
 
 #[derive(Default)]
 struct ResolutionIndex {
+    javascript_members: javascript_member_resolution::JavascriptMemberIndex,
+    javascript_frameworks: javascript_framework_resolution::JavascriptFrameworkIndex,
     candidates: CandidateMap,
     candidate_order: Vec<String>,
     default_exports: DefaultExportMap,
@@ -5229,6 +5334,17 @@ struct ResolutionIndex {
     rust_named_re_exports: Vec<RustNamedReExport>,
     test_files: Vec<TestFileEvidence>,
     php: php_resolution::PhpResolutionIndex,
+    javascript_exports: javascript_exports::ExportIndex,
+    salesforce: salesforce_resolution::SalesforceIndex,
+    framework_methods: framework_methods::MethodIndex,
+    generic: generic_resolution::GenericResolutionIndex,
+    jvm: jvm_resolution::JvmResolutionIndex,
+    types: qualified_member_resolution::TypeIndex,
+    receivers: receiver_resolution::ReceiverIndex,
+    qualtype: qualtype_resolution::TypeIndex,
+    module_calls: module_call_resolution::ModuleCallIndex,
+    rust_paths: rust_path_resolution::PathIndex,
+    shell_sources: shell_resolution::SourceIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -6221,10 +6337,26 @@ where
         stack: &mut stack,
         cancelled,
     })?;
-    for target in visible.values().flatten() {
+    for (name, target) in &visible {
         if cancelled() {
             return Err(StageItemFailure);
         }
+        let Some(target) = target else {
+            continue;
+        };
+        let Some((confidence, provenance)) = javascript_exports::edge_evidence(
+            javascript_exports::ExportEdgeQuery {
+                index,
+                file: target_file,
+                name,
+                target,
+                namespace: Some(re_export),
+            },
+            cancelled,
+        )?
+        else {
+            continue;
+        };
         append_derived_edge(
             facts,
             budget,
@@ -6232,8 +6364,8 @@ where
                 source_symbol_id: &re_export.source_symbol_id,
                 target_symbol_id: target,
                 kind: EdgeKind::Exports,
-                confidence: IMPORT_BINDING_CONFIDENCE,
-                provenance: RE_EXPORT_NAMESPACE_PROVENANCE,
+                confidence,
+                provenance,
             },
         )?;
     }
@@ -6261,10 +6393,26 @@ where
         .file_symbols
         .get(source_file)
         .ok_or(StageItemFailure)?;
-    for target in visible.values().flatten() {
+    for (name, target) in &visible {
         if cancelled() {
             return Err(StageItemFailure);
         }
+        let Some(target) = target else {
+            continue;
+        };
+        let Some((confidence, provenance)) = javascript_exports::edge_evidence(
+            javascript_exports::ExportEdgeQuery {
+                index,
+                file: source_file,
+                name,
+                target,
+                namespace: None,
+            },
+            cancelled,
+        )?
+        else {
+            continue;
+        };
         append_derived_edge(
             facts,
             budget,
@@ -6272,8 +6420,8 @@ where
                 source_symbol_id: source_symbol,
                 target_symbol_id: target,
                 kind: EdgeKind::Exports,
-                confidence: IMPORT_BINDING_CONFIDENCE,
-                provenance: RE_EXPORT_ALL_PROVENANCE,
+                confidence,
+                provenance,
             },
         )?;
     }
@@ -7578,6 +7726,9 @@ async fn build_spilled_resolution_preparation(
                 budget: &mut state.budget,
                 cancelled: &mut cancelled,
             };
+            block_in_place(|| {
+                qualtype_resolution::index_syntax(&mut state.index, &file, &mut context)
+            })?;
             index_typescript_alias_file(&mut state.index.modules, &file, &mut context)?;
             let before = state.compact.retained_bytes;
             let diagnostics = state.compact.diagnostics;
@@ -7636,7 +7787,20 @@ fn finish_spilled_resolution_preparation(
         ..
     } = request;
     let mut cancelled = || cancellation.is_cancelled();
+    javascript_config::finish(
+        &mut preparation.index.modules,
+        &mut ResolutionIndexContext {
+            source_root,
+            budget: &mut preparation.budget,
+            cancelled: &mut cancelled,
+        },
+    )?;
     finalize_resolution_candidate_order(
+        &mut preparation.index,
+        &mut preparation.budget,
+        &mut cancelled,
+    )?;
+    javascript_exports::prepare(
         &mut preparation.index,
         &mut preparation.budget,
         &mut cancelled,
@@ -9714,6 +9878,7 @@ where
             budget: context.budget,
             cancelled: context.cancelled,
         })?;
+        qualtype_resolution::index_syntax(&mut index, file, &mut context)?;
     }
     index_typescript_aliases(&mut index.modules, extracted, &mut context)?;
     index_rust_workspace_packages(RustWorkspacePackageIndexInput {
@@ -9731,6 +9896,7 @@ where
         })?;
     }
     finalize_resolution_candidate_order(&mut index, context.budget, context.cancelled)?;
+    javascript_exports::prepare(&mut index, context.budget, context.cancelled)?;
     Ok(index)
 }
 
@@ -9742,6 +9908,12 @@ fn finalize_resolution_candidate_order<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    shell_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    rust_root_ownership::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    rust_path_guards::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    rust_facade_resolution::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     let mut order = Vec::new();
     order
         .try_reserve_exact(index.candidates.len())
@@ -9755,7 +9927,7 @@ where
     }
     order.sort_unstable();
     index.candidate_order = order;
-    Ok(())
+    jvm_resolution::prepare_wildcards(&mut ResolutionIndexTarget { index, budget }, cancelled)
 }
 
 fn ordered_resolution_candidates(
@@ -9923,7 +10095,7 @@ fn same_language_framework_reference(source: &ResolutionFileContext, reference_n
         "swift" => SWIFT_FRAMEWORK_RULES
             .iter()
             .any(|rule| rule.name.matches(reference_name)),
-        _ => false,
+        _ => framework_conventions::reference(source, reference_name),
     }
 }
 
@@ -9941,7 +10113,7 @@ where
         }
         index_typescript_alias_file(modules, file, context)?;
     }
-    Ok(())
+    javascript_config::finish(modules, context)
 }
 
 fn index_typescript_alias_file<Cancel>(
@@ -9952,114 +10124,7 @@ fn index_typescript_alias_file<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let path = file.file.normalized_path.as_str();
-    let Some(file_name) = path.rsplit('/').next() else {
-        return Ok(());
-    };
-    let tsconfig = file_name == "tsconfig.json";
-    if file.file.language != SourceLanguage::Json.as_str()
-        || (!tsconfig && file_name != "jsconfig.json")
-    {
-        return Ok(());
-    }
-    let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
-    if modules
-        .typescript_aliases
-        .by_directory
-        .get(directory)
-        .is_some_and(|existing| existing.tsconfig || !tsconfig)
-    {
-        return Ok(());
-    }
-    let normalized = NormalizedPath::parse(path).map_err(|_| StageItemFailure)?;
-    let limits = exact_limit_ceiling(file.file.byte_size)?;
-    let snapshot = context
-        .source_root
-        .read_with_cancellation(
-            &normalized,
-            SourceReadOptions::new(limits, &mut *context.cancelled),
-        )
-        .map_err(|_| StageItemFailure)?;
-    if snapshot.content_hash() != &file.file.content_hash
-        || snapshot.byte_size() != file.file.byte_size
-    {
-        return Err(StageItemFailure);
-    }
-    let Some(config) = parse_typescript_alias_config(snapshot.source(), directory, tsconfig)?
-    else {
-        return Ok(());
-    };
-    let replacing = modules
-        .typescript_aliases
-        .by_directory
-        .contains_key(directory);
-    if !replacing
-        && modules.typescript_aliases.by_directory.len() >= MAXIMUM_TYPESCRIPT_ALIAS_CONFIGS
-    {
-        return Err(StageItemFailure);
-    }
-    context
-        .budget
-        .charge(typescript_alias_config_bytes(directory, &config))?;
-    modules
-        .typescript_aliases
-        .by_directory
-        .insert(try_clone_text(directory)?, config);
-    Ok(())
-}
-
-fn parse_typescript_alias_config(
-    source: &str,
-    directory: &str,
-    tsconfig: bool,
-) -> Result<Option<TypeScriptAliasConfig>, StageItemFailure> {
-    let stripped = strip_typescript_config_comments(source);
-    let Ok(parsed) = serde_json::from_str::<Value>(&stripped) else {
-        return Ok(None);
-    };
-    let Some(compiler) = parsed.get("compilerOptions").and_then(Value::as_object) else {
-        return Ok(None);
-    };
-    let Some(paths) = compiler.get("paths").and_then(Value::as_object) else {
-        return Ok(None);
-    };
-    if paths.len() > MAXIMUM_TYPESCRIPT_PATH_MAPPINGS {
-        return Err(StageItemFailure);
-    }
-    let base_url = match compiler.get("baseUrl") {
-        Some(value) => value.as_str().ok_or(StageItemFailure)?,
-        None => ".",
-    };
-    let Some(base_path) = normalize_typescript_alias_base(directory, base_url) else {
-        return Ok(None);
-    };
-    let mut mappings = Vec::new();
-    mappings
-        .try_reserve_exact(paths.len())
-        .map_err(|_| StageItemFailure)?;
-    for (pattern, substitutions) in paths {
-        if let Some(mapping) = parse_typescript_path_mapping(pattern, substitutions)? {
-            mappings.push(mapping);
-        }
-    }
-    mappings.sort_unstable_by(|left, right| {
-        let left_wildcard = left.pattern.find('*');
-        let right_wildcard = right.pattern.find('*');
-        left_wildcard
-            .is_some()
-            .cmp(&right_wildcard.is_some())
-            .then_with(|| {
-                right_wildcard
-                    .unwrap_or(right.pattern.len())
-                    .cmp(&left_wildcard.unwrap_or(left.pattern.len()))
-            })
-            .then_with(|| left.pattern.cmp(&right.pattern))
-    });
-    Ok((!mappings.is_empty()).then_some(TypeScriptAliasConfig {
-        base_path,
-        mappings,
-        tsconfig,
-    }))
+    javascript_config::index_file(modules, file, context)
 }
 
 fn parse_typescript_path_mapping(
@@ -10094,18 +10159,7 @@ fn parse_typescript_path_mapping(
 }
 
 fn normalize_typescript_alias_base(directory: &str, base_url: &str) -> Option<String> {
-    if base_url.contains(['\\', '\0']) || base_url.starts_with('/') {
-        return None;
-    }
-    if matches!(base_url, "" | "." | "./") {
-        return Some(directory.to_owned());
-    }
-    let anchor = if directory.is_empty() {
-        "__cartograph_tsconfig__.json".to_owned()
-    } else {
-        format!("{directory}/__cartograph_tsconfig__.json")
-    };
-    normalize_joined_project_path(&anchor, base_url)
+    javascript_config::normalize_base(directory, base_url)
 }
 
 fn valid_typescript_alias_text(value: &str) -> bool {
@@ -10123,6 +10177,12 @@ fn typescript_alias_config_bytes(directory: &str, config: &TypeScriptAliasConfig
     let mut bytes = RESOLUTION_MAP_NODE_ALLOWANCE
         .saturating_add(usize_to_u64(directory.len()))
         .saturating_add(usize_to_u64(config.base_path.capacity()))
+        .saturating_add(
+            config
+                .explicit_base_url
+                .as_ref()
+                .map_or(0, |base| usize_to_u64(base.capacity())),
+        )
         .saturating_add(vector_capacity_bytes(&config.mappings));
     for mapping in &config.mappings {
         bytes = bytes
@@ -10135,39 +10195,9 @@ fn typescript_alias_config_bytes(directory: &str, config: &TypeScriptAliasConfig
     bytes
 }
 
+#[cfg(test)]
 fn strip_typescript_config_comments(source: &str) -> String {
-    let mut output = Vec::with_capacity(source.len());
-    let bytes = source.as_bytes();
-    let mut index = 0_usize;
-    let mut quoted = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if quoted {
-            (index, quoted) = copy_typescript_config_quoted_byte(bytes, index, &mut output);
-            continue;
-        }
-        if byte == b'"' {
-            quoted = true;
-            output.push(byte);
-            index += 1;
-            continue;
-        }
-        let remaining = &bytes[index..];
-        if remaining.starts_with(b"//") {
-            index = skip_typescript_line_comment(bytes, index);
-            continue;
-        }
-        if remaining.starts_with(b"/*") {
-            index = skip_typescript_block_comment(bytes, index);
-            continue;
-        }
-        output.push(byte);
-        index += 1;
-    }
-    match String::from_utf8(output) {
-        Ok(stripped) => stripped,
-        Err(_) => source.to_owned(),
-    }
+    javascript_config::strip_typescript_config_comments(source)
 }
 
 fn copy_typescript_config_quoted_byte(
@@ -10223,11 +10253,13 @@ struct RustWorkspacePackageInsertInput<'packages, 'budget> {
 }
 
 fn index_resolution_file_metadata<Cancel>(
-    input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
+    mut input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
 ) -> Result<(), StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    javascript_member_resolution::index_file(&mut input)?;
+    javascript_framework_resolution::index_file(&mut input)?;
     let ResolutionIndexFileInput {
         index,
         file,
@@ -10247,6 +10279,11 @@ where
         },
         budget,
     )?;
+    file_path_resolution::index_path(
+        &mut index.modules.file_paths,
+        &file.file,
+        (budget, cancelled),
+    )?;
     index_test_file_evidence(&mut index.test_files, file, budget)?;
     for containment in &file.containments {
         if cancelled() {
@@ -10254,6 +10291,11 @@ where
         }
         insert_parent(&mut index.parents, containment, budget)?;
     }
+    generic_resolution::index_calls(
+        &mut index.generic,
+        (&file.call_scope_sites, budget),
+        cancelled,
+    )?;
     Ok(())
 }
 
@@ -10271,6 +10313,11 @@ where
     } = input;
     for file in &extracted.files {
         index_rust_workspace_package_file(
+            &mut ResolutionIndexTarget { index, budget },
+            file,
+            cancelled,
+        )?;
+        rust_dependency_paths::index_file(
             &mut ResolutionIndexTarget { index, budget },
             file,
             cancelled,
@@ -10381,11 +10428,12 @@ fn rust_crate_identifier(package_name: &str) -> Option<String> {
 }
 
 fn index_resolution_file_symbols<Cancel>(
-    input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
+    mut input: ResolutionIndexFileInput<'_, '_, '_, '_, Cancel>,
 ) -> Result<(), StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    javascript_member_resolution::index_static_members(&mut input)?;
     let ResolutionIndexFileInput {
         index,
         file,
@@ -10395,6 +10443,31 @@ where
     if cancelled() {
         return Err(StageItemFailure);
     }
+    qualtype_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    shell_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    rust_path_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    rust_path_guards::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    module_call_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     let file_ordinal = *index
         .file_ordinals
         .get(&file.file.file_id)
@@ -10406,50 +10479,111 @@ where
         if symbol.input.symbol_kind == "import" {
             continue;
         }
-        let parent_symbol_id = index.parents.get(&symbol.input.symbol_id).cloned();
-        index_compilation_unit(
-            &mut index.modules,
-            CompilationUnitIndexInput {
-                language: file.file.language.as_str(),
-                symbol,
-                top_level: parent_symbol_id.is_none(),
-            },
-            budget,
-        )?;
-        push_symbol_candidates(
-            &mut index.candidates,
-            ResolutionCandidateInsertion {
-                key: &symbol.name,
+        index_resolution_symbol(index, (file, file_ordinal, symbol), budget)?;
+    }
+    rust_scoped_modules::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    index_resolution_file_families(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )
+}
+
+/// Index one non-import symbol for candidate, ownership and family lookups.
+fn index_resolution_symbol(
+    index: &mut ResolutionIndex,
+    (file, file_ordinal, symbol): (&NativeFileFacts, u64, &NativeSymbolFacts),
+    budget: &mut ResolveBudget,
+) -> Result<(), StageItemFailure> {
+    qualified_member_resolution::index_type(&mut index.types, symbol, budget)?;
+    let parent_symbol_id = index.parents.get(&symbol.input.symbol_id).cloned();
+    index_compilation_unit(
+        &mut index.modules,
+        CompilationUnitIndexInput {
+            language: file.file.language.as_str(),
+            symbol,
+            top_level: parent_symbol_id.is_none(),
+        },
+        budget,
+    )?;
+    let visibility = javascript_member_resolution::candidate_visibility(index, symbol);
+    let insertion = ResolutionCandidateInsertion {
+        key: &symbol.name,
+        symbol,
+        parent_symbol_id: parent_symbol_id.as_ref(),
+        file_ordinal,
+        language: &file.file.language,
+        visibility,
+    };
+    push_symbol_candidates(&mut index.candidates, insertion, budget)?;
+    framework_methods::index_method(
+        &mut index.framework_methods,
+        framework_methods::MethodInput {
+            symbol,
+            parent: parent_symbol_id.as_ref(),
+            language: &file.file.language,
+        },
+        budget,
+    )?;
+    generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
+    if symbol.export.default_export {
+        push_default_export(
+            &mut index.default_exports,
+            DefaultExportInsertion {
                 symbol,
                 parent_symbol_id: parent_symbol_id.as_ref(),
-                file_ordinal,
-                language: &file.file.language,
             },
             budget,
         )?;
-        if symbol.export.default_export {
-            push_default_export(
-                &mut index.default_exports,
-                DefaultExportInsertion {
-                    symbol,
-                    parent_symbol_id: parent_symbol_id.as_ref(),
-                },
-                budget,
-            )?;
-        }
-        if symbol.export.exported
-            && parent_symbol_id.is_none()
-            && symbol.input.qualified_name == symbol.name
-        {
-            index_project_export(&mut index.exports, symbol, budget)?;
-        }
     }
+    if symbol.export.exported
+        && parent_symbol_id.is_none()
+        && symbol.input.qualified_name == symbol.name
+    {
+        index_project_export(&mut index.exports, symbol, budget)?;
+    }
+    Ok(())
+}
+
+/// Per-file framework, PHP, JVM, receiver and re-export indexes.
+fn index_resolution_file_families<Cancel>(
+    target: &mut ResolutionIndexTarget<'_>,
+    file: &NativeFileFacts,
+    cancelled: &mut Cancel,
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ResolutionIndexTarget { index, budget } = target;
+    salesforce_resolution::index_file(
+        salesforce_resolution::SalesforceFileInput {
+            index: &mut index.salesforce,
+            file,
+            budget,
+        },
+        cancelled,
+    )?;
+    qualified_member_resolution::index_ancestors(index, file, cancelled)?;
     php_resolution::index_file(
         php_resolution::PhpFileIndexInput {
             index: &mut index.php,
             file,
             budget,
         },
+        cancelled,
+    )?;
+    jvm_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    receiver_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
         cancelled,
     )?;
     index_project_reexports(index, file, budget)
@@ -10467,10 +10601,12 @@ fn push_symbol_candidates(
     let qualified_name = insertion.symbol.input.qualified_name.as_str();
     let alias = framework_resolution_alias(insertion.symbol, insertion.language)
         .filter(|alias| *alias != name && *alias != qualified_name);
+    let jvm_alias = jvm_resolution::candidate_alias(insertion)?;
     let keys = [
         Some(name),
         (qualified_name != name).then_some(qualified_name),
         alias,
+        jvm_alias.as_deref(),
     ];
     for key in keys.into_iter().flatten() {
         push_candidate(
@@ -10536,6 +10672,15 @@ fn index_project_reexports(
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
     for binding in &file.import_bindings {
+        if binding.kind == ImportBindingKind::ReExportUncertain {
+            javascript_exports::mark_uncertain(
+                &mut index.javascript_exports,
+                &file.file.file_id,
+                budget,
+            )?;
+            continue;
+        }
+
         if binding.kind == ImportBindingKind::ReExportNamed {
             budget.charge(
                 RESOLUTION_MAP_NODE_ALLOWANCE
@@ -10562,6 +10707,7 @@ fn index_project_reexports(
             | ImportBindingKind::Named
             | ImportBindingKind::Namespace
             | ImportBindingKind::ReExportNamed
+            | ImportBindingKind::ReExportUncertain
             | ImportBindingKind::IncludeQuoted
             | ImportBindingKind::IncludeSystem => continue,
         };
@@ -10615,10 +10761,14 @@ fn index_test_file_evidence(
     }
     let mut import_specifiers = BTreeSet::new();
     for binding in &file.import_bindings {
+        if explicit_edge_resolution::metadata_binding(&file.file.language, binding) {
+            continue;
+        }
         if !matches!(
             binding.kind,
             ImportBindingKind::IncludeSystem
                 | ImportBindingKind::ReExportAll
+                | ImportBindingKind::ReExportUncertain
                 | ImportBindingKind::ReExportNamespace
         ) {
             import_specifiers.insert(try_clone_text(&binding.module_specifier)?);
@@ -10741,6 +10891,8 @@ struct FileResolutionContext<'a> {
     identity: &'a FileDocumentIdentity,
     file_symbol_id: &'a SymbolId,
     import_bindings: &'a FileImportBindingIndex<'a>,
+    current_receivers: &'a generic_resolution::ReceiverSites,
+    receiver_lookups: &'a receiver_resolution::FileLookups<'a>,
 }
 
 struct FileImportBindingIndex<'a> {
@@ -10753,6 +10905,7 @@ impl<'a> FileImportBindingIndex<'a> {
     fn new(
         bindings: &'a [ExtractedImportBinding],
         budget: &mut ResolveBudget,
+        language: &str,
     ) -> Result<Self, StageItemFailure> {
         let mut index = Self {
             bindings,
@@ -10768,6 +10921,15 @@ impl<'a> FileImportBindingIndex<'a> {
             .try_reserve_exact(bindings.len())
             .map_err(|_| StageItemFailure)?;
         for (position, binding) in bindings.iter().enumerate() {
+            if salesforce_resolution::implicit_binding(binding, language) {
+                continue;
+            }
+            if php_resolution::implicit_namespace_binding(binding, language) {
+                continue;
+            }
+            if explicit_edge_resolution::metadata_binding(language, binding) {
+                continue;
+            }
             if binding.local_name == "*" {
                 budget.charge(usize_to_u64(size_of::<usize>()))?;
                 index.wildcards.push(position);
@@ -10852,6 +11014,7 @@ impl ImportBindingScratch {
         ImportBindingSelection {
             bindings: index.bindings,
             positions: &self.positions,
+            fallback_blocked: false,
         }
     }
 
@@ -10894,6 +11057,7 @@ fn import_binding_prefixes(reference_name: &str) -> impl Iterator<Item = &str> {
 struct ImportBindingSelection<'a> {
     bindings: &'a [ExtractedImportBinding],
     positions: &'a [usize],
+    fallback_blocked: bool,
 }
 
 impl<'a> ImportBindingSelection<'a> {
@@ -10901,7 +11065,13 @@ impl<'a> ImportBindingSelection<'a> {
         Self {
             bindings: &[],
             positions: &[],
+            fallback_blocked: false,
         }
+    }
+
+    const fn with_fallback_blocked(mut self, blocked: bool) -> Self {
+        self.fallback_blocked = blocked;
+        self
     }
 
     fn iter(self) -> impl Iterator<Item = &'a ExtractedImportBinding> {
@@ -10916,6 +11086,7 @@ impl<'a> ImportBindingSelection<'a> {
 /// A resolver prefix decides which lookup a reference gets, so the prefixes are
 /// stripped once here rather than being re-tested through the resolution path.
 struct ReferenceLookup<'reference> {
+    python_import_fenced: bool,
     dynamic_dispatch_name: Option<&'reference str>,
     rust_self_receiver_name: Option<&'reference str>,
     rust_macro_name: Option<&'reference str>,
@@ -10929,6 +11100,9 @@ struct ReferenceLookup<'reference> {
 impl<'reference> ReferenceLookup<'reference> {
     fn classify(reference: &'reference ExtractedReference) -> Self {
         let resolution_name = reference.resolution_name.as_deref();
+        let fenced_name = resolution_name
+            .and_then(|name| name.strip_prefix(PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX));
+        let resolution_name = fenced_name.or(resolution_name);
         let dynamic_dispatch_name =
             resolution_name.and_then(|name| name.strip_prefix(DYNAMIC_DISPATCH_RESOLUTION_PREFIX));
         let rust_self_receiver_name = resolution_name
@@ -10952,6 +11126,7 @@ impl<'reference> ReferenceLookup<'reference> {
             .or_else(|| php_exact.map(php_resolution::PhpExactLookup::key))
             .unwrap_or_else(|| resolution_name.unwrap_or(&reference.name));
         Self {
+            python_import_fenced: fenced_name.is_some(),
             dynamic_dispatch_name,
             rust_self_receiver_name,
             rust_macro_name,
@@ -11012,8 +11187,79 @@ where
         reference,
         import_binding_scratch,
     } = query;
+    if jvm_resolution::reference_abstains(index, (&context.identity.file_id, reference.span))
+        || reference
+            .resolution_name
+            .as_deref()
+            .is_some_and(jvm_resolution::syntax_abstention)
+    {
+        return Ok(ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE));
+    }
     let lookup = ReferenceLookup::classify(reference);
-    let mut resolution = if lookup.rust_macro_name.is_some() {
+    let binding_name =
+        javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
+            .unwrap_or(lookup.lookup_name);
+    let mut resolution = if let Some(resolution) =
+        resolve_prefixed_reference(index, (context, reference, &lookup), cancelled)?
+    {
+        resolution
+    } else {
+        resolve_reference_or_source_name(
+            index,
+            SourceNameFallbackQuery {
+                request: &ResolutionRequest {
+                    file_id: &context.identity.file_id,
+                    file_path: &context.identity.path,
+                    language: &context.identity.language,
+                    import_bindings: jvm_resolution::select_import_bindings(
+                        (context, &lookup, reference.kind, binding_name),
+                        import_binding_scratch,
+                    )
+                    .with_fallback_blocked(lookup.python_import_fenced),
+                    owner: reference.owner.as_ref(),
+                    name: lookup.lookup_name,
+                    dispatch: lookup.dispatch(),
+                    kind: lookup.request_kind(reference.kind),
+                    span: reference.span,
+                },
+                source_name: &reference.name,
+            },
+            cancelled,
+        )?
+    };
+    if lookup.dynamic_dispatch_name.is_some()
+        && let Some(target) = resolution.target.as_mut()
+        && target.provenance != generic_resolution::CURRENT_CLASS_PROVENANCE
+    {
+        target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
+        target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
+    }
+    let receiver = receiver_resolution::resolve(
+        index,
+        receiver_resolution::ReceiverQuery {
+            context,
+            reference,
+            import_binding_scratch,
+        },
+        cancelled,
+    )?;
+    Ok(receiver_resolution::prefer_base(resolution, receiver))
+}
+
+/// Honor resolver-prefix routes before the ordinary source-name fallback.
+fn resolve_prefixed_reference<Cancel>(
+    index: &ResolutionIndex,
+    (context, reference, lookup): (
+        &FileResolutionContext<'_>,
+        &ExtractedReference,
+        &ReferenceLookup<'_>,
+    ),
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let resolution = if lookup.rust_macro_name.is_some() {
         ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
     } else if let Some(sql) = lookup.embedded_sql {
         resolve_embedded_sql(index, sql, cancelled)?
@@ -11038,33 +11284,9 @@ where
             cancelled,
         )?
     } else {
-        resolve_reference_or_source_name(
-            index,
-            SourceNameFallbackQuery {
-                request: &ResolutionRequest {
-                    file_id: &context.identity.file_id,
-                    file_path: &context.identity.path,
-                    language: &context.identity.language,
-                    import_bindings: import_binding_scratch
-                        .select(context.import_bindings, lookup.lookup_name),
-                    owner: reference.owner.as_ref(),
-                    name: lookup.lookup_name,
-                    dispatch: lookup.dispatch(),
-                    kind: lookup.request_kind(reference.kind),
-                    span: reference.span,
-                },
-                source_name: &reference.name,
-            },
-            cancelled,
-        )?
+        return generic_resolution::resolve_receiver(index, (context, reference), cancelled);
     };
-    if lookup.dynamic_dispatch_name.is_some()
-        && let Some(target) = resolution.target.as_mut()
-    {
-        target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
-        target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
-    }
-    Ok(resolution)
+    Ok(Some(resolution))
 }
 
 struct FileRecordInput<'file> {
@@ -11080,6 +11302,14 @@ struct FileContainmentInput<'file> {
     file_symbol_id: &'file SymbolId,
     symbols: &'file [NativeSymbolFacts],
     containments: Vec<Containment>,
+}
+
+struct FileReferencesInput<'file> {
+    identity: &'file FileDocumentIdentity,
+    file_symbol_id: &'file SymbolId,
+    references: Vec<ExtractedReference>,
+    import_bindings: Vec<ExtractedImportBinding>,
+    receiver_evidence: Option<Box<ExtractedReceiverEvidence>>,
 }
 
 impl ResolutionOutput<'_> {
@@ -11101,6 +11331,11 @@ impl ResolutionOutput<'_> {
             symbols,
             containments,
             references,
+            call_scope_sites: _,
+            javascript_member_calls: _,
+            resolution_abstentions: _,
+            local_type_scopes: _,
+            receiver_evidence,
             numerical_sites,
             import_bindings,
             has_inline_tests: _,
@@ -11134,27 +11369,16 @@ impl ResolutionOutput<'_> {
             },
             cancelled,
         )?;
-        let import_binding_index = FileImportBindingIndex::new(&import_bindings, self.budget)?;
-        let mut import_binding_scratch =
-            ImportBindingScratch::new(import_bindings.len(), self.budget)?;
-        let context = FileResolutionContext {
-            identity: &identity,
-            file_symbol_id: &file_symbol_id,
-            import_bindings: &import_binding_index,
-        };
-        for reference in references {
-            if cancelled() {
-                return Err(StageItemFailure);
-            }
-            self.append_reference(
-                ReferenceAppendRequest {
-                    context: &context,
-                    reference,
-                },
-                &mut import_binding_scratch,
-                cancelled,
-            )?;
-        }
+        self.append_file_references(
+            FileReferencesInput {
+                identity: &identity,
+                file_symbol_id: &file_symbol_id,
+                references,
+                import_bindings,
+                receiver_evidence,
+            },
+            cancelled,
+        )?;
         for site in numerical_sites {
             if cancelled() {
                 return Err(StageItemFailure);
@@ -11170,6 +11394,61 @@ impl ResolutionOutput<'_> {
             self.append_symbol(&identity, symbol)?;
         }
         self.facts.files.push(file);
+        Ok(())
+    }
+
+    /// Prepare receiver/import evidence and append references under the file's budget.
+    fn append_file_references<Cancel>(
+        &mut self,
+        input: FileReferencesInput<'_>,
+        cancelled: &mut Cancel,
+    ) -> Result<(), StageItemFailure>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        let FileReferencesInput {
+            identity,
+            file_symbol_id,
+            references,
+            import_bindings,
+            receiver_evidence,
+        } = input;
+        let import_binding_index =
+            FileImportBindingIndex::new(&import_bindings, self.budget, &identity.language)?;
+        let mut import_binding_scratch =
+            ImportBindingScratch::new(import_bindings.len(), self.budget)?;
+        let current_receivers = generic_resolution::ReceiverSites::new(
+            &references,
+            (&identity.language, self.index, self.budget),
+            cancelled,
+        )?;
+        let receiver_lookups = receiver_resolution::FileLookups::new(
+            receiver_evidence
+                .as_deref()
+                .map_or(&[], |evidence| evidence.lookups.as_slice()),
+            self.budget,
+            cancelled,
+        )?;
+        let context = FileResolutionContext {
+            identity,
+            file_symbol_id,
+            import_bindings: &import_binding_index,
+            current_receivers: &current_receivers,
+            receiver_lookups: &receiver_lookups,
+        };
+        for reference in references {
+            if cancelled() {
+                return Err(StageItemFailure);
+            }
+            self.append_reference(
+                ReferenceAppendRequest {
+                    context: &context,
+                    reference,
+                },
+                &mut import_binding_scratch,
+                cancelled,
+            )?;
+        }
         Ok(())
     }
 
@@ -11261,8 +11540,20 @@ impl ResolutionOutput<'_> {
             .clone()
             .unwrap_or_else(|| context.file_symbol_id.clone());
         if let Some(target) = resolution.target.as_ref()
-            && source_symbol_id != target.symbol_id
-            && let Some(edge_kind) = reference_edge_kind(reference.kind, target.kind)
+            && (source_symbol_id != target.symbol_id
+                || recursive_call_target(&reference, target)
+                || resource_resolution::retain_self_edge(
+                    &context.identity.language,
+                    reference.kind,
+                    target.kind,
+                ))
+            && (target.provenance != generic_resolution::CURRENT_CLASS_PROVENANCE
+                || context.current_receivers.lookup(&reference).is_none())
+            && let Some(edge_kind) = reference_edge_kind(
+                reference.kind,
+                target.kind,
+                self.index.types.kind(&source_symbol_id),
+            )
         {
             self.facts.edges.push(EdgeInput {
                 source_symbol_id,
@@ -11454,6 +11745,7 @@ struct ResolutionCandidateInsertion<'a> {
     parent_symbol_id: Option<&'a SymbolId>,
     file_ordinal: u64,
     language: &'a str,
+    visibility: Option<Visibility>,
 }
 
 #[derive(Clone, Copy)]
@@ -11548,8 +11840,10 @@ fn index_module_stem(
 fn directory_module_stem<'a>(language: &str, stem: &'a str) -> Option<&'a str> {
     let directory = if language == SourceLanguage::Rust.as_str() {
         stem.strip_suffix("/mod")
-    } else if javascript_family_name(language) {
+    } else if javascript_modules::module_language(language) {
         stem.strip_suffix("/index")
+    } else if language == SourceLanguage::Python.as_str() {
+        stem.strip_suffix("/__init__")
     } else {
         None
     };
@@ -11733,6 +12027,7 @@ fn push_candidate(
         parent_symbol_id,
         file_ordinal,
         language,
+        visibility,
     } = insertion;
     if !candidates.contains_key(key) {
         budget.charge(
@@ -11745,6 +12040,8 @@ fn push_candidate(
         candidates.insert(try_clone_text(key)?, ResolutionCandidateBucket::default());
     }
     let bucket = candidates.get_mut(key).ok_or(StageItemFailure)?;
+    bucket.native_bridge_member |=
+        javascript_member_resolution::native_bridge_symbol(symbol, language);
     let reservation = reserve_candidate_insertion(
         bucket,
         CandidateReservationInput {
@@ -11752,6 +12049,7 @@ fn push_candidate(
             parent_symbol_id,
             file_ordinal,
             language,
+            visibility,
         },
         budget,
     )?;
@@ -11762,11 +12060,14 @@ fn push_candidate(
         qualified_name: try_clone_text(&symbol.input.qualified_name)?,
         signature: try_clone_text(&symbol.input.signature)?,
         kind: symbol.kind,
-        visibility: symbol.visibility,
+        visibility,
         implementation: symbol.implementation,
         export: symbol.export,
         top_level: symbol.input.qualified_name == symbol.name,
         augmentation: symbol.augmentation,
+        static_member: symbol.execution.static_member,
+        declaration_syntax: symbol.declaration_syntax,
+        declaration_span: (symbol.input.start_byte, symbol.input.end_byte),
     });
     append_candidate_project_index(bucket, language, reservation)?;
     append_candidate_file_range(bucket, file_ordinal, reservation)
@@ -11785,6 +12086,7 @@ struct CandidateReservationInput<'a> {
     parent_symbol_id: Option<&'a SymbolId>,
     file_ordinal: u64,
     language: &'a str,
+    visibility: Option<Visibility>,
 }
 
 fn reserve_candidate_insertion(
@@ -11797,13 +12099,14 @@ fn reserve_candidate_insertion(
         parent_symbol_id: _,
         file_ordinal,
         language,
+        visibility,
     } = input;
     let candidate_index = bucket.candidates.len();
     let new_file_range = bucket
         .by_file
         .last()
         .is_none_or(|range| range.file_ordinal != file_ordinal);
-    let globally_visible = symbol.export.exported || symbol.visibility == Some(Visibility::Public);
+    let globally_visible = symbol.export.exported || visibility == Some(Visibility::Public);
     let new_language_bucket =
         !globally_visible && !bucket.non_visible_by_language.contains_key(language);
     let retained = candidate_reservation_bytes(input, new_file_range, new_language_bucket);
@@ -11843,6 +12146,7 @@ fn candidate_reservation_bytes(
         parent_symbol_id,
         file_ordinal: _,
         language,
+        visibility: _,
     } = input;
     let file_range_bytes = if new_file_range {
         usize_to_u64(size_of::<ResolutionCandidateRange>())
@@ -11995,6 +12299,9 @@ fn push_default_export(
         export: symbol.export,
         top_level: symbol.input.qualified_name == symbol.name,
         augmentation: symbol.augmentation,
+        static_member: symbol.execution.static_member,
+        declaration_syntax: symbol.declaration_syntax,
+        declaration_span: (symbol.input.start_byte, symbol.input.end_byte),
     });
     Ok(())
 }
@@ -12101,6 +12408,9 @@ impl ImportCandidateFilter<'_, '_> {
         if &candidate.file_id != self.module_file_id || !candidate.export.exported {
             return false;
         }
+        if !rust_use_bindings::visible(self.index, self.reference, candidate) {
+            return false;
+        }
         if !reference_kind_candidate(self.reference.kind, candidate) {
             return false;
         }
@@ -12130,8 +12440,9 @@ struct ModuleResolutionRequest<'a> {
 
 enum TypeScriptAliasModuleResolution<'a> {
     NotMatched,
-    Resolved(&'a FileId),
+    Resolved(&'a FileId, bool),
     Unresolved,
+    Ambiguous,
 }
 
 #[derive(Clone, Copy)]
@@ -12218,6 +12529,17 @@ where
     }))
 }
 
+/// A self edge is a proven recursive call only through the same-file lexical
+/// scope walk; a project-wide name match on the owner (Objective-C
+/// `[super m]` inside `m`) is not recursion.
+fn recursive_call_target(reference: &ExtractedReference, target: &ResolvedTarget) -> bool {
+    reference.kind == ReferenceKind::Calls
+        && matches!(
+            target.provenance,
+            EXACT_SAME_FILE_PROVENANCE | EXACT_LEXICAL_PROVENANCE
+        )
+}
+
 fn resolve_declaration_reference<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
@@ -12226,20 +12548,10 @@ fn resolve_declaration_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    if request.kind == ReferenceKind::Imports
-        && request.owner.is_none()
-        && let Some(resolution) =
-            import_reference_resolution(resolve_include_file_reference(index, request, cancelled)?)
-    {
-        return Ok(Some(resolution));
+    if request.import_bindings.fallback_blocked {
+        return Ok(None);
     }
-    if request.kind == ReferenceKind::Imports
-        && request.owner.is_none()
-        && script_modules::binds_loads_exactly(request.language)
-        && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
-            index, request, cancelled,
-        )?)
-    {
+    if let Some(resolution) = resolve_module_declaration_reference(index, request, cancelled)? {
         return Ok(Some(resolution));
     }
     if request.owner.is_none()
@@ -12292,6 +12604,40 @@ where
                 site: ImportReferenceSite::Usage,
             },
             cancelled,
+        )?)
+    {
+        return Ok(Some(resolution));
+    }
+    Ok(None)
+}
+
+/// Resolve declarations that name a file or module before looking up imported symbols.
+fn resolve_module_declaration_reference<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if request.language == SourceLanguage::Liquid.as_str()
+        && let Some(target) = file_path_resolution::resolve_reference(index, request, cancelled)?
+    {
+        return Ok(Some(ReferenceResolution::resolved(target)));
+    }
+    if request.kind == ReferenceKind::Imports
+        && request.owner.is_none()
+        && let Some(resolution) =
+            import_reference_resolution(resolve_include_file_reference(index, request, cancelled)?)
+    {
+        return Ok(Some(resolution));
+    }
+    if request.kind == ReferenceKind::Imports
+        && request.owner.is_none()
+        && (script_modules::binds_loads_exactly(request.language)
+            || request.language == SourceLanguage::Python.as_str())
+        && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
+            index, request, cancelled,
         )?)
     {
         return Ok(Some(resolution));
@@ -12426,6 +12772,20 @@ fn resolve_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    match rust_path_guards::resolve(index, request, cancelled)? {
+        Some(resolution) => Ok(resolution),
+        None => resolve_reference_body(index, request, cancelled),
+    }
+}
+
+fn resolve_reference_body<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     if request.dispatch == ReferenceDispatch::RustSelf && !request.name.contains("::") {
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
@@ -12434,23 +12794,52 @@ where
     if request.kind == ReferenceKind::DefUse {
         return resolve_def_use(index, request, cancelled);
     }
+    if let Some(resolution) = framework_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
     if let Some(resolution) = resolve_terraform_address(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = qualified_member_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if let Some(resolution) = jvm_resolution::resolve_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
-    if let Some(target) = resolve_lexical(index, request, cancelled)? {
-        return Ok(ReferenceResolution::resolved(target));
+    if let Some(resolution) = reference_tiers::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
+    if request.import_bindings.fallback_blocked {
+        return Ok(ReferenceResolution::unresolved(
+            UNRESOLVED_IMPORT_PROVENANCE,
+        ));
     }
     if rust_self_has_local_nominal(index, request, cancelled)? {
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
     }
+    if let Some(resolution) = explicit_edge_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
     if let Some(target) = resolve_rust_qualified_path(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
     }
+    resolve_import_or_project_reference(index, request, cancelled)
+}
+
+/// Try module and import bindings before the permitted project-wide fallbacks.
+fn resolve_import_or_project_reference<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     if let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
         index, request, cancelled,
     )?) {
@@ -12473,6 +12862,11 @@ where
     }
     if project_fallback_allowed(index, request)
         && let Some(target) = resolve_project(index, request, cancelled)?
+    {
+        return Ok(ReferenceResolution::resolved(target));
+    }
+    if project_fallback_allowed(index, request)
+        && let Some(target) = generic_resolution::resolve_name_fallback(index, request, cancelled)?
     {
         return Ok(ReferenceResolution::resolved(target));
     }
@@ -12576,160 +12970,7 @@ fn python_unresolved_provenance(request: &ResolutionRequest<'_>) -> Option<&'sta
 
 fn python_intrinsic_reference(request: &ResolutionRequest<'_>) -> bool {
     !request.name.contains('.')
-        && (python_builtin_exception(request.name) || python_builtin_value(request.name))
-}
-
-fn python_builtin_exception(name: &str) -> bool {
-    matches!(
-        name,
-        "ArithmeticError"
-            | "AssertionError"
-            | "AttributeError"
-            | "BaseException"
-            | "BlockingIOError"
-            | "BrokenPipeError"
-            | "BufferError"
-            | "BytesWarning"
-            | "ChildProcessError"
-            | "ConnectionAbortedError"
-            | "ConnectionError"
-            | "ConnectionRefusedError"
-            | "ConnectionResetError"
-            | "DeprecationWarning"
-            | "EOFError"
-            | "EncodingWarning"
-            | "EnvironmentError"
-            | "Exception"
-            | "FileExistsError"
-            | "FileNotFoundError"
-            | "FloatingPointError"
-            | "FutureWarning"
-            | "GeneratorExit"
-            | "IOError"
-            | "ImportError"
-            | "ImportWarning"
-            | "IndentationError"
-            | "IndexError"
-            | "InterruptedError"
-            | "IsADirectoryError"
-            | "KeyError"
-            | "KeyboardInterrupt"
-            | "LookupError"
-            | "MemoryError"
-            | "ModuleNotFoundError"
-            | "NameError"
-            | "NotADirectoryError"
-            | "NotImplemented"
-            | "NotImplementedError"
-            | "OSError"
-            | "OverflowError"
-            | "PendingDeprecationWarning"
-            | "PermissionError"
-            | "ProcessLookupError"
-            | "RecursionError"
-            | "ReferenceError"
-            | "ResourceWarning"
-            | "RuntimeError"
-            | "RuntimeWarning"
-            | "StopAsyncIteration"
-            | "StopIteration"
-            | "SyntaxError"
-            | "SyntaxWarning"
-            | "SystemError"
-            | "SystemExit"
-            | "TabError"
-            | "TimeoutError"
-            | "TypeError"
-            | "UnboundLocalError"
-            | "UnicodeDecodeError"
-            | "UnicodeEncodeError"
-            | "UnicodeError"
-            | "UnicodeTranslateError"
-            | "UnicodeWarning"
-            | "UserWarning"
-            | "ValueError"
-            | "Warning"
-            | "ZeroDivisionError"
-    )
-}
-
-fn python_builtin_value(name: &str) -> bool {
-    matches!(
-        name,
-        "__build_class__"
-            | "__debug__"
-            | "__import__"
-            | "abs"
-            | "aiter"
-            | "all"
-            | "anext"
-            | "any"
-            | "ascii"
-            | "bin"
-            | "bool"
-            | "breakpoint"
-            | "bytearray"
-            | "bytes"
-            | "callable"
-            | "chr"
-            | "classmethod"
-            | "compile"
-            | "complex"
-            | "delattr"
-            | "dict"
-            | "dir"
-            | "divmod"
-            | "enumerate"
-            | "eval"
-            | "exec"
-            | "filter"
-            | "float"
-            | "format"
-            | "frozenset"
-            | "getattr"
-            | "globals"
-            | "hasattr"
-            | "hash"
-            | "help"
-            | "hex"
-            | "id"
-            | "input"
-            | "int"
-            | "isinstance"
-            | "issubclass"
-            | "iter"
-            | "len"
-            | "list"
-            | "locals"
-            | "map"
-            | "max"
-            | "memoryview"
-            | "min"
-            | "next"
-            | "object"
-            | "oct"
-            | "open"
-            | "ord"
-            | "pow"
-            | "print"
-            | "property"
-            | "range"
-            | "repr"
-            | "reversed"
-            | "round"
-            | "set"
-            | "setattr"
-            | "slice"
-            | "sorted"
-            | "staticmethod"
-            | "str"
-            | "sum"
-            | "super"
-            | "tuple"
-            | "type"
-            | "vars"
-            | "zip"
-    )
+        && (PythonExceptions.contains(request.name) || PythonValues.contains(request.name))
 }
 
 fn python_receiver_reference(name: &str) -> bool {
@@ -13047,10 +13288,7 @@ where
         if let Some(candidate) = select_candidate(
             candidates,
             |candidate| {
-                (is_lexical_candidate(request.kind, request.name, candidate)
-                    || swift_implicit_member_call(request, candidate))
-                    && &candidate.file_id == request.file_id
-                    && request.owner != Some(&candidate.symbol_id)
+                lexical_candidate_matches(index, request, candidate)
                     && candidate.parent_symbol_id.as_ref() == scope
             },
             cancelled,
@@ -13073,6 +13311,19 @@ where
         scope = index.parents.get(symbol_id);
     }
     Ok(None)
+}
+
+/// Check same-file lexical eligibility, including the proof needed for recursion.
+fn lexical_candidate_matches(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    (is_lexical_candidate(request.kind, request.name, candidate)
+        || swift_implicit_member_call(request, candidate))
+        && &candidate.file_id == request.file_id
+        && (request.owner != Some(&candidate.symbol_id)
+            || generic_resolution::recursive_owner_call(index, request, candidate))
 }
 
 /// Resolve a def-use site to the local it reads: the unique same-file binding
@@ -13415,6 +13666,9 @@ where
     if request.kind != ReferenceKind::Imports {
         return Ok(ImportResolution::NotBound);
     }
+    if request.language == SourceLanguage::Python.as_str() {
+        return python_resolution::resolve_module_reference(index, request, cancelled);
+    }
     let mut bound = false;
     let mut matched = None;
     for binding in request.import_bindings.iter() {
@@ -13450,12 +13704,24 @@ where
         matched = Some(file_symbol);
     }
     match matched {
-        Some(symbol_id) => Ok(ImportResolution::Resolved(ResolvedTarget {
-            symbol_id: symbol_id.clone(),
-            kind: SymbolKind::File,
-            confidence: IMPORT_BINDING_CONFIDENCE,
-            provenance: MODULE_IMPORT_PROVENANCE,
-        })),
+        Some(symbol_id) => {
+            let mut target = ResolvedTarget {
+                symbol_id: symbol_id.clone(),
+                kind: SymbolKind::File,
+                confidence: IMPORT_BINDING_CONFIDENCE,
+                provenance: MODULE_IMPORT_PROVENANCE,
+            };
+            javascript_modules::lower_fallback_target(
+                &mut target,
+                &index.modules,
+                ModuleResolutionRequest {
+                    importing_path: request.file_path,
+                    specifier: request.name,
+                    importing_language: request.language,
+                },
+            );
+            Ok(ImportResolution::Resolved(target))
+        }
         None if bound => Ok(ImportResolution::Unresolved),
         None => Ok(ImportResolution::NotBound),
     }
@@ -13500,6 +13766,7 @@ where
             | ImportBindingKind::Named
             | ImportBindingKind::Namespace
             | ImportBindingKind::ReExportAll
+            | ImportBindingKind::ReExportUncertain
             | ImportBindingKind::ReExportNamespace
             | ImportBindingKind::ReExportNamed => {}
         }
@@ -13511,7 +13778,10 @@ where
             confidence: IMPORT_BINDING_CONFIDENCE,
             provenance: QUOTED_INCLUDE_PROVENANCE,
         })),
-        None if bound => Ok(ImportResolution::Unresolved),
+        None if bound => Ok(
+            file_path_resolution::resolve_reference(index, request, cancelled)?
+                .map_or(ImportResolution::Unresolved, ImportResolution::Resolved),
+        ),
         None => Ok(ImportResolution::NotBound),
     }
 }
@@ -13739,12 +14009,54 @@ fn resolve_import<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    let reference = input.reference;
+    let (binding, imported_name) =
+        match match_import_bindings((Some(index), reference), input.site, cancelled)? {
+            ImportBindingMatch::NotBound => return Ok(ImportResolution::NotBound),
+            ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
+            ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
+        };
+    resolve_bound_import(
+        index,
+        BoundImportQuery {
+            import: input,
+            binding,
+            imported_name,
+        },
+        cancelled,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct BoundImportQuery<'a, 'b> {
+    import: ImportResolutionRequest<'a, 'b>,
+    binding: &'a ExtractedImportBinding,
+    imported_name: &'a str,
+}
+
+/// Apply language-specific binding rules before the common module/symbol lookup.
+fn resolve_bound_import<Cancel>(
+    index: &ResolutionIndex,
+    query: BoundImportQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ImportResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let BoundImportQuery {
+        import: input,
+        binding,
+        imported_name: _,
+    } = query;
     let ImportResolutionRequest { reference, site } = input;
-    let (binding, imported_name) = match matched_import_binding(reference, site, cancelled)? {
-        ImportBindingMatch::NotBound => return Ok(ImportResolution::NotBound),
-        ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
-        ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
-    };
+    if !rust_use_bindings::allows(index, (reference, binding), cancelled)? {
+        return Ok(ImportResolution::NotBound);
+    }
+    if let Some(resolution) =
+        rust_path_resolution::resolve_binding(index, (reference, binding), cancelled)?
+    {
+        return Ok(resolution);
+    }
     if reference.language == SourceLanguage::Php.as_str() {
         return php_resolution::resolve_use_binding(
             php_resolution::PhpUseBinding {
@@ -13756,6 +14068,44 @@ where
             cancelled,
         );
     }
+    if reference.language == SourceLanguage::Python.as_str() {
+        return python_resolution::resolve_import(
+            python_resolution::ImportQuery {
+                index,
+                input,
+                binding,
+            },
+            cancelled,
+        );
+    }
+    if let Some(resolution) = salesforce_resolution::resolve_binding(
+        salesforce_resolution::SalesforceBindingQuery {
+            index,
+            binding,
+            reference,
+        },
+        cancelled,
+    )? {
+        return Ok(resolution);
+    }
+    resolve_bound_module_import(index, query, cancelled)
+}
+
+/// Resolve a selected binding's module, then its namespace fallback in the same order.
+fn resolve_bound_module_import<Cancel>(
+    index: &ResolutionIndex,
+    query: BoundImportQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ImportResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let BoundImportQuery {
+        import: input,
+        binding,
+        imported_name,
+    } = query;
+    let reference = input.reference;
     if imported_name.is_empty() {
         return Ok(ImportResolution::Unresolved);
     }
@@ -13836,10 +14186,24 @@ where
         module_file_id,
         javascript_value_usage: javascript_value_import_usage(import),
     };
-    Ok(
+    let mut target =
         select_candidate(candidates, |candidate| filter.matches(candidate), cancelled)?
-            .map(import_binding_target),
-    )
+            .map(import_binding_target);
+    if target.is_none() {
+        target = javascript_exports::resolve_import(query, cancelled)?;
+    }
+    if let Some(target) = target.as_mut() {
+        javascript_modules::lower_fallback_target(
+            target,
+            &index.modules,
+            ModuleResolutionRequest {
+                importing_path: import.reference.file_path,
+                specifier: &binding.module_specifier,
+                importing_language: import.reference.language,
+            },
+        );
+    }
+    Ok(target)
 }
 
 /// A JavaScript-family use of an imported name in a value position, which a
@@ -13920,6 +14284,7 @@ where
         candidates,
         |candidate| {
             &candidate.file_id == module_file_id
+                && rust_use_bindings::visible(index, reference, candidate)
                 && rust_module_candidate_visible(RustCandidateVisibility {
                     index,
                     candidate,
@@ -13934,12 +14299,14 @@ where
         candidate = select_candidate(
             project_candidates,
             |candidate| {
-                rust_module_candidate_visible(RustCandidateVisibility {
-                    index,
-                    candidate,
-                    target_name: &target_name,
-                    source_path: reference.file_path,
-                }) && reference_kind_candidate(reference.kind, candidate)
+                rust_use_bindings::visible(index, reference, candidate)
+                    && rust_module_candidate_visible(RustCandidateVisibility {
+                        index,
+                        candidate,
+                        target_name: &target_name,
+                        source_path: reference.file_path,
+                    })
+                    && reference_kind_candidate(reference.kind, candidate)
                     && index
                         .modules
                         .files
@@ -14222,7 +14589,10 @@ fn language_import_is_project_local(
     ) {
         return true;
     }
-    javascript_family_name(reference.language) && javascript_alias_specifier(specifier)
+    javascript_modules::module_language(reference.language)
+        && (javascript_alias_specifier(specifier)
+            || javascript_packages::is_local(&index.modules, specifier)
+            || resolve_framework_alias_file(&index.modules, module_request).is_some())
 }
 
 fn javascript_alias_specifier(specifier: &str) -> bool {
@@ -14237,10 +14607,30 @@ fn matched_import_binding<'binding, Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    match_import_bindings((None, reference), site, cancelled)
+}
+
+fn match_import_bindings<'binding, Cancel>(
+    query: (Option<&ResolutionIndex>, &ResolutionRequest<'binding>),
+    site: ImportReferenceSite,
+    cancelled: &mut Cancel,
+) -> Result<ImportBindingMatch<'binding>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (index, reference) = query;
     let mut matched: Option<(&ExtractedImportBinding, &str)> = None;
     for binding in reference.import_bindings.iter() {
         if cancelled() {
             return Err(StageItemFailure);
+        }
+        if reference.language == "rust"
+            && binding.kind == ImportBindingKind::Namespace
+            && index.is_some_and(|index| {
+                !rust_local_types::root_declaration(index, (reference.file_id, binding.span))
+            })
+        {
+            continue;
         }
         let imported_name = match site {
             ImportReferenceSite::Declaration => declaration_binding_target_name(binding, reference),
@@ -14347,6 +14737,7 @@ fn runtime_binding_target_name<'a>(
         ImportBindingKind::IncludeQuoted
         | ImportBindingKind::IncludeSystem
         | ImportBindingKind::ReExportAll
+        | ImportBindingKind::ReExportUncertain
         | ImportBindingKind::ReExportNamespace
         | ImportBindingKind::ReExportNamed => None,
     }
@@ -14367,6 +14758,11 @@ fn resolve_module_file<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> Option<&'a FileId> {
+    match python_resolution::resolve_module_file(modules, request) {
+        ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
+        ModuleResolutionAttempt::Rejected => return None,
+        ModuleResolutionAttempt::NotMatched => {}
+    }
     match script_modules::resolve_script_module(modules, request) {
         ModuleResolutionAttempt::Resolved(file_id) => return Some(file_id),
         ModuleResolutionAttempt::Rejected => return None,
@@ -14387,12 +14783,7 @@ fn resolve_module_file<'a>(
     {
         return Some(file_id);
     }
-    match resolve_typescript_alias_module(modules, request) {
-        TypeScriptAliasModuleResolution::Resolved(file_id) => return Some(file_id),
-        TypeScriptAliasModuleResolution::Unresolved => return None,
-        TypeScriptAliasModuleResolution::NotMatched => {}
-    }
-    resolve_framework_alias_file(modules, request)
+    javascript_modules::resolve_alias_file(modules, request)
 }
 
 /// Resolve a specifier through the importing language's own module path
@@ -14460,12 +14851,10 @@ fn resolve_framework_alias_file<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> Option<&'a FileId> {
-    framework_alias_module_paths(request.importing_language, request.specifier)
-        .into_iter()
-        .flatten()
-        .find_map(|candidate| {
-            resolve_normalized_module_file(modules, &candidate, request.importing_language)
-        })
+    match javascript_modules::conventional_file(modules, request) {
+        ModuleResolutionAttempt::Resolved(file) => Some(file),
+        ModuleResolutionAttempt::NotMatched | ModuleResolutionAttempt::Rejected => None,
+    }
 }
 
 fn compilation_unit_file<'a>(
@@ -14491,7 +14880,7 @@ fn resolve_typescript_alias_module<'a>(
     modules: &'a ModulePathIndex,
     request: ModuleResolutionRequest<'_>,
 ) -> TypeScriptAliasModuleResolution<'a> {
-    if !javascript_family_name(request.importing_language)
+    if !javascript_modules::module_language(request.importing_language)
         || matches!(request.specifier, "." | "..")
         || request.specifier.starts_with("./")
         || request.specifier.starts_with("../")
@@ -14511,10 +14900,23 @@ fn resolve_typescript_alias_module<'a>(
             else {
                 continue;
             };
-            if let Some(file_id) =
-                resolve_normalized_module_file(modules, &candidate, request.importing_language)
-            {
-                return TypeScriptAliasModuleResolution::Resolved(file_id);
+            match javascript_modules::resolve_normalized(
+                modules,
+                &candidate,
+                request.importing_language,
+            ) {
+                ModuleResolutionAttempt::Resolved(file_id) => {
+                    let fallback = javascript_modules::uses_cross_language_fallback(
+                        modules,
+                        &candidate,
+                        request.importing_language,
+                    );
+                    return TypeScriptAliasModuleResolution::Resolved(file_id, fallback);
+                }
+                ModuleResolutionAttempt::Rejected => {
+                    return TypeScriptAliasModuleResolution::Ambiguous;
+                }
+                ModuleResolutionAttempt::NotMatched => {}
             }
         }
         return TypeScriptAliasModuleResolution::Unresolved;
@@ -14567,7 +14969,7 @@ struct TypeScriptAliasMatch<'context> {
 }
 
 fn typescript_alias_matches(modules: &ModulePathIndex, input: TypeScriptAliasMatch<'_>) -> bool {
-    if !javascript_family_name(input.importing_language) {
+    if !javascript_modules::module_language(input.importing_language) {
         return false;
     }
     nearest_typescript_alias_config(modules, input.importing_path).is_some_and(|config| {
@@ -14796,6 +15198,13 @@ fn resolve_normalized_module_file<'a>(
     normalized: &str,
     importing_language: &str,
 ) -> Option<&'a FileId> {
+    if javascript_modules::module_language(importing_language) {
+        return match javascript_modules::resolve_normalized(modules, normalized, importing_language)
+        {
+            ModuleResolutionAttempt::Resolved(file) => Some(file),
+            ModuleResolutionAttempt::NotMatched | ModuleResolutionAttempt::Rejected => None,
+        };
+    }
     match module_file_match(
         modules.exact.get(normalized),
         &modules.files,
@@ -14820,28 +15229,6 @@ fn resolve_normalized_module_file<'a>(
         ModuleFileMatch::Unique(file_id) => Some(file_id),
         ModuleFileMatch::Missing | ModuleFileMatch::Ambiguous => None,
     }
-}
-
-fn framework_alias_module_paths(language: &str, specifier: &str) -> [Option<String>; 2] {
-    if !(javascript_family_name(language) || matches!(language, "vue" | "svelte" | "astro")) {
-        return [None, None];
-    }
-    if let Some(tail) = specifier.strip_prefix("$lib/") {
-        return [normalize_root_module_path(&format!("src/lib/{tail}")), None];
-    }
-    if let Some(tail) = specifier.strip_prefix("@/") {
-        return [
-            normalize_root_module_path(&format!("src/{tail}")),
-            normalize_root_module_path(tail),
-        ];
-    }
-    if let Some(tail) = specifier.strip_prefix("~/") {
-        return [
-            normalize_root_module_path(tail),
-            normalize_root_module_path(&format!("src/{tail}")),
-        ];
-    }
-    [None, None]
 }
 
 fn normalize_root_module_path(path: &str) -> Option<String> {
@@ -14992,6 +15379,9 @@ fn resolve_project<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(target) = generic_resolution::resolve_casefold_project(index, request, cancelled)? {
+        return Ok(Some(target));
+    }
     let source = project_source_context(index, request)?;
     if let Some(target) = resolve_apple_bridge(AppleBridgeQuery {
         index,
@@ -15034,7 +15424,7 @@ where
             cancelled,
         });
     }
-    Ok(None)
+    javascript_framework_resolution::resolve(index, request, cancelled)
 }
 
 struct ProjectResolutionQuery<'context, 'request, Cancel> {
@@ -15047,11 +15437,14 @@ struct ProjectResolutionQuery<'context, 'request, Cancel> {
 }
 
 fn resolve_project_candidates<Cancel>(
-    query: ProjectResolutionQuery<'_, '_, Cancel>,
+    mut query: ProjectResolutionQuery<'_, '_, Cancel>,
 ) -> Result<Option<ResolvedTarget>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(resolution) = javascript_member_resolution::resolve_project(&mut query)? {
+        return Ok(resolution.target);
+    }
     let ProjectResolutionQuery {
         index,
         source,
@@ -15085,7 +15478,10 @@ where
         candidates: ProjectResolutionCandidates::new(candidate_bucket, source, request.name)?,
         cancelled,
     })?;
-    Ok(candidate.map(framework_convention_target))
+    if let Some(candidate) = candidate {
+        return Ok(Some(framework_convention_target(candidate)));
+    }
+    generic_resolution::resolve_proximity(index, request, cancelled)
 }
 
 struct PhpRouteFallbackQuery<'context, 'request, Cancel> {
@@ -15580,7 +15976,7 @@ fn is_framework_candidate(input: FrameworkCandidateInput<'_>) -> bool {
         return false;
     };
     &candidate.file_id != source_file_id
-        && candidate.visibility != Some(Visibility::Private)
+        && framework_conventions::visible(source, target, candidate)
         && (!c_include_family_name(&source.language)
             || c_candidate_is_externally_visible(candidate))
         && project_scope_matches(source, target, candidate)
@@ -16075,7 +16471,7 @@ fn same_language_framework_score(input: &FrameworkConventionInput<'_>) -> u8 {
         "csharp" => framework_rule_score(input, CSHARP_FRAMEWORK_RULES),
         "python" => framework_rule_score(input, PYTHON_FRAMEWORK_RULES),
         "swift" => framework_rule_score(input, SWIFT_FRAMEWORK_RULES),
-        _ => 0,
+        _ => framework_conventions::score(input),
     }
 }
 
@@ -16203,20 +16599,7 @@ fn directory_has_any(path: &str, names: &[&str]) -> bool {
 }
 
 fn is_middleware_convention(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "auth"
-            | "authenticate"
-            | "authorization"
-            | "cors"
-            | "helmet"
-            | "logger"
-            | "errorhandler"
-            | "notfound"
-    ) || name.starts_with("validate")
-        || name.starts_with("sanitize")
-        || name.starts_with("rateLimit")
-        || name.ends_with("Middleware")
+    javascript_framework_resolution::middleware_name(name)
 }
 
 fn project_scope_matches(
@@ -16364,6 +16747,7 @@ fn c_include_family_name(language: &str) -> bool {
 
 fn resolution_languages_compatible(source: &str, target: &str) -> bool {
     source == target
+        || (jvm_resolution::language(source) && jvm_resolution::language(target))
         || (javascript_family_name(source) && javascript_family_name(target))
         || (matches!(source, "svelte" | "vue" | "astro" | "html") && javascript_family_name(target))
         || (javascript_family_name(source) && matches!(target, "svelte" | "vue" | "astro"))
@@ -16463,13 +16847,13 @@ const REFERENCE_EDGE_KINDS: &[(ReferenceKind, EdgeKind)] = &[
     (ReferenceKind::DefUse, EdgeKind::DefUse),
 ];
 
-fn reference_edge_kind(kind: ReferenceKind, target_kind: SymbolKind) -> Option<EdgeKind> {
+fn reference_edge_kind(
+    kind: ReferenceKind,
+    target_kind: SymbolKind,
+    source_kind: Option<SymbolKind>,
+) -> Option<EdgeKind> {
     if kind == ReferenceKind::Inherits {
-        match target_kind {
-            SymbolKind::Interface | SymbolKind::Trait => Some(EdgeKind::Implements),
-            SymbolKind::Class | SymbolKind::Struct => Some(EdgeKind::Extends),
-            _ => None,
-        }
+        qualified_member_resolution::inheritance_edge_kind(target_kind, source_kind)
     } else {
         REFERENCE_EDGE_KINDS
             .iter()
@@ -16714,12 +17098,30 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    mod frameworks;
+    mod generic_digest_proof;
+    mod generic_repair;
+    mod generic_resolution;
+    mod javascript_members;
+    mod javascript_modules;
     mod javascript_parity;
+    mod jvm_resolution;
     mod pascal_units;
     mod php_namespaces;
     mod polyglot_parity;
+    mod python_imports;
+    mod qualified_types;
+    mod receiver_types;
+    mod rust_module_paths;
     mod rust_receivers;
+    mod rust_review_regressions;
+    mod rust_use_bindings;
+    mod rust_use_regressions;
     mod script_modules;
+    mod unqual_digests;
+    mod unqual_repair;
+    mod unqual_resolution;
+    mod v1_resolution_oracle;
 
     use std::assert_matches;
     use std::{cell::Cell, collections::BTreeSet, fmt::Write as _, fs, time::Duration};
@@ -16792,15 +17194,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V21 changes these digest domains. The generic-family projection grows because its
-    // v1 corpora now extract v1's facts through dedicated families; the others stay fixed.
+    // V22 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "f4cf68d3b4cadf80163f963013e06ecc5ca0d86f792acaba67b2abf83c285a96";
+        "f483007b8c7865ce060e125c6c1192d44245d21f9d8c29ede69cf80933d8da4b";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "b741b40e646a8178af013b292a88285eb4e007f397e887caefc622fffa8a9efd";
+        "f2ab906f518d9e51853532b887e8ffe33049270a5c049fd5b02cbafdcc9da8d4";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -16814,20 +17215,24 @@ mod tests {
     // and the method now owns its body).
     // Dart fixture.dart:6 now declares Box::Box, adding exactly its method,
     // Box -> Box::Box containment edge, and symbol search document. Removing
-    // those three facts restores the previous dcf6c35b... digest exactly.
+    // those three facts restored the previous dcf6c35b... digest under V21.
     // Box::Box is concrete: declaration_only is false in the symbol and its
-    // document metadata. Restoring only those two booleans to true restores
-    // the intermediate 36d77193... digest exactly; all counts stay unchanged.
+    // document metadata. Restoring only those two booleans to true restored
+    // the intermediate 36d77193... digest under V21; all counts stay unchanged.
+    // Resolution adds CounterView::build -> CounterView::increment (ArkTS)
+    // and targets for its two existing references. generic_digest_proof removes
+    // that one Calls edge and restores those references to reproduce the
+    // previous fact set under V22 (8fe8df25...); the extraction facts stay fixed.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "fca1307d9daa8f86212a323289ec33fdffb7936c33575b32a7180d8eb285880d";
+        "a4e55aab2f0dbbaa33046f1a9975810b75c6cee9ea831482cdda5b958a437e2b";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 260, 283, 135, 260);
+        (28, 260, 284, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
     // spans from its `IF` line and is named by its head line, and an LSX
     // resource starts at its `<node>` tag (same projection, new identities).
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "00b7a35cdac9999435d22ff1eeda8a05be25b5279c01dfd1d92a77cb86ac0697";
+        "6ef2ddf7ec04c15deb9fbad64b9f080695c8048396e465c2115893ec03d6a64d";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
@@ -19865,13 +20270,19 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let run = capability_symbol(&forward, "Sources/Feed.swift", "Feed::run");
         let recursion =
             CapabilityReferenceQuery::new(&forward, run).named("run", ReferenceKind::Calls);
-        assert!(recursion.target_symbol_id.is_none());
+        assert_eq!(recursion.target_symbol_id.as_ref(), Some(&run.symbol_id));
+        assert_eq!(recursion.resolution_provenance, EXACT_LEXICAL_PROVENANCE);
         let bridged = capability_symbol(&forward, "Sources/Bridged.swift", "Bridged::recur");
         let bridged_recursion =
             CapabilityReferenceQuery::new(&forward, bridged).named("recur", ReferenceKind::Calls);
-        assert!(
-            bridged_recursion.target_symbol_id.is_none(),
-            "implicit self never selects a synthetic bridge alias: {bridged_recursion:?}"
+        assert_eq!(
+            bridged_recursion.target_symbol_id.as_ref(),
+            Some(&bridged.symbol_id),
+            "unexpected recursive binding: {bridged_recursion:?}"
+        );
+        assert_eq!(
+            bridged_recursion.resolution_provenance,
+            EXACT_LEXICAL_PROVENANCE
         );
     }
 
@@ -20183,7 +20594,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
         assert_eq!(
             module_reference.resolution_provenance,
-            MODULE_IMPORT_PROVENANCE
+            "native-conventional-alias"
         );
         let card_reference =
             capability_reference_in_file(&forward, "src/routes/+page.svelte", "Card");
@@ -20193,7 +20604,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         );
         assert_eq!(
             card_reference.resolution_provenance,
-            IMPORT_BINDING_PROVENANCE
+            "native-conventional-alias"
         );
         let button_reference =
             capability_reference_in_file(&forward, "src/routes/+page.svelte", "Button");
@@ -20217,7 +20628,10 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             vue_module.target_symbol_id.as_ref(),
             Some(&vue_card_file.symbol_id)
         );
-        assert_eq!(vue_module.resolution_provenance, MODULE_IMPORT_PROVENANCE);
+        assert_eq!(
+            vue_module.resolution_provenance,
+            "native-conventional-alias"
+        );
         let vue_card_reference = capability_reference_in_file(&forward, "pages/index.vue", "Card");
         assert_eq!(
             vue_card_reference.target_symbol_id.as_ref(),
@@ -21119,14 +21533,12 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let first = build_capability_generation_with_budget(
             &fixtures,
             false,
-            false,
-            MEGA_TEST_GENERATION_BYTES,
+            (false, MEGA_TEST_GENERATION_BYTES),
         );
         let second = build_capability_generation_with_budget(
             &fixtures,
             false,
-            false,
-            MEGA_TEST_GENERATION_BYTES,
+            (false, MEGA_TEST_GENERATION_BYTES),
         );
         assert_eq!(first.digest(), second.digest());
 
@@ -21672,63 +22084,24 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         build_capability_generation_with_budget(
             fixtures,
             reverse,
-            wider_partial_band,
-            TEST_GENERATION_BYTES,
+            (wider_partial_band, TEST_GENERATION_BYTES),
         )
     }
 
     fn build_capability_generation_with_budget(
         fixtures: &[(&str, &str)],
         reverse: bool,
-        wider_partial_band: bool,
-        maximum_bytes: u64,
+        (wider_partial_band, maximum_bytes): (bool, u64),
     ) -> CanonicalGenerationFacts {
-        let source_limits = SourceLimits::new(TEST_SOURCE_BYTES)
-            .unwrap_or_else(|error| panic!("capability source limits failed: {error}"));
-        let mut extracted = fixtures
-            .iter()
-            .map(|(path, source)| {
-                let snapshot =
-                    cartograph_extract::SourceSnapshot::from_bytes_for_capability_validation(
-                        path,
-                        source.as_bytes(),
-                        source_limits,
-                    )
-                    .unwrap_or_else(|error| {
-                        panic!("capability snapshot failed for {path}: {error}")
-                    });
-                NativeExtractor::new_for_capability_validation(snapshot.language())
-                    .and_then(|mut extractor| extractor.extract(&snapshot))
-                    .unwrap_or_else(|error| {
-                        panic!("capability extraction failed for {path}: {error}")
-                    })
-            })
-            .collect::<Vec<_>>();
-        if reverse {
-            extracted.reverse();
-        }
-        let mut accumulator = NativeFactAccumulator::new(maximum_bytes);
-        for file in extracted {
-            accumulator
-                .push(file)
-                .unwrap_or_else(|_| panic!("capability facts exceeded the modeled input limit"));
-        }
-        let (facts, _) = resolve_generation(
-            ResolveGenerationRequest {
-                extracted: accumulator,
+        generic_repair::build_generation(
+            generic_repair::CapabilityGenerationRequest {
+                fixtures,
+                reverse,
+                wider_partial_band,
                 maximum_bytes,
-                source_root: test_source_root(),
-                evidence_policy: FULL_TEST_EVIDENCE,
-                clone_policy: NativeClonePolicy { wider_partial_band },
             },
+            |_| {},
             || false,
-        )
-        .unwrap_or_else(|_| panic!("capability resolution exceeded its declared budget"));
-        let validation_limits = generation_validation_limits(maximum_bytes, PipelineStage::Reduce)
-            .unwrap_or_else(|error| panic!("capability validation limits failed: {error}"));
-        validate_generation_facts(facts, validation_limits, || false).map_or_else(
-            |error| panic!("capability canonicalization failed: {error}"),
-            |(facts, _)| facts,
         )
     }
 
@@ -23236,7 +23609,7 @@ export function secondClone(value: number) {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn ambiguous_module_stems_do_not_fall_through_to_directory_indexes() {
+    async fn javascript_module_stems_prefer_language_extensions_before_directory_indexes() {
         let directory = tempdir()
             .unwrap_or_else(|error| panic!("could not create module resolver fixture: {error}"));
         write_module_project(directory.path());
@@ -23246,11 +23619,9 @@ export function secondClone(value: number) {
         };
         let owner = facts.symbol("src/ambiguous.ts", "useAmbiguous");
         let reference = facts.reference(&owner, "choose");
-        assert!(reference.target_symbol_id.is_none());
-        assert_eq!(
-            reference.resolution_provenance,
-            UNRESOLVED_IMPORT_PROVENANCE
-        );
+        let target = facts.symbol("src/foo.ts", "choose");
+        assert_eq!(reference.target_symbol_id.as_ref(), Some(&target));
+        assert_eq!(reference.resolution_provenance, IMPORT_BINDING_PROVENANCE);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -23615,6 +23986,9 @@ export function secondClone(value: number) {
                     export: SymbolExportFlags::named(true),
                     top_level: true,
                     augmentation: false,
+                    static_member: false,
+                    declaration_syntax: DeclarationSyntax::Other,
+                    declaration_span: (0, 0),
                 }
             })
             .collect::<Vec<_>>();

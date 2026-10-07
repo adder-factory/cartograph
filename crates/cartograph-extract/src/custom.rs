@@ -510,6 +510,11 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             symbols: self.symbols,
             containments: self.containments,
             references: self.references,
+            call_scope_sites: Vec::new(),
+            javascript_member_calls: Vec::new(),
+            resolution_abstentions: Vec::new(),
+            local_type_scopes: Vec::new(),
+            receiver_evidence: None,
             numerical_sites: Vec::new(),
             import_bindings: self.import_bindings,
             has_inline_tests: false,
@@ -567,6 +572,7 @@ fn custom_symbol(parts: CustomSymbolParts<'_>) -> Result<ExtractedSymbol, Extrac
             async_symbol: options.async_symbol,
             static_member: options.static_member,
         },
+        declaration_syntax: crate::DeclarationSyntax::Other,
         visibility: options.visibility,
         structural_digest,
         clone_shape_digest,
@@ -1460,6 +1466,11 @@ fn salesforce_type_signature(type_name: &str) -> Option<String> {
 /// Longest Aura attribute type retained as a field signature.
 const MAX_SALESFORCE_TYPE_BYTES: usize = 256;
 
+/// Aura's local-component namespace prefix, excluding the opening `<` delimiter.
+const SALESFORCE_COMPONENT_PREFIX: &str = "c:";
+/// Bytes before a local-component name in markup: `<` followed by `c:`.
+const SALESFORCE_COMPONENT_NAME_OFFSET: usize = 1 + SALESFORCE_COMPONENT_PREFIX.len();
+
 fn scan_salesforce_component_reference(
     builder: &mut CustomBuilder<'_, '_>,
     context: &SalesforceMarkupContext,
@@ -1467,19 +1478,30 @@ fn scan_salesforce_component_reference(
 ) -> Result<(), ExtractError> {
     let Some(raw_name) = tag
         .name
-        .get(2..)
-        .filter(|_| tag.name[..2].eq_ignore_ascii_case("c:"))
+        .get(SALESFORCE_COMPONENT_PREFIX.len()..)
+        .filter(|_| {
+            tag.name[..SALESFORCE_COMPONENT_PREFIX.len()]
+                .eq_ignore_ascii_case(SALESFORCE_COMPONENT_PREFIX)
+        })
     else {
         return Ok(());
     };
     let reference = salesforce_component_name(raw_name);
+    let start = tag.start + SALESFORCE_COMPONENT_NAME_OFFSET;
+    let end = start + raw_name.len();
     builder.add_reference(
         CustomReferenceInput::new(
             Some(context.component.clone()),
             &reference,
             ReferenceKind::References,
         )
-        .at(tag.start + 3, tag.start + 3 + raw_name.len()),
+        .at(start, end),
+    )?;
+    builder.add_import_binding(
+        &CustomImportInput::new(None, crate::SALESFORCE_COMPONENT_MODULE)
+            .with_kind(ImportBindingKind::Named)
+            .binding(raw_name, &reference)
+            .at(start, end),
     )
 }
 
@@ -1497,6 +1519,7 @@ fn scan_salesforce_controller_references(
             .map(str::trim)
             .filter(|item| !item.is_empty() && is_qualified_name(item))
         {
+            builder.check_cancelled()?;
             let relative = value.find(candidate).unwrap_or(0);
             builder.add_reference(
                 CustomReferenceInput::new(
@@ -1505,6 +1528,12 @@ fn scan_salesforce_controller_references(
                     ReferenceKind::References,
                 )
                 .at(offset + relative, offset + relative + candidate.len()),
+            )?;
+            builder.add_import_binding(
+                &CustomImportInput::new(None, crate::SALESFORCE_CONTROLLER_MODULE)
+                    .with_kind(ImportBindingKind::Namespace)
+                    .binding(candidate, candidate)
+                    .at(offset + relative, offset + relative + candidate.len()),
             )?;
         }
     }

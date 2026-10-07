@@ -1,8 +1,12 @@
 use std::mem::size_of;
 
+use cartograph_domain::SourceSpan;
+
 use crate::{
-    Containment, ExtractError, ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite,
-    ExtractedReference, ExtractedSymbol, ExtractionDiagnostic, SourceSnapshot,
+    Containment, ExtractError, ExtractedCallScopeSite, ExtractedFile, ExtractedImportBinding,
+    ExtractedNumericalSite, ExtractedReceiverBinding, ExtractedReceiverEvidence,
+    ExtractedReceiverLookup, ExtractedReference, ExtractedSymbol, ExtractionDiagnostic,
+    JavascriptMemberCallContext, JavascriptMemberReceiver, SourceSnapshot,
 };
 
 // The transient construction budget charges two vector-growth slots per fact so an allocation
@@ -181,6 +185,45 @@ impl ExtractedFile {
                 })
             })
             .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<ExtractedCallScopeSite>(
+                    self.call_scope_sites.capacity(),
+                ))
+            })
+            .and_then(|bytes| {
+                self.call_scope_sites.iter().try_fold(bytes, |total, site| {
+                    total.checked_add(usize_to_u64(site.owner.as_str().len()))
+                })
+            })
+            .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<JavascriptMemberCallContext>(
+                    self.javascript_member_calls.capacity(),
+                ))
+            })
+            .and_then(|bytes| {
+                self.javascript_member_calls
+                    .iter()
+                    .try_fold(bytes, |total, call| {
+                        total.checked_add(javascript_call_context_string_bytes(call))
+                    })
+            })
+            .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<SourceSpan>(
+                    self.resolution_abstentions.capacity(),
+                ))
+            })
+            .and_then(|bytes| {
+                bytes.checked_add(vector_bytes::<(SourceSpan, SourceSpan)>(
+                    self.local_type_scopes.capacity(),
+                ))
+            })
+            .and_then(|bytes| {
+                bytes.checked_add(
+                    self.receiver_evidence
+                        .as_deref()
+                        .map_or(0, receiver_evidence_bytes),
+                )
+            })
+            .and_then(|bytes| {
                 bytes.checked_add(vector_bytes::<ExtractedNumericalSite>(
                     self.numerical_sites.capacity(),
                 ))
@@ -212,6 +255,42 @@ impl ExtractedFile {
     }
 }
 
+fn receiver_evidence_bytes(evidence: &ExtractedReceiverEvidence) -> u64 {
+    let header = usize_to_u64(size_of::<ExtractedReceiverEvidence>())
+        .checked_add(vector_bytes::<ExtractedReceiverLookup>(
+            evidence.lookups.capacity(),
+        ))
+        .and_then(|bytes| {
+            bytes.checked_add(vector_bytes::<ExtractedReceiverBinding>(
+                evidence.bindings.capacity(),
+            ))
+        });
+    header
+        .and_then(|bytes| {
+            evidence.lookups.iter().try_fold(bytes, |total, lookup| {
+                total.checked_add(usize_to_u64(lookup.lookup.capacity()))
+            })
+        })
+        .and_then(|bytes| {
+            evidence.bindings.iter().try_fold(bytes, |total, binding| {
+                total
+                    .checked_add(
+                        binding
+                            .class_id
+                            .as_ref()
+                            .map_or(0, |id| usize_to_u64(id.as_str().len())),
+                    )?
+                    .checked_add(
+                        binding
+                            .name
+                            .as_ref()
+                            .map_or(0, |name| usize_to_u64(name.capacity())),
+                    )
+            })
+        })
+        .unwrap_or(u64::MAX)
+}
+
 pub(crate) fn symbol_budget_bytes(symbol: &ExtractedSymbol) -> u64 {
     vector_growth_bytes::<ExtractedSymbol>().saturating_add(symbol_string_bytes(symbol))
 }
@@ -222,6 +301,25 @@ pub(crate) fn containment_budget_bytes(edge: &Containment) -> u64 {
 
 pub(crate) fn reference_budget_bytes(reference: &ExtractedReference) -> u64 {
     vector_growth_bytes::<ExtractedReference>().saturating_add(reference_string_bytes(reference))
+}
+
+pub(crate) fn call_scope_site_budget_bytes(site: &ExtractedCallScopeSite) -> u64 {
+    vector_growth_bytes::<ExtractedCallScopeSite>()
+        .saturating_add(usize_to_u64(site.owner.as_str().len()))
+}
+
+pub(crate) fn javascript_call_context_budget_bytes(call: &JavascriptMemberCallContext) -> u64 {
+    vector_growth_bytes::<JavascriptMemberCallContext>()
+        .saturating_add(javascript_call_context_string_bytes(call))
+}
+
+fn javascript_call_context_string_bytes(call: &JavascriptMemberCallContext) -> u64 {
+    match &call.receiver {
+        JavascriptMemberReceiver::Constructor(name) => usize_to_u64(name.capacity()),
+        JavascriptMemberReceiver::Shadowed
+        | JavascriptMemberReceiver::Uncertain
+        | JavascriptMemberReceiver::LocalImport => 0,
+    }
 }
 
 pub(crate) fn numerical_site_budget_bytes(site: &ExtractedNumericalSite) -> u64 {

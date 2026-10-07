@@ -568,6 +568,27 @@ Route::get('/inline', static fn () => ['ok' => true]);
 }
 
 #[test]
+fn global_php_route_controllers_retain_their_exact_scope_marker() {
+    for (name, lookup) in [
+        (r"\OrderController::show", r"\OrderController::show"),
+        (
+            r"\Other\OrderController::show",
+            r"\Other::OrderController::show",
+        ),
+    ] {
+        let source = format!("show:\n  path: /show\n  controller: '{name}'\n");
+        let file = extract("config/routes.yaml", &source, SourceLanguage::Yaml);
+        let handler = file
+            .references
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Calls)
+            .unwrap_or_else(|| panic!("missing global route handler"));
+        assert_eq!(handler.name, name);
+        assert_eq!(handler.resolution_name.as_deref(), Some(lookup));
+    }
+}
+
+#[test]
 fn framework_configuration_routes_cover_symfony_drupal_and_codeigniter() {
     let symfony = extract(
         "config/routes.yaml",
@@ -612,7 +633,7 @@ orders.hello:
     assert!(drupal.references.iter().any(|reference| {
         reference.name == "\\Drupal\\orders\\Controller\\HelloController::build"
             && reference.resolution_name.as_deref()
-                == Some("Drupal\\orders\\Controller::HelloController::build")
+                == Some("\\Drupal\\orders\\Controller::HelloController::build")
     }));
 
     let codeigniter = extract(

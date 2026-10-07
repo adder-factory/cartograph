@@ -206,27 +206,30 @@ impl CartographDatabase {
         if rows.len() != symbol_ids.len() {
             return Err(StorageError::CurrentGenerationChanged);
         }
-        rows.iter()
-            .map(|row| {
-                let raw_id = row
-                    .try_get::<String, _>(0)
-                    .map_err(|_| StorageError::CorruptStoredValue { field: "symbol_id" })?;
-                let symbol_id = SymbolId::parse(&raw_id)
-                    .map_err(|_| StorageError::CorruptStoredValue { field: "symbol_id" })?;
-                let score = row.try_get::<Option<f64>, _>(1).map_err(|_| {
-                    StorageError::CorruptStoredValue {
-                        field: Record::SCORE_FIELD,
-                    }
-                })?;
-                if score.is_some_and(|score| !score.is_finite() || !(0.0..=1.0).contains(&score)) {
-                    return Err(StorageError::CorruptStoredValue {
-                        field: Record::SCORE_FIELD,
-                    });
-                }
-                Ok(Record::new(symbol_id, score))
-            })
-            .collect()
+        rows.iter().map(decode_centrality_row::<Record>).collect()
     }
+}
+
+/// Decode one score only after the query's complete current-generation fence has passed.
+fn decode_centrality_row<Record: CentralityRecord>(
+    row: &sqlx_postgres::PgRow,
+) -> Result<Record, StorageError> {
+    let raw_id = row
+        .try_get::<String, _>(0)
+        .map_err(|_| StorageError::CorruptStoredValue { field: "symbol_id" })?;
+    let symbol_id = SymbolId::parse(&raw_id)
+        .map_err(|_| StorageError::CorruptStoredValue { field: "symbol_id" })?;
+    let score = row
+        .try_get::<Option<f64>, _>(1)
+        .map_err(|_| StorageError::CorruptStoredValue {
+            field: Record::SCORE_FIELD,
+        })?;
+    if score.is_some_and(|score| !score.is_finite() || !(0.0..=1.0).contains(&score)) {
+        return Err(StorageError::CorruptStoredValue {
+            field: Record::SCORE_FIELD,
+        });
+    }
+    Ok(Record::new(symbol_id, score))
 }
 
 /// Compute directed `PageRank` over calls and references and attach a

@@ -72,6 +72,16 @@ pub(in crate::walk) struct LocalExpressionMacros {
 }
 
 impl LocalExpressionMacros {
+    /// A known standard spelling is not a standard macro while a local
+    /// definition with that name is in textual scope.
+    pub(in crate::walk) fn is_defined(
+        &mut self,
+        invocation: (&str, usize),
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<bool, ExtractError> {
+        Ok(self.current_definition(invocation, cancelled)?.is_some())
+    }
+
     /// Whether the latest definition of `macro_name` in scope at byte `offset`
     /// takes expressions; `false` when none is in scope.
     pub(super) fn takes_expressions(
@@ -171,7 +181,10 @@ fn definition_scope<'tree>(
 }
 
 /// Whether a module carries an outer `#[macro_use]` attribute.
-fn has_macro_use(builder: &ExtractionBuilder<'_, '_>, module: Node<'_>) -> bool {
+pub(in crate::walk) fn has_macro_use(
+    builder: &ExtractionBuilder<'_, '_>,
+    module: Node<'_>,
+) -> bool {
     let mut sibling = module.prev_named_sibling();
     for _ in 0..MAX_MODULE_ATTRIBUTES {
         let Some(candidate) = sibling else {
