@@ -63,95 +63,93 @@ difference, inspect source, captured declarations, reference sites and the real
 native resolved edge, then record complete canonical pins. Do not change captures
 or the corpus seal, widen matching, or convert a corrected target into parity.
 
-## Measurement at base `e820b5ea` for the v2.1.41 Wave 2 work
+## Measurement for the v2.1.41 release (base `667dec76`)
 
 | Disposition | Distinct facts |
 | --- | ---: |
-| Matched exactly | 517 |
-| Aligned by exact pins | 243 |
-| Pending Wave 2 | 655 |
-| Pending Wave 3 | 178 |
-| Intentional | 131 |
+| Matched exactly | 577 |
+| Aligned by exact pins | 293 |
+| Pending Wave 2 | 72 |
+| Pending Wave 3 | 376 |
+| Intentional | 406 |
 | Total | 1,724 |
 
 Intentional facts include 57 captures without a unique target declaration and one
-without a unique owner. A passing oracle means every fact is accounted for; 833
-facts remain pending. It does not assert complete resolution parity.
+without a unique owner. A passing oracle means every fact is accounted for;
+448 facts remain pending. It does not assert complete resolution parity.
+
+The remaining 72 Wave 2 facts belong to the six tracks still owned by the lead:
+`unqualified-project-call-target-resolution`,
+`module-qualified-call-target-resolution`,
+`go-package-qualified-target-resolution`,
+`rust-workspace-path-target-resolution`,
+`declaration-definition-resolution-preference`, and
+`self-resource-reference-edges`. All other unresolved Wave 2 tracks are deferred
+to Wave 3 in both the ledger and reason table.
 
 Mutation testing samples one carried edge per corpus/kind/disposition, preferring
 cross-file cases. It deletes or retargets the real native `EdgeInput`, reprojects
 the graph and requires a failure for that specific original fact using the same
-committed policy. At this base all **422/422** mutants failed (100% kill rate):
-211 sampled edges, including 104 cross-file and 79 aligned edges. The 33 small
-gate cases additionally cover target-file/name substitutions, wrong kinds/owners,
-missing sites, readable collisions, conjunctive pins and ledger hygiene.
+committed policy. At this release base all **434/434** mutants failed (100%
+kill rate): 217 sampled edges, including 117 cross-file and 83 aligned edges.
+The 33 small gate cases additionally cover target-file/name substitutions, wrong
+kinds/owners, missing sites, readable collisions, conjunctive pins and ledger
+hygiene.
 
 The pending inventory below lists every gap, sorted by fact count and gap ID.
 
 | Gap ID | Wave | Pending facts |
 | --- | ---: | ---: |
-| `external-import-node-fallback` | 2 | 254 |
 | `project-import-node-target-representation` | 3 | 93 |
-| `instance-receiver-member-resolution` | 2 | 48 |
-| `intra-class-receiver-calls` | 2 | 45 |
-| `jvm-wildcard-import-blocks-fallback` | 2 | 36 |
+| `instance-receiver-member-resolution` | 3 | 40 |
 | `unqualified-project-call-target-resolution` | 2 | 33 |
-| `static-qualified-member-calls` | 2 | 28 |
-| `native-qualified-type-target-resolution` | 2 | 25 |
-| `jvm-explicit-import-resolution` | 2 | 24 |
-| `file-path-references` | 2 | 23 |
+| `intra-class-receiver-calls` | 3 | 30 |
+| `static-qualified-member-calls` | 3 | 26 |
+| `jvm-wildcard-import-blocks-fallback` | 3 | 24 |
+| `file-path-references` | 3 | 20 |
+| `native-qualified-type-target-resolution` | 3 | 17 |
 | `drupal-service-target-identity` | 3 | 14 |
 | `module-qualified-call-target-resolution` | 2 | 14 |
 | `rust-workspace-path-target-resolution` | 2 | 14 |
 | `self-def-use-graph-edges` | 3 | 14 |
-| `graphql-extension-target-identity` | 2 | 12 |
-| `python-absolute-imports` | 2 | 10 |
-| `ts-default-public-methods-invisible` | 2 | 10 |
 | `go-package-qualified-target-resolution` | 2 | 9 |
-| `receiver-field-target-resolution` | 2 | 9 |
-| `inherited-receiver-member-resolution` | 2 | 7 |
+| `ts-default-public-methods-invisible` | 3 | 7 |
 | `aura-client-action-target-resolution` | 3 | 6 |
 | `drupal-tag-consumer-direction-and-hooks` | 3 | 6 |
-| `php-qualified-member-resolution` | 2 | 6 |
-| `play-route-handler-resolution` | 2 | 6 |
-| `enum-member-qualified-target-resolution` | 2 | 5 |
-| `native-bridge-physical-target-identity` | 3 | 5 |
-| `dart-imported-constructor-target-resolution` | 2 | 4 |
+| `inherited-receiver-member-resolution` | 3 | 6 |
+| `play-route-handler-resolution` | 3 | 6 |
+| `dart-imported-constructor-target-resolution` | 3 | 4 |
 | `fabric-native-impl-class-bridge` | 3 | 4 |
-| `mybatis-configuration-class-target-resolution` | 3 | 4 |
-| `tsconfig-extends` | 2 | 4 |
+| `jvm-explicit-import-resolution` | 3 | 4 |
+| `native-bridge-physical-target-identity` | 3 | 4 |
 | `angular-routes-all-objects` | 3 | 3 |
-| `cargo-crate-root-fallbacks` | 2 | 3 |
+| `cargo-crate-root-fallbacks` | 3 | 3 |
 | `drupal-routing-handler-keys-and-methods` | 3 | 3 |
-| `php-controller-class-fallback` | 2 | 3 |
-| `python-package-init-resolution` | 2 | 3 |
-| `salesforce-controller-context-normalization` | 2 | 3 |
+| `php-controller-class-fallback` | 3 | 3 |
+| `php-qualified-member-resolution` | 3 | 3 |
+| `receiver-field-target-resolution` | 3 | 3 |
 | `symfony-yaml-route-files-and-defaults` | 3 | 3 |
 | `aura-client-actions-and-server-action-strings` | 3 | 2 |
-| `codeigniter-route-handler-target-resolution` | 2 | 2 |
 | `component-import-target-identity` | 3 | 2 |
 | `drupal-yaml-handler-forms` | 3 | 2 |
 | `flutter-route-handler-target-identity` | 3 | 2 |
-| `js-framework-name-transform-resolution` | 2 | 2 |
-| `js-workspace-package-imports` | 2 | 2 |
-| `jvm-kotlin-java-cross-language` | 2 | 2 |
+| `js-framework-name-transform-resolution` | 3 | 2 |
 | `lwc-bundle-component-and-template-refs` | 3 | 2 |
-| `lwc-salesforce-apex-imports` | 2 | 2 |
+| `mybatis-configuration-class-target-resolution` | 3 | 2 |
 | `spring-property-injection-target-resolution` | 3 | 2 |
-| `swift-objc-bridge-alias-targets` | 3 | 2 |
 | `codeigniter-loads-and-inferred-resources` | 3 | 1 |
 | `commonjs-callable-import-ownership` | 3 | 1 |
 | `declaration-definition-resolution-preference` | 2 | 1 |
-| `drupal-services-class-refs-resolution` | 3 | 1 |
+| `enum-member-qualified-target-resolution` | 3 | 1 |
 | `fabric-view-manager-scan-forms` | 3 | 1 |
 | `flutter-builder-and-map-parsing` | 3 | 1 |
 | `multi-route-per-statement-collapse` | 3 | 1 |
 | `mybatis-template-target-resolution` | 3 | 1 |
-| `python-module-private-members` | 2 | 1 |
-| `qualified-name-suffix-match` | 2 | 1 |
-| `recursive-self-call-edges` | 2 | 1 |
-| `rescript-interface-implementation-target-resolution` | 2 | 1 |
+| `python-absolute-imports` | 3 | 1 |
+| `qualified-name-suffix-match` | 3 | 1 |
+| `recursive-self-call-edges` | 3 | 1 |
 | `rn-event-channel-gaps` | 3 | 1 |
 | `rn-native-module-scan-forms` | 3 | 1 |
+| `salesforce-controller-context-normalization` | 3 | 1 |
 | `self-resource-reference-edges` | 2 | 1 |
-| `vue-svelte-directory-index-module` | 2 | 1 |
+| `vue-svelte-directory-index-module` | 3 | 1 |
