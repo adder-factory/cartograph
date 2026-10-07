@@ -1,6 +1,8 @@
 mod codeigniter_resolution;
 mod csharp_constructors;
 mod declaration_resolution;
+mod drupal_resolution;
+mod drupal_tags;
 mod enum_resolution;
 mod explicit_edge_resolution;
 mod file_path_resolution;
@@ -5336,6 +5338,9 @@ struct ResolutionIndex {
     php: php_resolution::PhpResolutionIndex,
     javascript_exports: javascript_exports::ExportIndex,
     salesforce: salesforce_resolution::SalesforceIndex,
+    drupal_tags: drupal_tags::TagIndex,
+    drupal_classes: drupal_resolution::ClassIndex,
+    drupal_services: drupal_resolution::ServiceIndex,
     framework_methods: framework_methods::MethodIndex,
     generic: generic_resolution::GenericResolutionIndex,
     jvm: jvm_resolution::JvmResolutionIndex,
@@ -9363,73 +9368,7 @@ fn append_drupal_tag_bridges<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let FrameworkCandidateMutation {
-        index,
-        facts,
-        budget,
-        candidates,
-        cancelled,
-    } = input;
-    let hub = candidates
-        .iter()
-        .filter(|candidate| drupal_tag_role(candidate).is_some())
-        .min_by(|left, right| left.symbol_id.as_str().cmp(right.symbol_id.as_str()));
-    let Some(hub) = hub else {
-        return Ok(());
-    };
-    for fact in candidates {
-        if cancelled() {
-            return Err(StageItemFailure);
-        }
-        let Some((provider, service_id)) = drupal_tag_role(fact) else {
-            continue;
-        };
-        let Some(service) = unique_drupal_service(DrupalServiceQuery {
-            index,
-            file_id: &fact.file_id,
-            service_id,
-            cancelled,
-        })?
-        else {
-            continue;
-        };
-        if provider {
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source: service,
-                    target: hub,
-                    confidence: FRAMEWORK_CONVENTION_CONFIDENCE,
-                    provenance: DRUPAL_TAG_PROVIDES_PROVENANCE,
-                },
-            )?;
-        } else {
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source: hub,
-                    target: service,
-                    confidence: FRAMEWORK_CONVENTION_CONFIDENCE,
-                    provenance: DRUPAL_TAG_CONSUMES_PROVENANCE,
-                },
-            )?;
-        }
-        if fact.symbol_id != hub.symbol_id {
-            append_framework_edge(
-                facts,
-                budget,
-                FrameworkEdgeInput {
-                    source: fact,
-                    target: hub,
-                    confidence: FRAMEWORK_CONVENTION_CONFIDENCE,
-                    provenance: DRUPAL_TAG_EVIDENCE_PROVENANCE,
-                },
-            )?;
-        }
-    }
-    Ok(())
+    drupal_tags::append(input)
 }
 
 fn drupal_tag_role(candidate: &ResolutionCandidate) -> Option<(bool, &str)> {
@@ -10559,6 +10498,16 @@ where
     Cancel: FnMut() -> bool,
 {
     let ResolutionIndexTarget { index, budget } = target;
+    drupal_tags::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    drupal_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     salesforce_resolution::index_file(
         salesforce_resolution::SalesforceFileInput {
             index: &mut index.salesforce,
@@ -10921,6 +10870,9 @@ impl<'a> FileImportBindingIndex<'a> {
             .try_reserve_exact(bindings.len())
             .map_err(|_| StageItemFailure)?;
         for (position, binding) in bindings.iter().enumerate() {
+            if binding.module_specifier == cartograph_extract::DRUPAL_CLASS_MODULE {
+                continue;
+            }
             if salesforce_resolution::implicit_binding(binding, language) {
                 continue;
             }
@@ -20460,8 +20412,8 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             })
             .unwrap_or_else(|| panic!("missing Drupal provider edge: {:?}", forward.edges()));
         assert!(forward.edges().iter().any(|edge| {
-            edge.source_symbol_id == provider_edge.target_symbol_id
-                && edge.target_symbol_id == consumer.symbol_id
+            edge.source_symbol_id == consumer.symbol_id
+                && edge.target_symbol_id == provider_edge.target_symbol_id
                 && edge.provenance == DRUPAL_TAG_CONSUMES_PROVENANCE
         }));
     }

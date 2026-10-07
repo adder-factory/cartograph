@@ -17,6 +17,7 @@ mod framework_manifest;
 mod framework_mybatis;
 mod framework_nest;
 mod framework_rails;
+mod framework_salesforce;
 mod framework_spring;
 mod framework_symfony;
 mod grammars;
@@ -28,6 +29,7 @@ mod native;
 mod objc_lex;
 mod objc_macro_rewrite;
 mod reader;
+mod salesforce_bundle;
 mod snapshot;
 mod source_lines;
 mod tags;
@@ -46,7 +48,7 @@ pub use discovery_policy::{
 pub use grammars::NativeGrammar;
 pub use language::{ExtractionStrategy, LanguageSpec};
 pub use model::{
-    CallScopeKind, CloneTokenCount, CloneTokenProfile, Containment,
+    CallScopeKind, CloneTokenCount, CloneTokenProfile, Containment, DRUPAL_CLASS_MODULE,
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DeclarationSyntax, DiagnosticCode,
     EMBEDDED_SQL_RESOLUTION_PREFIX, EXPLICIT_RECEIVER_IMPORT_PREFIX,
     EXPLICIT_RECEIVER_RESOLUTION_PREFIX, ExtractedCallScopeSite, ExtractedFile,
@@ -55,7 +57,7 @@ pub use model::{
     ExtractionDiagnostic, ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
     LEXICAL_SCOPE_RESOLUTION_PREFIX, PHP_EXACT_RESOLUTION_PREFIX, PHP_NAMESPACE_SCOPE_MODULE,
     PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
-    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SALESFORCE_COMPONENT_MODULE,
+    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SALESFORCE_CLIENT_MODULE, SALESFORCE_COMPONENT_MODULE,
     SALESFORCE_CONTROLLER_MODULE, SymbolHealthMetrics, TYPE_QUERY_VALUE_RESOLUTION_PREFIX,
 };
 pub use module_alias::substitute_module_alias;
@@ -63,6 +65,7 @@ pub use native::{
     DEFAULT_MAXIMUM_AST_DEPTH, ExtractError, MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor,
 };
 pub use reader::{SourceReadError, SourceReadOptions, SourceRoot};
+pub use salesforce_bundle::{SalesforceBundle, SalesforceBundleKind, salesforce_bundle};
 pub use snapshot::{
     SnapshotError, SourceLimits, SourceLimitsError, SourceSnapshot, is_test_source_path,
 };

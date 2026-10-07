@@ -2,7 +2,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cartograph_extract::{SALESFORCE_COMPONENT_MODULE, SALESFORCE_CONTROLLER_MODULE};
+mod bundles;
+
+use cartograph_extract::{
+    SALESFORCE_CLIENT_MODULE, SALESFORCE_COMPONENT_MODULE, SALESFORCE_CONTROLLER_MODULE,
+};
 
 use super::{
     ExtractedImportBinding, FileId, ImportBindingKind, ImportResolution, NativeFileFacts,
@@ -31,10 +35,11 @@ struct MarkupSite {
 enum MarkupSiteKind {
     Controller,
     Component,
+    Client,
 }
 
 pub(super) fn implicit_binding(binding: &ExtractedImportBinding, language: &str) -> bool {
-    matches!(language, "aura" | "visualforce")
+    (matches!(language, "aura" | "visualforce") || javascript_family_name(language))
         && markup_site_kind(&binding.module_specifier).is_some()
 }
 
@@ -42,6 +47,7 @@ fn markup_site_kind(module: &str) -> Option<MarkupSiteKind> {
     match module {
         SALESFORCE_CONTROLLER_MODULE => Some(MarkupSiteKind::Controller),
         SALESFORCE_COMPONENT_MODULE => Some(MarkupSiteKind::Component),
+        SALESFORCE_CLIENT_MODULE => Some(MarkupSiteKind::Client),
         _ => None,
     }
 }
@@ -62,6 +68,7 @@ where
     match input.file.file.language.as_str() {
         "apex" => index_annotations(input, cancelled),
         "aura" | "visualforce" => index_controllers(input, cancelled),
+        language if javascript_family_name(language) => index_controllers(input, cancelled),
         _ => Ok(()),
     }
 }
@@ -209,6 +216,9 @@ where
         binding,
         reference,
     } = query;
+    if let Some(resolution) = bundles::resolve_binding(query, cancelled)? {
+        return Ok(Some(resolution));
+    }
     if !javascript_family_name(reference.language) || !apex_specifier(&binding.module_specifier) {
         return Ok(None);
     }
@@ -240,6 +250,9 @@ pub(super) fn resolve<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(resolution) = bundles::resolve(index, request, cancelled)? {
+        return Ok(Some(resolution));
+    }
     if javascript_family_name(request.language)
         && request.kind == ReferenceKind::Imports
         && apex_specifier(request.name)
@@ -494,6 +507,7 @@ where
         MarkupSiteKind::Controller => apex_class(index, &site.name, cancelled)?
             .map(|candidate| target(candidate, "framework-salesforce-controller")),
         MarkupSiteKind::Component => component_target(index, (site, request), cancelled)?,
+        MarkupSiteKind::Client => return Ok(None),
     };
     Ok(Some(resolution(target)))
 }

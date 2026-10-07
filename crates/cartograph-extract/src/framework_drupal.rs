@@ -8,6 +8,13 @@ use crate::{
     source_lines::physical_lines,
 };
 
+mod hooks;
+mod routes;
+mod service_details;
+mod tags;
+
+pub(crate) use routes::is_routing_path;
+
 const MAX_SIGNAL_BYTES: usize = 4_096;
 const MAX_TAGS_PER_FILE: usize = 4_096;
 /// Service keys whose `@service:method` value names a method after the colon.
@@ -18,11 +25,14 @@ pub(crate) fn scan(
     masked_source: &str,
 ) -> Result<(), ExtractError> {
     match builder.language() {
+        SourceLanguage::Yaml if is_routing_path(builder.path()) => {
+            routes::scan(builder, masked_source)
+        }
         SourceLanguage::Yaml if is_services_path(builder.path()) => {
             scan_services(builder, masked_source)
         }
         SourceLanguage::Php => {
-            scan_hook_contracts(builder)?;
+            hooks::scan(builder)?;
             scan_plugins(builder, masked_source)
         }
         _ => Ok(()),
@@ -56,6 +66,7 @@ struct ServiceReference<'a> {
     value: &'a str,
     start: usize,
     end: usize,
+    class_target: bool,
 }
 
 fn scan_services(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(), ExtractError> {
@@ -73,7 +84,7 @@ fn scan_services(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result
     publish_service_tags(builder, state.tag_facts)
 }
 
-type ServiceTagFact = (String, String, bool, usize, usize);
+type ServiceTagFact = (String, String, bool, usize, usize, SymbolId);
 
 #[derive(Default)]
 struct ServiceScanState {
@@ -191,6 +202,7 @@ fn begin_service(
         symbol_id,
         indent: line.indent,
     });
+    service_details::declaration(builder, (state.current.as_ref(), line))?;
     Ok(())
 }
 
@@ -209,6 +221,7 @@ fn collect_service_tags(state: &mut ServiceScanState, line: ServiceSourceLine<'_
             true,
             line.start + tag.start,
             line.start + tag.end,
+            service.symbol_id.clone(),
         ));
     }
     if let Some(tag) = tagged_iterator(line.text) {
@@ -218,6 +231,7 @@ fn collect_service_tags(state: &mut ServiceScanState, line: ServiceSourceLine<'_
             false,
             line.start + tag.start,
             line.start + tag.end,
+            service.symbol_id.clone(),
         ));
     }
 }
@@ -226,27 +240,7 @@ fn publish_service_tags(
     builder: &mut FrameworkBuilder<'_, '_>,
     tag_facts: BTreeSet<ServiceTagFact>,
 ) -> Result<(), ExtractError> {
-    if tag_facts.len() > MAX_TAGS_PER_FILE {
-        return Err(ExtractError::OutputLimit);
-    }
-    for (service_id, tag, provider, start, end) in tag_facts {
-        builder.add_landmark(LandmarkInput {
-            kind: SymbolKind::Resource,
-            name: format!("drupal-tag:{tag}"),
-            identity: format!(
-                "drupal-tag-{}::{tag}::{service_id}",
-                if provider { "provider" } else { "consumer" }
-            ),
-            start,
-            end,
-            body_search_text: format!(
-                "drupal service tag {} {tag} {service_id}",
-                if provider { "provides" } else { "consumes" }
-            ),
-            target: None,
-        })?;
-    }
-    Ok(())
+    tags::publish(builder, tag_facts)
 }
 
 fn scan_service_direct_references(
@@ -259,6 +253,7 @@ fn scan_service_direct_references(
         text: line,
         service_setting,
     } = input;
+    service_details::factory(builder, input)?;
     scan_service_scalar_references(builder, input)?;
     // A `factory`/`configurator` whose scalar is rejected (an unterminated
     // quote, an unsupported escape) names nothing rather than a raw guess.
@@ -312,6 +307,7 @@ fn scan_service_direct_references(
                     value: &line[name_start..end],
                     start: line_start + name_start,
                     end: line_start + end,
+                    class_target: false,
                 },
             )?;
         }
@@ -328,7 +324,7 @@ fn scan_service_scalar_references(
         service,
         start: line_start,
         text: line,
-        ..
+        service_setting,
     } = input;
     for key in ["class", "alias", "parent"] {
         if let Some(scalar) = yaml_value_for_key(line, key) {
@@ -339,6 +335,7 @@ fn scan_service_scalar_references(
                     value: &scalar.value,
                     start: line_start + scalar.start,
                     end: line_start + scalar.end,
+                    class_target: key == "class" && service_setting,
                 },
             )?;
         }
@@ -359,6 +356,7 @@ fn scan_service_scalar_references(
                 value: class,
                 start: line_start + factory.start,
                 end: line_start + factory.start + raw_class_length,
+                class_target: service_setting,
             },
         )?;
     }
@@ -374,10 +372,17 @@ fn add_service_reference(
         value,
         start,
         end,
+        class_target,
     } = input;
     let value = value.trim();
     if value.is_empty() || value.len() > MAX_SIGNAL_BYTES || start >= end {
         return Ok(());
+    }
+    if class_target && service_details::class_lookup(value).is_some() {
+        crate::framework::literal_bindings::append(
+            builder,
+            (crate::DRUPAL_CLASS_MODULE, value, start, end),
+        )?;
     }
     builder.add_reference_with_resolution(FrameworkReferenceInput {
         owner: Some(service.symbol_id.clone()),
@@ -387,64 +392,6 @@ fn add_service_reference(
         start,
         end,
     })
-}
-
-fn scan_hook_contracts(builder: &mut FrameworkBuilder<'_, '_>) -> Result<(), ExtractError> {
-    let lower_path = builder.path().to_ascii_lowercase();
-    if ![".module", ".install", ".theme", ".inc"]
-        .iter()
-        .any(|extension| lower_path.ends_with(extension))
-    {
-        return Ok(());
-    }
-    let module = builder
-        .path()
-        .rsplit('/')
-        .next()
-        .and_then(|base| base.split('.').next())
-        .unwrap_or_default()
-        .replace('-', "_");
-    let source = builder.source();
-    for index in 0..builder.original_symbol_count() {
-        builder.check_cancelled()?;
-        let Some((name, start, end)) = builder.original_symbol(index).and_then(|symbol| {
-            matches!(symbol.kind, SymbolKind::Function | SymbolKind::Module).then(|| {
-                Some((
-                    symbol.name.clone(),
-                    usize::try_from(symbol.span.start_byte()).ok()?,
-                    usize::try_from(symbol.span.end_byte()).ok()?,
-                ))
-            })?
-        }) else {
-            continue;
-        };
-        let prefix_start = start.saturating_sub(MAX_SIGNAL_BYTES);
-        let prefix = &source[prefix_start..start];
-        let documented = documented_hook(prefix);
-        let inferred = name
-            .strip_prefix(&module)
-            .and_then(|suffix| suffix.strip_prefix('_'))
-            .filter(|suffix| !suffix.is_empty())
-            .map(|suffix| format!("hook_{suffix}"));
-        let Some(contract) = documented.or(inferred) else {
-            continue;
-        };
-        let (name_start, name_end) = source[start..end]
-            .find(&name)
-            .map_or((start, end), |offset| {
-                (start + offset, start + offset + name.len())
-            });
-        builder.add_landmark(LandmarkInput {
-            kind: SymbolKind::Resource,
-            name: contract.clone(),
-            identity: format!("drupal-hook-contract::{contract}::{name}"),
-            start: name_start,
-            end: name_end,
-            body_search_text: format!("drupal hook contract {contract} implementation {name}"),
-            target: Some((&name, None, name_start, name_end)),
-        })?;
-    }
-    Ok(())
 }
 
 fn documented_hook(prefix: &str) -> Option<String> {

@@ -1,5 +1,6 @@
 mod bridge_transaction;
 mod cargo_path_bindings;
+pub(crate) mod literal_bindings;
 mod owner_index;
 
 use bridge_transaction::BridgeTransaction;
@@ -99,6 +100,7 @@ pub(crate) fn enrich(
     crate::framework_mybatis::scan(&mut builder, &masked_source)?;
     crate::framework_nest::scan(&mut builder, &masked_source)?;
     crate::framework_rails::scan(&mut builder, &masked_source)?;
+    crate::framework_salesforce::scan(&mut builder)?;
     crate::framework_spring::scan(&mut builder, &masked_source)?;
     crate::framework_symfony::scan(&mut builder, &masked_source)?;
     scan_framework_signals(&mut builder, &masked_source)?;
@@ -1852,7 +1854,7 @@ fn php_qualified_token_before(value: &str, end: usize) -> Option<(usize, &str)> 
     php_class_resolution(token).map(|_| (start, token))
 }
 
-fn php_controller_resolution(value: &str) -> Option<String> {
+pub(crate) fn php_controller_resolution(value: &str) -> Option<String> {
     let value = value.trim();
     if let Some((class, method)) = value.rsplit_once("::") {
         return php_method_resolution(class, method);
@@ -2113,6 +2115,9 @@ fn scan_configuration_routes(
     source: &str,
 ) -> Result<(), ExtractError> {
     if builder.language() != SourceLanguage::Yaml {
+        return Ok(());
+    }
+    if crate::framework_drupal::is_routing_path(builder.path()) {
         return Ok(());
     }
     let lower_path = builder.path().to_ascii_lowercase();

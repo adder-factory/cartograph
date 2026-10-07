@@ -628,7 +628,7 @@ orders.hello:
         drupal
             .symbols
             .iter()
-            .any(|symbol| { symbol.kind == SymbolKind::Route && symbol.name == "GET /hello" })
+            .any(|symbol| { symbol.kind == SymbolKind::Route && symbol.name == "/hello [GET]" })
     );
     assert!(drupal.references.iter().any(|reference| {
         reference.name == "\\Drupal\\orders\\Controller\\HelloController::build"

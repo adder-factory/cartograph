@@ -95,10 +95,19 @@ pub const PHP_EXACT_RESOLUTION_PREFIX: &str = "cartograph.php-exact::";
 #[doc(hidden)]
 pub const SALESFORCE_CONTROLLER_MODULE: &str = "cartograph.salesforce-controller";
 
+/// Internal occurrence marker for an unmodified Aura client action receiver.
+#[doc(hidden)]
+pub const SALESFORCE_CLIENT_MODULE: &str = "cartograph.salesforce-client";
+
 /// Internal module identity of an implicit Salesforce component binding.
 /// Its imported name preserves bundle case independently of the reference name.
 #[doc(hidden)]
 pub const SALESFORCE_COMPONENT_MODULE: &str = "cartograph.salesforce-component";
+
+/// Internal binding identity for a Drupal YAML scalar that names a PHP class.
+/// Its exact span distinguishes class/factory literals from service aliases.
+#[doc(hidden)]
+pub const DRUPAL_CLASS_MODULE: &str = "cartograph.drupal-class";
 
 /// Internal namespace-block marker, including PHP's unnamed global blocks.
 #[doc(hidden)]
