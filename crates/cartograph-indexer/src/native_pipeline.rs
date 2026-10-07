@@ -13302,6 +13302,28 @@ fn wildcard_import_yields_to_project(language: &str, binding: &ExtractedImportBi
             || language == SourceLanguage::ObjectiveC.as_str())
 }
 
+/// The candidate is declared in the requesting file under exactly this name.
+fn same_file_exact_name(
+    request: &ResolutionRequest<'_>,
+    (exact_name, candidate): (&str, &ResolutionCandidate),
+) -> bool {
+    &candidate.file_id == request.file_id && candidate.qualified_name == exact_name
+}
+
+/// Lexical eligibility: receiver rules, no self-target outside Rust `self::`,
+/// and a kind the reference can name.
+fn lexical_target_allowed(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    let not_self = request.dispatch == ReferenceDispatch::RustSelf
+        || request.owner != Some(&candidate.symbol_id);
+    not_self
+        && receiver_resolution::lexical_member_eligible(index, request, candidate)
+        && reference_kind_candidate(request.kind, candidate)
+}
+
 fn resolve_lexical<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
@@ -13319,12 +13341,8 @@ where
     if let Some(candidate) = select_candidate(
         candidates,
         |candidate| {
-            &candidate.file_id == request.file_id
-                && candidate.qualified_name == exact_name
-                && receiver_resolution::lexical_member_eligible(index, request, candidate)
-                && (request.dispatch == ReferenceDispatch::RustSelf
-                    || request.owner != Some(&candidate.symbol_id))
-                && reference_kind_candidate(request.kind, candidate)
+            same_file_exact_name(request, (exact_name, candidate))
+                && lexical_target_allowed(index, request, candidate)
         },
         cancelled,
     )? {
