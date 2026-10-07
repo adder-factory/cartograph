@@ -17323,14 +17323,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V22 changes the digest domain; facts unchanged in these fixtures.
+    // V23 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "f483007b8c7865ce060e125c6c1192d44245d21f9d8c29ede69cf80933d8da4b";
+        "c815a90bbd9ef26e7c1e78e8815521b093c5201bfd083a70a569de8010005c40";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "f2ab906f518d9e51853532b887e8ffe33049270a5c049fd5b02cbafdcc9da8d4";
+        "27bbe648cd9df325036cdc45b0a0a5da3543b8ab5426776c264f54f0595e05b0";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -17351,13 +17351,13 @@ mod tests {
     // Resolution adds CounterView::build -> CounterView::increment (ArkTS)
     // and targets for its two existing references. generic_digest_proof removes
     // that one Calls edge and restores those references to reproduce the
-    // previous fact set under V22 (8fe8df25...); the extraction facts stay fixed.
+    // previous fact set under V23 (27faff00...); the extraction facts stay fixed.
     // Wave 3 adds six ObjC physical alias links plus the Ruby and Dart
     // process -> Container::add calls. types_digest_proof restores both call
     // references and centrality; bridge_digest_proof then removes six alias
-    // links to recover a4e55aab... exactly under the unchanged V22 domain.
+    // links to recover 04a9f9b9... exactly under the V23 domain.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "06ab04d251e8ef334b0779ade6e4e94a6c1f4609dffcf7660c11c6064523ac89";
+        "f8fcb94e21167161c49c6b3afb36b2761f07f53ab7ea2a84e8fd138b20f58ea6";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 260, 292, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
@@ -17368,7 +17368,7 @@ mod tests {
     // frameworks::routes::mybatis_local_sql_roles_preserve_the_frozen_custom_digest
     // regression removes the hint and compares every fact table and digest.
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "6ef2ddf7ec04c15deb9fbad64b9f080695c8048396e465c2115893ec03d6a64d";
+        "bbe52f322847c48aa491ac48c2308911553640a03945e73218b795c1be53ed28";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =

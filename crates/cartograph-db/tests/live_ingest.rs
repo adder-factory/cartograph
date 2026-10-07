@@ -59,9 +59,9 @@ const STRUCTURAL_HASH_ONE: &str =
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const STRUCTURAL_HASH_TWO: &str =
     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-// V22 changes the digest domain; facts unchanged in this fixture and its row assertions.
+// V23 changes the digest domain; facts unchanged in this fixture and its row assertions.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "85028a7e97ee4776f347cde2e9b7893d6cf38f330618f001efc482b2ae3452a1";
+    "cf88c81eaddac3f2f0224db69c25255d5bd101d7479055436225b3a48ed80516";
 const SINGLE_WORKER: u16 = 1;
 const TEST_VALIDATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 const TEST_VALIDATION_WORKING_BYTES: u64 = 256 * 1024 * 1024;
@@ -2073,6 +2073,14 @@ async fn assert_relation_validation_rolls_back(fixture: &DatabaseFixture) {
             .is_ok()
     );
     assert!(fixture.database.release_lease(&lease).await.is_ok());
+}
+
+#[test]
+fn canonical_ingest_fixture_preserves_the_frozen_digest_without_postgres() {
+    let ordered = canonical(generation_facts(false));
+    let reversed = canonical(generation_facts(true));
+    assert_eq!(ordered.digest().as_str(), EXPECTED_LOGICAL_DIGEST);
+    assert_eq!(ordered.digest(), reversed.digest());
 }
 
 fn generation_facts(reversed: bool) -> GenerationFacts {

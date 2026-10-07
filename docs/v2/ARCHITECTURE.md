@@ -143,7 +143,7 @@ The managed image supplies PostgreSQL 18.6, `pg_search` 0.26.0, and pgvector
 
 ### Migration ledger
 
-The append-only migration ledger currently owns forty-nine versions, recorded
+The append-only migration ledger currently owns fifty versions, recorded
 in `schema_migrations`. Each migration attempt is one atomic transaction that
 bounds its own lock waits:
 
@@ -158,10 +158,11 @@ See [troubleshooting](../TROUBLESHOOTING.md#schema-migration-reports-schema_busy
 for recovery.
 
 <details>
-<summary>Details: migrations 23–49</summary>
+<summary>Details: migrations 23–50</summary>
 
 | Migration | Digest admitted | Change |
 | --- | --- | --- |
+| 50 | V23 | v1 framework/bridge detail and deferred resolution parity across languages |
 | 49 | V22 | v1 cross-file resolution parity across languages |
 | 48 | V21 | Dedicated v1-parity extraction families and v1 per-file facts across languages |
 | 47 | V20 | Rust turbofish calls that name their function |
@@ -303,9 +304,9 @@ every per-file fact v1.1.33 extracted from each v1 mode's fixture corpus to
 have a unique exact identity, committed exact alignment pins, or a
 pending/intentional ledger entry. Ambiguous identities never match and stale
 rows fail; the linked report owns current counts and the update procedure.
-The V22 generation-digest contract (migration 49) fences these families and
-v1 cross-file resolution parity, so generations from older binaries report
-stale once and republish.
+The V23 generation-digest contract (migration 50) fences these families,
+v1 framework/bridge detail, and deferred resolution parity, so generations
+from older binaries report stale once and republish.
 
 For each admitted file:
 
@@ -327,7 +328,7 @@ not prove. It never stores the source expression or literal. Static heuristic
 evidence is not relabeled as a runtime observation or formal proof;
 `cartograph_numerical`, status, and numerical review report observation and
 formal adapters as `not_configured`. Generations recorded under an older digest
-contract (anything before the current V22) remain explicitly stale until an
+contract (anything before the current V23) remain explicitly stale until an
 ordinary index republishes them; for generations older than V7, which predate
 numerical sites, that republication is also what publishes numerical evidence.
 
@@ -465,7 +466,7 @@ batch-local validation uses the same field contract, global conflicts and edge
 multiplicity are reduced under database constraints, and each canonical
 partition group proves its file/symbol/span cross-relations before its raw
 evidence is removed. The durable completed phase makes a redundant final
-generation-wide relation scan unnecessary. The V22 digest is streamed as exact
+generation-wide relation scan unnecessary. The V23 digest is streamed as exact
 canonical row bytes in the memory reducer's table/key order. Centrality uses
 the same pre-dedup calls/reference graph and is patched onto fenced raw symbols
 before sealing. Exact batch replay and the canonical cursor make an interrupted
