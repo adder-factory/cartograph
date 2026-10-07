@@ -29,10 +29,7 @@ where
         inline: "",
         module: None,
     };
-    if request.owner.is_none()
-        && request.kind == super::ReferenceKind::Imports
-        && super::rust_local_types::root_declaration(index, (request.file_id, request.span))
-    {
+    if root_import(index, request) {
         return Ok(Some(root));
     }
     let mut owner = request.owner;
@@ -54,11 +51,7 @@ where
         if !valid_owner(evidence, (request, child_module)) {
             return Ok(None);
         }
-        // The AST marker proves a root impl's scope independently of the
-        // nominal declaration, whose span does not contain its method bodies.
-        if evidence.kind == SymbolKind::Method
-            && super::rust_use_bindings::plain_impl(index, request)
-        {
+        if root_impl_method(index, (request, evidence)) {
             return Ok(Some(root));
         }
         if evidence.kind == SymbolKind::Module {
@@ -75,6 +68,22 @@ where
         }
     }
     Ok(None)
+}
+
+/// A file-level `use` declaration belongs to the file's root module.
+fn root_import(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
+    request.owner.is_none()
+        && request.kind == super::ReferenceKind::Imports
+        && super::rust_local_types::root_declaration(index, (request.file_id, request.span))
+}
+
+/// The AST marker proves a root impl's scope independently of the nominal
+/// declaration, whose span does not contain its method bodies.
+fn root_impl_method(
+    index: &ResolutionIndex,
+    (request, owner): (&ResolutionRequest<'_>, &super::qualtype_resolution::Owner),
+) -> bool {
+    owner.kind == SymbolKind::Method && super::rust_use_bindings::plain_impl(index, request)
 }
 
 fn valid_owner(
