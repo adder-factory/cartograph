@@ -224,10 +224,10 @@ owns the tables, update procedure and pending inventory.
 
 | Disposition (v2.1.41) | Distinct facts |
 | --- | ---: |
-| Matched exactly | 601 |
+| Matched exactly | 602 |
 | Aligned by exact pins | 295 |
 | Intentional | 406 |
-| Pending, wave 3 | 422 |
+| Pending, wave 3 | 421 |
 
 Run it with
 `cargo test --locked -p cartograph-indexer --lib v1_resolution_oracle -- --nocapture`.

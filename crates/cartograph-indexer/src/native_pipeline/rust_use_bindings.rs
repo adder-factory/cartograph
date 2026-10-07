@@ -1,6 +1,8 @@
 //! Rust use paths cannot bypass the verified scope and shadow evidence used by
 //! nominal lookup. Only verified top-level impls without generics add method
 //! scope proof; unsupported scopes abstain to the base tiers.
+use std::collections::HashSet;
+
 use super::{
     ExtractedImportBinding, FileId, HashMap, ImportBindingKind, NativeFileFacts,
     RESOLUTION_MAP_NODE_ALLOWANCE, ResolutionCandidate, ResolutionIndex, ResolutionIndexTarget,
@@ -17,11 +19,21 @@ pub(super) struct ImplScopes {
 struct FileScopes {
     impls: Vec<(u64, u64)>,
     macros: Vec<(u64, u64)>,
+    /// Item-position invocations can introduce items throughout a module scope.
+    item_macros: Vec<(u64, u64)>,
+    /// Unknown statement macros can introduce items throughout their block.
+    block_macros: Vec<(u64, u64)>,
     locals: LocalSpans,
     root_macro: bool,
 }
 
 type LocalSpans = HashMap<String, Vec<(u64, u64)>>;
+
+#[derive(Default)]
+struct MacroImports<'file> {
+    overrides: HashSet<&'file str>,
+    unknown: Vec<(u64, u64)>,
+}
 
 pub(super) fn metadata_binding(language: &str, binding: &ExtractedImportBinding) -> bool {
     language == "rust"
@@ -31,6 +43,8 @@ pub(super) fn metadata_binding(language: &str, binding: &ExtractedImportBinding)
                 | "<rust-unrepresented-locals>"
                 | "<rust-opaque-macro>"
                 | "<rust-opaque-root-macro>"
+                | "<rust-opaque-block-macro>"
+                | "<rust-opaque-macro-import>"
         )
 }
 
@@ -43,6 +57,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let mut scopes = FileScopes::default();
+    let imports = macro_imports(target.budget, file, cancelled)?;
     for binding in &file.import_bindings {
         if cancelled() {
             return Err(StageItemFailure);
@@ -50,23 +65,19 @@ where
         if !metadata_binding("rust", binding) {
             continue;
         }
-        if binding.module_specifier == "<rust-plain-root-impl>" {
-            push_scope(target.budget, (&mut scopes.impls, binding))?;
-        } else if matches!(
-            binding.module_specifier.as_str(),
-            "<rust-opaque-macro>" | "<rust-opaque-root-macro>"
-        ) {
-            scopes.root_macro |= binding.module_specifier == "<rust-opaque-root-macro>";
-            push_scope(target.budget, (&mut scopes.macros, binding))?;
-        } else {
-            retain_local(target.budget, (&mut scopes.locals, binding))?;
-        }
+        retain_binding(target.budget, (&mut scopes, binding), &imports)?;
     }
-    if scopes.impls.is_empty() && scopes.macros.is_empty() && scopes.locals.is_empty() {
+    if scopes.impls.is_empty()
+        && scopes.macros.is_empty()
+        && scopes.block_macros.is_empty()
+        && scopes.locals.is_empty()
+    {
         return Ok(());
     }
     scopes.impls.sort_unstable();
     scopes.macros.sort_unstable();
+    scopes.item_macros.sort_unstable();
+    merge_block_scopes(&mut scopes.block_macros, cancelled)?;
     for spans in scopes.locals.values_mut() {
         if cancelled() {
             return Err(StageItemFailure);
@@ -83,6 +94,159 @@ where
     let files = &mut target.index.rust_paths.use_scopes.files;
     files.try_reserve(1).map_err(|_| StageItemFailure)?;
     files.insert(file.file.file_id.clone(), scopes);
+    Ok(())
+}
+
+fn macro_imports<'file, Cancel>(
+    budget: &mut super::ResolveBudget,
+    file: &'file NativeFileFacts,
+    cancelled: &mut Cancel,
+) -> Result<MacroImports<'file>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let mut imports = MacroImports::default();
+    for symbol in &file.symbols {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if symbol.kind == SymbolKind::Module && matches!(symbol.name.as_str(), "std" | "core") {
+            retain_override(budget, (&mut imports.overrides, &symbol.name))?;
+        }
+    }
+    for binding in &file.import_bindings {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if binding.module_specifier == "<rust-opaque-macro-import>" {
+            push_scope(budget, (&mut imports.unknown, binding))?;
+        } else if !metadata_binding("rust", binding)
+            && matches!(
+                binding.kind,
+                ImportBindingKind::Namespace | ImportBindingKind::ReExportNamed
+            )
+            && !standard_import(binding)
+        {
+            retain_override(budget, (&mut imports.overrides, &binding.local_name))?;
+        }
+    }
+    withdraw_standard_imports(budget, (file, &mut imports), cancelled)?;
+    merge_block_scopes(&mut imports.unknown, cancelled)?;
+    Ok(imports)
+}
+
+fn retain_override<'file>(
+    budget: &mut super::ResolveBudget,
+    entry: (&mut HashSet<&'file str>, &'file str),
+) -> Result<(), StageItemFailure> {
+    let (overrides, name) = entry;
+    if overrides.contains(name) {
+        return Ok(());
+    }
+    budget.charge(RESOLUTION_MAP_NODE_ALLOWANCE + usize_to_u64(size_of::<&str>()))?;
+    overrides.try_reserve(1).map_err(|_| StageItemFailure)?;
+    overrides.insert(name);
+    Ok(())
+}
+
+fn withdraw_standard_imports<'file, Cancel>(
+    budget: &mut super::ResolveBudget,
+    entry: (&'file NativeFileFacts, &mut MacroImports<'file>),
+    cancelled: &mut Cancel,
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (file, imports) = entry;
+    if !imports.overrides.contains("std") && !imports.overrides.contains("core") {
+        return Ok(());
+    }
+    // Chained imports through a shadowed standard root have no proven
+    // standard identity. Withhold this bounded subset conservatively.
+    for binding in &file.import_bindings {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if matches!(
+            binding.kind,
+            ImportBindingKind::Namespace | ImportBindingKind::ReExportNamed
+        ) && standard_import(binding)
+        {
+            retain_override(budget, (&mut imports.overrides, &binding.local_name))?;
+        }
+    }
+    Ok(())
+}
+
+fn standard_import(binding: &ExtractedImportBinding) -> bool {
+    let module = binding.module_specifier.as_str();
+    let module = module.strip_prefix("::").unwrap_or(module);
+    if matches!(binding.local_name.as_str(), "std" | "core") && matches!(module, "std" | "core") {
+        return true;
+    }
+    module
+        .strip_prefix("std::")
+        .or_else(|| module.strip_prefix("core::"))
+        == Some(binding.local_name.as_str())
+}
+
+fn uncertain_macro(binding: &ExtractedImportBinding, imports: &MacroImports<'_>) -> bool {
+    let name = binding.local_name.as_str();
+    name == "*"
+        || imports.overrides.contains(name)
+        || imports.overrides.contains("*")
+        || (!matches!(name, "std" | "core")
+            && binding
+                .imported_name
+                .parse::<u64>()
+                .ok()
+                .is_none_or(|position| contains_span(&imports.unknown, (position, position))))
+}
+
+fn retain_binding(
+    budget: &mut super::ResolveBudget,
+    entry: (&mut FileScopes, &ExtractedImportBinding),
+    imports: &MacroImports<'_>,
+) -> Result<(), StageItemFailure> {
+    let (scopes, binding) = entry;
+    match binding.module_specifier.as_str() {
+        "<rust-plain-root-impl>" => push_scope(budget, (&mut scopes.impls, binding)),
+        "<rust-opaque-root-macro>" => {
+            scopes.root_macro = true;
+            push_scope(budget, (&mut scopes.item_macros, binding))?;
+            push_scope(budget, (&mut scopes.macros, binding))
+        }
+        "<rust-opaque-macro>" => push_scope(budget, (&mut scopes.macros, binding)),
+        "<rust-opaque-block-macro>" if uncertain_macro(binding, imports) => {
+            push_scope(budget, (&mut scopes.block_macros, binding))
+        }
+        "<rust-opaque-block-macro>" | "<rust-opaque-macro-import>" => Ok(()),
+        _ => retain_local(budget, (&mut scopes.locals, binding)),
+    }
+}
+
+fn merge_block_scopes<Cancel>(
+    scopes: &mut Vec<(u64, u64)>,
+    cancelled: &mut Cancel,
+) -> Result<(), StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    scopes.sort_unstable();
+    let mut retained = 0;
+    for position in 0..scopes.len() {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        let (start, end) = scopes[position];
+        if retained > 0 && start <= scopes[retained - 1].1 {
+            scopes[retained - 1].1 = scopes[retained - 1].1.max(end);
+        } else {
+            scopes[retained] = (start, end);
+            retained += 1;
+        }
+    }
+    scopes.truncate(retained);
     Ok(())
 }
 
@@ -164,8 +328,14 @@ pub(super) fn uncertain_scope(
     let Some(file) = index.rust_paths.use_scopes.files.get(request.file_id) else {
         return false;
     };
-    // Opaque macro expansions can introduce caller-visible items and locals.
-    if starts_in_scope(&file.macros, scope) {
+    // Module items affect their whole scope. Unknown block statements affect
+    // only references in that block, including those before the invocation.
+    if starts_in_scope(&file.item_macros, scope)
+        || contains_span(
+            &file.block_macros,
+            (request.span.start_byte(), request.span.end_byte()),
+        )
+    {
         return true;
     }
     // Patterns bind values; they do not shadow names in Rust's type namespace.

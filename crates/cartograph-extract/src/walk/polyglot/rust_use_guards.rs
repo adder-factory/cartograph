@@ -1,13 +1,42 @@
 //! Retain exact AST evidence of plain root impls, opaque macro arguments and
 //! pattern bindings the symbol walk cannot represent. Uncertainty fences scopes.
+use cartograph_domain::{SourcePosition, SourceSpan};
 use tree_sitter::Node;
 
 use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind, walk::ExtractionBuilder};
+
+const EXPRESSION_MACROS: [&str; 22] = [
+    "assert",
+    "assert_eq",
+    "assert_ne",
+    "debug_assert",
+    "debug_assert_eq",
+    "debug_assert_ne",
+    "debug_assert_matches",
+    "println",
+    "print",
+    "eprintln",
+    "eprint",
+    "write",
+    "writeln",
+    "format",
+    "format_args",
+    "panic",
+    "unreachable",
+    "todo",
+    "unimplemented",
+    "vec",
+    "matches",
+    "dbg",
+];
 
 pub(super) fn unrepresented_bindings(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    if matches!(node.kind(), "mod_item" | "extern_crate_declaration") {
+        return macro_import(builder, node);
+    }
     if node.kind() == "macro_invocation" {
         return opaque_macro(builder, node);
     }
@@ -33,7 +62,9 @@ fn opaque_macro(
     };
     builder.emit_import_binding(ExtractedImportBinding {
         kind: ImportBindingKind::Namespace,
-        module_specifier: if at_module_root(node) {
+        module_specifier: if statement_scope(node)
+            .is_some_and(|scope| matches!(scope.kind(), "source_file" | "declaration_list"))
+        {
             "<rust-opaque-root-macro>"
         } else {
             "<rust-opaque-macro>"
@@ -42,18 +73,98 @@ fn opaque_macro(
         imported_name: "*".to_owned(),
         local_name: "*".to_owned(),
         span: crate::walk::syntax::span_for(tokens)?,
+    })?;
+    block_macro(builder, node)
+}
+
+fn statement_scope(node: Node<'_>) -> Option<Node<'_>> {
+    let parent = node.parent()?;
+    if parent.kind() == "expression_statement" {
+        parent.parent()
+    } else {
+        Some(parent)
+    }
+}
+
+fn block_macro(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    let Some(block) = statement_scope(node).filter(|scope| scope.kind() == "block") else {
+        return Ok(());
+    };
+    let standard = standard_expression_macro(builder, node)?;
+    let invocation = crate::walk::syntax::span_for(node)?;
+    builder.emit_import_binding(ExtractedImportBinding {
+        kind: ImportBindingKind::Namespace,
+        module_specifier: "<rust-opaque-block-macro>".to_owned(),
+        // The invocation decides textual macro imports; its block span
+        // remains the extent fenced when that identity is unproven.
+        imported_name: invocation.start_byte().to_string(),
+        // Complete import facts decide whether this prospective standard
+        // spelling is overridden, including by a later `use` item.
+        local_name: standard.unwrap_or_else(|| "*".to_owned()),
+        span: crate::walk::syntax::span_for(block)?,
     })
 }
 
-fn at_module_root(node: Node<'_>) -> bool {
-    let parent = node.parent().and_then(|parent| {
-        if parent.kind() == "expression_statement" {
-            parent.parent()
-        } else {
-            Some(parent)
-        }
-    });
-    parent.is_some_and(|parent| matches!(parent.kind(), "source_file" | "declaration_list"))
+fn standard_expression_macro(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    let Some(name) = node.child_by_field_name("macro") else {
+        return Ok(None);
+    };
+    let Some(mut path) = super::qualified_path::lookup_name(builder, name)? else {
+        return Ok(None);
+    };
+    if let Some((root, member)) = path.split_once("::")
+        && matches!(root, "std" | "core")
+        && EXPRESSION_MACROS.contains(&member)
+    {
+        let length = root.len();
+        path.truncate(length);
+        return Ok(Some(path));
+    }
+    // The optional fallback omits the macro registry, so it cannot prove
+    // that a bare standard spelling has no local override.
+    let proven = name.kind() == "identifier"
+        && EXPRESSION_MACROS.contains(&path.as_str())
+        && builder.optional_facts.records()
+        && !builder
+            .rust_macros
+            .is_defined((&path, node.start_byte()), builder.context.cancelled)?;
+    Ok(proven.then_some(path))
+}
+
+fn macro_import(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    if !super::super::rust_macro::has_macro_use(builder, node) {
+        return Ok(());
+    }
+    let Some(scope) = node
+        .parent()
+        .filter(|scope| node.end_byte() < scope.end_byte())
+    else {
+        return Ok(());
+    };
+    let span = SourceSpan::new(end_position(node)?, end_position(scope)?)
+        .map_err(|_| ExtractError::InvalidSpan)?;
+    builder.emit_import_binding(ExtractedImportBinding {
+        kind: ImportBindingKind::Namespace,
+        module_specifier: "<rust-opaque-macro-import>".to_owned(),
+        imported_name: "*".to_owned(),
+        local_name: "*".to_owned(),
+        span,
+    })
+}
+
+fn end_position(node: Node<'_>) -> Result<SourcePosition, ExtractError> {
+    let span = crate::walk::syntax::span_for(node)?;
+    SourcePosition::new(span.end_byte(), span.end_line(), span.end_column())
+        .map_err(|_| ExtractError::InvalidSpan)
 }
 
 fn local_name(

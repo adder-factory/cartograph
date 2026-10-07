@@ -1100,3 +1100,45 @@ fn case_insensitive_callable_lookup_stays_language_and_scope_bound() {
             .is_none()
     );
 }
+
+#[test]
+fn rust_body_macros_keep_module_use_bindings_and_item_macros_fence_them() {
+    let fixtures = |tiers: &'static str| {
+        [
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/lib.rs",
+                "mod alpha;\nmod tiers;\npub fn top() { tiers::go(); }\n",
+            ),
+            ("src/alpha.rs", "pub(super) fn resolve() -> u8 { 1 }\n"),
+            ("src/tiers.rs", tiers),
+        ]
+    };
+    let call = |facts: &CanonicalGenerationFacts| {
+        let owner = capability_symbol(facts, "src/tiers.rs", "go");
+        CapabilityReferenceQuery::new(facts, owner)
+            .named("alpha::resolve", ReferenceKind::Calls)
+            .target_symbol_id
+            .clone()
+    };
+    // Expression macros in a body cannot introduce module-level items.
+    let facts = build_capability_generation(
+        &fixtures(
+            "use super::alpha;\npub(super) fn go() { let _ = matches!(1, 1); let _ = format!(\"{}\", 1); let _ = alpha::resolve(); }\n",
+        ),
+        false,
+    );
+    let target = capability_symbol(&facts, "src/alpha.rs", "resolve");
+    assert_eq!(call(&facts).as_ref(), Some(&target.symbol_id));
+    // An item-position macro may expand to a shadowing `mod alpha`.
+    let facts = build_capability_generation(
+        &fixtures(
+            "use super::alpha;\nmake_items! { alpha }\npub(super) fn go() { let _ = alpha::resolve(); }\n",
+        ),
+        false,
+    );
+    assert!(call(&facts).is_none());
+}

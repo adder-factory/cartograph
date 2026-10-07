@@ -49,7 +49,7 @@ use super::{
 
 mod local_macros;
 
-pub(super) use local_macros::{LocalExpressionMacros, record_definition};
+pub(super) use local_macros::{LocalExpressionMacros, has_macro_use, record_definition};
 
 /// Most references one invocation's token tree may add; more fails the file's output bound.
 /// A sweep of 55,866 crates.io sources peaked at 2,204 (generated FFI declarations), and

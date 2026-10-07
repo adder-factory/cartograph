@@ -1,6 +1,203 @@
 use super::{
-    CapabilityReferenceQuery, ReferenceKind, build_capability_generation, capability_symbol,
+    CanonicalGenerationFacts, CapabilityReferenceQuery, ReferenceKind, build_capability_generation,
+    capability_symbol,
 };
+
+#[test]
+fn rust_standard_statement_macros_keep_module_use_bindings() {
+    for statement in [
+        "assert!(x);",
+        "std::assert!(x);",
+        "core::assert!(x);",
+        "std :: assert!(x);",
+        "core /* layout */ :: assert!(x);",
+        "println!(\"{}\", x);",
+        "dbg!(x);",
+        "vec![x];",
+    ] {
+        let source =
+            format!("use super::alpha; pub fn run(x: bool) {{ {statement} alpha::resolve(); }}");
+        let facts = macro_use_generation(&source);
+        assert_macro_use_target(&facts, ("run", "alpha"));
+    }
+}
+
+#[test]
+fn rust_statement_macros_fence_only_their_block_before_and_after() {
+    for invocation in ["introduce!();", "introduce! {}"] {
+        let source = format!(
+            "use super::{{alpha, beta, gamma}}; pub fn run() {{ {{ alpha::resolve(); {invocation} beta::resolve(); }} gamma::resolve(); }} pub fn sibling() {{ alpha::resolve(); }}"
+        );
+        let facts = macro_use_generation(&source);
+        for module in ["alpha", "beta"] {
+            let owner = capability_symbol(&facts, "src/consumer.rs", "run");
+            let reference = CapabilityReferenceQuery::new(&facts, owner)
+                .named(&format!("{module}::resolve"), ReferenceKind::Calls);
+            assert!(reference.target_symbol_id.is_none(), "{reference:?}");
+        }
+        assert_macro_use_target(&facts, ("run", "gamma"));
+        assert_macro_use_target(&facts, ("sibling", "alpha"));
+    }
+}
+
+#[test]
+fn rust_expression_macros_do_not_fence_surrounding_use_bindings() {
+    for expression in [
+        "let _ = introduce!();",
+        "consume(introduce!());",
+        "(introduce!());",
+    ] {
+        let source = format!("use super::alpha; pub fn run() {{ {expression} alpha::resolve(); }}");
+        let facts = macro_use_generation(&source);
+        assert_macro_use_target(&facts, ("run", "alpha"));
+    }
+}
+
+#[test]
+fn rust_outer_statement_macro_fences_survive_nested_block_intervals() {
+    let facts = macro_use_generation(
+        "use super::{alpha, beta}; pub fn run() { introduce!(); { another!(); } alpha::resolve(); } pub fn sibling() { beta::resolve(); }",
+    );
+    let owner = capability_symbol(&facts, "src/consumer.rs", "run");
+    let reference =
+        CapabilityReferenceQuery::new(&facts, owner).named("alpha::resolve", ReferenceKind::Calls);
+    assert!(reference.target_symbol_id.is_none(), "{reference:?}");
+    assert_macro_use_target(&facts, ("sibling", "beta"));
+}
+
+#[test]
+fn rust_foreign_assert_macro_is_not_a_known_standard_expression() {
+    let facts = macro_use_generation(
+        "use super::alpha; pub fn run(x: bool) { foreign::assert!(x); alpha::resolve(); }",
+    );
+    let owner = capability_symbol(&facts, "src/consumer.rs", "run");
+    let reference =
+        CapabilityReferenceQuery::new(&facts, owner).named("alpha::resolve", ReferenceKind::Calls);
+    assert!(reference.target_symbol_id.is_none(), "{reference:?}");
+}
+
+#[test]
+fn rust_custom_standard_macro_names_keep_block_fences() {
+    for source in [
+        "use super::alpha; macro_rules! assert { () => { mod alpha { pub fn resolve() {} } } } pub fn run() { assert!(); alpha::resolve(); } pub fn sibling() { alpha::resolve(); }",
+        "use super::alpha; pub fn run() { macro_rules! matches { () => { mod alpha { pub fn resolve() {} } } } matches!(); alpha::resolve(); } pub fn sibling() { alpha::resolve(); }",
+    ] {
+        let facts = macro_use_generation(source);
+        let owner = capability_symbol(&facts, "src/consumer.rs", "run");
+        let reference = CapabilityReferenceQuery::new(&facts, owner)
+            .named("alpha::resolve", ReferenceKind::Calls);
+        assert!(reference.target_symbol_id.is_none(), "{reference:?}");
+        assert_macro_use_target(&facts, ("sibling", "alpha"));
+    }
+}
+
+#[test]
+fn rust_expired_custom_macro_names_do_not_fence_standard_statements() {
+    let facts = macro_use_generation(
+        "use super::alpha; pub fn before() { macro_rules! assert { () => { mod alpha { pub fn resolve() {} } } } } pub fn run(x: bool) { assert!(x); alpha::resolve(); }",
+    );
+    assert_macro_use_target(&facts, ("run", "alpha"));
+}
+
+#[test]
+fn rust_imported_macro_and_namespace_overrides_fence_standard_spellings() {
+    for source in [
+        "use super::alpha; use crate::custom_macros::assert; pub fn run() { assert!(); alpha::resolve(); }",
+        "use super::alpha; pub fn run() { assert!(); alpha::resolve(); } use crate::custom_assert as assert;",
+        "use super::alpha; use crate::custom_macros as std; pub fn run() { std::assert!(); alpha::resolve(); }",
+        "use super::alpha; pub fn run() { core::assert!(); alpha::resolve(); } use crate::custom_macros as core;",
+        "use super::alpha; pub fn run() { assert!(); alpha::resolve(); } use crate::custom_macros::*;",
+        "use super::alpha; pub fn run() { assert!(); alpha::resolve(); } use std::include as assert;",
+        "use super::alpha; use crate::custom_macros as std; use std::assert; pub fn run() { assert!(); alpha::resolve(); }",
+        "use super::alpha; use core::assert; pub fn run() { assert!(); alpha::resolve(); } use crate::custom_macros as core;",
+        "use super::alpha; mod std { pub use crate::custom_assert as assert; } pub fn run() { std::assert!(); alpha::resolve(); }",
+        "use super::alpha; pub fn run() { core::assert!(); alpha::resolve(); } mod core { pub use crate::custom_assert as assert; }",
+    ] {
+        let facts = macro_use_generation(source);
+        let owner = capability_symbol(&facts, "src/consumer.rs", "run");
+        let reference = CapabilityReferenceQuery::new(&facts, owner)
+            .named("alpha::resolve", ReferenceKind::Calls);
+        assert!(
+            reference.target_symbol_id.is_none(),
+            "{source}: {reference:?}"
+        );
+    }
+}
+
+#[test]
+fn rust_known_standard_imports_keep_statement_macro_exemptions() {
+    for import in ["use std::assert;", "use core::assert;", "use std::*;"] {
+        let source = format!(
+            "use super::alpha; pub fn run(x: bool) {{ assert!(x); alpha::resolve(); }} {import}"
+        );
+        let facts = macro_use_generation(&source);
+        assert_macro_use_target(&facts, ("run", "alpha"));
+    }
+}
+
+#[test]
+fn rust_macro_use_imports_withdraw_only_later_bare_macro_exemptions() {
+    for source in [
+        "use super::alpha; #[macro_use] mod macros; pub fn run() { assert!(); alpha::resolve(); }",
+        "use super::alpha; pub fn run() { #[path = \"consumer/macros.rs\"] #[macro_use] mod macros; assert!(); alpha::resolve(); }",
+    ] {
+        let facts = macro_use_generation(source);
+        let owner = capability_symbol(&facts, "src/consumer.rs", "run");
+        let reference = CapabilityReferenceQuery::new(&facts, owner)
+            .named("alpha::resolve", ReferenceKind::Calls);
+        assert!(
+            reference.target_symbol_id.is_none(),
+            "{source}: {reference:?}"
+        );
+    }
+    for source in [
+        "use super::alpha; #[macro_use] mod macros; pub fn run(x: bool) { std::assert!(x); alpha::resolve(); }",
+        "use super::alpha; pub fn run(x: bool) { assert!(x); alpha::resolve(); } #[macro_use] mod macros;",
+        "use super::alpha; pub fn run(x: bool) { assert!(x); #[macro_use] mod macros { macro_rules! assert { () => { mod alpha { pub fn resolve() {} } } } } alpha::resolve(); }",
+    ] {
+        let facts = macro_use_generation(source);
+        assert_macro_use_target(&facts, ("run", "alpha"));
+    }
+}
+
+fn macro_use_generation(source: &str) -> CanonicalGenerationFacts {
+    build_capability_generation(
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/lib.rs",
+                "mod alpha; mod beta; mod gamma; mod custom_macros; mod consumer;",
+            ),
+            ("src/alpha.rs", "pub fn resolve() {}"),
+            ("src/beta.rs", "pub fn resolve() {}"),
+            ("src/gamma.rs", "pub fn resolve() {}"),
+            (
+                "src/custom_macros.rs",
+                "#[macro_export] macro_rules! custom_assert { () => { mod alpha { pub fn resolve() {} } } } pub use crate::custom_assert as assert;",
+            ),
+            (
+                "src/consumer/macros.rs",
+                "macro_rules! assert { () => { mod alpha { pub fn resolve() {} } } }",
+            ),
+            ("src/consumer.rs", source),
+        ],
+        false,
+    )
+}
+
+fn assert_macro_use_target(facts: &CanonicalGenerationFacts, query: (&str, &str)) {
+    let (owner, module) = query;
+    let owner = capability_symbol(facts, "src/consumer.rs", owner);
+    let reference = CapabilityReferenceQuery::new(facts, owner)
+        .named(&format!("{module}::resolve"), ReferenceKind::Calls);
+    let target = capability_symbol(facts, &format!("src/{module}.rs"), "resolve");
+    assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
+    assert_eq!(reference.resolution_provenance, "native-import-binding");
+    assert_eq!(reference.confidence, 1.0);
+}
 
 #[test]
 fn rust_use_calls_require_unshadowed_file_module_bindings() {

@@ -6,12 +6,42 @@ use std::fmt::Write;
 
 use cartograph_domain::ReferenceKind;
 use cartograph_extract::{
-    ExtractError, ExtractedFile, ExtractedReference, NativeExtractor, RUST_MACRO_RESOLUTION_PREFIX,
-    SourceLimits, SourceSnapshot,
+    DiagnosticCode, ExtractError, ExtractedFile, ExtractedReference, NativeExtractor,
+    RUST_MACRO_RESOLUTION_PREFIX, SourceLimits, SourceSnapshot,
 };
 
 const SOURCE_LIMIT_BYTES: usize = 1024 * 1024;
 const MAX_MACRO_REFERENCES: usize = 8_192;
+
+#[test]
+fn optional_macro_registry_omission_preserves_a_custom_statement_block_guard() {
+    let mut source = String::from(
+        "struct S {} macro_rules! assert { () => { fn helper() {} } } fn run() { assert!(); helper(); let _ = [",
+    );
+    let block_start = source
+        .find("{ assert!();")
+        .unwrap_or_else(|| panic!("missing fixture block"));
+    source.push_str(&"S{},".repeat(20_000));
+    source.push_str("]; }");
+    let file = extract("src/fallback.rs", &source);
+    assert!(
+        file.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::OptionalFactsOmitted)
+    );
+    let guard = file
+        .import_bindings
+        .iter()
+        .find(|binding| binding.module_specifier == "<rust-opaque-block-macro>")
+        .unwrap_or_else(|| panic!("missing statement block guard"));
+    assert_eq!(guard.local_name, "*");
+    let invocation = source
+        .find("assert!();")
+        .unwrap_or_else(|| panic!("missing fixture invocation"));
+    assert_eq!(guard.imported_name, byte_offset(invocation).to_string());
+    assert_eq!(guard.span.start_byte(), byte_offset(block_start));
+    assert_eq!(guard.span.end_byte(), byte_offset(source.len()));
+}
 
 #[test]
 fn expired_sibling_macros_restore_the_root_expression_reading() {

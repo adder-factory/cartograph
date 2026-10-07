@@ -67,9 +67,9 @@ or the corpus seal, widen matching, or convert a corrected target into parity.
 
 | Disposition | Distinct facts |
 | --- | ---: |
-| Matched exactly | 601 |
+| Matched exactly | 602 |
 | Aligned by exact pins | 295 |
-| Pending Wave 3 | 422 |
+| Pending Wave 3 | 421 |
 | Intentional | 406 |
 | Total | 1,724 |
 
@@ -77,7 +77,7 @@ At the Wave 2 base (`e820b5ea`) the same facts were 517 exact, 243 aligned,
 833 pending and 131 intentional. Intentional facts include 57 captures without a
 unique target declaration, one without a unique owner, and external imports that
 v2 deliberately leaves targetless. A passing oracle means every fact is accounted
-for; 422 facts remain pending. It does not assert complete resolution parity.
+for; 421 facts remain pending. It does not assert complete resolution parity.
 Wave 2 shipped in v2.1.41; its unfinished gaps are scheduled as Wave 3.
 
 Mutation testing samples one carried edge per corpus/kind/disposition, preferring
@@ -120,7 +120,6 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | `php-controller-class-fallback` | 3 | 3 |
 | `php-qualified-member-resolution` | 3 | 3 |
 | `receiver-field-target-resolution` | 3 | 3 |
-| `rust-workspace-path-target-resolution` | 3 | 3 |
 | `symfony-yaml-route-files-and-defaults` | 3 | 3 |
 | `aura-client-actions-and-server-action-strings` | 3 | 2 |
 | `component-import-target-identity` | 3 | 2 |
@@ -129,6 +128,7 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | `js-framework-name-transform-resolution` | 3 | 2 |
 | `lwc-bundle-component-and-template-refs` | 3 | 2 |
 | `mybatis-configuration-class-target-resolution` | 3 | 2 |
+| `rust-workspace-path-target-resolution` | 3 | 2 |
 | `spring-property-injection-target-resolution` | 3 | 2 |
 | `codeigniter-loads-and-inferred-resources` | 3 | 1 |
 | `commonjs-callable-import-ownership` | 3 | 1 |
