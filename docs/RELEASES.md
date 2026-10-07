@@ -23,6 +23,7 @@ provenance live on GitHub Releases.
 
 | Version | Date | Schema · Contract | Headline |
 | --- | --- | --- | --- |
+| [v2.1.41](releases/v2.1.41.md) | 2026-10-06 | 49 ↑ · V22 ↑ | v1 cross-file resolution parity; exact v1 resolution oracle |
 | [v2.1.40](releases/v2.1.40.md) | 2026-10-06 | 48 ↑ · V21 ↑ | v1 per-file extraction parity for every language; exact v1 parity oracle; credential screening |
 | [v2.1.39](releases/v2.1.39.md) | 2026-10-04 | 47 · V20 | ParadeDB 0.26.0 with pgvector 0.8.6; Rust dependency refresh |
 | [v2.1.38](releases/v2.1.38.md) | 2026-10-02 | 47 ↑ · V20 ↑ | Rust turbofish calls name and resolve their function |

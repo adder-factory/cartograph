@@ -379,6 +379,16 @@ Implemented language-level behavior includes:
   target-specific Cargo dependencies;
 - Fastify object-form routes and NestJS HTTP, GraphQL, message-pattern, and
   WebSocket handler relationships after deterministic framework detection;
+- v1 cross-file resolution parity (v2.1.41): TypeScript/JavaScript config
+  `extends`, conventional and workspace-package aliases, barrel re-exports and
+  member calls; Python absolute/package imports; Java/Kotlin explicit and
+  wildcard imports, nested types and static members; C# namespaces and
+  `using`; explicitly typed receivers (Python, Go, `this` fields); Rust
+  `crate`/`self`/`super` and workspace-crate paths; shell `source` calls;
+  Elixir module calls; current-class and recursive calls; Salesforce, Play,
+  PHP and CodeIgniter route targets. Each new path abstains on shadowing,
+  aliases, overloads or unproven scope and lets the existing resolver run, and
+  heuristic fallbacks carry a lower confidence and their own provenance;
 - edge kinds required by current graph retrieval, with confidence, provenance,
   and represented site count.
 

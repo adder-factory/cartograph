@@ -4,7 +4,7 @@
 [Grammar provenance](GRAMMAR-ASSETS.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-10-06 (`v2.1.40`).
+Last release audit: 2026-10-06 (`v2.1.41`).
 
 This report states what "supported" means for a language mode and where the
 evidence for each admitted mode lives. For the per-language inventory, read the
@@ -18,7 +18,7 @@ evidence for each admitted mode lives. For the per-language inventory, read the
 
 ## Current inventory
 
-Cartograph v2.1.40 production-admits all 73 v1.1.33 language modes and all 163 v1
+Cartograph v2.1.41 production-admits all 73 v1.1.33 language modes and all 163 v1
 extensions, plus additive Python `.pyi`, native TOML, and 52 dedicated textual
 game-scripting modes, the WGSL and Metal shader modes added in v2.1.12, and
 Slang and WESL added in v2.1.15, plus Ada/SPARK and VHDL added in v2.1.27: 132
@@ -210,6 +210,27 @@ empty/duplicate/overlapping pins, undefined or unused ids and inconsistent waves
 fail hygiene. Preserve existing pending gap ids and waves when updating rows;
 remaining work is scheduled as wave 2 (resolution) and wave 3 (framework/bridge
 detail).
+
+### Cross-file resolution oracle
+
+The per-file gate cannot check which declaration a reference resolves to. The
+companion resolution oracle
+(`crates/cartograph-indexer/src/native_pipeline/tests/v1_resolution_oracle.rs`)
+runs the native pipeline over the same 73 frozen corpora and requires each of
+the 1,730 captured v1 cross-file edges (1,724 distinct facts) to reach the same
+target file and declaration, a pinned alignment, or a ledger entry. Its
+[README](../crates/cartograph-indexer/tests/fixtures/v1_resolution/README.md)
+owns the tables, update procedure and pending inventory.
+
+| Disposition (v2.1.41) | Distinct facts |
+| --- | ---: |
+| Matched exactly | 601 |
+| Aligned by exact pins | 295 |
+| Intentional | 406 |
+| Pending, wave 3 | 422 |
+
+Run it with
+`cargo test --locked -p cartograph-indexer --lib v1_resolution_oracle -- --nocapture`.
 
 ### Frozen capture provenance
 
