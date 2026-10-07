@@ -1,7 +1,7 @@
 //! Imported nominal lookup does not infer bindings of generic parameters.
 //! Only a bounded, verified declaration header can establish their absence.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::{
     FileId, NativeFileFacts, NativeSymbolFacts, RESOLUTION_MAP_NODE_ALLOWANCE, ResolutionIndex,
@@ -13,7 +13,9 @@ const HEADER_BYTES: usize = 4096;
 
 #[derive(Default)]
 pub(super) struct Scopes {
-    owners: HashSet<SymbolId>,
+    /// Declarations whose header may declare generic parameters, with the
+    /// bounded Rust header text when it was readable (`None`: opaque).
+    owners: HashMap<SymbolId, Option<String>>,
     unreadable: HashSet<FileId>,
 }
 
@@ -59,10 +61,12 @@ where
             continue;
         }
         let id = &symbol.input.symbol_id;
+        let header = rust_header(symbol, (&file.file.language, snapshot.source()));
         context.budget.charge(
             RESOLUTION_MAP_NODE_ALLOWANCE
-                .saturating_add(usize_to_u64(size_of::<SymbolId>()))
-                .saturating_add(usize_to_u64(id.as_str().len())),
+                .saturating_add(usize_to_u64(size_of::<(SymbolId, Option<String>)>()))
+                .saturating_add(usize_to_u64(id.as_str().len()))
+                .saturating_add(usize_to_u64(header.as_ref().map_or(0, String::len))),
         )?;
         index
             .qualtype
@@ -70,7 +74,7 @@ where
             .owners
             .try_reserve(1)
             .map_err(|_| StageItemFailure)?;
-        index.qualtype.generics.owners.insert(id.clone());
+        index.qualtype.generics.owners.insert(id.clone(), header);
     }
     Ok(())
 }
@@ -78,6 +82,23 @@ where
 fn scope_kind(kind: SymbolKind) -> bool {
     super::qualtype_resolution::nominal_candidate(kind)
         || matches!(kind, SymbolKind::Function | SymbolKind::Method)
+}
+
+/// A Rust declaration header up to its body or terminator, within the bound.
+/// Generic parameters can only be declared there.
+fn rust_header(symbol: &NativeSymbolFacts, syntax: (&str, &str)) -> Option<String> {
+    let (language, source) = syntax;
+    if language != "rust" {
+        return None;
+    }
+    let start = usize::try_from(symbol.input.start_byte).ok()?;
+    let end = usize::try_from(symbol.input.end_byte).ok()?;
+    let bytes = source
+        .as_bytes()
+        .get(start..end.min(start.saturating_add(HEADER_BYTES)))?;
+    let text = std::str::from_utf8(bytes).ok()?;
+    let stop = text.find(['{', ';'])?;
+    text.get(..stop).map(str::to_owned)
 }
 
 fn plain_header(symbol: &NativeSymbolFacts, syntax: (&str, &str)) -> bool {
@@ -215,10 +236,54 @@ where
         let Some(id) = owner else {
             return Ok(false);
         };
-        if index.qualtype.generics.owners.contains(id) {
+        if index.qualtype.generics.owners.contains_key(id) {
             return Ok(true);
         }
         owner = index.parents.get(id);
     }
     Ok(true)
+}
+
+/// Whether a generic parameter of an enclosing Rust declaration could be named
+/// `name`: an opaque header blocks every name, a readable one only a name that
+/// occurs in it as a whole identifier.
+pub(super) fn blocks_name<Cancel>(
+    index: &ResolutionIndex,
+    (request, name): (&ResolutionRequest<'_>, &str),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if index.qualtype.generics.unreadable.contains(request.file_id) {
+        return Ok(true);
+    }
+    let mut owner = request.owner;
+    for _ in 0..=index.parents.len().saturating_add(1) {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        let Some(id) = owner else {
+            return Ok(false);
+        };
+        match index.qualtype.generics.owners.get(id) {
+            Some(None) => return Ok(true),
+            Some(Some(header)) if contains_identifier(header, name) => return Ok(true),
+            _ => {}
+        }
+        owner = index.parents.get(id);
+    }
+    Ok(true)
+}
+
+fn contains_identifier(text: &str, name: &str) -> bool {
+    let identifier = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
+    text.match_indices(name).any(|(start, _)| {
+        let before = start
+            .checked_sub(1)
+            .and_then(|index| text.as_bytes().get(index));
+        let after = text.as_bytes().get(start.saturating_add(name.len()));
+        !before.is_some_and(|byte| identifier(*byte))
+            && !after.is_some_and(|byte| identifier(*byte))
+    })
 }

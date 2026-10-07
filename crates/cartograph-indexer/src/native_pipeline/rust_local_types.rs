@@ -161,7 +161,14 @@ where
         && !super::rust_use_bindings::root_macro(index, request.file_id)
         && !super::rust_use_bindings::opaque_macro(index, request)
         && file_module_scope(index, query, cancelled)?
-        && !super::qualtype_generics::blocked(index, request, cancelled)?)
+        && !super::qualtype_generics::blocks_name(
+            index,
+            (
+                request,
+                request.name.split("::").next().unwrap_or(request.name),
+            ),
+            cancelled,
+        )?)
 }
 
 fn file_module_scope<Cancel>(

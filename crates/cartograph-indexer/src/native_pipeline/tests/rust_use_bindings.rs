@@ -485,3 +485,33 @@ fn rust_pattern_bindings_never_shadow_module_path_heads() {
         CapabilityReferenceQuery::new(&facts, owner).named("helpers::helper", ReferenceKind::Calls);
     assert_eq!(call.target_symbol_id.as_ref(), Some(&target.symbol_id));
 }
+
+#[test]
+fn rust_generic_parameters_fence_only_their_own_names() {
+    let tiers = "use super::{Index, alpha};\npub(super) fn go<C>(index: &Index, c: &mut C) -> Option<u8> where C: FnMut() -> bool { alpha::resolve(index) }\npub(super) fn shadowed<alpha>(index: &Index) -> Option<u8> { alpha::resolve(index) }\n";
+    let facts = build_capability_generation(
+        &[
+            ("src/lib.rs", "mod pipeline;\n"),
+            (
+                "src/pipeline.rs",
+                "mod alpha;\nmod tiers;\npub struct Index;\n",
+            ),
+            (
+                "src/pipeline/alpha.rs",
+                "use super::Index;\npub(super) fn resolve(_index: &Index) -> Option<u8> { None }\n",
+            ),
+            ("src/pipeline/tiers.rs", tiers),
+        ],
+        false,
+    );
+    let target = capability_symbol(&facts, "src/pipeline/alpha.rs", "resolve");
+    let call = |owner: &str| {
+        let owner = capability_symbol(&facts, "src/pipeline/tiers.rs", owner);
+        CapabilityReferenceQuery::new(&facts, owner)
+            .named("alpha::resolve", ReferenceKind::Calls)
+            .target_symbol_id
+            .clone()
+    };
+    assert_eq!(call("go").as_ref(), Some(&target.symbol_id));
+    assert!(call("shadowed").is_none());
+}
