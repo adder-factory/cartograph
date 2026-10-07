@@ -38,6 +38,7 @@ mod rust_dependency_paths;
 mod rust_facade_resolution;
 mod rust_inline_modules;
 mod rust_local_types;
+mod rust_path_guards;
 mod rust_path_resolution;
 mod rust_path_visibility;
 mod rust_root_ownership;
@@ -9911,6 +9912,7 @@ where
     receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     shell_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_root_ownership::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    rust_path_guards::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_facade_resolution::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     let mut order = Vec::new();
     order
@@ -10452,6 +10454,11 @@ where
         cancelled,
     )?;
     rust_path_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    rust_path_guards::index_file(
         &mut ResolutionIndexTarget { index, budget },
         file,
         cancelled,
@@ -12758,6 +12765,20 @@ where
 }
 
 fn resolve_reference<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    match rust_path_guards::resolve(index, request, cancelled)? {
+        Some(resolution) => Ok(resolution),
+        None => resolve_reference_body(index, request, cancelled),
+    }
+}
+
+fn resolve_reference_body<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
     cancelled: &mut Cancel,
@@ -17093,6 +17114,7 @@ mod tests {
     mod receiver_types;
     mod rust_module_paths;
     mod rust_receivers;
+    mod rust_review_regressions;
     mod rust_use_bindings;
     mod rust_use_regressions;
     mod script_modules;

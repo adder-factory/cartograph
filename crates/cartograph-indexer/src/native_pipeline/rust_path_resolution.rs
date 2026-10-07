@@ -24,6 +24,7 @@ enum ModuleLookup<'a> {
     Known(ModuleScope<'a>),
     Unproven,
     Inaccessible,
+    Ambiguous,
 }
 
 #[derive(Default)]
@@ -34,6 +35,7 @@ pub(super) struct PathIndex {
     pub(super) facades: super::rust_facade_resolution::FacadeIndex,
     pub(super) use_scopes: super::rust_use_bindings::ImplScopes,
     pub(super) scoped_imports: super::rust_scoped_modules::ScopedImports,
+    pub(super) declarations: super::rust_path_guards::Declarations,
 }
 
 pub(super) struct ModuleEdge {
@@ -158,6 +160,14 @@ where
     if !supported_request(request) {
         return Ok(None);
     }
+    if request.name.starts_with("::") {
+        let resolution = absolute_target(index, (request, request.name), cancelled)?;
+        return Ok(Some(
+            super::import_reference_resolution(resolution).unwrap_or_else(|| {
+                ReferenceResolution::unresolved(super::RUST_EXTERNAL_UNRESOLVED_PROVENANCE)
+            }),
+        ));
+    }
     let explicit = match explicit_path(index, request, cancelled)? {
         ExplicitPath::Absent => None,
         ExplicitPath::Unique(path) => Some(path),
@@ -188,7 +198,8 @@ where
 fn supported_request(request: &ResolutionRequest<'_>) -> bool {
     request.language == "rust"
         && request.name.len() <= MAXIMUM_PATH_BYTES
-        && !request.name.contains("r#")
+        && (!request.name.contains("r#")
+            || super::rust_path_guards::supported_raw_path(request.name))
         && request.dispatch == ReferenceDispatch::Static
 }
 
@@ -240,6 +251,12 @@ where
     let Some(path) = binding_path(query)? else {
         return Ok(None);
     };
+    if path.starts_with("::") {
+        return absolute_target(index, (request, &path), cancelled).map(Some);
+    }
+    if path.contains("r#") && !super::rust_path_guards::supported_raw_path(&path) {
+        return Ok(Some(ImportResolution::Unresolved));
+    }
     let anchor = super::rust_uniform_paths::anchor(index, (request, &path), cancelled)?;
     let Some(resolved_path) = anchor.path(&path) else {
         return Ok(None);
@@ -256,6 +273,87 @@ where
         }
         _ => Some(resolution),
     })
+}
+
+fn absolute_target<Cancel>(
+    index: &ResolutionIndex,
+    query: (&ResolutionRequest<'_>, &str),
+    cancelled: &mut Cancel,
+) -> Result<ImportResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (request, path) = query;
+    let path = path.strip_prefix("::").unwrap_or(path);
+    let root = path.split("::").next().unwrap_or(path);
+    if super::rust_dependency_paths::entry(index, (request.file_path, root)).is_none() {
+        return Ok(ImportResolution::Unresolved);
+    }
+    Ok(match resolve_target(index, (request, path), cancelled)? {
+        ImportResolution::NotBound => ImportResolution::Unresolved,
+        other => other,
+    })
+}
+
+pub(super) fn ambiguous_path<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if ambiguous_name(index, (request, request.name), cancelled)? {
+        return Ok(true);
+    }
+    for binding in request.import_bindings.iter() {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        let Some(path) = binding_path((request, binding))? else {
+            continue;
+        };
+        if super::rust_use_bindings::allows(index, (request, binding), cancelled)?
+            && ambiguous_name(index, (request, &path), cancelled)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn ambiguous_name<Cancel>(
+    index: &ResolutionIndex,
+    query: (&ResolutionRequest<'_>, &str),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (request, name) = query;
+    let Some((module, _)) = name.rsplit_once("::") else {
+        return Ok(false);
+    };
+    if name.starts_with("::") {
+        return Ok(false);
+    }
+    let local;
+    let module = if !local_path(module)
+        && let Some(scope) = super::rust_inline_modules::enclosing(index, request, cancelled)?
+        && super::rust_uniform_paths::declared_head(index, (scope, module), cancelled)?
+    {
+        let Some(path) = super::rust_inline_modules::qualified_name("self", module)? else {
+            return Ok(true);
+        };
+        local = path;
+        &local
+    } else {
+        module
+    };
+    Ok(matches!(
+        module_file(index, (request, module), cancelled)?,
+        ModuleLookup::Ambiguous
+    ))
 }
 
 fn local_path(path: &str) -> bool {
@@ -399,13 +497,12 @@ where
     let scope = match module_file(index, (request, module), cancelled)? {
         ModuleLookup::Known(scope) => scope,
         ModuleLookup::Unproven => return Ok(ImportResolution::NotBound),
-        ModuleLookup::Inaccessible => return Ok(ImportResolution::Unresolved),
+        ModuleLookup::Inaccessible | ModuleLookup::Ambiguous => {
+            return Ok(ImportResolution::Unresolved);
+        }
     };
     let local = local_path(module);
-    Ok(
-        member_in_scope(index, (request, scope, name, local), cancelled)?
-            .map_or(ImportResolution::NotBound, ImportResolution::Resolved),
-    )
+    member_in_scope(index, (request, scope, name, local), cancelled)
 }
 
 pub(super) fn resolve_in_scope<Cancel>(
@@ -417,43 +514,62 @@ where
     Cancel: FnMut() -> bool,
 {
     let (request, scope, name) = query;
-    if let Some((module, member)) = name.rsplit_once("::")
+    let (scope, name) = if let Some((module, member)) = name.rsplit_once("::")
         && let ModuleLookup::Known(target_scope) =
             declared_module(index, (scope, module, request, false), cancelled)?
     {
-        return member_in_scope(index, (request, target_scope, member, true), cancelled);
-    }
-    member_in_scope(index, (request, scope, name, true), cancelled)
+        (target_scope, member)
+    } else {
+        (scope, name)
+    };
+    Ok(
+        match member_in_scope(index, (request, scope, name, true), cancelled)? {
+            ImportResolution::Resolved(target) => Some(target),
+            _ => None,
+        },
+    )
 }
 
 fn member_in_scope<Cancel>(
     index: &ResolutionIndex,
     query: (&ResolutionRequest<'_>, ModuleScope<'_>, &str, bool),
     cancelled: &mut Cancel,
-) -> Result<Option<ResolvedTarget>, StageItemFailure>
+) -> Result<ImportResolution, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
     let (request, scope, name, local) = query;
     let Some(qualified) = super::rust_inline_modules::qualified_name(scope.inline, name)? else {
-        return Ok(None);
+        return Ok(ImportResolution::NotBound);
     };
-    let candidates = resolution_candidates_for_file(index, &qualified, scope.file);
+    let lookup = super::rust_path_guards::normalized_path(&qualified)?;
+    let candidates = resolution_candidates_for_file(index, &lookup, scope.file);
     let mut selected = Selection::default();
-    for candidate in candidates {
+    let raw = super::rust_path_guards::raw_candidates_for_file(index, (&lookup, scope.file));
+    for candidate in candidates.iter().chain(raw) {
         if cancelled() {
             return Err(StageItemFailure);
         }
-        if candidate.qualified_name == qualified
+        if super::rust_path_guards::same_path(&candidate.qualified_name, &qualified)
             && reference_kind_candidate(request.kind, candidate)
-            && super::rust_path_visibility::visible(
-                index,
-                (request, scope, name, candidate),
-                cancelled,
-            )?
         {
             selected.retain(candidate);
         }
+    }
+    if selected.ambiguous {
+        return Ok(ImportResolution::Unresolved);
+    }
+    let Some(candidate) = selected.candidate else {
+        return Ok(ImportResolution::NotBound);
+    };
+    if !super::rust_path_visibility::visible(index, (request, scope, name, candidate), cancelled)? {
+        return Ok(
+            if name.contains("r#") || candidate.qualified_name.contains("r#") {
+                ImportResolution::Unresolved
+            } else {
+                ImportResolution::NotBound
+            },
+        );
     }
     let provenance = if local {
         RUST_QUALIFIED_PATH_PROVENANCE
@@ -462,7 +578,8 @@ where
     };
     Ok(selected
         .resolution(provenance, 1.0)
-        .and_then(|resolution| resolution.target))
+        .and_then(|resolution| resolution.target)
+        .map_or(ImportResolution::Unresolved, ImportResolution::Resolved))
 }
 
 fn module_file<'a, Cancel>(
@@ -550,6 +667,9 @@ where
     let Some(name) = super::rust_inline_modules::qualified_name(current.inline, component)? else {
         return Ok(ModuleLookup::Unproven);
     };
+    if super::rust_path_guards::module_declared(index, (current.file, &name)) == Some(false) {
+        return Ok(ModuleLookup::Ambiguous);
+    }
     let edge = index
         .rust_paths
         .modules

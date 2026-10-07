@@ -10,6 +10,7 @@ use super::{
 };
 
 const HEADER_BYTES: usize = 4096;
+const HEADER_DELIMITER_KINDS: usize = 4;
 
 #[derive(Default)]
 pub(super) struct Scopes {
@@ -55,13 +56,16 @@ where
         if (context.cancelled)() {
             return Err(StageItemFailure);
         }
-        if !scope_kind(symbol.kind)
-            || plain_header(symbol, (&file.file.language, snapshot.source()))
-        {
+        if !scope_kind(symbol.kind) {
             continue;
         }
         let id = &symbol.input.symbol_id;
         let header = rust_header(symbol, (&file.file.language, snapshot.source()));
+        if plain_header(symbol, (&file.file.language, snapshot.source()))
+            && (file.file.language != "rust" || header.is_some())
+        {
+            continue;
+        }
         context.budget.charge(
             RESOLUTION_MAP_NODE_ALLOWANCE
                 .saturating_add(usize_to_u64(size_of::<(SymbolId, Option<String>)>()))
@@ -97,8 +101,55 @@ fn rust_header(symbol: &NativeSymbolFacts, syntax: (&str, &str)) -> Option<Strin
         .as_bytes()
         .get(start..end.min(start.saturating_add(HEADER_BYTES)))?;
     let text = std::str::from_utf8(bytes).ok()?;
-    let stop = text.find(['{', ';'])?;
-    text.get(..stop).map(str::to_owned)
+    let stop = rust_header_end(text)?;
+    let header = text.get(..stop)?;
+    readable_rust_header(header).then(|| header.to_owned())
+}
+
+fn rust_header_end(text: &str) -> Option<usize> {
+    let mut depths = [0_usize; HEADER_DELIMITER_KINDS];
+    for (offset, byte) in text.bytes().enumerate() {
+        match byte {
+            b'{' | b';' if depths == [0; HEADER_DELIMITER_KINDS] => return Some(offset),
+            b'(' | b'[' | b'<' | b'{' => {
+                let slot = delimiter_slot(byte);
+                depths[slot] = depths[slot].checked_add(1)?;
+            }
+            b'>' if offset > 0 && text.as_bytes()[offset - 1] == b'-' => {}
+            b')' | b']' | b'>' | b'}' => {
+                let slot = delimiter_slot(byte);
+                depths[slot] = depths[slot].checked_sub(1)?;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn delimiter_slot(byte: u8) -> usize {
+    match byte {
+        b'(' | b')' => 0,
+        b'[' | b']' => 1,
+        b'{' | b'}' => 3,
+        _ => 2,
+    }
+}
+
+fn readable_rust_header(header: &str) -> bool {
+    if !header.is_ascii() || header.contains('"') || header.contains("//") || header.contains("/*")
+    {
+        return false;
+    }
+    // A lifetime is an apostrophe followed by an identifier without a closing
+    // apostrophe. Character literals and incomplete literal prefixes are opaque.
+    header.match_indices('\'').all(|(offset, _)| {
+        let suffix = &header[offset + 1..];
+        let identifier = suffix
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+            .count();
+        identifier > 0 && suffix.as_bytes().get(identifier) != Some(&b'\'')
+    })
 }
 
 fn plain_header(symbol: &NativeSymbolFacts, syntax: (&str, &str)) -> bool {
@@ -225,23 +276,7 @@ pub(super) fn blocked<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    if index.qualtype.generics.unreadable.contains(request.file_id) {
-        return Ok(true);
-    }
-    let mut owner = request.owner;
-    for _ in 0..=index.parents.len().saturating_add(1) {
-        if cancelled() {
-            return Err(StageItemFailure);
-        }
-        let Some(id) = owner else {
-            return Ok(false);
-        };
-        if index.qualtype.generics.owners.contains_key(id) {
-            return Ok(true);
-        }
-        owner = index.parents.get(id);
-    }
-    Ok(true)
+    scopes_block(index, (request, |_, _| true), cancelled)
 }
 
 /// Whether a generic parameter of an enclosing Rust declaration could be named
@@ -255,6 +290,48 @@ pub(super) fn blocks_name<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    scopes_block(
+        index,
+        (request, |id, header: &Option<String>| {
+            header.as_ref().is_none_or(|header| {
+                contains_identifier(header, name)
+                    && !super::rust_use_bindings::lifetime_function(index, (request, id))
+            })
+        }),
+        cancelled,
+    )
+}
+
+pub(super) fn opaque_header<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    // Missing optional source evidence adds no terminal guard to the base
+    // resolver. Only a verified declaration with an opaque header does.
+    if index.qualtype.generics.unreadable.contains(request.file_id) {
+        return Ok(false);
+    }
+    scopes_block(
+        index,
+        (request, |_, header: &Option<String>| header.is_none()),
+        cancelled,
+    )
+}
+
+fn scopes_block<Cancel, Block>(
+    index: &ResolutionIndex,
+    query: (&ResolutionRequest<'_>, Block),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+    Block: FnMut(&SymbolId, &Option<String>) -> bool,
+{
+    let (request, mut blocked) = query;
     if index.qualtype.generics.unreadable.contains(request.file_id) {
         return Ok(true);
     }
@@ -266,15 +343,14 @@ where
         let Some(id) = owner else {
             return Ok(false);
         };
-        match index.qualtype.generics.owners.get(id) {
-            Some(None) => return Ok(true),
-            Some(Some(header))
-                if contains_identifier(header, name)
-                    && !super::rust_use_bindings::lifetime_function(index, (request, id)) =>
-            {
-                return Ok(true);
-            }
-            _ => {}
+        if index
+            .qualtype
+            .generics
+            .owners
+            .get(id)
+            .is_some_and(|header| blocked(id, header))
+        {
+            return Ok(true);
         }
         owner = index.parents.get(id);
     }

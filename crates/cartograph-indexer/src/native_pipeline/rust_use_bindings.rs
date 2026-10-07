@@ -24,6 +24,8 @@ struct FileScopes {
     item_macros: Vec<(u64, u64)>,
     /// Unknown statement macros can introduce items throughout their block.
     block_macros: Vec<(u64, u64)>,
+    standard_blocks: Vec<(u64, u64)>,
+    standard_items: Vec<(u64, u64)>,
     /// Standard spellings whose only uncertainty is a declared `super::*`.
     super_macros: LocalSpans,
     defined_macros: LocalSpans,
@@ -85,6 +87,8 @@ where
     scopes.macros.sort_unstable();
     scopes.item_macros.sort_unstable();
     merge_block_scopes(&mut scopes.block_macros, cancelled)?;
+    merge_block_scopes(&mut scopes.standard_blocks, cancelled)?;
+    scopes.standard_items.sort_unstable();
     for spans in scopes.super_macros.values_mut() {
         merge_block_scopes(spans, cancelled)?;
     }
@@ -113,6 +117,8 @@ fn scopes_empty(scopes: &FileScopes) -> bool {
         scopes.lifetime_functions.is_empty(),
         scopes.macros.is_empty(),
         scopes.block_macros.is_empty(),
+        scopes.standard_blocks.is_empty(),
+        scopes.standard_items.is_empty(),
         scopes.super_macros.is_empty(),
         scopes.defined_macros.is_empty(),
         scopes.locals.is_empty(),
@@ -139,8 +145,10 @@ where
         if cancelled() {
             return Err(StageItemFailure);
         }
-        if symbol.kind == SymbolKind::Module && matches!(symbol.name.as_str(), "std" | "core") {
-            retain_override(target.budget, (&mut imports.overrides, &symbol.name))?;
+        if let Some(name) = super::rust_path_guards::declaration_name(symbol)
+            && matches!(name, "std" | "core")
+        {
+            retain_override(target.budget, (&mut imports.overrides, name))?;
         }
     }
     for binding in &file.import_bindings {
@@ -156,7 +164,13 @@ where
             )
             && !standard_import(binding)
         {
-            retain_override(target.budget, (&mut imports.overrides, &binding.local_name))?;
+            retain_override(
+                target.budget,
+                (
+                    &mut imports.overrides,
+                    super::rust_path_guards::raw_name(&binding.local_name),
+                ),
+            )?;
         }
     }
     withdraw_standard_imports(target.budget, (file, &mut imports), cancelled)?;
@@ -293,6 +307,9 @@ fn retain_binding(
             push_scope(budget, (&mut scopes.lifetime_functions, binding))
         }
         "<rust-opaque-root-macro>" => {
+            if matches!(binding.local_name.as_str(), "std" | "core") {
+                push_scope(budget, (&mut scopes.standard_items, binding))?;
+            }
             if uncertain_macro(binding, imports) {
                 scopes.root_macro = true;
                 push_scope(budget, (&mut scopes.item_macros, binding))?;
@@ -300,9 +317,7 @@ fn retain_binding(
             push_scope(budget, (&mut scopes.macros, binding))
         }
         "<rust-opaque-macro>" => push_scope(budget, (&mut scopes.macros, binding)),
-        "<rust-opaque-block-macro>" if uncertain_macro(binding, imports) => {
-            retain_block_macro(budget, (scopes, binding), imports)
-        }
+        "<rust-opaque-block-macro>" => retain_macro_block(budget, (scopes, binding), imports),
         "<rust-standard-macro-definition>" => {
             retain_local(budget, (&mut scopes.defined_macros, binding))
         }
@@ -310,11 +325,23 @@ fn retain_binding(
             scopes.macro_import = true;
             Ok(())
         }
-        "<rust-opaque-block-macro>" | "<rust-inline-file-module>" | "<rust-scoped-module-glob>" => {
-            Ok(())
-        }
+        "<rust-inline-file-module>" | "<rust-scoped-module-glob>" => Ok(()),
         _ => retain_local(budget, (&mut scopes.locals, binding)),
     }
+}
+
+fn retain_macro_block(
+    budget: &mut super::ResolveBudget,
+    query: (&mut FileScopes, &ExtractedImportBinding),
+    imports: &MacroImports<'_>,
+) -> Result<(), StageItemFailure> {
+    if matches!(query.1.local_name.as_str(), "std" | "core") {
+        push_scope(budget, (&mut query.0.standard_blocks, query.1))?;
+    }
+    if uncertain_macro(query.1, imports) {
+        return retain_block_macro(budget, query, imports);
+    }
+    Ok(())
 }
 
 fn retain_block_macro(
@@ -443,7 +470,11 @@ pub(super) fn root_macro(index: &ResolutionIndex, file: &FileId) -> bool {
         .use_scopes
         .files
         .get(file)
-        .is_some_and(|scopes| scopes.root_macro)
+        .is_some_and(|scopes| {
+            scopes.root_macro
+                || !scopes.standard_items.is_empty()
+                    && super::rust_path_guards::namespace_overridden(index, file)
+        })
 }
 
 pub(super) fn macro_scope_uncertain(index: &ResolutionIndex, query: (&FileId, &str)) -> bool {
@@ -454,7 +485,7 @@ pub(super) fn macro_scope_uncertain(index: &ResolutionIndex, query: (&FileId, &s
         .files
         .get(file)
         .is_some_and(|scope| {
-            scope.root_macro || scope.macro_import || scope.defined_macros.contains_key(name)
+            root_macro(index, file) || scope.macro_import || scope.defined_macros.contains_key(name)
         })
 }
 
@@ -477,6 +508,9 @@ where
     let Some(file) = index.rust_paths.use_scopes.files.get(request.file_id) else {
         return Ok(false);
     };
+    if standard_namespace_uncertain(index, (request, scope, file)) {
+        return Ok(true);
+    }
     // Module items affect their whole scope. Unknown block statements affect
     // only references in that block, including those before the invocation.
     if starts_in_scope(&file.item_macros, scope)
@@ -517,6 +551,40 @@ where
             .get(name)
             .is_some_and(|spans| starts_in_scope(spans, scope))
     }))
+}
+
+fn standard_namespace_uncertain(
+    index: &ResolutionIndex,
+    query: (&ResolutionRequest<'_>, (u64, u64), &FileScopes),
+) -> bool {
+    let (request, scope, file) = query;
+    super::rust_path_guards::namespace_overridden(index, request.file_id)
+        && (starts_in_scope(&file.standard_items, scope)
+            || contains_span(
+                &file.standard_blocks,
+                (request.span.start_byte(), request.span.end_byte()),
+            ))
+}
+
+pub(super) fn standard_namespace_fenced(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+) -> bool {
+    if !super::rust_path_guards::namespace_overridden(index, request.file_id) {
+        return false;
+    }
+    index
+        .rust_paths
+        .use_scopes
+        .files
+        .get(request.file_id)
+        .is_some_and(|file| {
+            !file.standard_items.is_empty()
+                || contains_span(
+                    &file.standard_blocks,
+                    (request.span.start_byte(), request.span.end_byte()),
+                )
+        })
 }
 
 fn starts_in_scope(spans: &[(u64, u64)], scope: (u64, u64)) -> bool {

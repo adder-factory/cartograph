@@ -526,8 +526,12 @@ fn unqual_production_functions_respect_code_health_limits() {
     assert!(issues.is_empty(), "{}", issues.join("\n"));
 }
 
-fn rust_use_module_sources() -> [(&'static str, &'static str); 5] {
+fn rust_use_module_sources() -> [(&'static str, &'static str); 6] {
     [
+        (
+            "rust_path_guards.rs",
+            include_str!("../rust_path_guards.rs"),
+        ),
         (
             "rust_module_scopes.rs",
             include_str!("../../../../cartograph-extract/src/walk/polyglot/rust_module_scopes.rs"),

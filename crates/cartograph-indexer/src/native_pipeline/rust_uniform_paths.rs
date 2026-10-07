@@ -30,7 +30,7 @@ where
 {
     let (request, path) = query;
     let head = path.split("::").next().unwrap_or(path);
-    if matches!(head, "crate" | "self" | "super") {
+    if path.starts_with("::") || matches!(head, "crate" | "self" | "super") {
         return Ok(Anchor::Unchanged);
     }
     let Some(scope) = rust_inline_modules::enclosing(index, request, cancelled)? else {
@@ -62,6 +62,9 @@ where
     let Some(name) = rust_inline_modules::qualified_name(scope.inline, head)? else {
         return Ok(false);
     };
+    if super::rust_path_guards::module_declared(index, (scope.file, &name)).is_some() {
+        return Ok(true);
+    }
     if index
         .rust_paths
         .modules
