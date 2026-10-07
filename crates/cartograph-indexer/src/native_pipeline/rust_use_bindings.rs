@@ -338,11 +338,12 @@ pub(super) fn uncertain_scope(
     {
         return true;
     }
-    // Patterns bind values; they do not shadow names in Rust's type namespace.
-    if super::qualtype_resolution::nominal(request.kind) {
+    // Patterns bind values; they do not shadow names in Rust's type namespace,
+    // and a path head (`module::item`) resolves in that namespace too.
+    if super::qualtype_resolution::nominal(request.kind) || request.name.contains("::") {
         return false;
     }
-    let name = request.name.split("::").next().unwrap_or(request.name);
+    let name = request.name;
     [name, "*"].into_iter().any(|name| {
         file.locals
             .get(name)

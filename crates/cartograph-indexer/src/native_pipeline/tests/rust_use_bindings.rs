@@ -465,3 +465,23 @@ fn rust_local_uncertainty_keeps_unshadowed_names_and_base_fallback() {
         }
     }
 }
+
+#[test]
+fn rust_pattern_bindings_never_shadow_module_path_heads() {
+    let facts = build_capability_generation(
+        &[
+            ("src/lib.rs", "mod helpers; mod consumer;"),
+            ("src/helpers.rs", "pub fn helper() -> Option<u8> { None }"),
+            (
+                "src/consumer.rs",
+                "use crate::helpers; pub fn use_it(values: &[(u8, u8)]) { for (left, _) in values { if let Some(value) = helpers::helper() { let _ = (left, value); } } }",
+            ),
+        ],
+        false,
+    );
+    let owner = capability_symbol(&facts, "src/consumer.rs", "use_it");
+    let target = capability_symbol(&facts, "src/helpers.rs", "helper");
+    let call =
+        CapabilityReferenceQuery::new(&facts, owner).named("helpers::helper", ReferenceKind::Calls);
+    assert_eq!(call.target_symbol_id.as_ref(), Some(&target.symbol_id));
+}
