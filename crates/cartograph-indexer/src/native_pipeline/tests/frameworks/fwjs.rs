@@ -483,35 +483,3 @@ fn angular_lazy_imports_keep_the_route_owner_and_real_module_target() {
             )
     );
 }
-
-#[test]
-fn commonjs_callable_imports_target_the_real_module_and_shadowed_loaders_abstain() {
-    let facts = generation(&[
-        (
-            "src/models.js",
-            "function load() { const cfg = require('./cfg'); }",
-        ),
-        ("src/cfg.js", "module.exports = {};"),
-        (
-            "src/shadow.js",
-            "function shadow(require) { const cfg = require('./cfg'); }",
-        ),
-    ]);
-    let load = capability_symbol(&facts, "src/models.js", "load");
-    let site = CapabilityReferenceQuery::new(&facts, load).named("./cfg", ReferenceKind::Imports);
-    targets(
-        site,
-        capability_symbol(&facts, "src/cfg.js", "src/cfg.js"),
-        "native-commonjs-callable-import",
-    );
-    let shadow = capability_symbol(&facts, "src/shadow.js", "shadow");
-    assert!(
-        !facts
-            .references()
-            .iter()
-            .any(
-                |reference| reference.owner_symbol_id.as_ref() == Some(&shadow.symbol_id)
-                    && reference.reference_kind == "imports"
-            )
-    );
-}

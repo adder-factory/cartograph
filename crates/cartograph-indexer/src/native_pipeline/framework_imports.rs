@@ -1,4 +1,4 @@
-//! Explicit Angular/`CommonJS` evidence binds only a real module.
+//! Explicit Angular lazy-import evidence binds only a real module.
 //! Missing or ambiguous modules abstain without blocking existing resolution.
 use super::{
     IMPORT_BINDING_CONFIDENCE, ModuleResolutionRequest, ReferenceKind, ResolutionIndex,
@@ -18,18 +18,12 @@ impl<'name> Import<'name> {
         if request.kind != ReferenceKind::Imports {
             return None;
         }
-        if let Some(specifier) = request.name.strip_prefix("framework-angular-lazy::") {
-            return Some(Self {
-                specifier,
-                provenance: "native-angular-lazy-module",
-            });
-        }
         request
             .name
-            .strip_prefix("framework-commonjs-module::")
+            .strip_prefix("framework-angular-lazy::")
             .map(|specifier| Self {
                 specifier,
-                provenance: "native-commonjs-callable-import",
+                provenance: "native-angular-lazy-module",
             })
     }
 }

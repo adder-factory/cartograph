@@ -307,30 +307,36 @@ fn neug_imported_constructors_are_unique_resources_with_safe_signatures() {
 }
 
 #[test]
-fn commonjs_imports_keep_the_innermost_callable_owner() {
-    let file = extract(
-        "models.js",
-        "const root = require('./root');\nfunction load() { const cfg = require('./config'); function nested() { const inside = require('./nested'); } }\n",
-    );
-    for (module, owner_name) in [
-        ("./root", None),
-        ("./config", Some("load")),
-        ("./nested", Some("nested")),
+fn callable_require_and_import_sites_emit_one_imports_reference() {
+    for source in [
+        "export async function load() { const missing = require('./missing'); }",
+        "export async function load() { const missing = await import('./missing'); }",
     ] {
-        let reference = file
+        let file = extract("src/main.ts", source);
+        let imports = file
             .references
             .iter()
-            .find(|reference| {
-                reference.kind == ReferenceKind::Imports
-                    && reference.name == module
-                    && reference.owner.is_some() == owner_name.is_some()
-            })
-            .unwrap_or_else(|| panic!("required framework fact is missing"));
-        let owner = reference
-            .owner
-            .as_ref()
-            .and_then(|id| file.symbols.iter().find(|symbol| &symbol.id == id));
-        assert_eq!(owner.map(|symbol| symbol.name.as_str()), owner_name);
+            .filter(|reference| reference.kind == ReferenceKind::Imports)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            imports.len(),
+            1,
+            "duplicate imports at one site: {imports:?}"
+        );
+        assert_eq!(imports[0].name, "./missing");
+        assert_eq!(file.language, SourceLanguage::TypeScript);
+        assert!(file.import_bindings.iter().any(|binding| {
+            binding.module_specifier == "./missing" && binding.local_name == "missing"
+        }));
     }
-    assert_eq!(file.language, SourceLanguage::JavaScript);
+    let shadowed = extract(
+        "src/main.ts",
+        "export function load(require) { const missing = require('./missing'); }",
+    );
+    assert!(
+        !shadowed
+            .references
+            .iter()
+            .any(|reference| reference.kind == ReferenceKind::Imports)
+    );
 }

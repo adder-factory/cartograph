@@ -1,7 +1,6 @@
 //! Bounded syntax-backed framework detail for JavaScript and `NeuG`.
 mod angular;
 mod cli;
-mod commonjs;
 mod express;
 pub(super) mod file_routes;
 mod lexical;
@@ -30,12 +29,10 @@ pub(super) fn scan(
     );
     if javascript {
         let explicit_framework = super::javascript_framework_route_hint(masked_source);
-        let commonjs = commonjs::Index::build(builder)?;
         let lexical = lexical::Index::build(builder)?;
         angular::scan(builder, root, &lexical)?;
         walk(builder, root, |builder, node| {
             if node.kind() == "call_expression" {
-                commonjs.capture(builder, node)?;
                 cli::scan_call(builder, node)?;
                 if !explicit_framework {
                     express::scan_call(builder, node, &lexical)?;
