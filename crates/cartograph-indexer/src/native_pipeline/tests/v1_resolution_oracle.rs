@@ -212,6 +212,16 @@ struct Outcome {
     carried: BTreeMap<(usize, usize), Vec<usize>>,
 }
 
+/// Full frozen selector shared by deduplication and disposition lookup.
+type FactKey<'a> = (&'a str, &'a str, &'a Pin);
+
+/// One captured fact and the native corpus against which its policy is checked.
+struct FactCheck<'a> {
+    case: &'a Case,
+    fact: &'a Fact,
+    key: FactKey<'a>,
+}
+
 /// Surface original test input failures without hiding their cause.
 fn must<T, E: std::fmt::Display>(value: Result<T, E>) -> T {
     value.unwrap_or_else(|error| panic!("{error}"))
@@ -653,12 +663,11 @@ fn suggestions(case: &Case, fact: &Fact) -> String {
     format!("; candidate pins {pins:?}")
 }
 
-/// Reject invalid rows and reasons before any native correspondence is considered.
-fn policy_rows<'a>(
-    cases: &[Case],
+/// Validate shared reasons while building their disposition lookup.
+fn policy_definitions<'a>(
     policy: &'a Policy,
     outcome: &mut Outcome,
-) -> BTreeMap<(&'a str, &'a str, &'a Pin), &'a Disposition> {
+) -> BTreeMap<&'a str, &'a Definition> {
     let mut definitions = BTreeMap::new();
     for definition in &policy.definitions {
         if definition.id.trim().is_empty()
@@ -673,6 +682,16 @@ fn policy_rows<'a>(
                 .push(format!("invalid/duplicate definition {}", definition.id));
         }
     }
+    definitions
+}
+
+/// Reject invalid rows and reasons before any native correspondence is considered.
+fn policy_rows<'a>(
+    cases: &[Case],
+    policy: &'a Policy,
+    outcome: &mut Outcome,
+) -> BTreeMap<FactKey<'a>, &'a Disposition> {
+    let definitions = policy_definitions(policy, outcome);
     let captured = cases
         .iter()
         .flat_map(|case| {
@@ -721,6 +740,73 @@ fn policy_rows<'a>(
     rows
 }
 
+impl FactCheck<'_> {
+    /// Classify one unique frozen fact and retain its carried native observations.
+    fn classify(
+        &self,
+        rows: &BTreeMap<FactKey<'_>, &Disposition>,
+        outcome: &mut Outcome,
+    ) -> (String, Vec<usize>) {
+        let key = self.key;
+        let matches = identity(self.case, self.fact);
+        let row = rows.get(&key);
+        let mut carried = Vec::new();
+        let status = if matches.len() == 1 {
+            if row.is_some() {
+                outcome.problems.push(format!("stale/redundant {key:?}"));
+            }
+            carried = matches;
+            "matched".into()
+        } else if let Some(ambiguity) = &self.fact.ambiguity {
+            if !matches!(row, Some(Disposition::Intentional { id }) if id == ambiguity) {
+                outcome.problems.push(format!(
+                    "capture ambiguity requires {ambiguity} ledger for {key:?}"
+                ));
+            }
+            format!("intentional:{ambiguity}")
+        } else {
+            match row {
+                Some(Disposition::Aligned { pins, .. }) => {
+                    carried.extend(self.alignment_targets(pins, outcome));
+                    "aligned".into()
+                }
+                Some(Disposition::Pending { wave, id }) => format!("pending-wave-{wave}:{id}"),
+                Some(Disposition::Intentional { id }) => format!("intentional:{id}"),
+                None => {
+                    outcome.problems.push(format!(
+                        "unmatched/ambiguous {key:?}; native observations {matches:?}{}",
+                        suggestions(self.case, self.fact)
+                    ));
+                    "unmatched".into()
+                }
+            }
+        };
+        (status, carried)
+    }
+
+    /// Select conjunctive alignment pins and report missing or overlapping targets.
+    fn alignment_targets(&self, pins: &[Pin], outcome: &mut Outcome) -> BTreeSet<usize> {
+        let key = self.key;
+        let mut selected = BTreeSet::new();
+        for pin in pins {
+            let found = select(self.case, &self.fact.file, pin, false);
+            if let [index] = found.as_slice() {
+                if !selected.insert(*index) {
+                    outcome
+                        .problems
+                        .push(format!("overlapping pins for {key:?}"));
+                }
+            } else {
+                outcome.problems.push(format!(
+                    "missing/ambiguous pin for {key:?}: {pin:?}{}",
+                    suggestions(self.case, self.fact)
+                ));
+            }
+        }
+        selected
+    }
+}
+
 /// Run the complete gate on arbitrary inputs and real corpora alike.
 fn check(cases: &[Case], policy: &Policy) -> Outcome {
     let mut outcome = Outcome::default();
@@ -728,59 +814,15 @@ fn check(cases: &[Case], policy: &Policy) -> Outcome {
     for (case_index, case) in cases.iter().enumerate() {
         let mut counted = BTreeSet::new();
         for (fact_index, fact) in case.captured.iter().enumerate() {
-            let key = (case.language.as_str(), fact.file.as_str(), &fact.pin);
-            if !counted.insert(key) {
+            let input = FactCheck {
+                case,
+                fact,
+                key: (case.language.as_str(), fact.file.as_str(), &fact.pin),
+            };
+            if !counted.insert(input.key) {
                 continue;
             }
-            let matches = identity(case, fact);
-            let row = rows.get(&key);
-            let mut carried = Vec::new();
-            let status = if matches.len() == 1 {
-                if row.is_some() {
-                    outcome.problems.push(format!("stale/redundant {key:?}"));
-                }
-                carried = matches;
-                "matched".into()
-            } else if let Some(ambiguity) = &fact.ambiguity {
-                if !matches!(row, Some(Disposition::Intentional { id }) if id == ambiguity) {
-                    outcome.problems.push(format!(
-                        "capture ambiguity requires {ambiguity} ledger for {key:?}"
-                    ));
-                }
-                format!("intentional:{ambiguity}")
-            } else {
-                match row {
-                    Some(Disposition::Aligned { pins, .. }) => {
-                        let mut selected = BTreeSet::new();
-                        for pin in pins {
-                            let found = select(case, &fact.file, pin, false);
-                            if let [index] = found.as_slice() {
-                                if !selected.insert(*index) {
-                                    outcome
-                                        .problems
-                                        .push(format!("overlapping pins for {key:?}"));
-                                }
-                            } else {
-                                outcome.problems.push(format!(
-                                    "missing/ambiguous pin for {key:?}: {pin:?}{}",
-                                    suggestions(case, fact)
-                                ));
-                            }
-                        }
-                        carried.extend(selected);
-                        "aligned".into()
-                    }
-                    Some(Disposition::Pending { wave, id }) => format!("pending-wave-{wave}:{id}"),
-                    Some(Disposition::Intentional { id }) => format!("intentional:{id}"),
-                    None => {
-                        outcome.problems.push(format!(
-                            "unmatched/ambiguous {key:?}; native observations {matches:?}{}",
-                            suggestions(case, fact)
-                        ));
-                        "unmatched".into()
-                    }
-                }
-            };
+            let (status, carried) = input.classify(&rows, &mut outcome);
             *outcome.counts.entry(status).or_default() += 1;
             if !carried.is_empty() {
                 outcome.carried.insert((case_index, fact_index), carried);

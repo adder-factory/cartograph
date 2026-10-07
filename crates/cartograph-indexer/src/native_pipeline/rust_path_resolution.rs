@@ -47,20 +47,7 @@ where
         return Ok(());
     }
     super::rust_use_bindings::index_file(target, file, cancelled)?;
-    let mut public = HashMap::new();
-    for symbol in &file.symbols {
-        if cancelled() {
-            return Err(StageItemFailure);
-        }
-        if symbol.kind == SymbolKind::Import && symbol.name.starts_with("./") {
-            target.budget.charge(
-                RESOLUTION_MAP_NODE_ALLOWANCE
-                    .saturating_add(usize_to_u64(size_of::<(&str, bool)>())),
-            )?;
-            public.try_reserve(1).map_err(|_| StageItemFailure)?;
-            public.insert(symbol.name.as_str(), symbol.export.exported);
-        }
-    }
+    let public = collect_module_visibility(target, file, cancelled)?;
     let mut edges = HashMap::<String, Option<ModuleEdge>>::new();
     for binding in &file.import_bindings {
         if cancelled() {
@@ -120,6 +107,32 @@ where
             .insert(file.file.file_id.clone(), edges);
     }
     Ok(())
+}
+
+/// Collect declared module visibility before resolving namespace-binding edges.
+fn collect_module_visibility<'file, Cancel>(
+    target: &mut ResolutionIndexTarget<'_>,
+    file: &'file NativeFileFacts,
+    cancelled: &mut Cancel,
+) -> Result<HashMap<&'file str, bool>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let mut public = HashMap::new();
+    for symbol in &file.symbols {
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        if symbol.kind == SymbolKind::Import && symbol.name.starts_with("./") {
+            target.budget.charge(
+                RESOLUTION_MAP_NODE_ALLOWANCE
+                    .saturating_add(usize_to_u64(size_of::<(&str, bool)>())),
+            )?;
+            public.try_reserve(1).map_err(|_| StageItemFailure)?;
+            public.insert(symbol.name.as_str(), symbol.export.exported);
+        }
+    }
+    Ok(public)
 }
 
 pub(super) fn resolve<Cancel>(

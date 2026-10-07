@@ -12712,6 +12712,18 @@ where
     if let Some(target) = resolve_rust_qualified_path(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
     }
+    resolve_import_or_project_reference(index, request, cancelled)
+}
+
+/// Try module and import bindings before the permitted project-wide fallbacks.
+fn resolve_import_or_project_reference<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     if let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
         index, request, cancelled,
     )?) {

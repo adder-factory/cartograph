@@ -1,6 +1,6 @@
 //! Retain explicit Elixir module qualifiers and bounded alias bindings that the
 //! tag query's terminal-name captures cannot represent by themselves.
-use tree_sitter::Node;
+use tree_sitter::{Node, TreeCursor};
 
 use super::{
     ExtractionBudget, MAX_TAG_AST_DEPTH, MAXIMUM_TAG_AST_NODES, MINIMUM_TAG_AST_NODES,
@@ -145,17 +145,25 @@ pub(super) fn extract(
         if let Some(binding) = binding((input, cursor.node()), &mut scopes, budget)? {
             push_binding((&mut bindings, binding), budget)?;
         }
-        if cursor.goto_first_child() {
-            depth += 1;
-            continue;
-        }
-        while !cursor.goto_next_sibling() {
-            if !cursor.goto_parent() {
-                return Ok(bindings);
-            }
-            depth = depth.saturating_sub(1);
+        if !advance_cursor(&mut cursor, &mut depth) {
+            return Ok(bindings);
         }
     }
+}
+
+/// Advance the depth-first walk, retaining depth while climbing to a sibling.
+fn advance_cursor(cursor: &mut TreeCursor<'_>, depth: &mut usize) -> bool {
+    if cursor.goto_first_child() {
+        *depth += 1;
+        return true;
+    }
+    while !cursor.goto_next_sibling() {
+        if !cursor.goto_parent() {
+            return false;
+        }
+        *depth = depth.saturating_sub(1);
+    }
+    true
 }
 
 fn binding(
