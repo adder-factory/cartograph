@@ -100,6 +100,11 @@ fn plain_header(symbol: &NativeSymbolFacts, syntax: (&str, &str)) -> bool {
     let Some(text) = strip_attributes(text, language) else {
         return false;
     };
+    let text = if language == "rust" {
+        strip_rust_visibility(text)
+    } else {
+        text
+    };
     let Some(stop) = text
         .as_bytes()
         .iter()
@@ -116,6 +121,15 @@ fn plain_header(symbol: &NativeSymbolFacts, syntax: (&str, &str)) -> bool {
     !prefix.contains(['[', ']', '"', '\'', '/'])
         && (language != "rust" || !prefix.contains('<'))
         && prefix.chars().last().is_some_and(char::is_whitespace)
+}
+
+fn strip_rust_visibility(text: &str) -> &str {
+    let trimmed = text.trim_start();
+    ["pub(crate)", "pub(self)", "pub(super)"]
+        .into_iter()
+        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .unwrap_or(text)
+        .trim_start()
 }
 
 fn strip_attributes<'a>(mut text: &'a str, language: &str) -> Option<&'a str> {
@@ -194,7 +208,7 @@ where
         return Ok(true);
     }
     let mut owner = request.owner;
-    for _ in 0..=index.parents.len() {
+    for _ in 0..=index.parents.len().saturating_add(1) {
         if cancelled() {
             return Err(StageItemFailure);
         }

@@ -89,10 +89,7 @@ where
             continue;
         };
         bound = true;
-        if !index.qualtype.rust.files.contains(request.file_id)
-            || !file_module_scope(index, request, cancelled)?
-            || super::qualtype_generics::blocked(index, request, cancelled)?
-        {
+        if !import_scope_proven(index, request, cancelled)? {
             return Ok(None);
         }
         retain(
@@ -127,7 +124,8 @@ fn inline_import<'a>(
         .rsplit_once("::")
 }
 
-fn file_module_scope<Cancel>(
+/// Keep inline nominal lookup within its existing file-module subset.
+pub(super) fn import_scope_proven<Cancel>(
     index: &ResolutionIndex,
     request: &ResolutionRequest<'_>,
     cancelled: &mut Cancel,
@@ -135,32 +133,97 @@ fn file_module_scope<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    scope_proven(index, (request, false), cancelled)
+}
+
+/// Use lookups can also consume the exact AST proof of a plain root impl.
+pub(super) fn use_scope_proven<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    scope_proven(index, (request, true), cancelled)
+}
+
+fn scope_proven<Cancel>(
+    index: &ResolutionIndex,
+    query: (&ResolutionRequest<'_>, bool),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (request, _) = query;
+    Ok(index.qualtype.rust.files.contains(request.file_id)
+        && !super::rust_use_bindings::root_macro(index, request.file_id)
+        && !super::rust_use_bindings::opaque_macro(index, request)
+        && file_module_scope(index, query, cancelled)?
+        && !super::qualtype_generics::blocked(index, request, cancelled)?)
+}
+
+fn file_module_scope<Cancel>(
+    index: &ResolutionIndex,
+    query: (&ResolutionRequest<'_>, bool),
+    cancelled: &mut Cancel,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (request, allow_impl) = query;
     let mut owner = request.owner;
-    for _ in 0..=index.parents.len() {
+    for _ in 0..=index.parents.len().saturating_add(1) {
         if cancelled() {
             return Err(StageItemFailure);
         }
         let Some(id) = owner else {
             return Ok(true);
         };
-        if index.qualtype.owners.get(id).is_some_and(|owner| {
-            matches!(owner.kind, SymbolKind::Module | SymbolKind::Method)
-                || (matches!(owner.kind, SymbolKind::TypeAlias | SymbolKind::Constant)
-                    && owner.name.contains("::"))
-                || owner
-                    .source_scope
-                    .as_ref()
-                    .is_none_or(|(file, start, end)| {
-                        file != request.file_id
-                            || *start > request.span.start_byte()
-                            || *end < request.span.end_byte()
-                    })
-        }) {
+        let Some(evidence) = index.qualtype.owners.get(id) else {
+            return Ok(false);
+        };
+        if invalid_source_scope(evidence, request) {
             return Ok(false);
         }
+        if evidence
+            .source_scope
+            .as_ref()
+            .is_some_and(|(_, start, end)| {
+                super::rust_use_bindings::uncertain_scope(index, (request, (*start, *end)))
+            })
+        {
+            return Ok(false);
+        }
+        if evidence.kind == SymbolKind::Method {
+            return Ok(allow_impl && super::rust_use_bindings::plain_impl(index, request));
+        }
+        if evidence.kind == SymbolKind::Module
+            || (matches!(evidence.kind, SymbolKind::TypeAlias | SymbolKind::Constant)
+                && evidence.name.contains("::"))
+        {
+            return Ok(false);
+        }
+        // The declaration owner may be a type in another file. Only a syntax
+        // proof of the actual impl can stop before that unrelated source scope.
         owner = index.parents.get(id);
     }
     Ok(false)
+}
+
+fn invalid_source_scope(
+    owner: &super::qualtype_resolution::Owner,
+    request: &ResolutionRequest<'_>,
+) -> bool {
+    owner
+        .source_scope
+        .as_ref()
+        .is_none_or(|(file, start, end)| {
+            file != request.file_id
+                || *start > request.span.start_byte()
+                || *end < request.span.end_byte()
+        })
 }
 
 fn retain<'a, Cancel>(

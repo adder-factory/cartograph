@@ -1,11 +1,14 @@
 mod codeigniter_resolution;
 mod csharp_constructors;
+mod declaration_resolution;
 mod enum_resolution;
+mod explicit_edge_resolution;
 mod file_path_resolution;
 mod framework_conventions;
 mod framework_methods;
 mod framework_resolution;
 mod generic_resolution;
+mod go_path_resolution;
 mod javascript_config;
 mod javascript_exports;
 mod javascript_framework_resolution;
@@ -14,6 +17,7 @@ mod javascript_modules;
 mod javascript_packages;
 mod jvm_nested_resolution;
 mod jvm_resolution;
+mod module_call_resolution;
 mod namespace_types;
 mod nominal_scope_resolution;
 mod pascal_resolution;
@@ -26,11 +30,19 @@ mod qualtype_generics;
 mod qualtype_resolution;
 mod qualtype_source;
 mod receiver_resolution;
+mod reference_tiers;
 mod rescript_resolution;
+mod resource_resolution;
+mod rust_dependency_paths;
+mod rust_facade_resolution;
 mod rust_local_types;
+mod rust_path_resolution;
+mod rust_root_ownership;
+mod rust_use_bindings;
 mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
+mod shell_resolution;
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -5314,6 +5326,9 @@ struct ResolutionIndex {
     types: qualified_member_resolution::TypeIndex,
     receivers: receiver_resolution::ReceiverIndex,
     qualtype: qualtype_resolution::TypeIndex,
+    module_calls: module_call_resolution::ModuleCallIndex,
+    rust_paths: rust_path_resolution::PathIndex,
+    shell_sources: shell_resolution::SourceIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -9879,6 +9894,9 @@ where
 {
     python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    shell_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    rust_root_ownership::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    rust_facade_resolution::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     let mut order = Vec::new();
     order
         .try_reserve_exact(index.candidates.len())
@@ -10408,6 +10426,21 @@ where
         file,
         cancelled,
     )?;
+    shell_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    rust_path_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    module_call_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     let file_ordinal = *index
         .file_ordinals
         .get(&file.file.file_id)
@@ -10696,6 +10729,9 @@ fn index_test_file_evidence(
     }
     let mut import_specifiers = BTreeSet::new();
     for binding in &file.import_bindings {
+        if explicit_edge_resolution::metadata_binding(&file.file.language, binding) {
+            continue;
+        }
         if !matches!(
             binding.kind,
             ImportBindingKind::IncludeSystem
@@ -10857,6 +10893,9 @@ impl<'a> FileImportBindingIndex<'a> {
                 continue;
             }
             if php_resolution::implicit_namespace_binding(binding, language) {
+                continue;
+            }
+            if explicit_edge_resolution::metadata_binding(language, binding) {
                 continue;
             }
             if binding.local_name == "*" {
@@ -11413,7 +11452,13 @@ impl ResolutionOutput<'_> {
             .clone()
             .unwrap_or_else(|| context.file_symbol_id.clone());
         if let Some(target) = resolution.target.as_ref()
-            && (source_symbol_id != target.symbol_id || recursive_call_target(&reference, target))
+            && (source_symbol_id != target.symbol_id
+                || recursive_call_target(&reference, target)
+                || resource_resolution::retain_self_edge(
+                    &context.identity.language,
+                    reference.kind,
+                    target.kind,
+                ))
             && (target.provenance != generic_resolution::CURRENT_CLASS_PROVENANCE
                 || context.current_receivers.lookup(&reference).is_none())
             && let Some(edge_kind) = reference_edge_kind(
@@ -12275,6 +12320,9 @@ impl ImportCandidateFilter<'_, '_> {
         if &candidate.file_id != self.module_file_id || !candidate.export.exported {
             return false;
         }
+        if !rust_use_bindings::visible(self.index, self.reference, candidate) {
+            return false;
+        }
         if !reference_kind_candidate(self.reference.kind, candidate) {
             return false;
         }
@@ -12644,29 +12692,7 @@ where
     if let Some(resolution) = resolve_declaration_reference(index, request, cancelled)? {
         return Ok(resolution);
     }
-    if let Some(resolution) = javascript_member_resolution::guard(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(resolution) = generic_resolution::resolve_casefold_local(index, request, cancelled)?
-    {
-        return Ok(resolution);
-    }
-    if let Some(resolution) = generic_resolution::resolve_class_scope(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(resolution) = codeigniter_resolution::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(resolution) = enum_resolution::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(resolution) = csharp_constructors::resolve(index, request, cancelled)? {
-        return Ok(resolution);
-    }
-    if let Some(target) = resolve_lexical(index, request, cancelled)? {
-        return Ok(ReferenceResolution::resolved(target));
-    }
-    if let Some(resolution) = qualtype_resolution::resolve(index, request, cancelled)? {
+    if let Some(resolution) = reference_tiers::resolve(index, request, cancelled)? {
         return Ok(resolution);
     }
     if request.import_bindings.fallback_blocked {
@@ -12678,6 +12704,9 @@ where
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
+    }
+    if let Some(resolution) = explicit_edge_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
     }
     if let Some(target) = resolve_rust_qualified_path(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
@@ -14001,6 +14030,9 @@ where
         ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
         ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
     };
+    if !rust_use_bindings::allows(index, (reference, binding), cancelled)? {
+        return Ok(ImportResolution::NotBound);
+    }
     if reference.language == SourceLanguage::Php.as_str() {
         return php_resolution::resolve_use_binding(
             php_resolution::PhpUseBinding {
@@ -14210,6 +14242,7 @@ where
         candidates,
         |candidate| {
             &candidate.file_id == module_file_id
+                && rust_use_bindings::visible(index, reference, candidate)
                 && rust_module_candidate_visible(RustCandidateVisibility {
                     index,
                     candidate,
@@ -14224,12 +14257,14 @@ where
         candidate = select_candidate(
             project_candidates,
             |candidate| {
-                rust_module_candidate_visible(RustCandidateVisibility {
-                    index,
-                    candidate,
-                    target_name: &target_name,
-                    source_path: reference.file_path,
-                }) && reference_kind_candidate(reference.kind, candidate)
+                rust_use_bindings::visible(index, reference, candidate)
+                    && rust_module_candidate_visible(RustCandidateVisibility {
+                        index,
+                        candidate,
+                        target_name: &target_name,
+                        source_path: reference.file_path,
+                    })
+                    && reference_kind_candidate(reference.kind, candidate)
                     && index
                         .modules
                         .files
@@ -17016,7 +17051,11 @@ mod tests {
     mod qualified_types;
     mod receiver_types;
     mod rust_receivers;
+    mod rust_use_bindings;
     mod script_modules;
+    mod unqual_digests;
+    mod unqual_repair;
+    mod unqual_resolution;
     mod v1_resolution_oracle;
 
     use std::assert_matches;

@@ -22,6 +22,7 @@ mod qualified_path;
 mod rust_attributes;
 mod rust_members;
 mod rust_reads;
+mod rust_use_guards;
 
 pub(super) use python_import_scopes::fence_import_uses as fence_python_import_uses;
 pub(super) use rust_reads::bound_by_enclosing_scope as rust_constant_bound_by_enclosing_scope;
@@ -294,6 +295,7 @@ fn visit_rust_declaration(
     node: Node<'_>,
     depth: usize,
 ) -> Result<bool, ExtractError> {
+    rust_use_guards::unrepresented_bindings(builder, node)?;
     let emitted_before = builder.facts.symbols.len();
     let visited = if visit_rust_standard_declaration(builder, node, depth)? {
         true
@@ -826,6 +828,7 @@ fn emit_rust_parameters_in_scope(
         if parameter.kind() != "parameter" {
             continue;
         }
+        rust_use_guards::unrepresented_bindings(builder, parameter)?;
         let Some(pattern) = parameter
             .child_by_field_name("pattern")
             .or_else(|| named_children(parameter).next())
@@ -940,6 +943,7 @@ fn visit_rust_impl(
     node: Node<'_>,
     depth: usize,
 ) -> Result<(), ExtractError> {
+    rust_use_guards::plain_impl(builder, node)?;
     let Some(type_node) = node.child_by_field_name("type") else {
         return builder.visit_named_children(node, depth);
     };
@@ -986,6 +990,16 @@ fn visit_rust_external_module(
     if !builder.owners.is_empty() {
         return emit_import_symbol_and_reference(builder, node, module_specifier);
     }
+    // Attributes can replace the conventional path or make the module conditional.
+    // Keep the import fact, but do not claim a default filesystem binding.
+    if node
+        .prev_named_sibling()
+        .is_some_and(|attribute| attribute.kind() == "attribute_item")
+    {
+        return emit_import_symbol_and_reference(builder, node, module_specifier);
+    }
+    let visibility = rust_visibility(builder, node);
+    let symbol_position = builder.facts.symbols.len();
     emit_import(
         builder,
         PolyglotImport {
@@ -996,7 +1010,14 @@ fn visit_rust_external_module(
             local_name,
             binding_node: name_node,
         },
-    )
+    )?;
+    let symbol = builder
+        .facts
+        .symbols
+        .get_mut(symbol_position)
+        .ok_or(ExtractError::OutputLimit)?;
+    symbol.export = crate::SymbolExportFlags::named(visibility == Some(Visibility::Public));
+    Ok(())
 }
 
 fn rust_external_module_specifier(

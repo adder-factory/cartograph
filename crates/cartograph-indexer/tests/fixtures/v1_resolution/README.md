@@ -63,35 +63,28 @@ difference, inspect source, captured declarations, reference sites and the real
 native resolved edge, then record complete canonical pins. Do not change captures
 or the corpus seal, widen matching, or convert a corrected target into parity.
 
-## Measurement for the v2.1.41 release (base `667dec76`)
+## Measurement for the v2.1.41 release
 
 | Disposition | Distinct facts |
 | --- | ---: |
-| Matched exactly | 577 |
-| Aligned by exact pins | 293 |
-| Pending Wave 2 | 72 |
-| Pending Wave 3 | 376 |
+| Matched exactly | 601 |
+| Aligned by exact pins | 295 |
+| Pending Wave 3 | 422 |
 | Intentional | 406 |
 | Total | 1,724 |
 
-Intentional facts include 57 captures without a unique target declaration and one
-without a unique owner. A passing oracle means every fact is accounted for;
-448 facts remain pending. It does not assert complete resolution parity.
-
-The remaining 72 Wave 2 facts belong to the six tracks still owned by the lead:
-`unqualified-project-call-target-resolution`,
-`module-qualified-call-target-resolution`,
-`go-package-qualified-target-resolution`,
-`rust-workspace-path-target-resolution`,
-`declaration-definition-resolution-preference`, and
-`self-resource-reference-edges`. All other unresolved Wave 2 tracks are deferred
-to Wave 3 in both the ledger and reason table.
+At the Wave 2 base (`e820b5ea`) the same facts were 517 exact, 243 aligned,
+833 pending and 131 intentional. Intentional facts include 57 captures without a
+unique target declaration, one without a unique owner, and external imports that
+v2 deliberately leaves targetless. A passing oracle means every fact is accounted
+for; 422 facts remain pending. It does not assert complete resolution parity.
+Wave 2 shipped in v2.1.41; its unfinished gaps are scheduled as Wave 3.
 
 Mutation testing samples one carried edge per corpus/kind/disposition, preferring
 cross-file cases. It deletes or retargets the real native `EdgeInput`, reprojects
 the graph and requires a failure for that specific original fact using the same
-committed policy. At this release base all **434/434** mutants failed (100%
-kill rate): 217 sampled edges, including 117 cross-file and 83 aligned edges.
+committed policy. At this release all **434/434** mutants failed (100%
+kill rate): 217 sampled edges, including 123 cross-file and 83 aligned edges.
 The 33 small gate cases additionally cover target-file/name substitutions, wrong
 kinds/owners, missing sites, readable collisions, conjunctive pins and ledger
 hygiene.
@@ -102,17 +95,16 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | --- | ---: | ---: |
 | `project-import-node-target-representation` | 3 | 93 |
 | `instance-receiver-member-resolution` | 3 | 40 |
-| `unqualified-project-call-target-resolution` | 2 | 33 |
 | `intra-class-receiver-calls` | 3 | 30 |
+| `unqualified-project-call-target-resolution` | 3 | 27 |
 | `static-qualified-member-calls` | 3 | 26 |
 | `jvm-wildcard-import-blocks-fallback` | 3 | 24 |
 | `file-path-references` | 3 | 20 |
 | `native-qualified-type-target-resolution` | 3 | 17 |
 | `drupal-service-target-identity` | 3 | 14 |
-| `module-qualified-call-target-resolution` | 2 | 14 |
-| `rust-workspace-path-target-resolution` | 2 | 14 |
 | `self-def-use-graph-edges` | 3 | 14 |
-| `go-package-qualified-target-resolution` | 2 | 9 |
+| `go-package-qualified-target-resolution` | 3 | 9 |
+| `module-qualified-call-target-resolution` | 3 | 7 |
 | `ts-default-public-methods-invisible` | 3 | 7 |
 | `aura-client-action-target-resolution` | 3 | 6 |
 | `drupal-tag-consumer-direction-and-hooks` | 3 | 6 |
@@ -128,6 +120,7 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | `php-controller-class-fallback` | 3 | 3 |
 | `php-qualified-member-resolution` | 3 | 3 |
 | `receiver-field-target-resolution` | 3 | 3 |
+| `rust-workspace-path-target-resolution` | 3 | 3 |
 | `symfony-yaml-route-files-and-defaults` | 3 | 3 |
 | `aura-client-actions-and-server-action-strings` | 3 | 2 |
 | `component-import-target-identity` | 3 | 2 |
@@ -139,7 +132,6 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | `spring-property-injection-target-resolution` | 3 | 2 |
 | `codeigniter-loads-and-inferred-resources` | 3 | 1 |
 | `commonjs-callable-import-ownership` | 3 | 1 |
-| `declaration-definition-resolution-preference` | 2 | 1 |
 | `enum-member-qualified-target-resolution` | 3 | 1 |
 | `fabric-view-manager-scan-forms` | 3 | 1 |
 | `flutter-builder-and-map-parsing` | 3 | 1 |
@@ -151,5 +143,4 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | `rn-event-channel-gaps` | 3 | 1 |
 | `rn-native-module-scan-forms` | 3 | 1 |
 | `salesforce-controller-context-normalization` | 3 | 1 |
-| `self-resource-reference-edges` | 2 | 1 |
 | `vue-svelte-directory-index-module` | 3 | 1 |

@@ -60,7 +60,32 @@ end
         ]
     );
     assert_eq!(extracted.diagnostics, []);
-    assert_eq!(extracted.import_bindings, []);
+    assert!(extracted.import_bindings.iter().all(|binding| {
+        binding.kind == cartograph_extract::ImportBindingKind::Namespace
+            && binding.module_specifier == "<elixir-public-function>"
+            && binding.imported_name == "*"
+    }));
+    let public_members: Vec<_> = extracted
+        .import_bindings
+        .iter()
+        .map(|binding| {
+            (
+                binding.local_name.as_str(),
+                binding.span.start_line(),
+                binding.span.end_line(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        public_members,
+        [
+            ("Calculator.add", 4, 6),
+            ("Calculator.trace", 10, 10),
+            ("Calculator.countdown", 12, 12),
+            ("Calculator.countdown", 13, 13),
+            ("Calculator.Inner.noop", 16, 16),
+        ]
+    );
 
     let top_level = extract("script.exs", "IO.puts(\"hello\")\n");
     assert_eq!(canonical_facts(&top_level), ["R|<file>|puts|calls|3-7"]);

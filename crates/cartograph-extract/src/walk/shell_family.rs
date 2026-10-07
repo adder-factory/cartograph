@@ -3,7 +3,7 @@ use cartograph_domain::{
 };
 use tree_sitter::Node;
 
-use crate::ExtractError;
+use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind};
 
 use super::{
     ExtractionBuilder, PendingReference, PendingSymbol, references, safe_assignment_signature,
@@ -372,6 +372,9 @@ fn visit_powershell_declaration(
             if name.eq_ignore_ascii_case("using") {
                 visit_powershell_using(builder, node)?;
                 Ok(true)
+            } else if builder.context.text(node).trim().starts_with(". ") {
+                visit_powershell_dot_source(builder, node)?;
+                Ok(true)
             } else if powershell_control_name(&name) {
                 Ok(true)
             } else {
@@ -509,7 +512,11 @@ fn visit_powershell_using(
         }
         let raw_path = raw.get(prefix.len()..).unwrap_or_default().trim();
         let Some(path) = literal_shell_text(raw_path) else {
-            return Ok(());
+            return if kind == "module" {
+                super::source_bindings::unknown_source(builder, node)
+            } else {
+                Ok(())
+            };
         };
         let module_name = builder.context.copy_text(path)?;
         return emit_import(
@@ -518,6 +525,7 @@ fn visit_powershell_using(
                 node,
                 span_node: node,
                 name: module_name,
+                binds_functions: kind == "module",
             },
         );
     }
@@ -529,10 +537,10 @@ fn visit_shell_source(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     let Some(argument) = shell_command_arguments(node).next() else {
-        return Ok(());
+        return super::source_bindings::unknown_source(builder, node);
     };
     let Some(path) = literal_shell_node(builder, argument) else {
-        return Ok(());
+        return super::source_bindings::unknown_source(builder, node);
     };
     let module_name = builder.context.copy_text(path)?;
     emit_import(
@@ -541,6 +549,7 @@ fn visit_shell_source(
             node,
             span_node: argument,
             name: module_name,
+            binds_functions: true,
         },
     )
 }
@@ -549,6 +558,7 @@ struct ImportSymbol<'tree> {
     node: Node<'tree>,
     span_node: Node<'tree>,
     name: String,
+    binds_functions: bool,
 }
 
 fn emit_import(
@@ -573,6 +583,20 @@ fn emit_import(
         visibility: None,
     };
     builder.emit_symbol(pending)?;
+    if input.binds_functions
+        && builder.owners.is_empty()
+        && super::source_bindings::top_level(input.node)
+    {
+        builder.emit_import_binding(ExtractedImportBinding {
+            kind: ImportBindingKind::Namespace,
+            module_specifier: input.name.clone(),
+            imported_name: "*".to_owned(),
+            local_name: "*".to_owned(),
+            span: super::syntax::span_for(input.span_node)?,
+        })?;
+    } else if input.binds_functions {
+        super::source_bindings::unknown_source(builder, input.node)?;
+    }
     references::push_reference(
         builder,
         PendingReference {
@@ -580,6 +604,29 @@ fn emit_import(
             name: input.name,
             kind: ReferenceKind::Imports,
             node: input.span_node,
+        },
+    )
+}
+
+fn visit_powershell_dot_source(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    let raw = builder.context.text(node).trim();
+    let Some(path) = raw
+        .strip_prefix(". ")
+        .and_then(|path| literal_shell_text(path.trim()))
+    else {
+        return super::source_bindings::unknown_source(builder, node);
+    };
+    let name = builder.context.copy_text(path)?;
+    emit_import(
+        builder,
+        ImportSymbol {
+            node,
+            span_node: node,
+            name,
+            binds_functions: true,
         },
     )
 }
