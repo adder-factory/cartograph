@@ -152,7 +152,7 @@ pub(super) fn extract(
 }
 
 /// Advance the depth-first walk, retaining depth while climbing to a sibling.
-fn advance_cursor(cursor: &mut TreeCursor<'_>, depth: &mut usize) -> bool {
+pub(super) fn advance_cursor(cursor: &mut TreeCursor<'_>, depth: &mut usize) -> bool {
     if cursor.goto_first_child() {
         *depth += 1;
         return true;

@@ -18,7 +18,7 @@ mod import_index;
 mod parameter_bindings;
 mod python_import_scopes;
 mod python_members;
-mod qualified_path;
+pub(super) mod qualified_path;
 mod rust_attributes;
 mod rust_members;
 mod rust_module_scopes;

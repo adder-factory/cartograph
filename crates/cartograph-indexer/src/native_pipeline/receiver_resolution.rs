@@ -672,14 +672,20 @@ where
         },
         cancelled,
     )?;
-    Ok(match imported {
+    let target = match imported {
         ImportResolution::Resolved(target) if target.confidence >= IMPORT_BINDING_CONFIDENCE => {
-            index.receivers.classes.get(target.symbol_id.as_str())
+            Some(target)
         }
         ImportResolution::NotBound
         | ImportResolution::Unresolved
         | ImportResolution::Resolved(_) => None,
-    })
+    };
+    let target = match target {
+        Some(target) => Some(target),
+        None => super::go_path_resolution::resolve(index, request, cancelled)?
+            .and_then(|resolution| resolution.target),
+    };
+    Ok(target.and_then(|target| index.receivers.classes.get(target.symbol_id.as_str())))
 }
 
 struct MemberSearch<'index> {

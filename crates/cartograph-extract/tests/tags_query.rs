@@ -531,7 +531,21 @@ fn remaining_tags_modes_have_locked_exact_structural_facts() {
         let extracted = extract(path, source);
         assert_eq!(canonical_facts(&extracted), expected, "{path}");
         assert!(extracted.diagnostics.is_empty(), "{path}");
-        assert!(extracted.import_bindings.is_empty(), "{path}");
+        // OCaml resolver metadata adds binding evidence; the frozen structural
+        // facts and every structural digest above remain byte-for-byte equal.
+        if path == "lib.ml" {
+            let shadows: Vec<_> = extracted
+                .import_bindings
+                .iter()
+                .map(|binding| {
+                    assert_eq!(binding.module_specifier, "<ocaml-shadow>");
+                    binding.imported_name.as_str()
+                })
+                .collect();
+            assert_eq!(shadows, ["f", "x"]);
+        } else {
+            assert!(extracted.import_bindings.is_empty(), "{path}");
+        }
     }
 }
 

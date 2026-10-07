@@ -23,7 +23,7 @@ fn same_base_resolution(actual: &ReferenceInput, base: &ReferenceInput) {
 
 #[test]
 fn repair_01_ocaml_open_never_proves_a_global_compilation_unit() {
-    for prefix in ["open M\n", "include M\n", ""] {
+    for prefix in ["open M\n", "include M\n"] {
         let source = format!("{prefix}let use_it () = X.helper ()\n");
         let facts = generation(&[
             ("m.ml", "module X = struct let helper () = 1 end\n"),
@@ -32,6 +32,21 @@ fn repair_01_ocaml_open_never_proves_a_global_compilation_unit() {
         ]);
         unresolved(&facts, "caller.ml", "helper");
     }
+    let facts = generation(&[
+        ("x.ml", "let helper () = 2\n"),
+        ("caller.ml", "let use_it () = X.helper ()\n"),
+    ]);
+    let helper = capability_symbol(&facts, "x.ml", "helper");
+    assert_eq!(
+        call(&facts, "caller.ml", "helper")
+            .target_symbol_id
+            .as_ref(),
+        Some(&helper.symbol_id)
+    );
+    assert_eq!(
+        call(&facts, "caller.ml", "helper").resolution_provenance,
+        "native-ocaml-module"
+    );
 }
 
 #[test]

@@ -1,11 +1,18 @@
 //! Go namespace bindings whose full import path is represented by the indexed
-//! package directory (GOPATH-style layouts). Module-prefix stripping requires
-//! an admitted go.mod fact and is deliberately left unsupported here.
+//! package directory (GOPATH-style layouts), or a generation-owned go.mod.
 use super::{
     ExtractedImportBinding, ImportBindingKind, ReferenceResolution, ResolutionCandidate,
     ResolutionCandidateBucket, ResolutionIndex, ResolutionRequest, ResolvedTarget,
     StageItemFailure, SymbolKind, reference_kind_candidate, resolve_lexical, select_candidate,
 };
+
+const PATH_CONFIDENCE: f32 = 1.0;
+
+#[derive(Clone, Copy)]
+enum PathRule {
+    Module,
+    Directory,
+}
 
 pub(super) fn resolve<Cancel>(
     index: &ResolutionIndex,
@@ -43,29 +50,58 @@ where
     {
         return Ok(None);
     }
+    let module = find_candidate(index, (request, binding, name, PathRule::Module), cancelled)?;
+    let directory = find_candidate(
+        index,
+        (request, binding, name, PathRule::Directory),
+        cancelled,
+    )?;
+    let (candidate, provenance) = if module.is_some_and(|target| {
+        directory.is_none_or(|original| original.symbol_id != target.symbol_id)
+    }) {
+        (module, "native-go-module-import")
+    } else {
+        (directory, "native-go-import-path")
+    };
+    Ok(candidate.map(|candidate| {
+        ReferenceResolution::resolved(ResolvedTarget {
+            symbol_id: candidate.symbol_id.clone(),
+            kind: candidate.kind,
+            confidence: PATH_CONFIDENCE,
+            provenance,
+        })
+    }))
+}
+
+fn find_candidate<'index, Cancel>(
+    index: &'index ResolutionIndex,
+    query: (
+        &ResolutionRequest<'_>,
+        &ExtractedImportBinding,
+        &str,
+        PathRule,
+    ),
+    cancelled: &mut Cancel,
+) -> Result<Option<&'index ResolutionCandidate>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (request, binding, name, rule) = query;
     let candidates = index
         .candidates
         .get(name)
         .map_or(&[] as &[_], ResolutionCandidateBucket::as_slice);
-    let candidate = select_candidate(
+    select_candidate(
         candidates,
         |candidate| {
             candidate.top_level
                 && candidate.export.exported
                 && candidate.qualified_name == name
                 && reference_kind_candidate(request.kind, candidate)
-                && package_matches(index, candidate, binding)
+                && package_matches(index, (request, candidate, binding), rule)
         },
         cancelled,
-    )?;
-    Ok(candidate.map(|candidate| {
-        ReferenceResolution::resolved(ResolvedTarget {
-            symbol_id: candidate.symbol_id.clone(),
-            kind: candidate.kind,
-            confidence: 1.0,
-            provenance: "native-go-import-path",
-        })
-    }))
+    )
 }
 
 enum BindingMatch<'a> {
@@ -100,9 +136,14 @@ where
 
 fn package_matches(
     index: &ResolutionIndex,
-    candidate: &ResolutionCandidate,
-    binding: &ExtractedImportBinding,
+    query: (
+        &ResolutionRequest<'_>,
+        &ResolutionCandidate,
+        &ExtractedImportBinding,
+    ),
+    rule: PathRule,
 ) -> bool {
+    let (request, candidate, binding) = query;
     let Some(file) = index.modules.files.get(&candidate.file_id) else {
         return false;
     };
@@ -110,7 +151,12 @@ fn package_matches(
     let name_agrees = basename != Some(binding.local_name.as_str())
         || file.package.as_deref() == Some(binding.local_name.as_str());
     file.language == "go"
-        && file.directory == binding.module_specifier
+        && match rule {
+            PathRule::Module => {
+                super::go_module_paths::matches(index, (request, candidate, binding))
+            }
+            PathRule::Directory => file.directory == binding.module_specifier,
+        }
         && file.package.is_some()
         && name_agrees
 }

@@ -30,6 +30,7 @@ use crate::{
 };
 
 mod module_bindings;
+mod ocaml_bindings;
 
 const QUERY_MATCH_LIMIT: u32 = 65_536;
 const MINIMUM_CAPTURE_LIMIT: usize = 1_024;
@@ -379,6 +380,11 @@ pub(crate) fn extract(
         .try_reserve(module_imports.len())
         .map_err(|_| ExtractError::OutputLimit)?;
     import_bindings.append(&mut module_imports);
+    let mut ocaml_imports = ocaml_bindings::extract(input, &mut budget, cancelled)?;
+    import_bindings
+        .try_reserve(ocaml_imports.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    import_bindings.append(&mut ocaml_imports);
 
     let diagnostics = diagnostics(root, parse_status, cancelled)?;
     for _ in &diagnostics {
@@ -664,6 +670,10 @@ fn emit_tag_references(
         }
         if let Some(binding) =
             module_bindings::callee_binding(call.name_node, input.source, input.language)?
+        {
+            module_bindings::push_binding((&mut qualifiers, binding), budget)?;
+        }
+        if let Some(binding) = ocaml_bindings::callee(call.name_node, input.source, input.language)?
         {
             module_bindings::push_binding((&mut qualifiers, binding), budget)?;
         }

@@ -40,6 +40,9 @@ where
     if let Some(resolution) = module_call_resolution::qualified(index, request, cancelled)? {
         return Ok(Some(resolution));
     }
+    if let Some(resolution) = super::ocaml_module_resolution::resolve(index, request, cancelled)? {
+        return Ok(Some(resolution));
+    }
     if let Some(target) = resolve_lexical(index, request, cancelled)? {
         return declaration_resolution::prefer_definition(index, (request, target), cancelled)
             .map(Some);

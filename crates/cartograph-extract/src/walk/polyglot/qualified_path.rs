@@ -21,7 +21,7 @@ const DOTTED_SEPARATOR: &str = ".";
 
 /// The lookup name of a qualified `path`, or `None` unless every segment is
 /// a plain name.
-pub(super) fn lookup_name(
+pub(in super::super) fn lookup_name(
     builder: &ExtractionBuilder<'_, '_>,
     path: Node<'_>,
 ) -> Result<Option<String>, ExtractError> {

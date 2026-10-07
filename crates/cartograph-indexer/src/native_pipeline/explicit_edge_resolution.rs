@@ -6,6 +6,8 @@ pub(super) fn metadata_binding(language: &str, binding: &super::ExtractedImportB
         || super::rust_dependency_paths::metadata_binding(language, binding)
         || super::shell_resolution::metadata_binding(language, binding)
         || super::rust_use_bindings::metadata_binding(language, binding)
+        || super::ocaml_module_resolution::metadata_binding(language, binding)
+        || super::go_module_paths::metadata_binding(language, binding)
 }
 
 pub(super) fn resolve<Cancel>(

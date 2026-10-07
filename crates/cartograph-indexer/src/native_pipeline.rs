@@ -10,6 +10,7 @@ mod framework_conventions;
 mod framework_methods;
 mod framework_resolution;
 mod generic_resolution;
+mod go_module_paths;
 mod go_path_resolution;
 mod intrinsic_names;
 mod javascript_config;
@@ -23,6 +24,7 @@ mod jvm_resolution;
 mod module_call_resolution;
 mod namespace_types;
 mod nominal_scope_resolution;
+mod ocaml_module_resolution;
 mod pascal_resolution;
 mod php_resolution;
 mod play_resolution;
@@ -5350,6 +5352,8 @@ struct ResolutionIndex {
     module_calls: module_call_resolution::ModuleCallIndex,
     rust_paths: rust_path_resolution::PathIndex,
     shell_sources: shell_resolution::SourceIndex,
+    go_modules: go_module_paths::ModuleIndex,
+    ocaml_modules: ocaml_module_resolution::ModuleIndex,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -9849,6 +9853,7 @@ where
 {
     python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
+    ocaml_module_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     shell_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_root_ownership::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_path_guards::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
@@ -10403,6 +10408,16 @@ where
         cancelled,
     )?;
     module_call_resolution::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    go_module_paths::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
+    ocaml_module_resolution::index_file(
         &mut ResolutionIndexTarget { index, budget },
         file,
         cancelled,
@@ -11186,6 +11201,18 @@ where
         target.confidence = DYNAMIC_DISPATCH_CONFIDENCE;
         target.provenance = DYNAMIC_DISPATCH_PROVENANCE;
     }
+    let resolution = go_module_paths::prefer(
+        index,
+        (
+            resolution,
+            receiver_resolution::ReceiverQuery {
+                context,
+                reference,
+                import_binding_scratch,
+            },
+        ),
+        cancelled,
+    )?;
     let receiver = receiver_resolution::resolve(
         index,
         receiver_resolution::ReceiverQuery {
@@ -17058,6 +17085,7 @@ mod tests {
     mod javascript_modules;
     mod javascript_parity;
     mod jvm_resolution;
+    mod modules;
     mod pascal_units;
     mod php_namespaces;
     mod polyglot_parity;

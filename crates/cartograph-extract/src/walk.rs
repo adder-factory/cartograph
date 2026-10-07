@@ -34,6 +34,7 @@ mod explicit_receivers;
 mod family_support;
 mod fsharp_family;
 mod generic_family;
+mod go_module_evidence;
 mod graphql_family;
 mod hcl_family;
 mod javascript_bindings;
@@ -243,6 +244,7 @@ fn enrich_visited(
     embedded_sql::enrich(builder, root)?;
     value_references::enrich(builder, root)?;
     javascript_reads::enrich_binding_tables(builder, root)?;
+    go_module_evidence::enrich(builder, root)?;
     explicit_receivers::enrich(builder, root)
 }
 
