@@ -2,6 +2,7 @@
 //! participate; unknown, ambiguous, or incomplete inheritance always abstains.
 
 mod declared;
+mod lexical;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -25,7 +26,10 @@ use super::{
 
 mod nominal;
 mod parent_index;
+mod preparation;
 mod value_receivers;
+pub(super) use lexical::{candidate_eligible as lexical_member_eligible, explicit_instance};
+pub(super) use preparation::finish as prepare_index;
 pub(super) use value_receivers::unshadowed as unshadowed_nominal_receiver;
 
 const MAX_ANCESTORS: usize = 32;
@@ -608,6 +612,15 @@ pub(super) fn prefer_base(
     receiver: Option<ResolvedTarget>,
 ) -> ReferenceResolution {
     match receiver {
+        Some(target)
+            if target.provenance == INHERITED_PROVENANCE
+                && base
+                    .target
+                    .as_ref()
+                    .is_some_and(|base| base.confidence > target.confidence) =>
+        {
+            base
+        }
         Some(target)
             if base.target.as_ref().is_none_or(|base| {
                 base.symbol_id != target.symbol_id || base.confidence < target.confidence

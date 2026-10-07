@@ -19,7 +19,9 @@ mod name_fallbacks;
 mod receiver_sites;
 mod scoped_names;
 
+pub(super) use class_scope::scope as call_scope;
 pub(super) use receiver_sites::ReceiverSites;
+pub(super) use scoped_names::members as scoped_members;
 
 pub(super) const CURRENT_CLASS_PROVENANCE: &str = "native-current-class-call";
 

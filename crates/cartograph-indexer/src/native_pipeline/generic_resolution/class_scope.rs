@@ -58,7 +58,7 @@ pub(in super::super) fn proven_call(
     scope(index, (request.owner, request.span)).is_some()
 }
 
-fn scope(
+pub(in super::super) fn scope(
     index: &ResolutionIndex,
     (owner, span): (Option<&super::SymbolId>, SourceSpan),
 ) -> Option<CallScopeKind> {

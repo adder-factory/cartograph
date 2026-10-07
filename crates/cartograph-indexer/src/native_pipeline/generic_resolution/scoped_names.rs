@@ -59,7 +59,7 @@ pub(super) fn insert(
     )
 }
 
-pub(super) fn members<'a>(
+pub(in super::super) fn members<'a>(
     index: &'a ResolutionIndex,
     owner: &SymbolId,
     name: &str,

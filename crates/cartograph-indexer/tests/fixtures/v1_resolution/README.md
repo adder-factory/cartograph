@@ -69,8 +69,8 @@ or the corpus seal, widen matching, or convert a corrected target into parity.
 | --- | ---: |
 | Matched exactly | 679 |
 | Aligned by exact pins | 386 |
-| Pending Wave 3 | 95 |
-| Intentional | 564 |
+| Pending Wave 3 | 96 |
+| Intentional | 563 |
 | Total | 1,724 |
 
 At the Wave 2 base (`e820b5ea`) the same facts were 517 exact, 243 aligned,
@@ -78,7 +78,7 @@ At the Wave 2 base (`e820b5ea`) the same facts were 517 exact, 243 aligned,
 Intentional facts include captures without a unique target or owner, external
 imports v2 leaves targetless, v1 import-node and callable def-use
 representations, and v1 misresolutions with source evidence. A passing oracle
-means every fact is accounted for; 95 facts remain pending. It does not
+means every fact is accounted for; 96 facts remain pending. It does not
 assert complete resolution parity.
 
 Mutation testing samples one carried edge per corpus/kind/disposition, preferring
@@ -103,4 +103,5 @@ The pending inventory below lists every gap, sorted by fact count and gap ID.
 | `module-qualified-call-target-resolution` | 3 | 2 |
 | `native-bridge-physical-target-identity` | 3 | 2 |
 | `rust-workspace-path-target-resolution` | 3 | 2 |
+| `commonjs-callable-import-ownership` | 3 | 1 |
 | `qualified-name-suffix-match` | 3 | 1 |

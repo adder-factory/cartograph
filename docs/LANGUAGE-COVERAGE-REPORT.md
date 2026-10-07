@@ -161,8 +161,8 @@ after the extraction fixes are:
 | Disposition | Distinct selectors |
 | --- | ---: |
 | Identity | 6,052 |
-| Aligned | 2,038 |
-| Pending, wave 3 | 2 |
+| Aligned | 2,037 |
+| Pending, wave 3 | 3 |
 | Intentional | 73 |
 
 This gate proves per-file observations. Correction alignments marked
@@ -225,8 +225,8 @@ owns the tables, update procedure and pending inventory.
 | --- | ---: |
 | Matched exactly | 679 |
 | Aligned by exact pins | 386 |
-| Intentional | 564 |
-| Pending, wave 3 | 95 |
+| Intentional | 563 |
+| Pending, wave 3 | 96 |
 
 Run it with
 `cargo test --locked -p cartograph-indexer --lib v1_resolution_oracle -- --nocapture`.

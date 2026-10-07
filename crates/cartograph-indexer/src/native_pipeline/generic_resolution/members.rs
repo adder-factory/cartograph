@@ -91,7 +91,9 @@ where
     let Some(class) = owning_class(index, owner) else {
         return Ok(None);
     };
-    if !scoped_names::candidates(index, request, Some(owner))?.is_empty() {
+    if !super::class_scope::explicit_instance(index, request)
+        && !scoped_names::candidates(index, request, Some(owner))?.is_empty()
+    {
         return Ok(None);
     }
     let candidate = select_unique_candidate(

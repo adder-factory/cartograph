@@ -7895,11 +7895,6 @@ fn finish_spilled_resolution_preparation(
         &mut preparation.budget,
         &mut cancelled,
     )?;
-    javascript_exports::prepare(
-        &mut preparation.index,
-        &mut preparation.budget,
-        &mut cancelled,
-    )?;
     analyze_partial_clones(
         CloneAnalysisInput {
             extracted: &mut preparation.compact,
@@ -9937,7 +9932,6 @@ where
         })?;
     }
     finalize_resolution_candidate_order(&mut index, context.budget, context.cancelled)?;
-    javascript_exports::prepare(&mut index, context.budget, context.cancelled)?;
     Ok(index)
 }
 
@@ -9950,7 +9944,6 @@ where
     Cancel: FnMut() -> bool,
 {
     python_resolution::index_source_roots(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
-    receiver_resolution::finish_index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     ocaml_module_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     shell_resolution::finalize(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     rust_root_ownership::index(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
@@ -9971,7 +9964,7 @@ where
     index.candidate_order = order;
     native_bridge_details::prepare(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
     native_event_calls::prepare(&mut ResolutionIndexTarget { index, budget }, cancelled)?;
-    jvm_resolution::prepare_wildcards(&mut ResolutionIndexTarget { index, budget }, cancelled)
+    receiver_resolution::prepare_index(&mut ResolutionIndexTarget { index, budget }, cancelled)
 }
 
 fn ordered_resolution_candidates(
@@ -12558,6 +12551,9 @@ impl ImportCandidateFilter<'_, '_> {
         if !reference_kind_candidate(self.reference.kind, candidate) {
             return false;
         }
+        if !receiver_resolution::lexical_member_eligible(self.index, self.reference, candidate) {
+            return false;
+        }
         if self.javascript_value_usage && !javascript_runtime_import_candidate(candidate) {
             return false;
         }
@@ -13280,6 +13276,7 @@ fn import_reference_resolution(resolution: ImportResolution) -> Option<Reference
 fn project_fallback_allowed(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
     if request.dispatch == ReferenceDispatch::RustSelf
         || pascal_resolution::runtime_reference(request.language, request.name)
+        || receiver_resolution::explicit_instance(index, request)
     {
         return false;
     }
@@ -13324,6 +13321,7 @@ where
         |candidate| {
             &candidate.file_id == request.file_id
                 && candidate.qualified_name == exact_name
+                && receiver_resolution::lexical_member_eligible(index, request, candidate)
                 && (request.dispatch == ReferenceDispatch::RustSelf
                     || request.owner != Some(&candidate.symbol_id))
                 && reference_kind_candidate(request.kind, candidate)
@@ -13467,6 +13465,7 @@ fn lexical_candidate_matches(
     (is_lexical_candidate(request.kind, request.name, candidate)
         || swift_implicit_member_call(request, candidate))
         && &candidate.file_id == request.file_id
+        && receiver_resolution::lexical_member_eligible(index, request, candidate)
         && (request.owner != Some(&candidate.symbol_id)
             || generic_resolution::recursive_owner_call(index, request, candidate))
 }
@@ -17286,6 +17285,7 @@ mod tests {
     mod rust_use_regressions;
     mod script_modules;
     mod types_digest_proof;
+    mod types_final;
     mod types_scope_repair;
     mod types_shadowing;
     mod types_track;

@@ -133,7 +133,7 @@ pub(super) fn current_member<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    if reference.kind != ReferenceKind::Calls {
+    if reference.kind != ReferenceKind::Calls || super::lexical::shadowed(index, reference) {
         return Ok(None);
     }
     let Some(class) = super::super::generic_resolution::current_instance_class(index, reference)
