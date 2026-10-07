@@ -1,6 +1,8 @@
 //! Members of syntax-proven receiver types. Only lexical/import class bindings
 //! participate; unknown, ambiguous, or incomplete inheritance always abstains.
 
+mod declared;
+
 use std::{
     collections::{HashMap, HashSet},
     mem::{size_of, take},
@@ -38,6 +40,7 @@ pub(super) struct ReceiverIndex {
     // Without a proven assignment owner, withhold added receiver resolution for
     // this name. The existing resolver remains authoritative.
     unproven_assignments: HashSet<String>,
+    declared: declared::DeclaredIndex,
 }
 
 struct Class {
@@ -62,6 +65,7 @@ struct MemberDefinition {
     visibility: Option<Visibility>,
     instance_allowed: bool,
     constructor: bool,
+    return_class: Option<SymbolId>,
 }
 
 struct ParentFile {
@@ -161,7 +165,8 @@ where
     if !matches!(
         file.file.language.as_str(),
         "python" | "go" | "typescript" | "tsx" | "javascript" | "jsx"
-    ) && !nominal::language(&file.file.language)
+    ) && !declared::supported(&file.file.language)
+        && !nominal::language(&file.file.language)
     {
         return Ok(());
     }
@@ -174,38 +179,12 @@ where
         {
             continue;
         }
-        target.budget.charge(
-            RESOLUTION_MAP_NODE_ALLOWANCE
-                .saturating_add(usize_to_u64(size_of::<(String, Class)>()))
-                .saturating_add(
-                    usize_to_u64(symbol.input.symbol_id.as_str().len()).saturating_mul(2),
-                )
-                .saturating_add(usize_to_u64(file.file.file_id.as_str().len()))
-                .saturating_add(usize_to_u64(symbol.name.len())),
-        )?;
-        target
-            .index
-            .receivers
-            .classes
-            .try_reserve(1)
-            .map_err(|_| StageItemFailure)?;
-        target.index.receivers.classes.insert(
-            try_clone_text(symbol.input.symbol_id.as_str())?,
-            Class {
-                symbol_id: symbol.input.symbol_id.clone(),
-                file_id: file.file.file_id.clone(),
-                name: try_clone_text(&symbol.name)?,
-                direct_base: None,
-                members: HashMap::new(),
-                non_methods: HashSet::new(),
-                assigned_members: HashSet::new(),
-                fenced: false,
-            },
-        );
+        declared::index_class(target, (file, symbol))?;
     }
     index_members(target, file, cancelled)?;
     index_non_methods(target, file, cancelled)?;
-    index_parents(target, file, cancelled)
+    index_parents(target, file, cancelled)?;
+    declared::index_returns(target, file, cancelled)
 }
 
 fn index_members<Cancel>(
@@ -241,14 +220,7 @@ where
         class.members.try_reserve(1).map_err(|_| StageItemFailure)?;
         class.members.insert(
             try_clone_text(&symbol.name)?,
-            IndexedMember::Unique(MemberDefinition {
-                symbol_id: symbol.input.symbol_id.clone(),
-                kind: symbol.kind,
-                visibility: symbol.visibility,
-                instance_allowed: matches!(file.file.language.as_str(), "python" | "go")
-                    || !symbol.execution.static_member,
-                constructor: symbol.declaration_syntax == super::DeclarationSyntax::DartConstructor,
-            }),
+            declared::member_definition(file, symbol),
         );
     }
     Ok(())
@@ -460,7 +432,7 @@ where
             record_parent(target, (&declaration.owner, parent, declaration.kind))?;
         }
     }
-    Ok(())
+    declared::finish_returns(target, cancelled)
 }
 
 fn parent_class<'index, Cancel>(
@@ -524,6 +496,7 @@ fn record_parent(
     Ok(())
 }
 
+pub(super) use declared::resolve_abstention;
 pub(super) use nominal::constructor_redirect as resolve_constructor_redirect;
 
 pub(super) fn resolve<Cancel>(
@@ -539,8 +512,10 @@ where
         reference,
         import_binding_scratch,
     } = query;
-    if nominal::language(&context.identity.language) {
-        return nominal::current_member(index, reference, cancelled);
+    if nominal::language(&context.identity.language)
+        && let Some(target) = nominal::current_member(index, reference, cancelled)?
+    {
+        return Ok(Some(target));
     }
     if matches!(
         reference.kind,
@@ -561,43 +536,43 @@ where
     else {
         return Ok(None);
     };
-    let Some((receiver, member)) = payload.split_once('#') else {
+    let Some(path) = declared::receiver_path(payload, &context.identity.language) else {
         return Ok(None);
     };
-    if context.identity.language == "python" && member.starts_with("__") && !member.ends_with("__")
-    {
+    let class = declared::receiver_class(
+        index,
+        (context, reference, import_binding_scratch, path.receiver),
+        cancelled,
+    )?;
+    let Some(class) = class
+        .filter(|class| declared::permits_constructor(index, (context, path.constructed, class)))
+    else {
+        return Ok(None);
+    };
+    if super::javascript_member_resolution::owns_local_constructor(
+        index,
+        (&context.identity.file_id, reference),
+        &class.file_id,
+    ) {
         return Ok(None);
     }
-    let class = if let Some(id) = receiver.strip_prefix('@') {
-        local_type(index, (id, &context.identity.file_id))
-    } else if let Some(receiver) = receiver.strip_prefix(EXPLICIT_RECEIVER_IMPORT_PREFIX) {
-        let request = ResolutionRequest {
-            file_id: &context.identity.file_id,
-            file_path: &context.identity.path,
-            language: &context.identity.language,
-            import_bindings: import_binding_scratch.select(context.import_bindings, receiver),
-            owner: reference.owner.as_ref(),
-            name: receiver,
-            dispatch: ReferenceDispatch::Static,
-            kind: ReferenceKind::TypeOf,
-            span: reference.span,
-        };
-        imported_type(index, &request, cancelled)?
-    } else {
-        None
-    };
-    let Some(class) = class else {
+    let Some((class, chained)) = declared::returned_class(
+        index,
+        (class, path.members, path.static_required),
+        cancelled,
+    )?
+    else {
         return Ok(None);
     };
     let mut search = MemberSearch {
         index,
         class,
         receiver: class,
-        name: member,
+        name: path.member,
         kind: reference.kind,
     };
     let target = match direct_member(&mut search, cancelled)? {
-        Member::Unique(candidate) => Some(member_target(candidate, false)),
+        Member::Unique(candidate) => Some(declared::target(candidate, chained)),
         Member::Missing => {
             inherited_member(search, cancelled)?.map(|candidate| member_target(candidate, true))
         }
@@ -606,16 +581,37 @@ where
     Ok(target)
 }
 
+fn type_request<'query>(
+    input: (
+        &'query FileResolutionContext<'_>,
+        &'query ExtractedReference,
+        &'query mut ImportBindingScratch,
+        &'query str,
+    ),
+) -> ResolutionRequest<'query> {
+    let (context, reference, scratch, name) = input;
+    ResolutionRequest {
+        file_id: &context.identity.file_id,
+        file_path: &context.identity.path,
+        language: &context.identity.language,
+        import_bindings: scratch.select(context.import_bindings, name),
+        owner: None,
+        name,
+        dispatch: ReferenceDispatch::Static,
+        kind: ReferenceKind::TypeOf,
+        span: reference.span,
+    }
+}
+
 pub(super) fn prefer_base(
     base: ReferenceResolution,
     receiver: Option<ResolvedTarget>,
 ) -> ReferenceResolution {
     match receiver {
         Some(target)
-            if base
-                .target
-                .as_ref()
-                .is_none_or(|base| base.symbol_id != target.symbol_id) =>
+            if base.target.as_ref().is_none_or(|base| {
+                base.symbol_id != target.symbol_id || base.confidence < target.confidence
+            }) =>
         {
             ReferenceResolution::resolved(target)
         }
@@ -642,6 +638,9 @@ fn imported_type<'index, Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if declared::supported(request.language) {
+        return declared::resolve_type(index, request, cancelled);
+    }
     let imported = resolve_import(
         index,
         ImportResolutionRequest {
@@ -691,12 +690,13 @@ where
         return Err(StageItemFailure);
     }
     if search.class.fenced
-        || search.class.assigned_members.contains(search.name)
-        || search
-            .index
-            .receivers
-            .unproven_assignments
-            .contains(search.name)
+        || (search.kind == ReferenceKind::Calls
+            && (search.class.assigned_members.contains(search.name)
+                || search
+                    .index
+                    .receivers
+                    .unproven_assignments
+                    .contains(search.name)))
     {
         return Ok(Member::Ambiguous);
     }
@@ -851,7 +851,7 @@ const fn nominal(kind: SymbolKind) -> bool {
 
 const fn member_kind(reference: ReferenceKind, kind: SymbolKind) -> bool {
     match reference {
-        ReferenceKind::Calls => matches!(kind, SymbolKind::Method),
+        ReferenceKind::Calls => matches!(kind, SymbolKind::Method | SymbolKind::Function),
         ReferenceKind::FieldAccess => matches!(
             kind,
             SymbolKind::Field | SymbolKind::Property | SymbolKind::Method

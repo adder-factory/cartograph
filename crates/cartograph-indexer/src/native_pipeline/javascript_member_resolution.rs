@@ -458,6 +458,24 @@ fn companion<'index>(
         .as_ref()
 }
 
+/// The JavaScript constructor owner retains its existing targets and fences.
+pub(super) fn owns_local_constructor(
+    index: &ResolutionIndex,
+    (file_id, reference): (&FileId, &ExtractedReference),
+    class_file_id: &FileId,
+) -> bool {
+    class_file_id == file_id
+        && matches!(
+            index
+                .javascript_members
+                .calls
+                .get(file_id)
+                .and_then(|calls| calls.get(&reference.span.end_byte()))
+                .and_then(Option::as_ref),
+            Some(Companion::Constructor { .. })
+        )
+}
+
 fn string_keyed_dispatch(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
     // Literal keys retain their two delimiters in the extracted token span;
     // identifier members retain exactly the unquoted lookup name's bytes.

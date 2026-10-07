@@ -9,7 +9,7 @@ use super::{
 const PREVIOUS_GENERIC_DIGEST: &str =
     "8fe8df25755ebdcf0730ca1a333849a5aec6dd9cf3b7e15b1d4fae0964dd2ef3";
 
-fn unordered_copy(facts: &CanonicalGenerationFacts) -> GenerationFacts {
+pub(super) fn unordered_copy(facts: &CanonicalGenerationFacts) -> GenerationFacts {
     GenerationFacts {
         files: facts.files().to_vec(),
         symbols: facts.symbols().to_vec(),
@@ -42,8 +42,9 @@ fn generic_corpus_resolution_delta_reconstructs_previous_frozen_digest() {
         .iter()
         .map(|(path, source, _)| (*path, *source))
         .collect::<Vec<_>>();
-    let facts = build_capability_generation(&fixtures, false);
-    let facts = super::bridge_digest_proof::restore(&facts);
+    let current = build_capability_generation(&fixtures, false);
+    let receiver_restored = super::types_digest_proof::restore_receiver_delta(&current);
+    let facts = super::bridge_digest_proof::restore(&receiver_restored);
     let build = capability_symbol(&facts, "generic/fixture.ets", "CounterView::build");
     let increment = capability_symbol(&facts, "generic/fixture.ets", "CounterView::increment");
     let mut restored = unordered_copy(&facts);

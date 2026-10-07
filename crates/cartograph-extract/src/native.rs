@@ -161,7 +161,7 @@ impl NativeExtractor {
             FileParseStatus::Parsed
         };
         if self.strategy == ExtractionStrategy::TagsQuery {
-            let extracted = tags::extract(
+            return walk::extract_tagged_receivers(
                 tags::TagExtractionInput {
                     snapshot,
                     root,
@@ -169,12 +169,7 @@ impl NativeExtractor {
                     query: self.tags_query.ok_or(ExtractError::GrammarUnavailable)?,
                 },
                 cancelled,
-            )?;
-            let extracted = framework::enrich(
-                framework::FrameworkInput::new(snapshot, extracted).with_root(root),
-                cancelled,
-            )?;
-            return test_names::enrich(snapshot, extracted);
+            );
         }
         let mut input = walk::WalkInput::new(root, parse_status, self.maximum_ast_depth);
         if let Some(syntax_source) = rewritten.as_deref() {

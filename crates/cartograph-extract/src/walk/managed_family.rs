@@ -1449,7 +1449,10 @@ fn capture_call(
         let Some(function) = node.child_by_field_name("function") else {
             return Ok(());
         };
-        safe_reference_node_text(builder, function)?
+        match safe_reference_node_text(builder, function)? {
+            Some(name) => Some(name),
+            None => super::explicit_receivers::managed_call_name(builder, function)?,
+        }
     };
     let Some(name) = target else {
         return Ok(());

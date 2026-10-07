@@ -209,7 +209,7 @@ fn normalized_java_receivers_do_not_prove_implicit_class_members() {
 }
 
 #[test]
-fn normalized_swift_chains_preserve_base_resolution_on_abstention() {
+fn normalized_swift_chains_use_declared_returns_and_preserve_base_on_abstention() {
     let facts = build_capability_generation(
         &[(
             "src/worker.swift",
@@ -244,10 +244,15 @@ fn normalized_swift_chains_preserve_base_resolution_on_abstention() {
             assert_eq!(calls[1].target_symbol_id.as_ref(), Some(&target.symbol_id));
             assert_eq!(calls[1].resolution_provenance, "native-exact-lexical");
         } else {
-            assert!(
-                calls[1].target_symbol_id.is_none(),
-                "{name}: {:?}",
-                calls[1]
+            assert_call(
+                &facts,
+                calls[1],
+                capability_symbol(&facts, "src/worker.swift", "Other::helper"),
+            );
+            assert_confidence(calls[1].confidence, 0.9);
+            assert_eq!(
+                calls[1].resolution_provenance,
+                "native-declared-return-receiver"
             );
         }
     }

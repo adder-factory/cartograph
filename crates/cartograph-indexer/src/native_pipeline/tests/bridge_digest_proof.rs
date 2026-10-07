@@ -1,4 +1,5 @@
-//! Remove the six physical `ObjC` alias links to recover the exact wave-2 facts.
+//! Remove six physical `ObjC` alias links after restoring the receiver delta
+//! to recover the exact wave-2 facts.
 
 use super::*;
 
@@ -64,9 +65,10 @@ fn physical_alias_links_are_the_only_generic_corpus_fact_change() {
             && e.source_symbol_id == physical.symbol_id
             && e.target_symbol_id == alias.symbol_id));
     }
-    let restored = restore(&facts);
-    assert_eq!(facts.symbols(), restored.symbols());
-    assert_eq!(facts.references(), restored.references());
-    assert_eq!(facts.documents(), restored.documents());
+    let receiver_restored = super::types_digest_proof::restore_receiver_delta(&facts);
+    let restored = restore(&receiver_restored);
+    assert_eq!(receiver_restored.symbols(), restored.symbols());
+    assert_eq!(receiver_restored.references(), restored.references());
+    assert_eq!(receiver_restored.documents(), restored.documents());
     assert_eq!(facts.digest().as_str(), EXPECTED_GENERIC_FAMILY_DIGEST);
 }

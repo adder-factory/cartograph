@@ -1,7 +1,41 @@
 //! Direct `this.field` retains its class receiver even when a parameter shares
 //! the field's name. Ordinary nested functions establish an unknown `this`.
 
-use super::{ExtractError, ExtractionContext, MemberSite, Node, ScopeKind, SyntaxIndex, Visit};
+use super::{
+    Bind, BindingType, ExtractError, ExtractionBuilder, ExtractionContext, MemberSite, Node,
+    ScopeKind, SyntaxIndex, Visit,
+};
+
+pub(super) fn guard_constructor(
+    index: &mut SyntaxIndex<'_>,
+    builder: &mut ExtractionBuilder<'_, '_>,
+    visit: Visit<'_>,
+) -> Result<(), ExtractError> {
+    if visit.node.kind() != "new_expression"
+        || !super::super::module_system::is_javascript_family(builder.context.snapshot.language())
+    {
+        return Ok(());
+    }
+    let Some(name) = visit
+        .node
+        .child_by_field_name("constructor")
+        .filter(|node| node.kind() == "identifier")
+    else {
+        return Ok(());
+    };
+    if super::super::javascript_scopes::constructor_binding_proven(builder, name)? {
+        return Ok(());
+    }
+    index.bind(
+        &mut builder.context,
+        Bind {
+            scope: visit.scope,
+            name,
+            kind: BindingType::Unknown,
+            start: 0,
+        },
+    )
+}
 
 pub(super) fn scope_kind(node: Node<'_>) -> Option<ScopeKind> {
     match node.kind() {

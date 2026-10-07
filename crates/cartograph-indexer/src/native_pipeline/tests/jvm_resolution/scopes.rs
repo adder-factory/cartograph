@@ -76,7 +76,7 @@ fn lexical_heads_of_nested_types_cannot_be_replaced_by_imported_namesakes() {
 }
 
 #[test]
-fn chained_value_receivers_cannot_follow_their_heads_nominal_namesakes() {
+fn chained_typed_fields_never_follow_nominal_namesakes() {
     let facts = generation(&[(
         "Use.java",
         "class Outer { public static class Inner { public static void go() {} } } class Builder { public void go() {} } class Other { public Builder Inner; } class Use { Other Outer; void run() { Outer.Inner.go(); } }",
@@ -84,5 +84,9 @@ fn chained_value_receivers_cannot_follow_their_heads_nominal_namesakes() {
     let caller = capability_symbol(&facts, "Use.java", "Use::run");
     let reference =
         CapabilityReferenceQuery::new(&facts, caller).named("Outer.Inner.go", ReferenceKind::Calls);
-    assert!(reference.target_symbol_id.is_none(), "{reference:?}");
+    targets(
+        reference,
+        capability_symbol(&facts, "Use.java", "Builder::go"),
+        "native-explicit-receiver-type",
+    );
 }

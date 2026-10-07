@@ -12,7 +12,8 @@ async fn deleting_lua_proof_restores_the_legacy_digest_fact_by_fact() {
     let directory = tempdir().unwrap_or_else(|error| panic!("fixture directory failed: {error}"));
     write_generic_family_project(directory.path());
     let generation = build(directory.path(), SERIAL_WORKERS).await;
-    let baseline = super::bridge_digest_proof::restore(generation.facts());
+    let receiver_restored = super::types_digest_proof::restore_receiver_delta(generation.facts());
+    let baseline = super::bridge_digest_proof::restore(&receiver_restored);
     let current = &baseline;
     let mut legacy = raw_facts(current);
     for (name, default) in [("M", true), ("M.pack", false), ("M:size", false)] {

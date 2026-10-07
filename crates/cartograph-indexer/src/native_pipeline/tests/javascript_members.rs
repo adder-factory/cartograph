@@ -595,7 +595,7 @@ fn implicit_public_methods_keep_explicit_public_same_file_exclusion() {
 }
 
 #[test]
-fn constructor_member_calls_keep_base_dynamic_dispatch() {
+fn constructor_member_calls_have_explicit_receiver_proof() {
     for modifier in ["public ", ""] {
         let source = format!("export class Cache {{ {modifier}invalidate() {{}} }}");
         let facts = generation(&[
@@ -610,8 +610,11 @@ fn constructor_member_calls_keep_base_dynamic_dispatch() {
         let reference =
             CapabilityReferenceQuery::new(&facts, owner).named("invalidate", ReferenceKind::Calls);
         assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
-        assert_eq!(reference.resolution_provenance, DYNAMIC_DISPATCH_PROVENANCE);
-        assert!((reference.confidence - 0.65).abs() < f32::EPSILON);
+        assert_eq!(
+            reference.resolution_provenance,
+            "native-explicit-receiver-type"
+        );
+        assert!((reference.confidence - 0.95).abs() < f32::EPSILON);
     }
 }
 
@@ -1331,7 +1334,10 @@ fn frozen_typescript_corpus_keeps_the_v1_default_public_cache_target() {
     let reference =
         CapabilityReferenceQuery::new(&facts, owner).named("remember", ReferenceKind::Calls);
     assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
-    assert_eq!(reference.resolution_provenance, DYNAMIC_DISPATCH_PROVENANCE);
+    assert_eq!(
+        reference.resolution_provenance,
+        "native-explicit-receiver-type"
+    );
 }
 
 #[test]

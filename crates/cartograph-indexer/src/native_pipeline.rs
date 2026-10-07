@@ -11255,7 +11255,15 @@ where
             .as_deref()
             .is_some_and(jvm_resolution::syntax_abstention)
     {
-        return Ok(ReferenceResolution::unresolved(UNRESOLVED_PROVENANCE));
+        return receiver_resolution::resolve_abstention(
+            index,
+            receiver_resolution::ReceiverQuery {
+                context,
+                reference,
+                import_binding_scratch,
+            },
+            cancelled,
+        );
     }
     let lookup = ReferenceLookup::classify(reference);
     let binding_name =
@@ -17235,6 +17243,10 @@ mod tests {
     mod rust_use_bindings;
     mod rust_use_regressions;
     mod script_modules;
+    mod types_digest_proof;
+    mod types_scope_repair;
+    mod types_shadowing;
+    mod types_track;
     mod unqual_digests;
     mod unqual_repair;
     mod unqual_resolution;
@@ -17340,13 +17352,14 @@ mod tests {
     // and targets for its two existing references. generic_digest_proof removes
     // that one Calls edge and restores those references to reproduce the
     // previous fact set under V22 (8fe8df25...); the extraction facts stay fixed.
-    // Wave 3 adds six ObjC alias -> physical declaration References edges.
-    // bridge_digest_proof deletes those exact links and recovers a4e55aab...
-    // under the unchanged V22 domain; symbols, references and documents match.
+    // Wave 3 adds six ObjC physical alias links plus the Ruby and Dart
+    // process -> Container::add calls. types_digest_proof restores both call
+    // references and centrality; bridge_digest_proof then removes six alias
+    // links to recover a4e55aab... exactly under the unchanged V22 domain.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "a4bac4515f50e66b10c1e57ee8b77ef00979ed6f2017756eff42260c9cc8d6e2";
+        "06ab04d251e8ef334b0779ade6e4e94a6c1f4609dffcf7660c11c6064523ac89";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
-        (28, 260, 290, 135, 260);
+        (28, 260, 292, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
     // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
     // spans from its `IF` line and is named by its head line, and an LSX
