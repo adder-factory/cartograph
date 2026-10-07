@@ -4,6 +4,7 @@ mod drupalsf;
 mod drupalsf_repairs;
 mod fwjs;
 mod repairs;
+mod routes;
 
 use super::*;
 

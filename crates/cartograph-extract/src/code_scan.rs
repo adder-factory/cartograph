@@ -123,13 +123,11 @@ impl<'text> CodeScan<'text> {
         self.index += 1;
         true
     }
-}
 
-impl Iterator for CodeScan<'_> {
-    type Item = (usize, u8);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(byte) = self.byte_at(self.index) {
+    /// Scan up to a byte boundary, retaining lexical state for the next chunk.
+    pub(crate) fn next_bounded(&mut self, boundary: usize) -> Option<(usize, u8)> {
+        while self.index < boundary {
+            let byte = self.byte_at(self.index)?;
             let offset = self.index;
             if self.region != Region::Code {
                 self.skip_literal_byte(byte);
@@ -138,6 +136,14 @@ impl Iterator for CodeScan<'_> {
             }
         }
         None
+    }
+}
+
+impl Iterator for CodeScan<'_> {
+    type Item = (usize, u8);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_bounded(self.text.len())
     }
 }
 

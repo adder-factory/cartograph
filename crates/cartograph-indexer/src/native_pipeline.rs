@@ -1,4 +1,5 @@
 mod codeigniter_resolution;
+mod codeigniter_resources;
 mod component_imports;
 mod csharp_constructors;
 mod declaration_resolution;
@@ -47,6 +48,7 @@ mod reference_tiers;
 mod repr_file_imports;
 mod rescript_resolution;
 mod resource_resolution;
+mod route_bridges;
 mod rust_dependency_paths;
 mod rust_facade_resolution;
 mod rust_inline_modules;
@@ -5398,6 +5400,7 @@ struct ResolutionIndex {
     drupal_classes: drupal_resolution::ClassIndex,
     drupal_services: drupal_resolution::ServiceIndex,
     framework_methods: framework_methods::MethodIndex,
+    route_bridges: route_bridges::Owners,
     generic: generic_resolution::GenericResolutionIndex,
     jvm: jvm_resolution::JvmResolutionIndex,
     types: qualified_member_resolution::TypeIndex,
@@ -10566,6 +10569,7 @@ fn index_resolution_symbol(
         budget,
     )?;
     generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
+    route_bridges::index_symbol(&mut index.route_bridges, insertion, budget)?;
     if symbol.export.default_export {
         push_default_export(
             &mut index.default_exports,
@@ -12834,6 +12838,7 @@ where
     // no packaged declaration exists at all.
     if resolution.target.is_some()
         || request.language != SourceLanguage::Xml.as_str()
+        || route_bridges::authoritative_lookup(request.name)
         || !package_qualified
         || index.candidates.contains_key(request.name)
     {
@@ -16680,6 +16685,9 @@ fn php_route_candidate(input: PhpRouteCandidateInput<'_>) -> bool {
 }
 
 fn php_route_resolution_fallbacks(reference_name: &str) -> [Option<String>; 2] {
+    if codeigniter_resources::typed_lookup(reference_name) {
+        return [None, None];
+    }
     let Some((owner, member)) = reference_name.rsplit_once("::") else {
         return [None, None];
     };
@@ -17343,6 +17351,9 @@ mod tests {
     // v1 parity: Anubis handlers carry their `:<line>` suffix, an Osiris block
     // spans from its `IF` line and is named by its head line, and an LSX
     // resource starts at its `<node>` tag (same projection, new identities).
+    // The local MyBatis SQL-role hint preserves every canonical fact; the
+    // frameworks::routes::mybatis_local_sql_roles_preserve_the_frozen_custom_digest
+    // regression removes the hint and compares every fact table and digest.
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
         "6ef2ddf7ec04c15deb9fbad64b9f080695c8048396e465c2115893ec03d6a64d";
     // A Liquid `{% render %}` partner is a Component as well as an Import

@@ -1,8 +1,17 @@
 mod bridge_transaction;
 mod cargo_path_bindings;
+mod ci_route_targets;
+mod configuration_routes;
+mod flutter_routes;
 mod fwjs;
 pub(crate) mod literal_bindings;
+mod mybatis_config;
+mod mybatis_templates;
 mod owner_index;
+mod php_factory_binding;
+mod route_syntax;
+pub(crate) mod segments;
+pub(crate) mod syntax_nodes;
 
 use bridge_transaction::BridgeTransaction;
 pub(crate) use fwjs::member_call_is_syntax;
@@ -100,12 +109,16 @@ pub(crate) fn enrich(
     crate::framework_managed_routes::scan(&mut builder, &masked_source)?;
     crate::framework_manifest::scan(&mut builder, &masked_source)?;
     crate::framework_mybatis::scan(&mut builder, &masked_source)?;
+    mybatis_config::scan(&mut builder, &masked_source)?;
+    mybatis_templates::scan(&mut builder, &masked_source)?;
+    php_factory_binding::scan(&mut builder, &masked_source)?;
     crate::framework_nest::scan(&mut builder, &masked_source)?;
     crate::framework_rails::scan(&mut builder, &masked_source)?;
     crate::framework_salesforce::scan(&mut builder)?;
     crate::framework_spring::scan(&mut builder, &masked_source)?;
     crate::framework_symfony::scan(&mut builder, &masked_source)?;
     scan_framework_signals(&mut builder, &masked_source)?;
+    route_syntax::scan(&mut builder, &masked_source)?;
     crate::framework_bridge::scan(&mut builder, &masked_source)?;
     builder.finish()
 }
@@ -814,7 +827,7 @@ fn scan_framework_signals(
     fwjs::scan(builder, source)?;
     scan_swiftui_components(builder, source)?;
     scan_swiftui_app_entries(builder, source)?;
-    scan_flutter_material_routes(builder, source)?;
+    flutter_routes::scan(builder, source)?;
     for (statement_start, statement) in StatementRanges::new(source) {
         builder.check_cancelled()?;
         if hints.routing.routes {
@@ -1033,64 +1046,6 @@ fn skip_string_literal(characters: &mut std::iter::Peekable<std::str::Chars<'_>>
             _ => {}
         }
     }
-}
-
-fn scan_flutter_material_routes(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-) -> Result<(), ExtractError> {
-    if builder.language() != SourceLanguage::Dart || !source.contains("MaterialApp") {
-        return Ok(());
-    }
-    let Some(routes) = source.find("routes:") else {
-        return Ok(());
-    };
-    let Some(open) = source[routes..].find('{').map(|offset| routes + offset) else {
-        return Ok(());
-    };
-    let Some(close) = matching_delimiter(DelimiterInput::braces(source, open)) else {
-        return Ok(());
-    };
-    let mut cursor = open + 1;
-    while cursor < close {
-        let Some(path) = quoted_after(source, cursor) else {
-            break;
-        };
-        if path.start >= close {
-            break;
-        }
-        let after = path.end.saturating_add(1);
-        let colon = source[after..close].find(':').map(|offset| after + offset);
-        let Some(colon) = colon else {
-            break;
-        };
-        let next_comma = source[colon..close]
-            .find(',')
-            .map_or(close, |offset| colon + offset);
-        let handler = source[colon..next_comma].find("=>").and_then(|arrow| {
-            let handler_start = colon + arrow + 2;
-            identifiers(&source[handler_start..next_comma])
-                .into_iter()
-                .find(|(_, name)| !matches!(*name, "const" | "new"))
-                .map(|(offset, name)| {
-                    (
-                        name,
-                        handler_start + offset,
-                        handler_start + offset + name.len(),
-                    )
-                })
-        });
-        builder.add_route(FrameworkRouteInput {
-            method: "ANY",
-            path: path.value,
-            start: path.start,
-            end: path.end,
-            command: false,
-            handler,
-        })?;
-        cursor = next_comma.saturating_add(1);
-    }
-    Ok(())
 }
 
 fn scan_vapor_group_route(
@@ -1374,7 +1329,8 @@ fn scan_route_statement(
         scan_router_route(builder, statement_start, statement)?;
     }
     scan_resource_route(builder, statement_start, statement)?;
-    if hints.ecosystem.angular_or_flutter
+    if builder.language() != SourceLanguage::Dart
+        && hints.ecosystem.angular_or_flutter
         && let Some(route) = named_path_route(statement)
     {
         builder.add_route(FrameworkRouteInput {
@@ -1426,12 +1382,15 @@ fn scan_standard_route_marker(
             cursor = after_marker;
             continue;
         }
-        let Some(quoted) = quoted_after(input.statement, after_marker) else {
+        let first = skip_ascii_whitespace(input.statement, after_marker);
+        let Some(quoted) = quoted_after(input.statement, first).filter(|quoted| {
+            quoted.start == first + 1 && route_syntax::complete_literal(input.statement, quoted)
+        }) else {
             cursor = after_marker;
             continue;
         };
         if slash_required && !quoted.value.starts_with('/') {
-            cursor = quoted.end;
+            cursor = quoted.quote_end + 1;
             continue;
         }
         let framework_target =
@@ -1460,7 +1419,7 @@ fn scan_standard_route_marker(
                 )
             }),
         })?;
-        cursor = quoted.end;
+        cursor = quoted.quote_end + 1;
     }
     Ok(())
 }
@@ -1489,6 +1448,7 @@ struct RouteTarget<'source> {
     end: usize,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct Quoted<'source> {
     pub(crate) value: &'source str,
     pub(crate) start: usize,
@@ -1821,7 +1781,7 @@ fn scan_router_route(
             .find(',')
             .map(|offset| path.end + offset + 1)
         else {
-            cursor = path.end;
+            cursor = path.quote_end + 1;
             continue;
         };
         let Some((method_offset, method)) =
@@ -1834,7 +1794,7 @@ fn scan_router_route(
                     )
                 })
         else {
-            cursor = path.end;
+            cursor = path.quote_end + 1;
             continue;
         };
         let method_start = comma + method_offset;
@@ -1861,7 +1821,7 @@ fn scan_router_route(
             command: false,
             handler,
         })?;
-        cursor = path.end;
+        cursor = path.quote_end + 1;
     }
     Ok(())
 }
@@ -1922,15 +1882,12 @@ fn scan_configuration_routes(
         return Ok(());
     }
     let lower_path = builder.path().to_ascii_lowercase();
-    if !(lower_path.ends_with("routes.yaml")
-        || lower_path.ends_with("routes.yml")
-        || lower_path.ends_with("routing.yaml")
-        || lower_path.ends_with("routing.yml"))
-    {
+    if !configuration_routes::is_route_file(&lower_path) {
         return Ok(());
     }
     let mut route = None;
     for (line_start, line) in physical_lines(source) {
+        builder.bridge.charge_work(line.len())?;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -1981,9 +1938,7 @@ fn flush_configuration_route(
     builder: &mut FrameworkBuilder<'_, '_>,
     route: Option<ConfigurationRoute>,
 ) -> Result<(), ExtractError> {
-    let Some(route) = route.filter(|route| {
-        !route.key.is_empty() && !route.path.is_empty() && route.path.len() <= MAX_ROUTE_BYTES
-    }) else {
+    let Some(route) = route.and_then(configuration_routes::with_default_path) else {
         return Ok(());
     };
     let name = if route.drupal {
@@ -2056,6 +2011,8 @@ fn scan_codeigniter_routes(
         }
         let rendered_path = if path.value.eq_ignore_ascii_case("default_controller") {
             "/".to_owned()
+        } else if path.value.eq_ignore_ascii_case("404_override") {
+            "<404>".to_owned()
         } else {
             format!("/{}", path.value.trim_start_matches('/'))
         };
@@ -2090,18 +2047,7 @@ fn scan_codeigniter_routes(
 }
 
 fn codeigniter_route_resolution(handler: &str) -> Option<String> {
-    let parts = handler
-        .split('/')
-        .filter(|part| !part.is_empty() && !part.starts_with('$'))
-        .collect::<Vec<_>>();
-    let controller_index = parts.len().saturating_sub(2);
-    let controller = *parts.get(controller_index)?;
-    let method = parts.get(controller_index + 1).copied().unwrap_or("index");
-    let mut class = controller.to_owned();
-    if let Some(first) = class.as_bytes().first() {
-        class.replace_range(..1, &char::from(first.to_ascii_uppercase()).to_string());
-    }
-    Some(format!("{class}::{method}"))
+    ci_route_targets::resolution(handler)
 }
 
 fn keyed_quoted<'source>(value: &'source str, key: &str) -> Option<Quoted<'source>> {

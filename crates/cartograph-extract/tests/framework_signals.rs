@@ -969,7 +969,11 @@ class UserController(private val userService: UserService) {
         SourceLanguage::Kotlin,
     );
     let kotlin_routes = route_names(&kotlin);
-    assert_eq!(kotlin_routes, ["GET /users/{id}"], "{kotlin_routes:?}");
+    assert_eq!(
+        kotlin_routes,
+        ["GET /users/{id}", "BASE /users"],
+        "{kotlin_routes:?}"
+    );
 
     let aspnet = extract(
         "Controllers/OrdersController.cs",
@@ -983,7 +987,11 @@ public class OrdersController(IOrderService orders) : ControllerBase {
         SourceLanguage::CSharp,
     );
     let aspnet_routes = route_names(&aspnet);
-    assert_eq!(aspnet_routes, ["GET /api/Orders/{id}"], "{aspnet_routes:?}");
+    assert_eq!(
+        aspnet_routes,
+        ["GET /api/Orders/{id}", "ROUTE api/[controller]"],
+        "{aspnet_routes:?}"
+    );
 
     // A body method that happens to share the class name is still a handler.
     let java = extract(
@@ -997,7 +1005,7 @@ public class OrdersController(IOrderService orders) : ControllerBase {
         "@RequestMapping(\"/o\")\nclass Orders /* don't { */ {\n    @GetMapping(\"/same\")\n    fun Orders(): String = \"\"\n}\n",
         SourceLanguage::Kotlin,
     );
-    assert_eq!(route_names(&kotlin_body), ["GET /o/same"]);
+    assert_eq!(route_names(&kotlin_body), ["GET /o/same", "BASE /o"]);
 }
 
 #[test]
@@ -1011,14 +1019,21 @@ fn pathless_method_mappings_are_located_at_their_own_annotation() {
     );
     assert_eq!(
         route_lines(&aspnet),
-        [("GET /api/Orders/{id}", 3), ("POST /api/Orders", 6)]
+        [
+            ("GET /api/Orders/{id}", 3),
+            ("POST /api/Orders", 6),
+            ("ROUTE api/[controller]", 1)
+        ]
     );
     let spring = extract(
         "src/OrdersController.java",
         "@RequestMapping(\"/api\")\npublic class OrdersController {\n  @GetMapping\n  public void list() {}\n\n  @PostMapping()\n  public void create() {}\n}\n",
         SourceLanguage::Java,
     );
-    assert_eq!(route_lines(&spring), [("GET /api", 3), ("POST /api", 6)]);
+    assert_eq!(
+        route_lines(&spring),
+        [("GET /api", 3), ("POST /api", 6), ("BASE /api", 1)]
+    );
 }
 
 #[test]
@@ -1351,7 +1366,7 @@ fn codeigniter_load_names_screen_credentials_before_resource_and_alias_projectio
                 file.references
                     .iter()
                     .all(|reference| reference.resolution_name.as_deref()
-                        != Some("User_model::find"))
+                        != Some("ci-loaded::model::User_model::find"))
             );
         }
     }
@@ -1368,7 +1383,8 @@ fn codeigniter_load_names_screen_credentials_before_resource_and_alias_projectio
         file.references
             .iter()
             .any(|reference| reference.name == "find"
-                && reference.resolution_name.as_deref() == Some("User_model::find"))
+                && reference.resolution_name.as_deref()
+                    == Some("ci-loaded::model::User_model::find"))
     );
 }
 
@@ -1407,12 +1423,12 @@ class Users extends CI_Controller {
         assert!(!routes.contains(&absent), "unexpected {absent}: {routes:?}");
     }
     for (name, resolution) in [
-        ("user_model", "User_model"),
-        ("blog/queries", "Queries"),
-        ("email", "Email"),
-        ("active", "User_model::active"),
-        ("find", "Queries::find"),
-        ("send", "Email::send"),
+        ("user_model", "ci-loaded::model::User_model"),
+        ("blog/queries", "ci-loaded::model::blog/Queries"),
+        ("email", "ci-loaded::library::Email"),
+        ("active", "ci-loaded::model::User_model::active"),
+        ("find", "ci-loaded::model::blog/Queries::find"),
+        ("send", "ci-loaded::library::Email::send"),
     ] {
         assert!(
             extracted.references.iter().any(|reference| {
@@ -1434,7 +1450,10 @@ class Users extends CI_Controller {
         "<?php\n$route['default_controller'] = 'welcome';\n$route['admin/users/show']['GET'] = 'admin/users/show';\n$route['translate_uri_dashes'] = FALSE;\n",
         SourceLanguage::Php,
     );
-    for resolution in ["Welcome::index", "Users::show"] {
+    for resolution in [
+        "ci-route-root::Welcome::index",
+        "ci-route-path::admin/users/show",
+    ] {
         assert!(
             routes_config
                 .references
