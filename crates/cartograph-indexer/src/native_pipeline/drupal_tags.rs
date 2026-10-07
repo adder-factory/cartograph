@@ -52,6 +52,7 @@ where
         )?;
         let hub = target
             .index
+            .frameworks
             .drupal_tags
             .hubs
             .entry(root.to_owned())
@@ -101,6 +102,7 @@ where
 {
     let Some(key) = query
         .index
+        .frameworks
         .drupal_tags
         .hubs
         .get(root(query.path))

@@ -1,5 +1,5 @@
 //! Remove six physical `ObjC` alias links after restoring the receiver delta
-//! to recover the exact wave-2 facts.
+//! to recover the exact wave-2 facts, rehashed under V23.
 
 use super::*;
 

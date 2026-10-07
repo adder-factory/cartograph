@@ -136,7 +136,8 @@ fn alias_value(index: &AliasIndex, entry: AliasEntry<'_>) -> Result<Alias, Stage
 pub(super) fn is_alias(query: ModuleImportQuery<'_, '_>) -> bool {
     query
         .index
-        .javascript_aliases
+        .javascript
+        .aliases
         .files
         .get(query.module_file_id)
         .is_some_and(|aliases| aliases.contains_key(query.imported_name))
@@ -235,7 +236,8 @@ where
         visited[hop] = Some((file, name));
         let Some(alias) = query
             .index
-            .javascript_aliases
+            .javascript
+            .aliases
             .files
             .get(file)
             .and_then(|aliases| aliases.get(name))

@@ -30,7 +30,11 @@ impl<'index> Namespaces<'index> {
                 }
                 if key == &candidate.qualified_name
                     && matches!(candidate.kind, SymbolKind::Module | SymbolKind::Function)
-                    && index.ocaml_modules.files.contains_key(&candidate.file_id)
+                    && index
+                        .languages
+                        .ocaml_modules
+                        .files
+                        .contains_key(&candidate.file_id)
                 {
                     namespaces.record(candidate, budget)?;
                 }
@@ -157,6 +161,7 @@ impl OpenIndex {
                 return Err(StageItemFailure);
             }
             let evidence = index
+                .languages
                 .ocaml_modules
                 .files
                 .get(file)

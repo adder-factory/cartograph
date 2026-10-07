@@ -41,7 +41,7 @@ where
     }
     if request.language == "yaml"
         && services_path(request.file_path)
-        && index.drupal_classes.contains(request)
+        && index.frameworks.drupal_classes.contains(request)
     {
         return class(index, request, cancelled);
     }

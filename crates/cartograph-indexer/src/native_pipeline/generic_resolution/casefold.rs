@@ -63,7 +63,7 @@ fn folded_bucket<'a>(
 ) -> Result<Option<&'a super::super::ResolutionCandidateBucket>, StageItemFailure> {
     let mut name = try_clone_text(request.name)?;
     name.make_ascii_lowercase();
-    Ok(index.generic.folded_names.get(&name))
+    Ok(index.languages.generic.folded_names.get(&name))
 }
 
 fn local_target(

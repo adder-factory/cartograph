@@ -66,6 +66,7 @@ where
         return Ok(true);
     }
     if index
+        .languages
         .rust_paths
         .modules
         .get(scope.file)

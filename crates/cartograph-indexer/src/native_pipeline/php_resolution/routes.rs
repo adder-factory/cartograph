@@ -183,7 +183,12 @@ where
     if request.language != "php" {
         return Ok(ImportClassMatch::Missing);
     }
-    let key = match index.php.route_aliases.lookup(request.file_id, owner) {
+    let key = match index
+        .languages
+        .php
+        .route_aliases
+        .lookup(request.file_id, owner)
+    {
         super::route_aliases::AliasMatch::Missing => return Ok(ImportClassMatch::Missing),
         super::route_aliases::AliasMatch::Blocked => return Ok(ImportClassMatch::Bound(None)),
         super::route_aliases::AliasMatch::Target(key) => key,

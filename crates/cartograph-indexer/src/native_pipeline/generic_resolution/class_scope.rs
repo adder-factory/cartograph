@@ -63,7 +63,7 @@ fn scope(
     (owner, span): (Option<&super::SymbolId>, SourceSpan),
 ) -> Option<CallScopeKind> {
     owner
-        .and_then(|owner| index.generic.call_sites.get(owner))
+        .and_then(|owner| index.languages.generic.call_sites.get(owner))
         .and_then(|sites| sites.get(&(span.start_byte(), span.end_byte())))
         .copied()
 }

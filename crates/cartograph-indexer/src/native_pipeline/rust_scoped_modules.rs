@@ -108,7 +108,7 @@ fn file_edge(
         name,
         Some(ModuleEdge {
             file: child,
-            public: false,
+            visibility: super::rust_path_resolution::ModuleVisibility::Private,
             parent_module: Some(parent_id),
         }),
     );
@@ -119,7 +119,7 @@ fn edge_map<'a>(
     target: &'a mut ResolutionIndexTarget<'_>,
     file: &FileId,
 ) -> Result<&'a mut HashMap<String, Option<ModuleEdge>>, StageItemFailure> {
-    if !target.index.rust_paths.modules.contains_key(file) {
+    if !target.index.languages.rust_paths.modules.contains_key(file) {
         target.budget.charge(
             RESOLUTION_MAP_NODE_ALLOWANCE
                 + usize_to_u64(
@@ -129,18 +129,21 @@ fn edge_map<'a>(
         )?;
         target
             .index
+            .languages
             .rust_paths
             .modules
             .try_reserve(1)
             .map_err(|_| StageItemFailure)?;
         target
             .index
+            .languages
             .rust_paths
             .modules
             .insert(file.clone(), HashMap::new());
     }
     target
         .index
+        .languages
         .rust_paths
         .modules
         .get_mut(file)
@@ -205,7 +208,7 @@ fn import_map<'a>(
     query: (&FileId, &str),
 ) -> Result<&'a mut Imports, StageItemFailure> {
     let (file, owner) = query;
-    let files = &mut target.index.rust_paths.scoped_imports.files;
+    let files = &mut target.index.languages.rust_paths.scoped_imports.files;
     if !files.contains_key(file) {
         target.budget.charge(
             RESOLUTION_MAP_NODE_ALLOWANCE
@@ -245,6 +248,7 @@ where
             return Err(StageItemFailure);
         }
         let imports = index
+            .languages
             .rust_paths
             .scoped_imports
             .files
@@ -301,6 +305,7 @@ where
             return Ok(false);
         }
         let imports = index
+            .languages
             .rust_paths
             .scoped_imports
             .files

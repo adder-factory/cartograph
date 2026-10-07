@@ -98,7 +98,7 @@ fn index_classes<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let members = &mut input.index.javascript_members;
+    let members = &mut input.index.javascript.members;
     for symbol in &input.file.symbols {
         if (input.cancelled)() {
             return Err(StageItemFailure);
@@ -141,7 +141,7 @@ pub(super) fn candidate_visibility(
         && index
             .parents
             .get(&symbol.input.symbol_id)
-            .is_some_and(|parent| index.javascript_members.classes.contains_key(parent))
+            .is_some_and(|parent| index.javascript.members.classes.contains_key(parent))
     {
         Some(Visibility::Public)
     } else {
@@ -175,9 +175,9 @@ where
         let Some(parent) = input.index.parents.get(&symbol.input.symbol_id) else {
             continue;
         };
-        if input.index.javascript_members.classes.contains_key(parent) {
+        if input.index.javascript.members.classes.contains_key(parent) {
             insert_static_member(
-                &mut input.index.javascript_members.static_members,
+                &mut input.index.javascript.members.static_members,
                 (parent, symbol),
                 input.budget,
             )?;
@@ -234,7 +234,7 @@ fn index_calls<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let members = &mut input.index.javascript_members;
+    let members = &mut input.index.javascript.members;
     let mut calls = HashMap::new();
     for reference in &input.file.references {
         if (input.cancelled)() {
@@ -438,7 +438,8 @@ pub(super) fn binding_name<'index>(
         return None;
     }
     index
-        .javascript_members
+        .javascript
+        .members
         .calls
         .get(file_id)?
         .get(&reference.span.end_byte())?
@@ -451,7 +452,8 @@ fn companion<'index>(
     request: &ResolutionRequest<'_>,
 ) -> Option<&'index Companion> {
     index
-        .javascript_members
+        .javascript
+        .members
         .calls
         .get(request.file_id)?
         .get(&request.span.end_byte())?
@@ -467,7 +469,8 @@ pub(super) fn owns_local_constructor(
     class_file_id == file_id
         && matches!(
             index
-                .javascript_members
+                .javascript
+                .members
                 .calls
                 .get(file_id)
                 .and_then(|calls| calls.get(&reference.span.end_byte()))
@@ -664,7 +667,7 @@ where
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
     };
-    let Some(class) = index.javascript_members.classes.get(&target.symbol_id) else {
+    let Some(class) = index.javascript.members.classes.get(&target.symbol_id) else {
         return Ok(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
         ));
@@ -927,7 +930,8 @@ fn imported_static_member<'index>(
     }
     query
         .index
-        .javascript_members
+        .javascript
+        .members
         .static_members
         .get(&target.symbol_id)?
         .get(query.member)?
@@ -992,7 +996,7 @@ pub(super) fn class_member(index: &ResolutionIndex, candidate: &ResolutionCandid
         && candidate
             .parent_symbol_id
             .as_ref()
-            .is_some_and(|parent| index.javascript_members.classes.contains_key(parent))
+            .is_some_and(|parent| index.javascript.members.classes.contains_key(parent))
 }
 
 pub(super) fn unique_candidate<'candidate, Candidates, Eligible, Cancel>(

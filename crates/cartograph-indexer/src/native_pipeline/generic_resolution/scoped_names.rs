@@ -65,6 +65,7 @@ pub(super) fn members<'a>(
     name: &str,
 ) -> &'a [ResolutionCandidate] {
     index
+        .languages
         .generic
         .scoped_names
         .owners
@@ -90,6 +91,7 @@ pub(super) fn candidates<'a>(
         .get(request.file_id)
         .ok_or(StageItemFailure)?;
     Ok(index
+        .languages
         .generic
         .scoped_names
         .files

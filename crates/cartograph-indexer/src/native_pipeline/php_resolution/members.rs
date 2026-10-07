@@ -86,7 +86,14 @@ fn parent_member<'index, Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let parent = match query.exact.index.php.parents.get(&query.carrier.symbol_id) {
+    let parent = match query
+        .exact
+        .index
+        .languages
+        .php
+        .parents
+        .get(&query.carrier.symbol_id)
+    {
         None => return Ok(ParentStep::Terminal(MemberMatch::Missing)),
         Some(None) => return Ok(ParentStep::Terminal(MemberMatch::Blocked)),
         Some(Some(parent)) => parent,
@@ -172,7 +179,14 @@ impl<'index> TraitSearch<'index> {
         Cancel: FnMut() -> bool,
     {
         let (query, current) = input;
-        let keys = match query.exact.index.php.composed.get(&current.symbol_id) {
+        let keys = match query
+            .exact
+            .index
+            .languages
+            .php
+            .composed
+            .get(&current.symbol_id)
+        {
             None => return Ok(true),
             Some(None) => return Ok(false),
             Some(Some(keys)) => keys,

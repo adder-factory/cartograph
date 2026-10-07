@@ -43,7 +43,7 @@ fn route_request(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bo
         ReferenceKind::References | ReferenceKind::Calls
     ) && request
         .owner
-        .and_then(|id| index.route_bridges.kinds.get(id))
+        .and_then(|id| index.frameworks.route_bridges.kinds.get(id))
         == Some(&SymbolKind::Route)
         && request.import_bindings.positions.len() <= MAX_ROUTE_IMPORTS
         && !request.name.starts_with('_')

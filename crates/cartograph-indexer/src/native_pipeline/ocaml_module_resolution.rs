@@ -70,12 +70,14 @@ where
     )?;
     target
         .index
+        .languages
         .ocaml_modules
         .files
         .try_reserve(1)
         .map_err(|_| StageItemFailure)?;
     target
         .index
+        .languages
         .ocaml_modules
         .files
         .insert(file.file.file_id.clone(), evidence);
@@ -156,7 +158,7 @@ fn index_unit(
         return Ok(());
     }
     let unit = format!("{}{}", stem[..1].to_ascii_uppercase(), &stem[1..]);
-    let units = &mut target.index.ocaml_modules.units;
+    let units = &mut target.index.languages.ocaml_modules.units;
     if let Some(existing) = units.get_mut(&unit) {
         *existing = None;
         return Ok(());
@@ -188,7 +190,7 @@ where
     if cancelled() {
         return Err(StageItemFailure);
     }
-    let Some(evidence) = index.ocaml_modules.files.get(request.file_id) else {
+    let Some(evidence) = index.languages.ocaml_modules.files.get(request.file_id) else {
         return Ok(None);
     };
     if evidence.fences.contains("*") || !root_caller(index, request) {
@@ -249,12 +251,12 @@ pub(super) fn finalize<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    if target.index.ocaml_modules.files.is_empty() {
+    if target.index.languages.ocaml_modules.files.is_empty() {
         return Ok(());
     }
     let namespaces = open_index::Namespaces::build(target.index, target.budget, cancelled)?;
     let mut prepared = Vec::new();
-    for (file_id, evidence) in &target.index.ocaml_modules.files {
+    for (file_id, evidence) in &target.index.languages.ocaml_modules.files {
         if cancelled() {
             return Err(StageItemFailure);
         }
@@ -275,6 +277,7 @@ where
         }
         let evidence = target
             .index
+            .languages
             .ocaml_modules
             .files
             .get_mut(&file_id)
@@ -318,6 +321,7 @@ where
         return Ok(None);
     };
     if index
+        .languages
         .ocaml_modules
         .files
         .get(file)
@@ -357,6 +361,7 @@ where
     }
     let result = match modules {
         0 => index
+            .languages
             .ocaml_modules
             .units
             .get(root)
@@ -367,6 +372,7 @@ where
     };
     Ok(result.filter(|(file, _)| {
         index
+            .languages
             .ocaml_modules
             .files
             .get(*file)

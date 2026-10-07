@@ -62,7 +62,7 @@ where
         context_member::index_sites(input)?;
     }
     let flags = index_detection(input)?;
-    let index = &mut input.index.javascript_frameworks;
+    let index = &mut input.index.javascript.frameworks;
     if manifest {
         let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
         charge_entry::<(String, Frameworks)>(input.budget, directory.len())?;
@@ -105,7 +105,7 @@ where
         }
         if symbol.input.qualified_name == symbol.name && middleware_name(&symbol.name) {
             insert_middleware_name(
-                &mut input.index.javascript_frameworks.middleware_names,
+                &mut input.index.javascript.frameworks.middleware_names,
                 &symbol.name,
                 input.budget,
             )?;
@@ -314,7 +314,7 @@ where
     if !javascript_family_name(request.language) {
         return Ok(None);
     }
-    let frameworks = &index.javascript_frameworks;
+    let frameworks = &index.javascript.frameworks;
     let (scope, flags) = frameworks.package(request.file_path);
     let flags = flags.merge(
         frameworks
@@ -388,7 +388,7 @@ fn candidate_in_scope(query: &TransformQuery<'_, '_>, candidate: &ResolutionCand
         .get(&candidate.file_id)
         .is_some_and(|file| {
             javascript_family_name(&file.language)
-                && query.index.javascript_frameworks.package(&file.path).0 == query.scope
+                && query.index.javascript.frameworks.package(&file.path).0 == query.scope
         })
 }
 
@@ -471,7 +471,7 @@ where
 {
     let name = query.transform.name();
     let variants = match query.transform {
-        Transform::Middleware(_) => query.index.javascript_frameworks.case_variants(name),
+        Transform::Middleware(_) => query.index.javascript.frameworks.case_variants(name),
         Transform::Context(_) | Transform::Member { .. } => CaseVariants::Missing,
     };
     let variants = match variants {

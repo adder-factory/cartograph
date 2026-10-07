@@ -47,6 +47,7 @@ where
         )?;
         target
             .index
+            .frameworks
             .drupal_classes
             .sites
             .entry(file.file.file_id.clone())

@@ -54,7 +54,7 @@ where
             }
         }
     }
-    target.index.native_event_consumers = consumers;
+    target.index.frameworks.native_event_consumers = consumers;
     Ok(())
 }
 

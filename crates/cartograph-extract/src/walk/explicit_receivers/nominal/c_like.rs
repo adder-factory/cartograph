@@ -4,6 +4,18 @@ use super::{
     bind_typed, bind_unknown, initialized, member, named_children,
 };
 
+pub(super) fn supported(language: SourceLanguage) -> bool {
+    matches!(
+        language,
+        SourceLanguage::Java
+            | SourceLanguage::CSharp
+            | SourceLanguage::Apex
+            | SourceLanguage::Cpp
+            | SourceLanguage::ObjectiveC
+            | SourceLanguage::Solidity
+    )
+}
+
 pub(super) fn collect<'tree>(
     index: &mut SyntaxIndex<'tree>,
     context: &mut ExtractionContext<'_, '_>,

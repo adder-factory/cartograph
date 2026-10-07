@@ -102,25 +102,32 @@ pub(crate) fn enrich(
     )?;
     let mut builder = FrameworkBuilder::new(input, cancelled)?;
     cargo_path_bindings::extract(&mut builder)?;
-    crate::framework_bun::scan(&mut builder, &masked_source)?;
-    crate::framework_codeigniter::scan(&mut builder, &masked_source)?;
-    crate::framework_drupal::scan(&mut builder, &masked_source)?;
-    crate::framework_hono::scan(&mut builder, &masked_source)?;
-    crate::framework_managed_routes::scan(&mut builder, &masked_source)?;
-    crate::framework_manifest::scan(&mut builder, &masked_source)?;
-    crate::framework_mybatis::scan(&mut builder, &masked_source)?;
-    mybatis_config::scan(&mut builder, &masked_source)?;
-    mybatis_templates::scan(&mut builder, &masked_source)?;
-    php_factory_binding::scan(&mut builder, &masked_source)?;
-    crate::framework_nest::scan(&mut builder, &masked_source)?;
-    crate::framework_rails::scan(&mut builder, &masked_source)?;
-    crate::framework_salesforce::scan(&mut builder)?;
-    crate::framework_spring::scan(&mut builder, &masked_source)?;
-    crate::framework_symfony::scan(&mut builder, &masked_source)?;
+    scan_framework_integrations(&mut builder, &masked_source)?;
     scan_framework_signals(&mut builder, &masked_source)?;
     route_syntax::scan(&mut builder, &masked_source)?;
     crate::framework_bridge::scan(&mut builder, &masked_source)?;
     builder.finish()
+}
+
+fn scan_framework_integrations(
+    builder: &mut FrameworkBuilder<'_, '_>,
+    source: &str,
+) -> Result<(), ExtractError> {
+    crate::framework_bun::scan(builder, source)?;
+    crate::framework_codeigniter::scan(builder, source)?;
+    crate::framework_drupal::scan(builder, source)?;
+    crate::framework_hono::scan(builder, source)?;
+    crate::framework_managed_routes::scan(builder, source)?;
+    crate::framework_manifest::scan(builder, source)?;
+    crate::framework_mybatis::scan(builder, source)?;
+    mybatis_config::scan(builder, source)?;
+    mybatis_templates::scan(builder, source)?;
+    php_factory_binding::scan(builder, source)?;
+    crate::framework_nest::scan(builder, source)?;
+    crate::framework_rails::scan(builder, source)?;
+    crate::framework_salesforce::scan(builder)?;
+    crate::framework_spring::scan(builder, source)?;
+    crate::framework_symfony::scan(builder, source)
 }
 
 pub(crate) struct FrameworkBuilder<'source, 'cancel> {

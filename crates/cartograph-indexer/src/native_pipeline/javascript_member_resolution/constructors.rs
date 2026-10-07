@@ -37,7 +37,8 @@ where
         .filter(|target| target.kind == SymbolKind::Class)
         .and_then(|target| {
             index
-                .javascript_members
+                .javascript
+                .members
                 .classes
                 .get(&target.symbol_id)
                 .map(|class| (target.symbol_id, class))

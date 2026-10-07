@@ -45,6 +45,7 @@ where
         return Err(StageItemFailure);
     }
     let target = index
+        .frameworks
         .native_bridges
         .aliases
         .get(name)
@@ -78,14 +79,14 @@ where
     Cancel: FnMut() -> bool,
 {
     let aliases = aliases(input.index, input.budget, cancelled)?;
-    input.index.native_bridges.aliases = aliases;
+    input.index.frameworks.native_bridges.aliases = aliases;
     let wanted = needed_parents(input.index, input.budget, cancelled)?;
     if wanted.is_empty() {
         return Ok(());
     }
     let declarations = declarations(input.index, (&wanted, input.budget), cancelled)?;
     let physical = physical_methods(input.index, (&declarations, input.budget), cancelled)?;
-    input.index.native_bridges.physical = physical;
+    input.index.frameworks.native_bridges.physical = physical;
     Ok(())
 }
 
@@ -288,6 +289,7 @@ pub(super) fn physical_candidate<'index>(
     candidate: &'index ResolutionCandidate,
 ) -> &'index ResolutionCandidate {
     index
+        .frameworks
         .native_bridges
         .physical
         .get(&candidate.symbol_id)
@@ -303,7 +305,11 @@ pub(super) fn physical_resolution(
     ),
 ) -> ReferenceResolution {
     if let Some(target) = resolution.target.as_mut()
-        && let Some(endpoint) = index.native_bridges.physical.get(&target.symbol_id)
+        && let Some(endpoint) = index
+            .frameworks
+            .native_bridges
+            .physical
+            .get(&target.symbol_id)
         && proven_endpoint(index, (context, reference), (&target.symbol_id, endpoint))
         && index
             .modules
@@ -332,7 +338,7 @@ fn proven_endpoint(
         })
     });
     let proven_alias = lookup
-        .and_then(|name| index.native_bridges.aliases.get(name))
+        .and_then(|name| index.frameworks.native_bridges.aliases.get(name))
         .and_then(Option::as_ref);
     if proven_alias == Some(target) {
         return true;
@@ -359,7 +365,13 @@ where
             if (input.cancelled)() {
                 return Err(StageItemFailure);
             }
-            if let Some(target) = input.index.native_bridges.physical.get(&source.symbol_id) {
+            if let Some(target) = input
+                .index
+                .frameworks
+                .native_bridges
+                .physical
+                .get(&source.symbol_id)
+            {
                 append_framework_edge(
                     input.facts,
                     input.budget,

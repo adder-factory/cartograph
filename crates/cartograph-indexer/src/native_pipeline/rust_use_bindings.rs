@@ -105,7 +105,7 @@ where
         RESOLUTION_MAP_NODE_ALLOWANCE
             + usize_to_u64(size_of::<(FileId, FileScopes)>() + file.file.file_id.as_str().len()),
     )?;
-    let files = &mut target.index.rust_paths.use_scopes.files;
+    let files = &mut target.index.languages.rust_paths.use_scopes.files;
     files.try_reserve(1).map_err(|_| StageItemFailure)?;
     files.insert(file.file.file_id.clone(), scopes);
     Ok(())
@@ -422,7 +422,7 @@ fn push_scope(
 }
 
 pub(super) fn plain_impl(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
-    let Some(file) = index.rust_paths.use_scopes.files.get(request.file_id) else {
+    let Some(file) = file_scopes(index, request.file_id) else {
         return false;
     };
     contains_span(
@@ -445,7 +445,7 @@ pub(super) fn lifetime_function(
     if owner.kind != SymbolKind::Function || file != request.file_id {
         return false;
     }
-    let Some(scopes) = index.rust_paths.use_scopes.files.get(file) else {
+    let Some(scopes) = file_scopes(index, file) else {
         return false;
     };
     let position = scopes
@@ -455,7 +455,7 @@ pub(super) fn lifetime_function(
 }
 
 pub(super) fn opaque_macro(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
-    let Some(file) = index.rust_paths.use_scopes.files.get(request.file_id) else {
+    let Some(file) = file_scopes(index, request.file_id) else {
         return false;
     };
     contains_span(
@@ -465,28 +465,25 @@ pub(super) fn opaque_macro(index: &ResolutionIndex, request: &ResolutionRequest<
 }
 
 pub(super) fn root_macro(index: &ResolutionIndex, file: &FileId) -> bool {
-    index
-        .rust_paths
-        .use_scopes
-        .files
-        .get(file)
-        .is_some_and(|scopes| {
-            scopes.root_macro
-                || !scopes.standard_items.is_empty()
-                    && super::rust_path_guards::namespace_overridden(index, file)
-        })
+    file_scopes(index, file).is_some_and(|scopes| {
+        scopes.root_macro
+            || !scopes.standard_items.is_empty()
+                && super::rust_path_guards::namespace_overridden(index, file)
+    })
 }
 
 pub(super) fn macro_scope_uncertain(index: &ResolutionIndex, query: (&FileId, &str)) -> bool {
     let (file, name) = query;
-    index
-        .rust_paths
-        .use_scopes
-        .files
-        .get(file)
-        .is_some_and(|scope| {
-            root_macro(index, file) || scope.macro_import || scope.defined_macros.contains_key(name)
-        })
+    file_scopes(index, file).is_some_and(|scope| {
+        root_macro(index, file) || scope.macro_import || scope.defined_macros.contains_key(name)
+    })
+}
+
+fn file_scopes<'index>(
+    index: &'index ResolutionIndex,
+    file: &FileId,
+) -> Option<&'index FileScopes> {
+    index.languages.rust_paths.use_scopes.files.get(file)
 }
 
 fn contains_span(scopes: &[(u64, u64)], span: (u64, u64)) -> bool {
@@ -505,7 +502,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let (request, scope) = query;
-    let Some(file) = index.rust_paths.use_scopes.files.get(request.file_id) else {
+    let Some(file) = file_scopes(index, request.file_id) else {
         return Ok(false);
     };
     if standard_namespace_uncertain(index, (request, scope, file)) {
@@ -573,18 +570,13 @@ pub(super) fn standard_namespace_fenced(
     if !super::rust_path_guards::namespace_overridden(index, request.file_id) {
         return false;
     }
-    index
-        .rust_paths
-        .use_scopes
-        .files
-        .get(request.file_id)
-        .is_some_and(|file| {
-            !file.standard_items.is_empty()
-                || contains_span(
-                    &file.standard_blocks,
-                    (request.span.start_byte(), request.span.end_byte()),
-                )
-        })
+    file_scopes(index, request.file_id).is_some_and(|file| {
+        !file.standard_items.is_empty()
+            || contains_span(
+                &file.standard_blocks,
+                (request.span.start_byte(), request.span.end_byte()),
+            )
+    })
 }
 
 fn starts_in_scope(spans: &[(u64, u64)], scope: (u64, u64)) -> bool {

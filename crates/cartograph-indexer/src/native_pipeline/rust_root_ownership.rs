@@ -40,6 +40,7 @@ where
         }
         let root = target
             .index
+            .languages
             .rust_paths
             .roots
             .owners
@@ -50,7 +51,7 @@ where
             root.as_ref()
                 .map_or(0, |file| usize_to_u64(file.as_str().len())),
         )?;
-        let Some(edges) = target.index.rust_paths.modules.remove(&file) else {
+        let Some(edges) = target.index.languages.rust_paths.modules.remove(&file) else {
             continue;
         };
         walk_edges(
@@ -63,7 +64,12 @@ where
             },
             cancelled,
         )?;
-        target.index.rust_paths.modules.insert(file, edges);
+        target
+            .index
+            .languages
+            .rust_paths
+            .modules
+            .insert(file, edges);
     }
     Ok(())
 }
@@ -152,7 +158,7 @@ where
             .files
             .get(file)
             .ok_or(StageItemFailure)?;
-        let Some(edges) = target.index.rust_paths.modules.get_mut(file) else {
+        let Some(edges) = target.index.languages.rust_paths.modules.get_mut(file) else {
             continue;
         };
         for (name, edge) in edges {
@@ -184,7 +190,7 @@ fn merge(
     root: Option<&FileId>,
 ) -> Result<bool, StageItemFailure> {
     let (file, parent) = location;
-    let owners = &mut target.index.rust_paths.roots.owners;
+    let owners = &mut target.index.languages.rust_paths.roots.owners;
     if let Some(existing) = owners.get_mut(file) {
         let Some(owner) = existing else {
             return Ok(false);
@@ -238,7 +244,16 @@ fn enqueue(
 }
 
 pub(super) fn root<'a>(index: &'a ResolutionIndex, file: &FileId) -> Option<&'a FileId> {
-    Some(&index.rust_paths.roots.owners.get(file)?.as_ref()?.root)
+    Some(
+        &index
+            .languages
+            .rust_paths
+            .roots
+            .owners
+            .get(file)?
+            .as_ref()?
+            .root,
+    )
 }
 
 pub(super) fn starting_module<'a, 'path, Cancel>(
@@ -312,7 +327,13 @@ pub(super) fn parent_module<'a>(
             module: Some(parent),
         });
     }
-    let owner = index.rust_paths.roots.owners.get(scope.file)?.as_ref()?;
+    let owner = index
+        .languages
+        .rust_paths
+        .roots
+        .owners
+        .get(scope.file)?
+        .as_ref()?;
     let file = owner.parent.as_ref()?;
     let module = owner.parent_module.as_ref();
     let inline = match module {

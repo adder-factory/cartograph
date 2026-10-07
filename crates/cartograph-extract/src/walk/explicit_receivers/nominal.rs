@@ -58,27 +58,10 @@ pub(super) fn binding_key<'name>(
 }
 
 pub(super) fn supported(language: SourceLanguage) -> bool {
-    matches!(
-        language,
-        SourceLanguage::Java
-            | SourceLanguage::Kotlin
-            | SourceLanguage::CSharp
-            | SourceLanguage::Swift
-            | SourceLanguage::Dart
-            | SourceLanguage::Cpp
-            | SourceLanguage::Scala
-            | SourceLanguage::Ruby
-            | SourceLanguage::Apex
-            | SourceLanguage::Solidity
-            | SourceLanguage::Ocaml
-            | SourceLanguage::PowerShell
-            | SourceLanguage::Pascal
-            | SourceLanguage::ObjectiveC
-            | SourceLanguage::TypeScript
-            | SourceLanguage::Tsx
-            | SourceLanguage::JavaScript
-            | SourceLanguage::Jsx
-    )
+    c_like::supported(language)
+        || fluent::supported(language)
+        || language == SourceLanguage::Dart
+        || scripts::supported(language)
 }
 
 pub(super) fn unsupported_site(
@@ -261,22 +244,15 @@ pub(super) fn collect<'tree>(
     constructors::collect(index, context, visit)?;
     returns::collect(index, context, visit)?;
     bindings::collect(index, context, visit)?;
-    match context.snapshot.language() {
-        SourceLanguage::Java
-        | SourceLanguage::CSharp
-        | SourceLanguage::Apex
-        | SourceLanguage::Cpp
-        | SourceLanguage::ObjectiveC
-        | SourceLanguage::Solidity => c_like::collect(index, context, visit),
-        SourceLanguage::Kotlin
-        | SourceLanguage::Swift
-        | SourceLanguage::Scala
-        | SourceLanguage::JavaScript
-        | SourceLanguage::Jsx
-        | SourceLanguage::TypeScript
-        | SourceLanguage::Tsx => fluent::collect(index, context, visit),
-        SourceLanguage::Dart => dart::collect(index, context, visit),
-        _ => scripts::collect(index, context, visit),
+    let language = context.snapshot.language();
+    if c_like::supported(language) {
+        c_like::collect(index, context, visit)
+    } else if fluent::supported(language) {
+        fluent::collect(index, context, visit)
+    } else if language == SourceLanguage::Dart {
+        dart::collect(index, context, visit)
+    } else {
+        scripts::collect(index, context, visit)
     }
 }
 
@@ -335,11 +311,7 @@ fn bind_kind(
         .scopes
         .get(&visit.scope)
         .is_some_and(|scope| scope.kind == ScopeKind::Class);
-    let start = if class || parameter(visit.node.kind()) {
-        0
-    } else {
-        visit.node.end_byte()
-    };
+    let start = binding_start(visit.node, class);
     index.bind(
         context,
         Bind {
@@ -351,18 +323,21 @@ fn bind_kind(
     )
 }
 
-fn parameter(kind: &str) -> bool {
-    matches!(
-        kind,
+fn binding_start(node: Node<'_>, class: bool) -> usize {
+    if class {
+        return 0;
+    }
+    match node.kind() {
         "parameter"
-            | "formal_parameter"
-            | "parameter_declaration"
-            | "class_parameter"
-            | "required_parameter"
-            | "optional_parameter"
-            | "declArg"
-            | "script_parameter"
-    )
+        | "formal_parameter"
+        | "parameter_declaration"
+        | "class_parameter"
+        | "required_parameter"
+        | "optional_parameter"
+        | "declArg"
+        | "script_parameter" => 0,
+        _ => node.end_byte(),
+    }
 }
 
 fn initialized(

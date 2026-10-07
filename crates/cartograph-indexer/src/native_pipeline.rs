@@ -5377,10 +5377,9 @@ struct TypeScriptPathMapping {
 
 #[derive(Default)]
 struct ResolutionIndex {
-    native_bridges: native_bridge_details::BridgeIndex,
-    native_event_consumers: native_event_calls::ConsumerIndex,
-    javascript_members: javascript_member_resolution::JavascriptMemberIndex,
-    javascript_frameworks: javascript_framework_resolution::JavascriptFrameworkIndex,
+    javascript: JavaScriptResolutionIndexes,
+    frameworks: FrameworkResolutionIndexes,
+    languages: LanguageResolutionIndexes,
     candidates: CandidateMap,
     candidate_order: Vec<String>,
     default_exports: DefaultExportMap,
@@ -5392,21 +5391,37 @@ struct ResolutionIndex {
     re_exports: Vec<ProjectReExport>,
     rust_named_re_exports: Vec<RustNamedReExport>,
     test_files: Vec<TestFileEvidence>,
-    php: php_resolution::PhpResolutionIndex,
-    javascript_exports: javascript_exports::ExportIndex,
-    javascript_aliases: javascript_alias_exports::AliasIndex,
+    types: qualified_member_resolution::TypeIndex,
+    receivers: receiver_resolution::ReceiverIndex,
+    qualtype: qualtype_resolution::TypeIndex,
+    module_calls: module_call_resolution::ModuleCallIndex,
+}
+
+#[derive(Default)]
+struct JavaScriptResolutionIndexes {
+    members: javascript_member_resolution::JavascriptMemberIndex,
+    frameworks: javascript_framework_resolution::JavascriptFrameworkIndex,
+    exports: javascript_exports::ExportIndex,
+    aliases: javascript_alias_exports::AliasIndex,
+}
+
+#[derive(Default)]
+struct FrameworkResolutionIndexes {
+    native_bridges: native_bridge_details::BridgeIndex,
+    native_event_consumers: native_event_calls::ConsumerIndex,
     salesforce: salesforce_resolution::SalesforceIndex,
     drupal_tags: drupal_tags::TagIndex,
     drupal_classes: drupal_resolution::ClassIndex,
     drupal_services: drupal_resolution::ServiceIndex,
     framework_methods: framework_methods::MethodIndex,
     route_bridges: route_bridges::Owners,
+}
+
+#[derive(Default)]
+struct LanguageResolutionIndexes {
+    php: php_resolution::PhpResolutionIndex,
     generic: generic_resolution::GenericResolutionIndex,
     jvm: jvm_resolution::JvmResolutionIndex,
-    types: qualified_member_resolution::TypeIndex,
-    receivers: receiver_resolution::ReceiverIndex,
-    qualtype: qualtype_resolution::TypeIndex,
-    module_calls: module_call_resolution::ModuleCallIndex,
     rust_paths: rust_path_resolution::PathIndex,
     shell_sources: shell_resolution::SourceIndex,
     go_modules: go_module_paths::ModuleIndex,
@@ -10321,7 +10336,7 @@ where
         insert_parent(&mut index.parents, containment, budget)?;
     }
     generic_resolution::index_calls(
-        &mut index.generic,
+        &mut index.languages.generic,
         (&file.call_scope_sites, budget),
         cancelled,
     )?;
@@ -10560,7 +10575,7 @@ fn index_resolution_symbol(
     };
     push_symbol_candidates(&mut index.candidates, insertion, budget)?;
     framework_methods::index_method(
-        &mut index.framework_methods,
+        &mut index.frameworks.framework_methods,
         framework_methods::MethodInput {
             symbol,
             parent: parent_symbol_id.as_ref(),
@@ -10568,8 +10583,8 @@ fn index_resolution_symbol(
         },
         budget,
     )?;
-    generic_resolution::index_symbol(&mut index.generic, insertion, budget)?;
-    route_bridges::index_symbol(&mut index.route_bridges, insertion, budget)?;
+    generic_resolution::index_symbol(&mut index.languages.generic, insertion, budget)?;
+    route_bridges::index_symbol(&mut index.frameworks.route_bridges, insertion, budget)?;
     if symbol.export.default_export {
         push_default_export(
             &mut index.default_exports,
@@ -10609,10 +10624,10 @@ where
         file,
         cancelled,
     )?;
-    javascript_alias_exports::index_file(&mut index.javascript_aliases, file, (budget, cancelled))?;
+    javascript_alias_exports::index_file(&mut index.javascript.aliases, file, (budget, cancelled))?;
     salesforce_resolution::index_file(
         salesforce_resolution::SalesforceFileInput {
-            index: &mut index.salesforce,
+            index: &mut index.frameworks.salesforce,
             file,
             budget,
         },
@@ -10621,7 +10636,7 @@ where
     qualified_member_resolution::index_ancestors(index, file, cancelled)?;
     php_resolution::index_file(
         php_resolution::PhpFileIndexInput {
-            index: &mut index.php,
+            index: &mut index.languages.php,
             file,
             budget,
         },
@@ -10725,7 +10740,7 @@ fn index_project_reexports(
     for binding in &file.import_bindings {
         if binding.kind == ImportBindingKind::ReExportUncertain {
             javascript_exports::mark_uncertain(
-                &mut index.javascript_exports,
+                &mut index.javascript.exports,
                 &file.file.file_id,
                 budget,
             )?;
@@ -11266,37 +11281,18 @@ where
         );
     }
     let lookup = ReferenceLookup::classify(reference);
-    let binding_name =
-        javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
-            .unwrap_or(lookup.lookup_name);
-    let mut resolution = if let Some(resolution) =
-        resolve_prefixed_reference(index, (context, reference, &lookup), cancelled)?
-    {
-        resolution
-    } else {
-        resolve_reference_or_source_name(
-            index,
-            SourceNameFallbackQuery {
-                request: &ResolutionRequest {
-                    file_id: &context.identity.file_id,
-                    file_path: &context.identity.path,
-                    language: &context.identity.language,
-                    import_bindings: jvm_resolution::select_import_bindings(
-                        (context, &lookup, reference.kind, binding_name),
-                        import_binding_scratch,
-                    )
-                    .with_fallback_blocked(lookup.python_import_fenced),
-                    owner: reference.owner.as_ref(),
-                    name: lookup.lookup_name,
-                    dispatch: lookup.dispatch(),
-                    kind: lookup.request_kind(reference.kind),
-                    span: reference.span,
-                },
-                source_name: &reference.name,
+    let mut resolution = resolve_lookup_reference(
+        index,
+        (
+            ExtractedReferenceQuery {
+                context,
+                reference,
+                import_binding_scratch,
             },
-            cancelled,
-        )?
-    };
+            &lookup,
+        ),
+        cancelled,
+    )?;
     if lookup.dynamic_dispatch_name.is_some()
         && let Some(target) = resolution.target.as_mut()
         && target.provenance != generic_resolution::CURRENT_CLASS_PROVENANCE
@@ -11334,6 +11330,52 @@ where
             receiver_resolution::prefer_base(resolution, receiver),
         ),
     ))
+}
+
+/// Select import bindings and honor resolver prefixes before source-name fallback.
+fn resolve_lookup_reference<Cancel>(
+    index: &ResolutionIndex,
+    (query, lookup): (ExtractedReferenceQuery<'_, '_>, &ReferenceLookup<'_>),
+    cancelled: &mut Cancel,
+) -> Result<ReferenceResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let ExtractedReferenceQuery {
+        context,
+        reference,
+        import_binding_scratch,
+    } = query;
+    let binding_name =
+        javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
+            .unwrap_or(lookup.lookup_name);
+    if let Some(resolution) =
+        resolve_prefixed_reference(index, (context, reference, lookup), cancelled)?
+    {
+        return Ok(resolution);
+    }
+    resolve_reference_or_source_name(
+        index,
+        SourceNameFallbackQuery {
+            request: &ResolutionRequest {
+                file_id: &context.identity.file_id,
+                file_path: &context.identity.path,
+                language: &context.identity.language,
+                import_bindings: jvm_resolution::select_import_bindings(
+                    (context, lookup, reference.kind, binding_name),
+                    import_binding_scratch,
+                )
+                .with_fallback_blocked(lookup.python_import_fenced),
+                owner: reference.owner.as_ref(),
+                name: lookup.lookup_name,
+                dispatch: lookup.dispatch(),
+                kind: lookup.request_kind(reference.kind),
+                span: reference.span,
+            },
+            source_name: &reference.name,
+        },
+        cancelled,
+    )
 }
 
 /// Honor resolver-prefix routes before the ordinary source-name fallback.
@@ -11631,7 +11673,7 @@ impl ResolutionOutput<'_> {
         )?;
         self.event_handlers
             .record(native_event_calls::HandlerObservation {
-                consumers: &self.index.native_event_consumers,
+                consumers: &self.index.frameworks.native_event_consumers,
                 reference: &reference,
                 resolution: &resolution,
                 budget: self.budget,

@@ -84,6 +84,7 @@ fn insert(
     )?;
     target
         .index
+        .frameworks
         .drupal_services
         .roots
         .entry(input.root.to_owned())
@@ -118,6 +119,7 @@ where
         return Err(StageItemFailure);
     }
     let Some(service) = index
+        .frameworks
         .drupal_services
         .roots
         .get(drupal_tags::root(request.file_path))

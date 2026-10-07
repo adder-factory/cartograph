@@ -63,8 +63,8 @@ where
     Cancel: FnMut() -> bool,
 {
     let target = match kind {
-        ClauseKind::Runtime => &mut index.javascript_aliases.runtime,
-        ClauseKind::TypeOnly => &mut index.javascript_aliases.type_only,
+        ClauseKind::Runtime => &mut index.javascript.aliases.runtime,
+        ClauseKind::TypeOnly => &mut index.javascript.aliases.type_only,
     };
     context.budget.charge(
         RESOLUTION_MAP_NODE_ALLOWANCE + usize_to_u64(size_of::<SymbolId>() + owner.as_str().len()),
@@ -175,13 +175,7 @@ fn alias_source<'source>(source: &'source str, alias: &NativeSymbolFacts) -> Opt
 }
 
 fn line_kind(line: &str) -> Option<ClauseKind> {
-    if !line.is_ascii()
-        || line.contains(['\\', '\r'])
-        || line.contains("/*")
-        || line.contains("//")
-        || line.match_indices("export").nth(1).is_some()
-        || !line.contains('}')
-    {
+    if unsupported_export_line(line) {
         return None;
     }
     let clause = line.trim_start().strip_prefix("export")?.trim_start();
@@ -195,6 +189,16 @@ fn line_kind(line: &str) -> Option<ClauseKind> {
         return None;
     }
     Some(ClauseKind::Runtime)
+}
+
+fn unsupported_export_line(line: &str) -> bool {
+    unsupported_export_text(line)
+        || line.match_indices("export").nth(1).is_some()
+        || !line.contains('}')
+}
+
+fn unsupported_export_text(line: &str) -> bool {
+    !line.is_ascii() || line.contains(['\\', '\r']) || line.contains("/*") || line.contains("//")
 }
 
 fn specifier_kind(kind: ClauseKind, specifier: &str) -> ClauseKind {

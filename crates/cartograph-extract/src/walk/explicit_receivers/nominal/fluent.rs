@@ -4,6 +4,19 @@ use super::{
     bind_unknown, initialized, member, named_children,
 };
 
+pub(super) fn supported(language: SourceLanguage) -> bool {
+    matches!(
+        language,
+        SourceLanguage::Kotlin
+            | SourceLanguage::Swift
+            | SourceLanguage::Scala
+            | SourceLanguage::JavaScript
+            | SourceLanguage::Jsx
+            | SourceLanguage::TypeScript
+            | SourceLanguage::Tsx
+    )
+}
+
 pub(super) fn collect<'tree>(
     index: &mut SyntaxIndex<'tree>,
     context: &mut ExtractionContext<'_, '_>,

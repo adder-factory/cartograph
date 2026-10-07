@@ -125,6 +125,7 @@ fn callable_kind(kind: SymbolKind) -> bool {
 
 fn owning_class<'a>(index: &'a ResolutionIndex, owner: &SymbolId) -> Option<&'a SymbolId> {
     if !index
+        .languages
         .generic
         .kinds
         .get(owner)
@@ -134,6 +135,7 @@ fn owning_class<'a>(index: &'a ResolutionIndex, owner: &SymbolId) -> Option<&'a 
     }
     let parent = index.parents.get(owner)?;
     index
+        .languages
         .generic
         .kinds
         .get(parent)
@@ -149,7 +151,7 @@ pub(super) fn current_instance_class<'index>(
         return None;
     }
     let owner = reference.owner.as_ref()?;
-    if index.generic.kinds.get(owner)?.static_member {
+    if index.languages.generic.kinds.get(owner)?.static_member {
         return None;
     }
     owning_class(index, owner)
@@ -204,7 +206,7 @@ pub(super) fn recursive_owner_call(
         && callable_kind(candidate.kind)
         && (candidate.parent_symbol_id.as_ref().is_none_or(|parent| {
             !index
-                .generic
+                .languages.generic
                 .kinds
                 .get(parent)
                 .is_some_and(|symbol| type_kind(symbol.kind))
@@ -218,10 +220,10 @@ fn explicit_member_compatible(
     owner: &SymbolId,
     target: &SymbolId,
 ) -> bool {
-    let Some(owner) = index.generic.kinds.get(owner) else {
+    let Some(owner) = index.languages.generic.kinds.get(owner) else {
         return false;
     };
-    let Some(target) = index.generic.kinds.get(target) else {
+    let Some(target) = index.languages.generic.kinds.get(target) else {
         return false;
     };
     owner.static_member == target.static_member

@@ -99,7 +99,7 @@ fn signal(
     }
     let owner = request
         .owner
-        .and_then(|id| index.route_bridges.kinds.get(id));
+        .and_then(|id| index.frameworks.route_bridges.kinds.get(id));
     match request.language {
         "java" | "kotlin" if owner == Some(&SymbolKind::Field) && request.name.contains('.') => {
             Some((SymbolKind::Constant, "framework-spring-property"))

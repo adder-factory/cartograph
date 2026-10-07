@@ -96,7 +96,14 @@ fn query<'a>(
     let namespace = request
         .owner
         .and_then(|owner| index.parents.get(owner))
-        .and_then(|parent| index.route_bridges.templates.namespaces.get(parent))?;
+        .and_then(|parent| {
+            index
+                .frameworks
+                .route_bridges
+                .templates
+                .namespaces
+                .get(parent)
+        })?;
     Some(TemplateQuery {
         role,
         name,
@@ -167,7 +174,7 @@ fn template_matches(
     candidate: &ResolutionCandidate,
     query: &TemplateQuery<'_>,
 ) -> bool {
-    let templates = &index.route_bridges.templates;
+    let templates = &index.frameworks.route_bridges.templates;
     if templates.roles.get(&candidate.symbol_id).copied() != Some(query.role) {
         return false;
     }

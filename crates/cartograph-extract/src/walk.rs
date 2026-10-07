@@ -1639,6 +1639,8 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
             },
             declaration_syntax: if self.context.snapshot.language() == SourceLanguage::Dart {
                 dart_family::declaration_syntax((pending.span_node, pending.kind))
+            } else if polyglot::crate_visible(self, pending.span_node) {
+                crate::DeclarationSyntax::RustCrateVisible
             } else {
                 jvm_type_lookup::declaration_syntax((
                     self.context.snapshot.language(),

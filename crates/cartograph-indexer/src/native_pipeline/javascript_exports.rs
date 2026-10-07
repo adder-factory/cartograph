@@ -48,7 +48,7 @@ where
         MAX_BARREL_DEPTH.saturating_mul(size_of::<&FileId>()),
     ))?;
     index_reexports(index, budget, cancelled)?;
-    if index.javascript_exports.by_file.is_empty() {
+    if index.javascript.exports.by_file.is_empty() {
         return Ok(());
     }
     for name in &index.candidate_order {
@@ -58,7 +58,8 @@ where
             }
             if !candidate.export.exported
                 || index
-                    .javascript_exports
+                    .javascript
+                    .exports
                     .locations
                     .contains_key(&candidate.symbol_id)
             {
@@ -73,7 +74,7 @@ where
                     )
                     + usize_to_u64(size_of::<CandidateLocation>()),
             )?;
-            index.javascript_exports.locations.insert(
+            index.javascript.exports.locations.insert(
                 candidate.symbol_id.clone(),
                 CandidateLocation {
                     name: try_clone_text(name)?,
@@ -104,7 +105,8 @@ where
             RESOLUTION_MAP_NODE_ALLOWANCE + usize_to_u64(size_of::<usize>() + size_of::<FileId>()),
         )?;
         index
-            .javascript_exports
+            .javascript
+            .exports
             .by_file
             .entry(re_export.source_file_id.clone())
             .or_default()
@@ -164,7 +166,8 @@ where
     }
     if query
         .index
-        .javascript_exports
+        .javascript
+        .exports
         .uncertain
         .contains(query.file)
     {
@@ -189,7 +192,7 @@ fn nested_export<'a, Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let Some(positions) = query.index.javascript_exports.by_file.get(query.file) else {
+    let Some(positions) = query.index.javascript.exports.by_file.get(query.file) else {
         return Ok(ExportMatch::Absent);
     };
     let mut found = ExportMatch::Absent;
@@ -345,7 +348,8 @@ where
         || query.imported_name == "default"
         || !query
             .index
-            .javascript_exports
+            .javascript
+            .exports
             .by_file
             .contains_key(query.module_file_id)
     {
@@ -363,7 +367,7 @@ where
     let ExportMatch::Unique(symbol, fallback) = matched else {
         return Ok(None);
     };
-    let Some(location) = query.index.javascript_exports.locations.get(symbol) else {
+    let Some(location) = query.index.javascript.exports.locations.get(symbol) else {
         return Ok(None);
     };
     let filter = ImportCandidateFilter {

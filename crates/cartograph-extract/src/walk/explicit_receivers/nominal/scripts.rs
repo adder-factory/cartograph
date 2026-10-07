@@ -5,6 +5,16 @@ use super::{
 
 const MAX_SCRIPT_WRAPPERS: usize = 32;
 
+pub(super) fn supported(language: SourceLanguage) -> bool {
+    matches!(
+        language,
+        SourceLanguage::Ruby
+            | SourceLanguage::Ocaml
+            | SourceLanguage::Pascal
+            | SourceLanguage::PowerShell
+    )
+}
+
 pub(super) fn collect<'tree>(
     index: &mut SyntaxIndex<'tree>,
     context: &mut ExtractionContext<'_, '_>,

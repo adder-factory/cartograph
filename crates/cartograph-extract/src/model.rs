@@ -257,6 +257,8 @@ pub enum DeclarationSyntax {
     KotlinConstructor,
     /// A Dart generative, factory, or extension-type representation constructor.
     DartConstructor,
+    /// A Rust declaration explicitly visible throughout its own crate.
+    RustCrateVisible,
 }
 
 /// One normalized declaration emitted by a native language extractor.

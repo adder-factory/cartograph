@@ -19,7 +19,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let file = &input.file.file.file_id;
-    let sites = &mut input.index.javascript_frameworks.unbound_context_sites;
+    let sites = &mut input.index.javascript.frameworks.unbound_context_sites;
     for reference in &input.file.references {
         if (input.cancelled)() {
             return Err(StageItemFailure);
@@ -55,7 +55,8 @@ where
         || request.import_bindings.fallback_blocked
         || !matches!(request.language, "jsx" | "tsx")
         || index
-            .javascript_frameworks
+            .javascript
+            .frameworks
             .unbound_context_sites
             .get(request.file_id)
             .is_some_and(|sites| sites.contains(&request.span))

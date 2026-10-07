@@ -54,7 +54,7 @@ where
             + usize_to_u64(size_of::<(String, Option<String>)>() + root.len())
             + module.map_or(0, |module| usize_to_u64(module.len())),
     )?;
-    let roots = &mut target.index.go_modules.roots;
+    let roots = &mut target.index.languages.go_modules.roots;
     roots.try_reserve(1).map_err(|_| StageItemFailure)?;
     roots.insert(
         try_clone_text(root)?,
@@ -76,7 +76,7 @@ fn index_package(
     if context.path.ends_with("_test.go") {
         return Ok(());
     }
-    let packages = &mut target.index.go_modules.packages;
+    let packages = &mut target.index.languages.go_modules.packages;
     if let Some(existing) = packages.get_mut(&context.directory) {
         if existing.as_deref() != context.package.as_deref() {
             *existing = None;
@@ -145,12 +145,14 @@ where
     )?;
     target
         .index
+        .languages
         .go_modules
         .sites
         .try_reserve(1)
         .map_err(|_| StageItemFailure)?;
     target
         .index
+        .languages
         .go_modules
         .sites
         .insert(file.file.file_id.clone(), sites);
@@ -188,6 +190,7 @@ where
         return Ok(base);
     }
     let Some(name) = index
+        .languages
         .go_modules
         .sites
         .get(&context.identity.file_id)
@@ -233,6 +236,7 @@ pub(super) fn matches(
     };
     if target.path.ends_with("_test.go")
         || index
+            .languages
             .go_modules
             .packages
             .get(&target.directory)
@@ -265,7 +269,7 @@ fn owning_module<'index>(
     mut directory: &str,
 ) -> Option<(&'index str, Option<&'index str>)> {
     for _ in 0..MAX_MODULE_ANCESTORS {
-        if let Some((root, module)) = index.go_modules.roots.get_key_value(directory) {
+        if let Some((root, module)) = index.languages.go_modules.roots.get_key_value(directory) {
             return Some((root, module.as_deref()));
         }
         if directory.is_empty() {

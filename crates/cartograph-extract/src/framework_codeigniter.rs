@@ -109,15 +109,7 @@ fn screened_loaded_resource(
     alias: Option<Quoted<'_>>,
     kind: &'static str,
 ) -> Option<LoadedResource> {
-    if !resource.value.is_ascii()
-        || resource.unsupported_escape
-        || crate::walk::specifier_safety::specifier_may_carry_credential(resource.value)
-        || alias.as_ref().is_some_and(|alias| {
-            !alias.value.is_ascii()
-                || alias.unsupported_escape
-                || crate::walk::specifier_safety::specifier_may_carry_credential(alias.value)
-        })
-    {
+    if unsafe_resource_operand(resource) || alias.as_ref().is_some_and(unsafe_resource_operand) {
         return None;
     }
     let alias = alias.map_or_else(
@@ -142,6 +134,12 @@ fn screened_loaded_resource(
         path,
         kind,
     })
+}
+
+fn unsafe_resource_operand(quoted: &Quoted<'_>) -> bool {
+    !quoted.value.is_ascii()
+        || quoted.unsupported_escape
+        || crate::walk::specifier_safety::specifier_may_carry_credential(quoted.value)
 }
 
 fn ci_class_name(resource: &str) -> String {

@@ -385,7 +385,11 @@ where
     Cancel: FnMut() -> bool,
 {
     let (class, name) = method;
-    let Some(key) = index.framework_methods.key(&class.symbol_id, name) else {
+    let Some(key) = index
+        .frameworks
+        .framework_methods
+        .key(&class.symbol_id, name)
+    else {
         return Ok(MethodMatch::Missing);
     };
     let Some(candidates) = index.candidates.get(key) else {
@@ -399,7 +403,11 @@ where
         if eligible_method(index, (class, candidate)) {
             selection.observe(
                 candidate,
-                index.salesforce.aura_enabled.contains(&candidate.symbol_id),
+                index
+                    .frameworks
+                    .salesforce
+                    .aura_enabled
+                    .contains(&candidate.symbol_id),
             );
         }
     }
@@ -426,7 +434,11 @@ where
     Cancel: FnMut() -> bool,
 {
     let (class, name) = method;
-    let Some(key) = index.framework_methods.key(&class.symbol_id, name) else {
+    let Some(key) = index
+        .frameworks
+        .framework_methods
+        .key(&class.symbol_id, name)
+    else {
         return Ok(MethodMatch::Missing);
     };
     let Some(candidates) = index.candidates.get(key) else {
@@ -458,7 +470,8 @@ where
         // is tracked separately; a server method with the same name is not proof.
         return Ok(resolution(None));
     }
-    let Some(Some(controllers)) = index.salesforce.controllers.get(request.file_id) else {
+    let Some(Some(controllers)) = index.frameworks.salesforce.controllers.get(request.file_id)
+    else {
         return Ok(resolution(None));
     };
     let mut found: Option<&ResolutionCandidate> = None;
@@ -493,6 +506,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let Some(site) = index
+        .frameworks
         .salesforce
         .sites
         .get(request.file_id)

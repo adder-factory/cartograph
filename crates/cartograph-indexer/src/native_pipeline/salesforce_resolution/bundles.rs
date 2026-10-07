@@ -87,6 +87,7 @@ where
 
 fn client_site(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
     index
+        .frameworks
         .salesforce
         .sites
         .get(request.file_id)
@@ -135,7 +136,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let (file, name) = query;
-    let Some(Some(controllers)) = index.salesforce.controllers.get(file) else {
+    let Some(Some(controllers)) = index.frameworks.salesforce.controllers.get(file) else {
         return Ok(None);
     };
     let mut found = None;

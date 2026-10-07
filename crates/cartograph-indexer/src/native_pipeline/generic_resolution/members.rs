@@ -20,10 +20,10 @@ pub(super) fn compatible(
     (owner, target): (&SymbolId, &SymbolId),
     request: &ResolutionRequest<'_>,
 ) -> bool {
-    let Some(owner) = index.generic.kinds.get(owner) else {
+    let Some(owner) = index.languages.generic.kinds.get(owner) else {
         return false;
     };
-    let Some(target) = index.generic.kinds.get(target) else {
+    let Some(target) = index.languages.generic.kinds.get(target) else {
         return false;
     };
     if request.language == "dart" {
