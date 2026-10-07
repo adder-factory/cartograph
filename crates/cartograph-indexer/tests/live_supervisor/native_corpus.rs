@@ -39,8 +39,8 @@ const EXPECTED_CORPUS_FINGERPRINT: &str =
 // module value targets no longer hidden by member or other-scope namesakes change the facts;
 // the final per-file parity fixes add five resolved references and their edges.
 // V22 changes the digest domain; cross-file resolution parity also adds 39 edges and
-// resolves 48 more existing references in this corpus. Its count and memory constants
-// below still require a live refresh. Dynamic-import fixes preserve 33 skipped import() load
+// resolves 48 more existing references in this corpus; the new resolver indexes raise
+// the resolve high-water mark by about 6%. Dynamic-import fixes preserve 33 skipped import() load
 // references in destructured initializers: 11 in cartograph-llm-service.ts, one each in
 // extraction-phases.ts, index.ts, and llm-setup-plan.ts, and 19 in mcp/tools/admin.ts.
 // All 33 are unresolved Imports facts; symbols, edges, documents, corpus bytes, and
@@ -64,7 +64,7 @@ const EXPECTED_TAGS_BM25_DOCUMENT_IDS: [&str; 6] = [
 ];
 const EXPECTED_FILES: i64 = 34;
 const EXPECTED_SYMBOLS: i64 = 6_362;
-const EXPECTED_EDGES: i64 = 11_211;
+const EXPECTED_EDGES: i64 = 11_250;
 const EXPECTED_REFERENCES: i64 = 21_320;
 const EXPECTED_NUMERICAL_SITES: i64 = 0;
 const EXPECTED_DOCUMENTS: i64 = 6_362;
@@ -82,11 +82,11 @@ const EXPECTED_EDGE_KINDS: [&str; 11] = [
     "type_of",
 ];
 const EXPECTED_SOURCE_BYTES: u64 = 1_052_564;
-const EXPECTED_RESOLVED_REFERENCES: u64 = 7_820;
-const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_512;
-const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_856_272;
-const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 116_931_331;
-const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_571_266;
+const EXPECTED_RESOLVED_REFERENCES: u64 = 7_868;
+const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_464;
+const EXPECTED_MODELED_GENERATION_BYTES: u64 = 21_865_703;
+const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 124_461_655;
+const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 149_596_155;
 const CORPUS_QUERY: &str = "detectSecretsHandling";
 const TAGS_CORPUS_QUERY: &str = "tagscanary";
 const LIVE_SECRET_SENTINEL: &str = "sk_live_secret";
