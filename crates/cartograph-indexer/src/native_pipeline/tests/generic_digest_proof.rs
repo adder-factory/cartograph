@@ -43,6 +43,7 @@ fn generic_corpus_resolution_delta_reconstructs_previous_frozen_digest() {
         .map(|(path, source, _)| (*path, *source))
         .collect::<Vec<_>>();
     let facts = build_capability_generation(&fixtures, false);
+    let facts = super::bridge_digest_proof::restore(&facts);
     let build = capability_symbol(&facts, "generic/fixture.ets", "CounterView::build");
     let increment = capability_symbol(&facts, "generic/fixture.ets", "CounterView::increment");
     let mut restored = unordered_copy(&facts);

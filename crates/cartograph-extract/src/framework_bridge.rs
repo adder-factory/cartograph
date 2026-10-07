@@ -1,3 +1,11 @@
+mod alias_shapes;
+mod emitter_controls;
+mod events;
+mod forms;
+mod handler_shapes;
+mod javascript_bindings;
+mod javascript_shapes;
+mod native_emitters;
 mod ownership;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,7 +33,6 @@ const REGISTRY_FACTORIES: [&str; 4] = [
 const MAX_NATIVE_ALIASES: usize = 256;
 const NATIVE_ALIAS_ENTRY_BYTES: usize = 64;
 const MAX_SWIFT_SELECTOR_BYTES: usize = 512;
-const MAX_SWIFT_ATTRIBUTE_LINES: usize = 8;
 const CANCELLATION_INTERVAL_BRIDGE_BYTES: usize = 256;
 const OBJC_SCOPE_ENTRY_BYTES: usize = 256;
 const EXPO_EXPORT_ENTRY_BYTES: u64 = 64;
@@ -50,7 +57,7 @@ struct NamedSymbolRange<'source, 'name> {
 struct ExpoDefinitionScan<'seen, 'source> {
     definition: usize,
     include_outside: bool,
-    seen: &'seen mut BTreeSet<(usize, &'source str, &'source str)>,
+    seen: &'seen mut BTreeSet<(usize, &'source str, &'source str, u32)>,
 }
 
 pub(crate) fn scan(
@@ -105,67 +112,14 @@ fn scan_javascript(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
 ) -> Result<(), ExtractError> {
+    let unique = alias_shapes::unique_names(builder)?;
+    let imports = javascript_bindings::collect(builder, &unique)?;
     scan_native_modules_calls(builder, source)?;
     scan_registry_modules(builder, source)?;
-    scan_registry_alias_calls(builder, source)?;
+    scan_registry_alias_calls(builder, (source, &unique))?;
     scan_turbo_module_spec(builder, source)?;
-    scan_codegen_components(builder, source)?;
-    scan_javascript_event_consumers(builder, source)
-}
-
-fn scan_javascript_event_consumers(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-) -> Result<(), ExtractError> {
-    let mut native_context = false;
-    for marker in [
-        "NativeEventEmitter",
-        "DeviceEventEmitter",
-        "NativeModules",
-        "requireNativeModule",
-        "react-native",
-    ] {
-        if bridge_marker(builder, source, (0, marker))?.is_some() {
-            native_context = true;
-            break;
-        }
-    }
-    if !native_context {
-        return Ok(());
-    }
-    let mut cursor = 0_usize;
-    while let Some(position) = bridge_marker(builder, source, (cursor, ".addListener("))? {
-        let call = position + ".addListener(".len();
-        let Some(event) = bridge_literal(builder, source_range(source, call))? else {
-            cursor = call;
-            continue;
-        };
-        let event_id = add_event_landmark(builder, ("react-native-event-consumer", &event))?;
-        let bounded = bounded_bridge_range(source_range(source, event.end));
-        builder.bridge.charge_work(bounded.end - bounded.start)?;
-        if let Some(event_id) = event_id
-            && let Some(comma) = source[event.end..bounded.end]
-                .find(',')
-                .map(|offset| event.end + offset + 1)
-        {
-            let handler_start = skip_ascii_whitespace(&source[..bounded.end], comma);
-            if let Some((handler_end, handler)) = bridge_identifier(SymbolRange {
-                start: handler_start,
-                ..bounded
-            }) {
-                builder.add_reference(FrameworkReferenceInput {
-                    owner: Some(event_id),
-                    name: handler,
-                    resolution_name: None,
-                    kind: ReferenceKind::Calls,
-                    start: handler_start,
-                    end: handler_end,
-                })?;
-            }
-        }
-        cursor = event.end;
-    }
-    Ok(())
+    scan_codegen_components(builder, source, &imports)?;
+    events::consumers(builder, source, (&unique, &imports))
 }
 
 fn scan_native_event_producers(
@@ -176,8 +130,12 @@ fn scan_native_event_producers(
     let mut seen = BTreeSet::new();
     for marker in markers {
         let mut cursor = 0_usize;
-        while let Some(position) = bridge_marker(builder, source, (cursor, marker))? {
-            let call = position + marker.len();
+        let name = marker.split(['(', ':']).next().unwrap_or(marker);
+        while let Some(position) = events::next_producer(builder, source, (cursor, name))? {
+            cursor = position + name.len();
+            let Some(call) = events::literal_start(builder, source, (cursor, marker))? else {
+                continue;
+            };
             let Some(event) = bridge_literal(builder, source_range(source, call))? else {
                 cursor = call;
                 continue;
@@ -242,9 +200,11 @@ fn quoted_event_after(value: &str, from: usize) -> Option<Quoted<'_>> {
 
 fn scan_registry_alias_calls(
     builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
+    (source, unique): (&str, &BTreeMap<String, usize>),
 ) -> Result<(), ExtractError> {
-    let bindings = collect_registry_alias_bindings(builder, source)?;
+    let mut bindings = collect_registry_alias_bindings(builder, source, unique)?;
+    bindings.retain(|(alias, _)| unique.get(alias) == Some(&1));
+    bindings.extend(alias_shapes::native_modules(builder, source, unique)?);
     for (alias, module) in bindings {
         scan_registry_alias_invocations(builder, source, (&alias, &module))?;
     }
@@ -254,10 +214,15 @@ fn scan_registry_alias_calls(
 fn collect_registry_alias_bindings(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
+    unique: &BTreeMap<String, usize>,
 ) -> Result<Vec<(String, String)>, ExtractError> {
     let mut bindings = Vec::new();
     let mut seen_calls = BTreeSet::new();
     for marker in REGISTRY_FACTORIES {
+        let factory = marker.split('.').next().unwrap_or(marker);
+        if unique.contains_key(factory) {
+            continue;
+        }
         let mut cursor = 0;
         while bindings.len() < MAX_NATIVE_ALIASES
             && let Some(call_start) = bridge_marker(builder, source, (cursor, marker))?
@@ -266,10 +231,9 @@ fn collect_registry_alias_bindings(
             let Some(module) = legacy_bridge_argument(builder, source, cursor)? else {
                 continue;
             };
-            let prefix = bounded_bridge_prefix(source, call_start);
-            builder.bridge.charge_work(prefix.len().saturating_mul(4))?;
             if seen_calls.insert(call_start)
-                && let Some(alias) = assigned_identifier_before(prefix, prefix.len())
+                && let Some(alias) =
+                    javascript_shapes::assigned_alias(builder, source, call_start + marker.len())?
             {
                 builder.bridge.reserve_working_bytes(
                     u64::try_from(alias.len() + module.value.len() + NATIVE_ALIAS_ENTRY_BYTES)
@@ -293,7 +257,22 @@ fn scan_registry_alias_invocations(
     while let Some(alias_start) = bridge_marker(builder, source, (cursor, &marker))? {
         let bounded = bounded_bridge_range(source_range(source, alias_start));
         builder.bridge.charge_work(bounded.end - bounded.start)?;
-        if alias_start > 0 && source.as_bytes()[alias_start - 1].is_ascii_alphanumeric() {
+        if alias_start > 0
+            && (source.as_bytes()[alias_start - 1].is_ascii_alphanumeric()
+                || matches!(source.as_bytes()[alias_start - 1], b'_' | b'$' | b'.'))
+        {
+            cursor = alias_start + marker.len();
+            continue;
+        }
+        let Some(call_node) = javascript_shapes::call_at(builder, alias_start + marker.len())
+        else {
+            cursor = alias_start + marker.len();
+            continue;
+        };
+        if call_node
+            .child_by_field_name("function")
+            .is_none_or(|function| function.start_byte() != alias_start)
+        {
             cursor = alias_start + marker.len();
             continue;
         }
@@ -306,12 +285,13 @@ fn scan_registry_alias_invocations(
             continue;
         };
         let call = skip_ascii_whitespace(&source[..bounded.end], method_end);
-        if source.as_bytes()[..bounded.end].get(call) == Some(&b'(')
-            && !react_native_blocklisted(method)
-        {
+        if source.as_bytes()[..bounded.end].get(call) == Some(&b'(') {
             builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
                 name: method,
-                resolution_name: Some(&format!("{module}::{method}")),
+                resolution_name: Some(&format!(
+                    "{}{module}::{method}",
+                    crate::NATIVE_MODULE_ALIAS_RESOLUTION_PREFIX
+                )),
                 kind: ReferenceKind::Calls,
                 start: method_start,
                 end: method_end,
@@ -322,63 +302,12 @@ fn scan_registry_alias_invocations(
     Ok(())
 }
 
-fn assigned_identifier_before(source: &str, call_start: usize) -> Option<&str> {
-    let boundary = source[..call_start]
-        .rfind(['\n', ';'])
-        .map_or(0, |offset| offset + 1);
-    let statement = source[boundary..call_start].trim();
-    let (declaration, rhs) = statement.rsplit_once('=')?;
-    if !rhs.trim().is_empty() {
-        return None;
-    }
-    let declaration = declaration.trim();
-    let declaration = ["const", "let", "var"]
-        .into_iter()
-        .find_map(|keyword| declaration.strip_prefix(keyword))?
-        .trim_start();
-    let (_, alias) = identifier_at(declaration, 0)?;
-    Some(alias)
-}
-
 fn legacy_bridge_argument<'source>(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &'source str,
     start: usize,
 ) -> Result<Option<Quoted<'source>>, ExtractError> {
-    let range = bounded_bridge_range(source_range(source, start));
-    let Some(open) = bridge_marker(builder, &source[..range.end], (start, "("))? else {
-        return Ok(None);
-    };
-    builder.bridge.charge_work(range.end - (open + 1))?;
-    Ok(quoted_after(&source[..range.end], open + 1))
-}
-
-fn bridge_body_range(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-    start: usize,
-) -> Result<Option<(usize, usize)>, ExtractError> {
-    let range = bounded_bridge_range(source_range(source, start));
-    let Some(open) = bridge_marker(builder, &source[..range.end], (start, "{"))? else {
-        return Ok(None);
-    };
-    let close = bridge_delimiter_close(
-        SymbolRange {
-            start: open,
-            ..range
-        },
-        (b'{', b'}'),
-        &mut |units| builder.bridge.charge_work(units),
-    )?;
-    Ok(close.map(|close| (open, close)))
-}
-
-fn bounded_bridge_prefix(source: &str, end: usize) -> &str {
-    let mut start = end.saturating_sub(MAX_BRIDGE_SCAN_BYTES);
-    while !source.is_char_boundary(start) {
-        start += 1;
-    }
-    &source[start..end]
+    javascript_shapes::argument(builder, source, start)
 }
 
 fn bridge_literal<'source>(
@@ -403,31 +332,7 @@ fn scan_turbo_module_spec(
     let Some(module) = registry_module_name(builder, source)? else {
         return Ok(());
     };
-    let Some((open, close)) = interface_body(builder, source, "Spec")? else {
-        return Ok(());
-    };
-    let bytes = source.as_bytes();
-    let mut cursor = open + 1;
-    while cursor < close {
-        builder.bridge.charge_work(close - cursor)?;
-        while cursor < close && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b';') {
-            cursor += 1;
-        }
-        let statement_start = cursor;
-        let method = identifier_at(source, cursor);
-        if let Some((name_end, name)) = method {
-            let after_name = skip_ascii_whitespace(source, name_end);
-            if bytes.get(after_name) == Some(&b'(') && !react_native_blocklisted(name) {
-                add_member_landmark(
-                    builder,
-                    (SymbolKind::Method, "turbo-module-spec-method", module.value),
-                    (name, cursor, name_end),
-                )?;
-            }
-        }
-        cursor = next_interface_statement(builder, source, (statement_start, close))?;
-    }
-    Ok(())
+    javascript_shapes::members(builder, source, ("Spec", Some(module.value)))
 }
 
 fn file_suffix(path: &str) -> Option<&str> {
@@ -438,110 +343,34 @@ fn registry_module_name<'source>(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &'source str,
 ) -> Result<Option<Quoted<'source>>, ExtractError> {
-    let mut selected = None;
+    let mut selected: Option<Quoted<'source>> = None;
     for marker in &REGISTRY_FACTORIES[..2] {
-        let Some(start) = bridge_marker(builder, source, (0, marker))? else {
-            continue;
-        };
-        let Some(module) = legacy_bridge_argument(builder, source, start + marker.len())? else {
-            continue;
-        };
-        if selected
-            .as_ref()
-            .is_none_or(|retained: &Quoted<'_>| module.start < retained.start)
-        {
+        let mut cursor = 0;
+        while let Some(start) = bridge_marker(builder, source, (cursor, marker))? {
+            cursor = start + marker.len();
+            if !javascript_shapes::spec_registry(builder, cursor) {
+                continue;
+            }
+            let Some(module) = legacy_bridge_argument(builder, source, cursor)? else {
+                continue;
+            };
+            cursor = module.end;
+            if selected
+                .as_ref()
+                .is_some_and(|previous| previous.value != module.value)
+            {
+                return Ok(None);
+            }
             selected = Some(module);
         }
     }
     Ok(selected)
 }
 
-fn interface_body(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-    expected_name: &str,
-) -> Result<Option<(usize, usize)>, ExtractError> {
-    let mut cursor = 0;
-    while let Some(position) = bridge_marker(builder, source, (cursor, "interface"))? {
-        cursor = position + "interface".len();
-        let range = bounded_bridge_range(source_range(source, cursor));
-        builder.bridge.charge_work(range.end - range.start)?;
-        let name_start = skip_ascii_whitespace(&source[..range.end], cursor);
-        let Some((name_end, name)) = bridge_identifier(SymbolRange {
-            start: name_start,
-            ..range
-        }) else {
-            continue;
-        };
-        cursor = name_end;
-        if name != expected_name {
-            continue;
-        }
-        return bridge_body_range(builder, source, name_end);
-    }
-    Ok(None)
-}
-
 #[derive(Default)]
 struct BridgeDelimiterState {
-    paren: usize,
-    brace: usize,
-    bracket: usize,
-    angle: usize,
     quote: Option<u8>,
     escaped: bool,
-}
-
-impl BridgeDelimiterState {
-    fn update_depth(&mut self, byte: u8, track_angle: bool) -> bool {
-        match byte {
-            b'(' => self.paren = self.paren.saturating_add(1),
-            b')' => self.paren = self.paren.saturating_sub(1),
-            b'{' => self.brace = self.brace.saturating_add(1),
-            b'}' => self.brace = self.brace.saturating_sub(1),
-            b'[' => self.bracket = self.bracket.saturating_add(1),
-            b']' => self.bracket = self.bracket.saturating_sub(1),
-            b'<' if track_angle => self.angle = self.angle.saturating_add(1),
-            b'>' if track_angle => self.angle = self.angle.saturating_sub(1),
-            _ => return false,
-        }
-        true
-    }
-
-    const fn top_level(&self) -> bool {
-        self.paren == 0 && self.brace == 0 && self.bracket == 0 && self.angle == 0
-    }
-}
-
-fn next_interface_statement(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-    (start, close): (usize, usize),
-) -> Result<usize, ExtractError> {
-    let bytes = source.as_bytes();
-    let mut cursor = start;
-    let mut state = BridgeDelimiterState::default();
-    while cursor < close {
-        if (cursor - start).is_multiple_of(CANCELLATION_INTERVAL_BRIDGE_BYTES) {
-            builder
-                .bridge
-                .charge_work((close - cursor).min(CANCELLATION_INTERVAL_BRIDGE_BYTES))?;
-        }
-        let byte = bytes[cursor];
-        if consume_quote_state(byte, &mut state.quote, &mut state.escaped) {
-            cursor += 1;
-            continue;
-        }
-        if state.update_depth(byte, true) {
-            cursor += 1;
-            continue;
-        }
-        if byte == b';' && state.top_level() {
-            return Ok(cursor + 1);
-        }
-        cursor += 1;
-    }
-    Ok(close)
 }
 
 fn scan_native_modules_calls(
@@ -571,7 +400,6 @@ fn scan_native_modules_calls(
                 start: method_start + 1,
                 ..bounded
             })
-            && !react_native_blocklisted(method)
         {
             builder.add_reference_near_with_resolution(FrameworkNearReferenceInput {
                 name: method,
@@ -622,8 +450,12 @@ fn scan_registry_modules(
 fn scan_codegen_components(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
+    imports: &javascript_bindings::Imports,
 ) -> Result<(), ExtractError> {
     const MARKER: &str = "codegenNativeComponent";
+    if imports.get(MARKER) != Some(&javascript_bindings::NativeImport::Codegen) {
+        return Ok(());
+    }
     let mut cursor = 0;
     while let Some(start) = bridge_marker(builder, source, (cursor, MARKER))? {
         cursor = start + MARKER.len();
@@ -640,43 +472,30 @@ fn scan_codegen_components(
     if bridge_marker(builder, source, (0, MARKER))?.is_none() {
         return Ok(());
     }
-    let Some(interface) = bridge_marker(builder, source, (0, "NativeProps"))? else {
-        return Ok(());
-    };
-    let Some((open, close)) = bridge_body_range(builder, source, interface)? else {
-        return Ok(());
-    };
-    builder
-        .bridge
-        .charge_work((close - open).saturating_mul(2))?;
-    for (offset, name) in declaration_names(&source[open + 1..close]) {
-        add_landmark(
-            builder,
-            (SymbolKind::Property, "fabric-prop"),
-            (name, open + 1 + offset, open + 1 + offset + name.len()),
-        )?;
-    }
-    Ok(())
+    javascript_shapes::members(builder, source, ("NativeProps", None))
 }
 
 struct ObjcBridgeScopes<'source> {
     containers: Vec<SymbolRange<'source>>,
-    registrations: BTreeMap<&'source str, Option<(String, usize, usize)>>,
+    registrations: BTreeMap<&'source str, forms::Registration>,
     implementations: BTreeSet<&'source str>,
+    emitters: BTreeSet<String>,
 }
 
 fn scan_objc(builder: &mut FrameworkBuilder<'_, '_>, source: &str) -> Result<(), ExtractError> {
     let scopes = objc_bridge_scopes(builder, source)?;
+    let mut deferred = Vec::new();
     for range in &scopes.containers {
         builder.check_cancelled()?;
-        scan_objc_container(builder, *range, &scopes)?;
+        scan_objc_container(builder, *range, (&scopes, &mut deferred))?;
     }
     scan_native_event_producers(
         builder,
         source,
         &["sendEventWithName:", "sendEventWithName("],
     )?;
-    scan_objc_swift_aliases(builder, source)
+    scan_objc_swift_aliases(builder, source)?;
+    forms::append_exports(builder, deferred)
 }
 
 fn objc_bridge_scopes<'source>(
@@ -687,6 +506,7 @@ fn objc_bridge_scopes<'source>(
         containers: Vec::new(),
         registrations: BTreeMap::new(),
         implementations: BTreeSet::new(),
+        emitters: emitter_controls::objc_classes(builder)?,
     };
     let mut cursor = 0;
     while let Some((start, marker)) = next_objc_container_marker(builder, source, cursor)? {
@@ -735,19 +555,10 @@ fn record_objc_registration<'source>(
         scopes.implementations.insert(class.0);
     }
     let class = (class.0, range.start + class.1, range.start + class.2);
-    if let Some(registration) = objc_module_name(builder, range, Some(class))? {
-        scopes
-            .registrations
-            .entry(class.0)
-            .and_modify(|entry| {
-                if entry
-                    .as_ref()
-                    .is_none_or(|previous| previous.0 != registration.0)
-                {
-                    *entry = None;
-                }
-            })
-            .or_insert(Some(registration));
+    let explicit = forms::has_macro(builder, range, &forms::MODULE_MACROS)?;
+    let registration = objc_module_name(builder, range, Some(class))?;
+    if registration.is_some() || explicit {
+        forms::register(&mut scopes.registrations, (class.0, registration, explicit));
     }
     Ok(())
 }
@@ -841,7 +652,7 @@ fn objc_protocol_container(
 fn scan_objc_container(
     builder: &mut FrameworkBuilder<'_, '_>,
     range: SymbolRange<'_>,
-    scopes: &ObjcBridgeScopes<'_>,
+    (scopes, deferred): (&ObjcBridgeScopes<'_>, &mut Vec<forms::DeferredExport>),
 ) -> Result<(), ExtractError> {
     let source = &range.source[range.start..range.end];
     builder
@@ -850,7 +661,7 @@ fn scan_objc_container(
     let class = objc_class_name(source);
     let module = class
         .and_then(|class| scopes.registrations.get(class.0))
-        .and_then(Option::as_ref);
+        .and_then(|registration| registration.value.as_ref());
     if let Some((name, start, end)) = module
         && range.start <= *start
         && *end <= range.end
@@ -862,16 +673,9 @@ fn scan_objc_container(
         )?;
     }
     if let Some((module_name, _, _)) = module {
-        for marker in [
-            "RCT_EXPORT_METHOD(",
-            "RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(",
-            "RCT_EXTERN_METHOD(",
-            "RCT_EXTERN__BLOCKING_SYNCHRONOUS_METHOD(",
-            "RCT_REMAP_METHOD(",
-            "RCT_EXTERN_REMAP_METHOD(",
-            "RCT_REMAP_BLOCKING_SYNCHRONOUS_METHOD(",
-        ] {
-            scan_objc_method_macro(builder, range, (marker, module_name))?;
+        let emitter = class.is_some_and(|(name, _, _)| scopes.emitters.contains(name));
+        for marker in forms::OBJC_METHOD_MACROS {
+            scan_objc_method_macro(builder, range, (marker, module_name, emitter, deferred))?;
         }
     }
     if source.starts_with("@implementation")
@@ -889,11 +693,11 @@ fn scan_objc_container(
 fn scan_objc_method_macro(
     builder: &mut FrameworkBuilder<'_, '_>,
     range: SymbolRange<'_>,
-    (marker, module): (&str, &str),
+    (marker, module, emitter, deferred): (&str, &str, bool, &mut Vec<forms::DeferredExport>),
 ) -> Result<(), ExtractError> {
     let source = &range.source[..range.end];
     let mut cursor = range.start;
-    while let Some(position) = next_objc_code_marker(
+    while let Some(start) = forms::next_macro_arguments(
         builder,
         ObjcCodeMarker {
             range,
@@ -901,7 +705,6 @@ fn scan_objc_method_macro(
             name: marker,
         },
     )? {
-        let start = position + marker.len();
         let bounded = bounded_bridge_range(SymbolRange { start, ..range });
         let first = all_identifiers(&source[start..bounded.end]).next();
         let inspected = first.map_or(bounded.end - start, |(offset, name)| offset + name.len());
@@ -918,14 +721,14 @@ fn scan_objc_method_macro(
             cursor = bounded.end;
             continue;
         };
-        if react_native_blocklisted(name) {
+        if emitter && react_native_blocklisted(name) {
             cursor = name_end;
             continue;
         }
-        add_member_landmark(
+        forms::export_member(
             builder,
-            (SymbolKind::Method, "react-native-method", module),
-            (name, name_start, name_end),
+            deferred,
+            (range, start, module, name, name_start, name_end),
         )?;
         cursor = name_end;
     }
@@ -942,15 +745,18 @@ fn scan_native_view_manager(
     else {
         return Ok(());
     };
+    if !forms::has_macro(builder, range, &forms::VIEW_MACROS)? {
+        return Ok(());
+    }
     let component = derive_component_name(class);
     add_landmark(
         builder,
         (SymbolKind::Component, "native-view-manager"),
         (&component, start, end),
     )?;
-    for marker in ["RCT_EXPORT_VIEW_PROPERTY(", "RCT_REMAP_VIEW_PROPERTY("] {
+    for marker in forms::VIEW_MACROS {
         let mut cursor = range.start;
-        while let Some(position) = next_objc_code_marker(
+        while let Some(arguments) = forms::next_macro_arguments(
             builder,
             ObjcCodeMarker {
                 range,
@@ -958,7 +764,7 @@ fn scan_native_view_manager(
                 name: marker,
             },
         )? {
-            let property_start = position + marker.len();
+            let property_start = skip_ascii_whitespace(&range.source[..range.end], arguments);
             let bounded = bounded_bridge_range(SymbolRange {
                 start: property_start,
                 ..range
@@ -1035,7 +841,6 @@ fn react_native_jvm_module(
     }
     Ok(ownership
         .native_symbol_name(builder, class)?
-        .filter(|(name, _, _)| name.ends_with("Module"))
         .map(|(class, start, end)| {
             (
                 class.strip_suffix("Module").unwrap_or(class).to_owned(),
@@ -1197,13 +1002,11 @@ fn scan_react_methods(
         let Some((method, start, end)) = ownership.native_symbol_name(builder, site.symbol)? else {
             continue;
         };
-        if !react_native_blocklisted(method) {
-            add_member_landmark(
-                builder,
-                (SymbolKind::Method, "react-native-method", module),
-                (method, start, end),
-            )?;
-        }
+        add_member_landmark(
+            builder,
+            (SymbolKind::Method, "react-native-method", module),
+            (method, start, end),
+        )?;
     }
     Ok(())
 }
@@ -1215,7 +1018,10 @@ fn scan_jvm_view_manager(
 ) -> Result<(), ExtractError> {
     let candidate = builder.original_symbol(class).is_some_and(|symbol| {
         symbol.name.ends_with("ViewManager")
-            || (symbol.name.ends_with("Manager") && ownership.view_classes.contains(&class))
+            || (symbol.name.ends_with("Manager")
+                && ["ReactProp", "ReactPropGroup"]
+                    .iter()
+                    .any(|name| ownership.annotations.contains_key(&(class, *name))))
     });
     if !candidate {
         return Ok(());
@@ -1388,8 +1194,8 @@ fn scan_swift_objc_exports(
     Ok(())
 }
 
-// Preserve the HEAD text-attribute rule and lexical containment, using the
-// already indexed native class relationship instead of rescanning all symbols.
+// Attribute ownership comes from the declaration's syntax and native class
+// relationship; a marker in a method body cannot expose its enclosing class.
 fn containing_objc_members_class(
     builder: &mut FrameworkBuilder<'_, '_>,
     ownership: &BridgeOwnership<'_>,
@@ -1418,84 +1224,42 @@ fn symbol_has_swift_attribute(
     builder: &mut FrameworkBuilder<'_, '_>,
     input: NamedSymbolRange<'_, '_>,
 ) -> Result<bool, ExtractError> {
-    Ok(swift_symbol_attribute_text(builder, input.range)?
-        .into_iter()
-        .any(|text| contains_swift_attribute(text, input.name)))
+    Ok(forms::swift_attribute(builder, input)?.is_some())
 }
 
 fn swift_objc_selector_attribute(
     builder: &mut FrameworkBuilder<'_, '_>,
     range: SymbolRange<'_>,
 ) -> Result<Option<String>, ExtractError> {
-    for text in swift_symbol_attribute_text(builder, range)? {
-        let marker = "@objc(";
-        let Some(open) = text.find(marker).map(|offset| offset + marker.len()) else {
-            continue;
-        };
-        let Some(close) = text[open..].find(')').map(|offset| open + offset) else {
-            return Ok(None);
-        };
-        let selector = text[open..close].trim();
-        if !selector.is_empty()
-            && selector.len() <= MAX_SWIFT_SELECTOR_BYTES
-            && selector
-                .bytes()
-                .all(|byte| byte == b':' || byte == b'_' || byte.is_ascii_alphanumeric())
-        {
-            builder.bridge.reserve_working_bytes(
-                u64::try_from(selector.len()).map_err(|_| ExtractError::OutputLimit)?,
-            )?;
-            return Ok(Some(selector.to_owned()));
-        }
+    let Some(text) = forms::swift_attribute(
+        builder,
+        NamedSymbolRange {
+            range,
+            name: "objc",
+        },
+    )?
+    else {
+        return Ok(None);
+    };
+    let Some(open) = text.find('(').map(|offset| offset + 1) else {
+        return Ok(None);
+    };
+    let Some(close) = text[open..].find(')').map(|offset| open + offset) else {
+        return Ok(None);
+    };
+    let selector = text[open..close].trim();
+    if selector.is_empty()
+        || selector.len() > MAX_SWIFT_SELECTOR_BYTES
+        || !selector
+            .bytes()
+            .all(|byte| byte == b':' || byte == b'_' || byte.is_ascii_alphanumeric())
+    {
+        return Ok(None);
     }
-    Ok(None)
-}
-
-fn swift_symbol_attribute_text<'source>(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    range: SymbolRange<'source>,
-) -> Result<[&'source str; 2], ExtractError> {
-    let bounded = bounded_bridge_range(range);
-    let prefix = bounded_bridge_prefix(range.source, range.start);
-    builder
-        .bridge
-        .charge_work((bounded.end - bounded.start).saturating_mul(2))?;
-    let mut lines = prefix.rsplit('\n');
-    let current = lines.next().unwrap_or_default();
-    builder
-        .bridge
-        .charge_work(current.len().saturating_mul(2))?;
-    let mut prefix_start = prefix.len() - current.len();
-    for line in lines.take(MAX_SWIFT_ATTRIBUTE_LINES) {
-        builder
-            .bridge
-            .charge_work(line.len().saturating_mul(2).saturating_add(1))?;
-        if !line.trim().starts_with('@') {
-            break;
-        }
-        prefix_start = prefix_start.saturating_sub(line.len() + 1);
-    }
-    Ok([
-        &prefix[prefix_start..],
-        &range.source[range.start..bounded.end],
-    ])
-}
-
-fn contains_swift_attribute(value: &str, name: &str) -> bool {
-    let marker = format!("@{name}");
-    let mut cursor = 0;
-    while let Some(relative) = value[cursor..].find(&marker) {
-        let end = cursor + relative + marker.len();
-        if value
-            .as_bytes()
-            .get(end)
-            .is_none_or(|byte| !(*byte == b'_' || byte.is_ascii_alphanumeric()))
-        {
-            return true;
-        }
-        cursor = end;
-    }
-    false
+    builder.bridge.reserve_working_bytes(
+        u64::try_from(selector.len()).map_err(|_| ExtractError::OutputLimit)?,
+    )?;
+    Ok(Some(selector.to_owned()))
 }
 
 fn symbol_name_span(input: NamedSymbolRange<'_, '_>) -> (usize, usize) {
@@ -1726,9 +1490,7 @@ fn scan_expo_definition<'source>(
         let Some(class) = ownership.owner(scope.definition) else {
             continue;
         };
-        if !react_native_blocklisted(member.value)
-            && scope.seen.insert((class, module, member.value))
-        {
+        if scope.seen.insert((class, module, member.value, call.line)) {
             builder
                 .bridge
                 .reserve_working_bytes(EXPO_EXPORT_ENTRY_BYTES)?;
@@ -1750,14 +1512,18 @@ fn expo_call_argument<'source>(
     if !call.supported {
         return Ok(None);
     }
-    let argument = quoted_bridge_argument(
-        builder,
-        SymbolRange {
-            source: ownership.source,
-            start: call.end,
-            end: call.limit,
-        },
-    )?;
+    let range = SymbolRange {
+        source: ownership.source,
+        start: call.end,
+        end: call.limit,
+    };
+    let mut argument = quoted_bridge_argument(builder, range)?;
+    if argument.is_none()
+        && call.name == "Constants"
+        && builder.language() == SourceLanguage::Kotlin
+    {
+        argument = forms::kotlin_constant_pair(builder, range)?;
+    }
     if let Some(argument) = argument.as_ref() {
         builder
             .bridge
@@ -1924,11 +1690,7 @@ fn objc_module_name(
     class: Option<(&str, usize, usize)>,
 ) -> Result<Option<(String, usize, usize)>, ExtractError> {
     let mut saw_export_module = false;
-    for marker in [
-        "RCT_EXTERN_REMAP_MODULE(",
-        "RCT_EXTERN_MODULE(",
-        "RCT_EXPORT_MODULE(",
-    ] {
+    for marker in forms::MODULE_MACROS {
         match objc_module_registration(builder, range, marker)? {
             ObjcModuleRegistration::Absent => {}
             ObjcModuleRegistration::DefaultClass => saw_export_module = true,
@@ -1938,7 +1700,9 @@ fn objc_module_name(
             }
         }
     }
-    default_objc_module_name(builder, saw_export_module.then_some(class).flatten())
+    let has_exports =
+        saw_export_module || forms::has_macro(builder, range, &forms::OBJC_METHOD_MACROS)?;
+    default_objc_module_name(builder, has_exports.then_some(class).flatten())
 }
 
 fn objc_module_registration<'source>(
@@ -1946,7 +1710,7 @@ fn objc_module_registration<'source>(
     range: SymbolRange<'source>,
     marker: &str,
 ) -> Result<ObjcModuleRegistration<'source>, ExtractError> {
-    let Some(position) = next_objc_code_marker(
+    let Some(start) = forms::next_macro_arguments(
         builder,
         ObjcCodeMarker {
             range,
@@ -1957,7 +1721,6 @@ fn objc_module_registration<'source>(
     else {
         return Ok(ObjcModuleRegistration::Absent);
     };
-    let start = position + marker.len();
     let bounded = bounded_bridge_range(SymbolRange { start, ..range });
     let source = &range.source[..bounded.end];
     if marker == "RCT_EXTERN_MODULE(" {
@@ -2066,29 +1829,6 @@ fn derive_component_name(class: &str) -> String {
         .to_owned()
 }
 
-fn declaration_names(value: &str) -> Vec<(usize, &str)> {
-    value
-        .split_inclusive(['\n', ';'])
-        .scan(0_usize, |offset, line| {
-            let start = *offset;
-            *offset = offset.saturating_add(line.len());
-            Some((start, line))
-        })
-        .filter_map(|(start, line)| {
-            let before_colon = line.split(':').next().unwrap_or(line);
-            let (offset, name) = all_identifiers(before_colon)
-                .filter(|(_, name)| {
-                    !matches!(
-                        *name,
-                        "readonly" | "export" | "extends" | "interface" | "optional"
-                    )
-                })
-                .last()?;
-            Some((start + offset, name))
-        })
-        .collect()
-}
-
 fn bridge_identifier(range: SymbolRange<'_>) -> Option<(usize, &str)> {
     let range = bounded_bridge_range(range);
     let (end, name) = identifier_at(&range.source[..range.end], range.start)?;
@@ -2128,7 +1868,14 @@ fn all_identifiers(value: &str) -> impl Iterator<Item = (usize, &str)> {
 fn react_native_blocklisted(name: &str) -> bool {
     matches!(
         name,
-        "addListener" | "removeListener" | "removeListeners" | "supportedEvents"
+        "addListener"
+            | "removeListener"
+            | "removeListeners"
+            | "supportedEvents"
+            | "remove"
+            | "invalidate"
+            | "startObserving"
+            | "stopObserving"
     )
 }
 

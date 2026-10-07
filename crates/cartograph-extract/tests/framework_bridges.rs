@@ -5,9 +5,7 @@ mod dependency_ownership;
 use std::fmt::Write;
 
 use cartograph_domain::{ReferenceKind, SourceLanguage, SymbolKind};
-use cartograph_extract::{
-    DYNAMIC_DISPATCH_RESOLUTION_PREFIX, NativeExtractor, SourceLimits, SourceSnapshot,
-};
+use cartograph_extract::{NativeExtractor, SourceLimits, SourceSnapshot};
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
 
@@ -149,13 +147,19 @@ fn oversized_qualified_expo_names_veto_guessed_exports() {
 }
 
 #[test]
-fn expo_exports_deduplicate_names_per_registered_class_and_module() {
+fn expo_exports_deduplicate_names_per_registered_class_module_and_line() {
     let single = extract(
         "android/Repeated.kt",
         "class FeatureModule : Module() {\n override fun definition() = ModuleDefinition { Name(\"Feature\"); Function(\"run\") { 1 }; Function(\"run\") { 2 } }\n private fun ModuleDefinitionBuilder.helper() { Function(\"run\") { 3 } } }",
     );
     assert_bridge_line(&single, "expo-module-method::Feature::run", 2);
-    assert_eq!(bridge_count(&single, "::expo-module-method::"), 1);
+    assert!(single.symbols.iter().any(|symbol| {
+        symbol
+            .qualified_name
+            .contains("::expo-module-method::Feature::run")
+            && symbol.span.start_line() == 3
+    }));
+    assert_eq!(bridge_count(&single, "::expo-module-method::"), 2);
     let multiple = extract(
         "android/Separate.kt",
         "class FirstModule : Module() { override fun definition() = ModuleDefinition { Name(\"First\"); Function(\"run\") { 1 }; Function(\"run\") { 2 } } }\n class SecondModule : Module() { override fun definition() = ModuleDefinition { Name(\"Second\"); Function(\"run\") { 1 }; Function(\"run\") { 2 } } }",
@@ -298,10 +302,9 @@ fn optional_bridge_budget_exhaustion_preserves_native_facts_with_a_diagnostic() 
             .any(|symbol| symbol.kind == SymbolKind::Resource)
     );
     assert!(!extracted.references.iter().any(|reference| {
-        reference
-            .resolution_name
-            .as_deref()
-            .is_some_and(|name| name.starts_with("M0::"))
+        reference.resolution_name.as_deref().is_some_and(|name| {
+            name.contains(cartograph_extract::NATIVE_MODULE_ALIAS_RESOLUTION_PREFIX)
+        })
     }));
     assert_optional_omission(&extracted);
 }
@@ -501,7 +504,11 @@ RCT_EXPORT_METHOD(unrelated) {}
     );
     assert_bridge_line(&extracted, "react-native-method::Thing::before", 3);
     assert_bridge_line(&extracted, "react-native-method::Thing::after", 9);
-    assert_no_bridge_landmark(&extracted, "unrelated");
+    assert_bridge_line(
+        &extracted,
+        "react-native-method::Unregistered::unrelated",
+        12,
+    );
 }
 
 #[test]
@@ -760,7 +767,11 @@ RCT_EXPORT_METHOD(unregistered) {}
     }
     assert_bridge_line(&extracted, "react-native-method::First::shared", 6);
     assert_bridge_line(&extracted, "react-native-method::SecondAlias::shared", 12);
-    assert_no_bridge_landmark(&extracted, "unregistered");
+    assert_bridge_line(
+        &extracted,
+        "react-native-method::Unregistered::unregistered",
+        17,
+    );
     assert!(extracted.symbols.iter().any(|symbol| {
         symbol.kind == SymbolKind::Method
             && symbol.qualified_name == "RCTUnregistered::unregistered"
@@ -1102,7 +1113,7 @@ RCT_EXPORT_METHOD(addListener:(NSString *)name) {}
     assert_landmark(&objc, SymbolKind::Resource, "Geolocation");
     assert_landmark(&objc, SymbolKind::Method, "getCurrentPosition");
     assert_landmark(&objc, SymbolKind::Method, "compute");
-    assert_no_bridge_landmark(&objc, "addListener");
+    assert_landmark(&objc, SymbolKind::Method, "addListener");
 
     let kotlin = extract(
         "android/ScannerModule.kt",
@@ -1117,7 +1128,7 @@ class ScannerModule {
 ",
     );
     assert_landmark(&kotlin, SymbolKind::Method, "startScan");
-    assert_no_bridge_landmark(&kotlin, "removeListeners");
+    assert_landmark(&kotlin, SymbolKind::Method, "removeListeners");
 }
 
 #[test]
@@ -1199,7 +1210,8 @@ fn parenthesized_registry_argument_retains_resource_and_call_hint() {
     assert!(extracted.references.iter().any(|reference| {
         reference.kind == ReferenceKind::Calls
             && reference.name == "run"
-            && reference.resolution_name.as_deref() == Some("Feature::run")
+            && reference.resolution_name.as_deref()
+                == Some("cartograph.native-module-alias::Feature::run")
             && reference.span.start_line() == 2
     }));
 }
@@ -1208,7 +1220,7 @@ fn parenthesized_registry_argument_retains_resource_and_call_hint() {
 fn parenthesized_fabric_argument_retains_component_identity() {
     let extracted = extract(
         "src/MyView.ts",
-        "export default codegenNativeComponent<NativeProps>(('MyView'));",
+        "import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent'; export default codegenNativeComponent<NativeProps>(('MyView'));",
     );
     assert_landmark(&extracted, SymbolKind::Component, "MyView");
     assert_bridge_line(&extracted, "fabric-component::MyView", 1);
@@ -1241,7 +1253,10 @@ Haptics.notificationAsync();
     }));
     for (name, resolution_name) in [
         ("getCurrentPosition", "Geolocation::getCurrentPosition"),
-        ("notificationAsync", "ExpoHaptics::notificationAsync"),
+        (
+            "notificationAsync",
+            "cartograph.native-module-alias::ExpoHaptics::notificationAsync",
+        ),
     ] {
         assert!(
             javascript.references.iter().any(|reference| {
@@ -1256,13 +1271,7 @@ Haptics.notificationAsync();
     assert!(javascript.references.iter().any(|reference| {
         reference.kind == ReferenceKind::Calls
             && reference.name == "addListener"
-            && reference.resolution_name.as_deref()
-                == Some(&format!("{DYNAMIC_DISPATCH_RESOLUTION_PREFIX}addListener"))
-    }));
-    assert!(javascript.references.iter().all(|reference| {
-        !(reference.kind == ReferenceKind::Calls
-            && reference.name == "addListener"
-            && reference.resolution_name.as_deref() == Some("Geolocation::addListener"))
+            && reference.resolution_name.as_deref() == Some("Geolocation::addListener")
     }));
 
     let turbo = extract(

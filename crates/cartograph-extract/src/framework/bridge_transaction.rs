@@ -1,5 +1,7 @@
 //! Output admission and rollback for the optional bridge extraction pass.
 
+mod native_alias_refinement;
+
 use super::owner_index::{OWNER_INDEX_ENTRY_BYTES, SourceOwnerIndex};
 use crate::{
     ExtractError, ExtractedFile, SourceSnapshot,
@@ -130,9 +132,12 @@ impl<'cancel> BridgeTransaction<'cancel> {
         index: usize,
         resolution_name: String,
     ) -> Result<(), ExtractError> {
-        if self.file.references[index].resolution_name.is_some() {
+        let Some(resolution_name) = native_alias_refinement::prepare(
+            self.file.references[index].resolution_name.as_deref(),
+            resolution_name,
+        ) else {
             return Ok(());
-        }
+        };
         self.budget.reserve_additional_string(&resolution_name)?;
         self.reserve_working_bytes(REFERENCE_REFINEMENT_ENTRY_BYTES)?;
         self.reference_refinements

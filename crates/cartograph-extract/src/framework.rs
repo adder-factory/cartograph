@@ -471,6 +471,10 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         &self.bridge.file.references
     }
 
+    pub(crate) fn import_bindings(&self) -> &[crate::ExtractedImportBinding] {
+        &self.bridge.file.import_bindings
+    }
+
     /// Record the `@Value` annotation ranges of this file.
     pub(crate) fn set_value_annotations(&mut self, mut intervals: Vec<AnnotationInterval>) {
         intervals.sort_by_key(|interval| (interval.start, interval.end));
@@ -2462,7 +2466,7 @@ pub(crate) fn safe_route_value(value: &str, command: bool) -> Option<String> {
     Some(value.to_owned())
 }
 
-fn safe_signal(value: &str) -> Option<String> {
+pub(crate) fn safe_signal(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty()
         || value.len() > MAX_SIGNAL_BYTES

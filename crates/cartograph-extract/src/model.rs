@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 #[doc(hidden)]
 pub const DYNAMIC_DISPATCH_RESOLUTION_PREFIX: &str = "cartograph.dynamic-dispatch::";
 
+/// A proven native-module alias hint; unresolved hints retain ordinary lookup.
+#[doc(hidden)]
+pub const NATIVE_MODULE_ALIAS_RESOLUTION_PREFIX: &str = "cartograph.native-module-alias::";
+
 /// A Python use whose file-wide bindings block import fallback, preserving lexical lookup.
 pub const PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX: &str = "cartograph.python-unbound-import::";
 
