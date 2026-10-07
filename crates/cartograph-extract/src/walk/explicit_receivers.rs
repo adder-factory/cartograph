@@ -239,7 +239,7 @@ impl SyntaxIndex<'_> {
         let Some(site) = self.sites.get(&key) else {
             return Ok(None);
         };
-        if let Some(receiver) = self.receiver_type(context, *site)? {
+        if let Some(receiver) = self.types().receiver_type(context, *site)? {
             let member = node_text(context, site.member);
             if !identifier(member) {
                 return Ok(None);
@@ -268,7 +268,7 @@ impl SyntaxIndex<'_> {
             return Ok(None);
         };
         let receiver = if scope.heritage_supported {
-            self.explicit_type(
+            self.types().explicit_type(
                 context,
                 TypeQuery {
                     name: &reference.name,
@@ -292,6 +292,14 @@ impl SyntaxIndex<'_> {
 }
 
 impl<'tree> SyntaxIndex<'tree> {
+    /// Borrow the collected scopes for type queries without changing index state.
+    fn types(&self) -> ReceiverTypes<'_> {
+        ReceiverTypes {
+            scopes: &self.scopes,
+            class_scopes: &self.class_scopes,
+        }
+    }
+
     fn collect(
         &mut self,
         builder: &mut ExtractionBuilder<'_, '_>,
@@ -517,7 +525,7 @@ impl<'tree> SyntaxIndex<'tree> {
     ) -> Result<(), ExtractError> {
         for site in std::mem::take(&mut self.assignments) {
             context.ensure_active()?;
-            let nominal = self.receiver_type(context, site)?;
+            let nominal = self.types().receiver_type(context, site)?;
             let owner = nominal
                 .as_deref()
                 .and_then(|name| name.strip_prefix('@'))
@@ -569,7 +577,15 @@ impl<'tree> SyntaxIndex<'tree> {
         }
         Ok(())
     }
+}
 
+/// Immutable receiver-type queries over the scopes populated by the syntax collector.
+struct ReceiverTypes<'index> {
+    scopes: &'index HashMap<usize, Scope>,
+    class_scopes: &'index HashMap<String, usize>,
+}
+
+impl ReceiverTypes<'_> {
     fn find_binding(
         &self,
         context: &mut ExtractionContext<'_, '_>,
@@ -603,7 +619,7 @@ impl<'tree> SyntaxIndex<'tree> {
     fn receiver_type(
         &self,
         context: &mut ExtractionContext<'_, '_>,
-        site: MemberSite<'tree>,
+        site: MemberSite<'_>,
     ) -> Result<Option<String>, ExtractError> {
         if site.receiver.kind() == "this" {
             return self.this_type(context, site.scope);
@@ -653,7 +669,7 @@ impl<'tree> SyntaxIndex<'tree> {
     fn expression_type(
         &self,
         context: &mut ExtractionContext<'_, '_>,
-        site: MemberSite<'tree>,
+        site: MemberSite<'_>,
         depth: usize,
     ) -> Result<Option<String>, ExtractError> {
         if depth > MAX_RECEIVER_FIELDS {

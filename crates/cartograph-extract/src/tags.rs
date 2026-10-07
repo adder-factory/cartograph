@@ -1088,15 +1088,7 @@ fn tag_structural_digests(
     transient: &mut TagTransientBudget,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<DefinitionDigests, ExtractError> {
-    let mut targets = DefinitionDigests::new();
-    targets
-        .try_reserve(input.definitions.len())
-        .map_err(|_| ExtractError::OutputLimit)?;
-    transient.charge(targets.capacity().saturating_mul(MODELED_TREE_ENTRY_BYTES))?;
-    for definition in input.definitions {
-        targets.entry(definition.node.id()).or_insert(None);
-    }
-
+    let mut targets = prepare_definition_digests(input.definitions, transient)?;
     let node_limit = input
         .source
         .len()
@@ -1160,6 +1152,22 @@ fn tag_structural_digests(
 
     if child_digests.len() != 1 || targets.values().any(Option::is_none) {
         return Err(ExtractError::GrammarUnavailable);
+    }
+    Ok(targets)
+}
+
+/// Reserve and charge the digest targets before traversing any syntax nodes.
+fn prepare_definition_digests(
+    definitions: &[Definition<'_>],
+    transient: &mut TagTransientBudget,
+) -> Result<DefinitionDigests, ExtractError> {
+    let mut targets = DefinitionDigests::new();
+    targets
+        .try_reserve(definitions.len())
+        .map_err(|_| ExtractError::OutputLimit)?;
+    transient.charge(targets.capacity().saturating_mul(MODELED_TREE_ENTRY_BYTES))?;
+    for definition in definitions {
+        targets.entry(definition.node.id()).or_insert(None);
     }
     Ok(targets)
 }

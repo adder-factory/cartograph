@@ -1466,6 +1466,11 @@ fn salesforce_type_signature(type_name: &str) -> Option<String> {
 /// Longest Aura attribute type retained as a field signature.
 const MAX_SALESFORCE_TYPE_BYTES: usize = 256;
 
+/// Aura's local-component namespace prefix, excluding the opening `<` delimiter.
+const SALESFORCE_COMPONENT_PREFIX: &str = "c:";
+/// Bytes before a local-component name in markup: `<` followed by `c:`.
+const SALESFORCE_COMPONENT_NAME_OFFSET: usize = 1 + SALESFORCE_COMPONENT_PREFIX.len();
+
 fn scan_salesforce_component_reference(
     builder: &mut CustomBuilder<'_, '_>,
     context: &SalesforceMarkupContext,
@@ -1473,25 +1478,30 @@ fn scan_salesforce_component_reference(
 ) -> Result<(), ExtractError> {
     let Some(raw_name) = tag
         .name
-        .get(2..)
-        .filter(|_| tag.name[..2].eq_ignore_ascii_case("c:"))
+        .get(SALESFORCE_COMPONENT_PREFIX.len()..)
+        .filter(|_| {
+            tag.name[..SALESFORCE_COMPONENT_PREFIX.len()]
+                .eq_ignore_ascii_case(SALESFORCE_COMPONENT_PREFIX)
+        })
     else {
         return Ok(());
     };
     let reference = salesforce_component_name(raw_name);
+    let start = tag.start + SALESFORCE_COMPONENT_NAME_OFFSET;
+    let end = start + raw_name.len();
     builder.add_reference(
         CustomReferenceInput::new(
             Some(context.component.clone()),
             &reference,
             ReferenceKind::References,
         )
-        .at(tag.start + 3, tag.start + 3 + raw_name.len()),
+        .at(start, end),
     )?;
     builder.add_import_binding(
         &CustomImportInput::new(None, crate::SALESFORCE_COMPONENT_MODULE)
             .with_kind(ImportBindingKind::Named)
             .binding(raw_name, &reference)
-            .at(tag.start + 3, tag.start + 3 + raw_name.len()),
+            .at(start, end),
     )
 }
 

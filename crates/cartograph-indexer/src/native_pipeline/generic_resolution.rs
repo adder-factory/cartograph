@@ -137,11 +137,7 @@ fn implicit_member_call(
     request: &ResolutionRequest<'_>,
     candidate: &ResolutionCandidate,
 ) -> bool {
-    if request.kind != ReferenceKind::Calls
-        || request.dispatch != ReferenceDispatch::Static
-        || !implicit_receiver_language(request.language)
-        || !callable_kind(candidate.kind)
-        || framework_landmark_candidate(candidate)
+    if !implicit_member_eligible(request, candidate)
         || request.name.contains(['.', ':'])
         || !class_scope::proven_call(index, request)
     {
@@ -154,6 +150,18 @@ fn implicit_member_call(
         && request
             .owner
             .is_some_and(|owner| compatible_member(index, owner, &candidate.symbol_id))
+}
+
+/// Only static calls to callable, non-framework members have an implicit receiver.
+fn implicit_member_eligible(
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    request.kind == ReferenceKind::Calls
+        && request.dispatch == ReferenceDispatch::Static
+        && implicit_receiver_language(request.language)
+        && callable_kind(candidate.kind)
+        && !framework_landmark_candidate(candidate)
 }
 
 /// Owner equality is meaningful for a call, after nearer lexical declarations

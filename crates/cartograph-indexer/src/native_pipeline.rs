@@ -9,6 +9,7 @@ mod framework_methods;
 mod framework_resolution;
 mod generic_resolution;
 mod go_path_resolution;
+mod intrinsic_names;
 mod javascript_config;
 mod javascript_exports;
 mod javascript_framework_resolution;
@@ -47,6 +48,8 @@ mod salesforce_resolution;
 mod scip_spill;
 mod script_modules;
 mod shell_resolution;
+
+use intrinsic_names::BuiltinVocabulary::{PythonExceptions, PythonValues};
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -1772,28 +1775,17 @@ async fn run_spilled_parse_stage(
                 let spill = worker_spill.clone();
                 let failures = Arc::clone(&worker_failures);
                 async move {
-                    let cancellation = item.cancellation();
-                    let (sequence, _, batch) = item.into_parts();
-                    let result = stream_spilled_parse_batch(
+                    run_spilled_parse_item(
                         SpilledParseInputs {
                             spill: &spill,
                             source_root: &source_root,
                             parse_cache: parse_cache.as_ref(),
                             maximum_ast_depth,
                         },
-                        batch,
-                        cancellation,
+                        item,
+                        &failures,
                     )
-                    .await;
-                    match result {
-                        Ok(parsed) => Ok(parsed),
-                        Err(failure) => {
-                            if let Ok(mut retained) = failures.lock() {
-                                retained.insert(sequence, failure);
-                            }
-                            Err(StageItemFailure)
-                        }
-                    }
+                    .await
                 }
             },
         ),
@@ -1823,6 +1815,25 @@ async fn run_spilled_parse_stage(
         },
     )
     .await
+}
+
+/// Retain a parse item's detailed failure before returning the runner's worker error.
+async fn run_spilled_parse_item(
+    inputs: SpilledParseInputs<'_>,
+    item: StageWorkItem<u64, SpilledParseManifestBatch>,
+    failures: &Mutex<BTreeMap<StageSequence, ParseManifestFailure>>,
+) -> Result<SpilledParsedManifestBatch, StageItemFailure> {
+    let cancellation = item.cancellation();
+    let (sequence, _, batch) = item.into_parts();
+    match stream_spilled_parse_batch(inputs, batch, cancellation).await {
+        Ok(parsed) => Ok(parsed),
+        Err(failure) => {
+            if let Ok(mut retained) = failures.lock() {
+                retained.insert(sequence, failure);
+            }
+            Err(StageItemFailure)
+        }
+    }
 }
 
 struct SpilledParseCompletion {
@@ -11181,32 +11192,8 @@ where
     let binding_name =
         javascript_member_resolution::binding_name(index, (&context.identity.file_id, reference))
             .unwrap_or(lookup.lookup_name);
-    let mut resolution = if lookup.rust_macro_name.is_some() {
-        ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
-    } else if let Some(sql) = lookup.embedded_sql {
-        resolve_embedded_sql(index, sql, cancelled)?
-    } else if let Some(name) = lookup.lexical_scope_name {
-        resolve_lexical_scope_reference(
-            index,
-            LexicalScopeReference {
-                context,
-                reference,
-                name,
-            },
-            cancelled,
-        )?
-    } else if let Some(php_lookup) = lookup.php_exact {
-        php_resolution::resolve_exact(
-            index,
-            php_resolution::PhpExactRequest {
-                file_id: &context.identity.file_id,
-                caller_class: php_resolution::caller_class(index, reference.owner.as_ref()),
-                lookup: php_lookup,
-            },
-            cancelled,
-        )?
-    } else if let Some(resolution) =
-        generic_resolution::resolve_receiver(index, (context, reference), cancelled)?
+    let mut resolution = if let Some(resolution) =
+        resolve_prefixed_reference(index, (context, reference, &lookup), cancelled)?
     {
         resolution
     } else {
@@ -11252,6 +11239,49 @@ where
     Ok(receiver_resolution::prefer_base(resolution, receiver))
 }
 
+/// Honor resolver-prefix routes before the ordinary source-name fallback.
+fn resolve_prefixed_reference<Cancel>(
+    index: &ResolutionIndex,
+    (context, reference, lookup): (
+        &FileResolutionContext<'_>,
+        &ExtractedReference,
+        &ReferenceLookup<'_>,
+    ),
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let resolution = if lookup.rust_macro_name.is_some() {
+        ReferenceResolution::unresolved(RUST_MACRO_UNRESOLVED_PROVENANCE)
+    } else if let Some(sql) = lookup.embedded_sql {
+        resolve_embedded_sql(index, sql, cancelled)?
+    } else if let Some(name) = lookup.lexical_scope_name {
+        resolve_lexical_scope_reference(
+            index,
+            LexicalScopeReference {
+                context,
+                reference,
+                name,
+            },
+            cancelled,
+        )?
+    } else if let Some(php_lookup) = lookup.php_exact {
+        php_resolution::resolve_exact(
+            index,
+            php_resolution::PhpExactRequest {
+                file_id: &context.identity.file_id,
+                caller_class: php_resolution::caller_class(index, reference.owner.as_ref()),
+                lookup: php_lookup,
+            },
+            cancelled,
+        )?
+    } else {
+        return generic_resolution::resolve_receiver(index, (context, reference), cancelled);
+    };
+    Ok(Some(resolution))
+}
+
 struct FileRecordInput<'file> {
     file: &'file FileInput,
     identity: &'file FileDocumentIdentity,
@@ -11265,6 +11295,14 @@ struct FileContainmentInput<'file> {
     file_symbol_id: &'file SymbolId,
     symbols: &'file [NativeSymbolFacts],
     containments: Vec<Containment>,
+}
+
+struct FileReferencesInput<'file> {
+    identity: &'file FileDocumentIdentity,
+    file_symbol_id: &'file SymbolId,
+    references: Vec<ExtractedReference>,
+    import_bindings: Vec<ExtractedImportBinding>,
+    receiver_evidence: Option<Box<ExtractedReceiverEvidence>>,
 }
 
 impl ResolutionOutput<'_> {
@@ -11324,6 +11362,50 @@ impl ResolutionOutput<'_> {
             },
             cancelled,
         )?;
+        self.append_file_references(
+            FileReferencesInput {
+                identity: &identity,
+                file_symbol_id: &file_symbol_id,
+                references,
+                import_bindings,
+                receiver_evidence,
+            },
+            cancelled,
+        )?;
+        for site in numerical_sites {
+            if cancelled() {
+                return Err(StageItemFailure);
+            }
+            self.facts
+                .numerical_sites
+                .push(numerical_site_input(&identity.file_id, site));
+        }
+        for symbol in symbols {
+            if cancelled() {
+                return Err(StageItemFailure);
+            }
+            self.append_symbol(&identity, symbol)?;
+        }
+        self.facts.files.push(file);
+        Ok(())
+    }
+
+    /// Prepare receiver/import evidence and append references under the file's budget.
+    fn append_file_references<Cancel>(
+        &mut self,
+        input: FileReferencesInput<'_>,
+        cancelled: &mut Cancel,
+    ) -> Result<(), StageItemFailure>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        let FileReferencesInput {
+            identity,
+            file_symbol_id,
+            references,
+            import_bindings,
+            receiver_evidence,
+        } = input;
         let import_binding_index =
             FileImportBindingIndex::new(&import_bindings, self.budget, &identity.language)?;
         let mut import_binding_scratch =
@@ -11341,8 +11423,8 @@ impl ResolutionOutput<'_> {
             cancelled,
         )?;
         let context = FileResolutionContext {
-            identity: &identity,
-            file_symbol_id: &file_symbol_id,
+            identity,
+            file_symbol_id,
             import_bindings: &import_binding_index,
             current_receivers: &current_receivers,
             receiver_lookups: &receiver_lookups,
@@ -11360,21 +11442,6 @@ impl ResolutionOutput<'_> {
                 cancelled,
             )?;
         }
-        for site in numerical_sites {
-            if cancelled() {
-                return Err(StageItemFailure);
-            }
-            self.facts
-                .numerical_sites
-                .push(numerical_site_input(&identity.file_id, site));
-        }
-        for symbol in symbols {
-            if cancelled() {
-                return Err(StageItemFailure);
-            }
-            self.append_symbol(&identity, symbol)?;
-        }
-        self.facts.files.push(file);
         Ok(())
     }
 
@@ -12477,26 +12544,7 @@ where
     if request.import_bindings.fallback_blocked {
         return Ok(None);
     }
-    if request.language == SourceLanguage::Liquid.as_str()
-        && let Some(target) = file_path_resolution::resolve_reference(index, request, cancelled)?
-    {
-        return Ok(Some(ReferenceResolution::resolved(target)));
-    }
-    if request.kind == ReferenceKind::Imports
-        && request.owner.is_none()
-        && let Some(resolution) =
-            import_reference_resolution(resolve_include_file_reference(index, request, cancelled)?)
-    {
-        return Ok(Some(resolution));
-    }
-    if request.kind == ReferenceKind::Imports
-        && request.owner.is_none()
-        && (script_modules::binds_loads_exactly(request.language)
-            || request.language == SourceLanguage::Python.as_str())
-        && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
-            index, request, cancelled,
-        )?)
-    {
+    if let Some(resolution) = resolve_module_declaration_reference(index, request, cancelled)? {
         return Ok(Some(resolution));
     }
     if request.owner.is_none()
@@ -12549,6 +12597,40 @@ where
                 site: ImportReferenceSite::Usage,
             },
             cancelled,
+        )?)
+    {
+        return Ok(Some(resolution));
+    }
+    Ok(None)
+}
+
+/// Resolve declarations that name a file or module before looking up imported symbols.
+fn resolve_module_declaration_reference<Cancel>(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    if request.language == SourceLanguage::Liquid.as_str()
+        && let Some(target) = file_path_resolution::resolve_reference(index, request, cancelled)?
+    {
+        return Ok(Some(ReferenceResolution::resolved(target)));
+    }
+    if request.kind == ReferenceKind::Imports
+        && request.owner.is_none()
+        && let Some(resolution) =
+            import_reference_resolution(resolve_include_file_reference(index, request, cancelled)?)
+    {
+        return Ok(Some(resolution));
+    }
+    if request.kind == ReferenceKind::Imports
+        && request.owner.is_none()
+        && (script_modules::binds_loads_exactly(request.language)
+            || request.language == SourceLanguage::Python.as_str())
+        && let Some(resolution) = import_reference_resolution(resolve_module_import_file_reference(
+            index, request, cancelled,
         )?)
     {
         return Ok(Some(resolution));
@@ -12867,160 +12949,7 @@ fn python_unresolved_provenance(request: &ResolutionRequest<'_>) -> Option<&'sta
 
 fn python_intrinsic_reference(request: &ResolutionRequest<'_>) -> bool {
     !request.name.contains('.')
-        && (python_builtin_exception(request.name) || python_builtin_value(request.name))
-}
-
-fn python_builtin_exception(name: &str) -> bool {
-    matches!(
-        name,
-        "ArithmeticError"
-            | "AssertionError"
-            | "AttributeError"
-            | "BaseException"
-            | "BlockingIOError"
-            | "BrokenPipeError"
-            | "BufferError"
-            | "BytesWarning"
-            | "ChildProcessError"
-            | "ConnectionAbortedError"
-            | "ConnectionError"
-            | "ConnectionRefusedError"
-            | "ConnectionResetError"
-            | "DeprecationWarning"
-            | "EOFError"
-            | "EncodingWarning"
-            | "EnvironmentError"
-            | "Exception"
-            | "FileExistsError"
-            | "FileNotFoundError"
-            | "FloatingPointError"
-            | "FutureWarning"
-            | "GeneratorExit"
-            | "IOError"
-            | "ImportError"
-            | "ImportWarning"
-            | "IndentationError"
-            | "IndexError"
-            | "InterruptedError"
-            | "IsADirectoryError"
-            | "KeyError"
-            | "KeyboardInterrupt"
-            | "LookupError"
-            | "MemoryError"
-            | "ModuleNotFoundError"
-            | "NameError"
-            | "NotADirectoryError"
-            | "NotImplemented"
-            | "NotImplementedError"
-            | "OSError"
-            | "OverflowError"
-            | "PendingDeprecationWarning"
-            | "PermissionError"
-            | "ProcessLookupError"
-            | "RecursionError"
-            | "ReferenceError"
-            | "ResourceWarning"
-            | "RuntimeError"
-            | "RuntimeWarning"
-            | "StopAsyncIteration"
-            | "StopIteration"
-            | "SyntaxError"
-            | "SyntaxWarning"
-            | "SystemError"
-            | "SystemExit"
-            | "TabError"
-            | "TimeoutError"
-            | "TypeError"
-            | "UnboundLocalError"
-            | "UnicodeDecodeError"
-            | "UnicodeEncodeError"
-            | "UnicodeError"
-            | "UnicodeTranslateError"
-            | "UnicodeWarning"
-            | "UserWarning"
-            | "ValueError"
-            | "Warning"
-            | "ZeroDivisionError"
-    )
-}
-
-fn python_builtin_value(name: &str) -> bool {
-    matches!(
-        name,
-        "__build_class__"
-            | "__debug__"
-            | "__import__"
-            | "abs"
-            | "aiter"
-            | "all"
-            | "anext"
-            | "any"
-            | "ascii"
-            | "bin"
-            | "bool"
-            | "breakpoint"
-            | "bytearray"
-            | "bytes"
-            | "callable"
-            | "chr"
-            | "classmethod"
-            | "compile"
-            | "complex"
-            | "delattr"
-            | "dict"
-            | "dir"
-            | "divmod"
-            | "enumerate"
-            | "eval"
-            | "exec"
-            | "filter"
-            | "float"
-            | "format"
-            | "frozenset"
-            | "getattr"
-            | "globals"
-            | "hasattr"
-            | "hash"
-            | "help"
-            | "hex"
-            | "id"
-            | "input"
-            | "int"
-            | "isinstance"
-            | "issubclass"
-            | "iter"
-            | "len"
-            | "list"
-            | "locals"
-            | "map"
-            | "max"
-            | "memoryview"
-            | "min"
-            | "next"
-            | "object"
-            | "oct"
-            | "open"
-            | "ord"
-            | "pow"
-            | "print"
-            | "property"
-            | "range"
-            | "repr"
-            | "reversed"
-            | "round"
-            | "set"
-            | "setattr"
-            | "slice"
-            | "sorted"
-            | "staticmethod"
-            | "str"
-            | "sum"
-            | "super"
-            | "tuple"
-            | "type"
-            | "vars"
-            | "zip"
-    )
+        && (PythonExceptions.contains(request.name) || PythonValues.contains(request.name))
 }
 
 fn python_receiver_reference(name: &str) -> bool {
@@ -13338,11 +13267,7 @@ where
         if let Some(candidate) = select_candidate(
             candidates,
             |candidate| {
-                (is_lexical_candidate(request.kind, request.name, candidate)
-                    || swift_implicit_member_call(request, candidate))
-                    && &candidate.file_id == request.file_id
-                    && (request.owner != Some(&candidate.symbol_id)
-                        || generic_resolution::recursive_owner_call(index, request, candidate))
+                lexical_candidate_matches(index, request, candidate)
                     && candidate.parent_symbol_id.as_ref() == scope
             },
             cancelled,
@@ -13365,6 +13290,19 @@ where
         scope = index.parents.get(symbol_id);
     }
     Ok(None)
+}
+
+/// Check same-file lexical eligibility, including the proof needed for recursion.
+fn lexical_candidate_matches(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    (is_lexical_candidate(request.kind, request.name, candidate)
+        || swift_implicit_member_call(request, candidate))
+        && &candidate.file_id == request.file_id
+        && (request.owner != Some(&candidate.symbol_id)
+            || generic_resolution::recursive_owner_call(index, request, candidate))
 }
 
 /// Resolve a def-use site to the local it reads: the unique same-file binding
@@ -14050,13 +13988,46 @@ fn resolve_import<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    let ImportResolutionRequest { reference, site } = input;
+    let reference = input.reference;
     let (binding, imported_name) =
-        match match_import_bindings((Some(index), reference), site, cancelled)? {
+        match match_import_bindings((Some(index), reference), input.site, cancelled)? {
             ImportBindingMatch::NotBound => return Ok(ImportResolution::NotBound),
             ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
             ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
         };
+    resolve_bound_import(
+        index,
+        BoundImportQuery {
+            import: input,
+            binding,
+            imported_name,
+        },
+        cancelled,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct BoundImportQuery<'a, 'b> {
+    import: ImportResolutionRequest<'a, 'b>,
+    binding: &'a ExtractedImportBinding,
+    imported_name: &'a str,
+}
+
+/// Apply language-specific binding rules before the common module/symbol lookup.
+fn resolve_bound_import<Cancel>(
+    index: &ResolutionIndex,
+    query: BoundImportQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ImportResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let BoundImportQuery {
+        import: input,
+        binding,
+        imported_name: _,
+    } = query;
+    let ImportResolutionRequest { reference, site } = input;
     if !rust_use_bindings::allows(index, (reference, binding), cancelled)? {
         return Ok(ImportResolution::NotBound);
     }
@@ -14096,6 +14067,24 @@ where
     )? {
         return Ok(resolution);
     }
+    resolve_bound_module_import(index, query, cancelled)
+}
+
+/// Resolve a selected binding's module, then its namespace fallback in the same order.
+fn resolve_bound_module_import<Cancel>(
+    index: &ResolutionIndex,
+    query: BoundImportQuery<'_, '_>,
+    cancelled: &mut Cancel,
+) -> Result<ImportResolution, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let BoundImportQuery {
+        import: input,
+        binding,
+        imported_name,
+    } = query;
+    let reference = input.reference;
     if imported_name.is_empty() {
         return Ok(ImportResolution::Unresolved);
     }

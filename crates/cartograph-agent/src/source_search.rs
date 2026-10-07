@@ -220,17 +220,7 @@ impl ProjectRuntime {
             .await
             .map_err(map_storage)?
             .ok_or(SourceSearchError::StorageUnavailable)?;
-        let mut surface_query =
-            FileSurfaceQuery::new(MAXIMUM_INDEXED_FILES).map_err(map_storage)?;
-        if let Some(language) = options.language {
-            surface_query = surface_query.with_language(language);
-        }
-        if let Some(path_filter) = options.path_filter.as_ref() {
-            let postgres_regex = regex::escape(path_filter.as_str());
-            surface_query = surface_query
-                .with_path_regex(Some(&postgres_regex))
-                .map_err(map_storage)?;
-        }
+        let surface_query = source_surface_query(&options)?;
         let surface = self
             .database
             .current_file_surface(project_id, &surface_query)
@@ -301,6 +291,23 @@ impl ProjectRuntime {
             attribution: "smallest_current_generation_enclosing_symbol",
         })
     }
+}
+
+/// Translate validated search filters into the bounded indexed-file inventory query.
+fn source_surface_query(
+    options: &SourceSearchOptions,
+) -> Result<FileSurfaceQuery, SourceSearchError> {
+    let mut query = FileSurfaceQuery::new(MAXIMUM_INDEXED_FILES).map_err(map_storage)?;
+    if let Some(language) = options.language {
+        query = query.with_language(language);
+    }
+    if let Some(path_filter) = options.path_filter.as_ref() {
+        let postgres_regex = regex::escape(path_filter.as_str());
+        query = query
+            .with_path_regex(Some(&postgres_regex))
+            .map_err(map_storage)?;
+    }
+    Ok(query)
 }
 
 fn compile_source_regex(options: &SourceSearchOptions) -> Result<Regex, SourceSearchError> {

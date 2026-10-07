@@ -3,6 +3,8 @@
 //! without receiver backing abstain; implicit-public methods use the existing
 //! project dispatch eligibility and dynamic provenance.
 
+use super::intrinsic_names::BuiltinVocabulary::JavascriptMembers;
+
 use std::{collections::HashMap, mem::size_of};
 
 use super::{
@@ -486,11 +488,22 @@ where
         .map(Some);
     }
     let Some(Companion::Receiver { name, binding }) = companion(index, request) else {
-        return Ok(
-            (!string_keyed_dispatch(index, request) || builtin_member(request.name))
-                .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)),
-        );
+        return Ok((!string_keyed_dispatch(index, request)
+            || JavascriptMembers.contains(request.name))
+        .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)));
     };
+    guard_dynamic_receiver(index, (request, name, binding), cancelled)
+}
+
+/// Guard a dynamic call using its proven receiver binding and qualified companion name.
+fn guard_dynamic_receiver<Cancel>(
+    index: &ResolutionIndex,
+    (request, name, binding): (&ResolutionRequest<'_>, &str, &ReceiverBinding),
+    cancelled: &mut Cancel,
+) -> Result<Option<ReferenceResolution>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
     if name.rsplit('.').next() != Some(request.name) {
         return Ok(Some(ReferenceResolution::unresolved(
             DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
@@ -528,7 +541,8 @@ where
             JAVASCRIPT_INTRINSIC_UNRESOLVED_PROVENANCE,
         )));
     }
-    Ok(builtin_member(request.name)
+    Ok(JavascriptMembers
+        .contains(request.name)
         .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)))
 }
 
@@ -582,10 +596,9 @@ where
         matched_import_binding(request, ImportReferenceSite::Usage, cancelled)?,
         ImportBindingMatch::NotBound
     );
-    Ok(
-        (imported || builtin_member(request.name.rsplit('.').next().unwrap_or(request.name)))
-            .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)),
-    )
+    Ok((imported
+        || JavascriptMembers.contains(request.name.rsplit('.').next().unwrap_or(request.name)))
+    .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)))
 }
 
 fn resolve_constructor<Cancel>(
@@ -899,7 +912,7 @@ where
     }
     if query.request.dispatch != ReferenceDispatch::Dynamic {
         return Ok((query.request.kind == ReferenceKind::Calls
-            && builtin_member(query.request.name))
+            && JavascriptMembers.contains(query.request.name))
         .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)));
     }
     let candidate = select_candidate(
@@ -969,80 +982,4 @@ where
         }
     }
     Ok(selected)
-}
-
-fn builtin_member(name: &str) -> bool {
-    matches!(
-        name,
-        "set"
-            | "get"
-            | "has"
-            | "delete"
-            | "add"
-            | "clear"
-            | "map"
-            | "filter"
-            | "reduce"
-            | "reduceRight"
-            | "forEach"
-            | "find"
-            | "findIndex"
-            | "some"
-            | "every"
-            | "push"
-            | "pop"
-            | "shift"
-            | "unshift"
-            | "slice"
-            | "splice"
-            | "concat"
-            | "join"
-            | "flat"
-            | "flatMap"
-            | "fill"
-            | "sort"
-            | "reverse"
-            | "indexOf"
-            | "lastIndexOf"
-            | "includes"
-            | "keys"
-            | "values"
-            | "entries"
-            | "next"
-            | "split"
-            | "replace"
-            | "replaceAll"
-            | "trim"
-            | "trimStart"
-            | "trimEnd"
-            | "startsWith"
-            | "endsWith"
-            | "padStart"
-            | "padEnd"
-            | "repeat"
-            | "substring"
-            | "substr"
-            | "charAt"
-            | "charCodeAt"
-            | "codePointAt"
-            | "toLowerCase"
-            | "toUpperCase"
-            | "then"
-            | "catch"
-            | "finally"
-            | "toString"
-            | "valueOf"
-            | "hasOwnProperty"
-            | "size"
-            | "length"
-            | "exec"
-            | "test"
-            | "match"
-            | "matchAll"
-            | "search"
-            | "normalize"
-            | "localeCompare"
-            | "isPrototypeOf"
-            | "propertyIsEnumerable"
-    )
 }
