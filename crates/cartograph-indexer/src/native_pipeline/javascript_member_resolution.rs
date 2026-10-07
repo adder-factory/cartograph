@@ -42,6 +42,7 @@ enum Companion {
     },
     Constructor(String),
     Value(NamedValue),
+    LocalReceiver,
 }
 
 #[derive(PartialEq, Eq)]
@@ -60,10 +61,11 @@ struct NamedValue {
 }
 
 impl Companion {
-    fn name(&self) -> &str {
+    fn name(&self) -> Option<&str> {
         match self {
-            Self::Receiver { name, .. } | Self::Constructor(name) => name,
-            Self::Value(value) => &value.name,
+            Self::Receiver { name, .. } | Self::Constructor(name) => Some(name),
+            Self::Value(value) => Some(&value.name),
+            Self::LocalReceiver => None,
         }
     }
 }
@@ -271,6 +273,12 @@ fn apply_call_context(
             ),
         );
     }
+    if matches!(context.receiver, JavascriptMemberReceiver::Shadowed)
+        && !calls.contains_key(&context.end_byte)
+    {
+        charge_entry::<(u64, Option<Companion>)>(budget, 0)?;
+        return merge_call(calls, (context.end_byte, Some(Companion::LocalReceiver)));
+    }
     if let Some(Some(Companion::Receiver { binding, .. })) = calls.get_mut(&context.end_byte) {
         *binding = match context.receiver {
             JavascriptMemberReceiver::LocalImport => ReceiverBinding::LocalImport,
@@ -418,7 +426,7 @@ pub(super) fn binding_name<'index>(
         .get(file_id)?
         .get(&reference.span.end_byte())?
         .as_ref()
-        .map(Companion::name)
+        .and_then(Companion::name)
 }
 
 fn companion<'index>(
@@ -431,6 +439,19 @@ fn companion<'index>(
         .get(request.file_id)?
         .get(&request.span.end_byte())?
         .as_ref()
+}
+
+fn string_keyed_dispatch(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
+    // Literal keys retain their two delimiters in the extracted token span;
+    // identifier members retain exactly the unquoted lookup name's bytes.
+    request.kind == ReferenceKind::Calls
+        && request.dispatch == ReferenceDispatch::Dynamic
+        && matches!(companion(index, request), Some(Companion::LocalReceiver))
+        && request
+            .span
+            .end_byte()
+            .saturating_sub(request.span.start_byte())
+            == usize_to_u64(request.name.len()).saturating_add(2)
 }
 
 pub(super) fn guard<Cancel>(
@@ -465,9 +486,10 @@ where
         .map(Some);
     }
     let Some(Companion::Receiver { name, binding }) = companion(index, request) else {
-        return Ok(Some(ReferenceResolution::unresolved(
-            DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE,
-        )));
+        return Ok(
+            (!string_keyed_dispatch(index, request) || builtin_member(request.name))
+                .then(|| ReferenceResolution::unresolved(DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE)),
+        );
     };
     if name.rsplit('.').next() != Some(request.name) {
         return Ok(Some(ReferenceResolution::unresolved(
@@ -871,6 +893,7 @@ where
 {
     if !javascript_family_name(query.request.language)
         || native_bridge_lookup(query.index, query.request.name)
+        || string_keyed_dispatch(query.index, query.request)
     {
         return Ok(None);
     }

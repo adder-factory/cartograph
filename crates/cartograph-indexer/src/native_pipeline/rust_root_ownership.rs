@@ -1,7 +1,8 @@
 //! Root ownership follows declared file-module edges, not directory proximity.
 use super::{
     FileId, HashMap, RESOLUTION_MAP_NODE_ALLOWANCE, ResolutionIndex, ResolutionIndexTarget,
-    StageItemFailure, joined_path, resolve_normalized_module_file, size_of, usize_to_u64,
+    ResolutionRequest, StageItemFailure, joined_path, resolve_normalized_module_file,
+    rust_inline_modules::ModuleScope, size_of, usize_to_u64,
 };
 use std::collections::{HashSet, VecDeque};
 
@@ -226,39 +227,87 @@ pub(super) fn root<'a>(index: &'a ResolutionIndex, file: &FileId) -> Option<&'a 
     Some(&index.rust_paths.roots.owners.get(file)?.as_ref()?.root)
 }
 
-pub(super) fn starting_module<'a, 'path>(
+pub(super) fn starting_module<'a, 'path, Cancel>(
     index: &'a ResolutionIndex,
-    file: &'a FileId,
-    path: &'path str,
-) -> Option<(&'a FileId, &'path str)> {
-    root(index, file)?;
-    let (first, mut suffix) = path.split_once("::").unwrap_or((path, ""));
-    let mut current = match first {
-        "crate" => root(index, file)?,
-        "self" => file,
-        "super" => index
-            .rust_paths
-            .roots
-            .owners
-            .get(file)?
-            .as_ref()?
-            .parent
-            .as_ref()?,
-        _ => return None,
+    query: (&'a FileId, &ResolutionRequest<'_>, &'path str),
+    cancelled: &mut Cancel,
+) -> Result<Option<(ModuleScope<'a>, &'path str)>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (file, request, path) = query;
+    let Some(root) = root(index, file) else {
+        return Ok(None);
     };
+    let (first, mut suffix) = path.split_once("::").unwrap_or((path, ""));
+    if first == "crate" {
+        return Ok(Some((
+            ModuleScope {
+                file: root,
+                inline: "",
+                module: None,
+            },
+            suffix,
+        )));
+    }
+    if !matches!(first, "self" | "super") {
+        return Ok(None);
+    }
+    let Some(mut current) = super::rust_inline_modules::enclosing(index, request, cancelled)?
+    else {
+        return Ok(None);
+    };
+    if first == "super" {
+        let Some(parent) = parent_module(index, current) else {
+            return Ok(None);
+        };
+        current = parent;
+    }
     while let Some(remaining) = suffix
         .strip_prefix("super::")
         .or_else(|| (suffix == "super").then_some(""))
     {
-        current = index
+        if cancelled() {
+            return Err(StageItemFailure);
+        }
+        let Some(parent) = parent_module(index, current) else {
+            return Ok(None);
+        };
+        current = parent;
+        suffix = remaining;
+    }
+    Ok(Some((current, suffix)))
+}
+
+fn parent_module<'a>(
+    index: &'a ResolutionIndex,
+    scope: ModuleScope<'a>,
+) -> Option<ModuleScope<'a>> {
+    if let Some(module) = scope.module {
+        let Some(parent) = index.parents.get(module) else {
+            return Some(ModuleScope {
+                file: scope.file,
+                inline: "",
+                module: None,
+            });
+        };
+        let (parent, evidence) = index.qualtype.owners.get_key_value(parent)?;
+        return (evidence.kind == super::SymbolKind::Module).then_some(ModuleScope {
+            file: scope.file,
+            inline: &evidence.name,
+            module: Some(parent),
+        });
+    }
+    Some(ModuleScope {
+        file: index
             .rust_paths
             .roots
             .owners
-            .get(current)?
+            .get(scope.file)?
             .as_ref()?
             .parent
-            .as_ref()?;
-        suffix = remaining;
-    }
-    Some((current, suffix))
+            .as_ref()?,
+        inline: "",
+        module: None,
+    })
 }

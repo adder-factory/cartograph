@@ -71,6 +71,7 @@ fn receiver_context(
         )),
         NearestBinding::Module => None,
         NearestBinding::Imported => Some(JavascriptMemberReceiver::LocalImport),
+        NearestBinding::Unknown => Some(JavascriptMemberReceiver::Uncertain),
         _ => Some(JavascriptMemberReceiver::Shadowed),
     })
 }

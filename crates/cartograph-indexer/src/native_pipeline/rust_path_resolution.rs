@@ -6,9 +6,10 @@ use super::{
     NativeFileFacts, RESOLUTION_MAP_NODE_ALLOWANCE, RUST_QUALIFIED_PATH_PROVENANCE,
     RUST_WORKSPACE_CRATE_PROVENANCE, ReferenceDispatch, ReferenceResolution, ResolutionIndex,
     ResolutionIndexTarget, ResolutionRequest, ResolvedTarget, RustCandidateVisibility,
-    StageItemFailure, SymbolKind, normalize_relative_module_path, reference_kind_candidate,
-    resolution_candidates_for_file, resolve_normalized_module_file, rust_module_candidate_visible,
-    rust_parent_module_contains, select_candidate, size_of, try_clone_text, usize_to_u64,
+    StageItemFailure, SymbolKind, Visibility, normalize_relative_module_path,
+    reference_kind_candidate, resolution_candidates_for_file, resolve_normalized_module_file,
+    rust_inline_modules::ModuleScope, rust_module_candidate_visible, rust_parent_module_contains,
+    select_candidate, size_of, try_clone_text, usize_to_u64,
 };
 
 const MAXIMUM_PATH_BYTES: usize = 1_024;
@@ -240,27 +241,38 @@ where
     Cancel: FnMut() -> bool,
 {
     let (request, module, name) = query;
-    let Some(file) = module_file(index, (request.file_path, module), cancelled)? else {
+    let Some(scope) = module_file(index, (request, module), cancelled)? else {
         return Ok(None);
     };
-    let candidates = resolution_candidates_for_file(index, name, file);
+    let Some(qualified) = super::rust_inline_modules::qualified_name(scope.inline, name)? else {
+        return Ok(None);
+    };
+    let candidates = resolution_candidates_for_file(index, &qualified, scope.file);
+    let root = module.split("::").next().unwrap_or(module);
+    let local = matches!(root, "crate" | "self" | "super");
+    let scoped_access =
+        local && super::rust_inline_modules::contains_owner(index, (request, scope));
     let candidate = select_candidate(
         candidates,
         |candidate| {
-            candidate.qualified_name == name
+            candidate.qualified_name == qualified
                 && reference_kind_candidate(request.kind, candidate)
-                && super::rust_use_bindings::visible(index, request, candidate)
-                && rust_module_candidate_visible(RustCandidateVisibility {
-                    index,
-                    candidate,
-                    target_name: name,
-                    source_path: request.file_path,
-                })
+                && (scoped_access || super::rust_use_bindings::visible(index, request, candidate))
+                && if scope.inline.is_empty() {
+                    rust_module_candidate_visible(RustCandidateVisibility {
+                        index,
+                        candidate,
+                        target_name: name,
+                        source_path: request.file_path,
+                    })
+                } else {
+                    super::rust_inline_modules::owns(scope, candidate)
+                        && (local || candidate.visibility == Some(Visibility::Public))
+                }
         },
         cancelled,
     )?;
-    let root = module.split("::").next().unwrap_or(module);
-    let provenance = if matches!(root, "crate" | "self" | "super") {
+    let provenance = if local {
         RUST_QUALIFIED_PATH_PROVENANCE
     } else {
         RUST_WORKSPACE_CRATE_PROVENANCE
@@ -275,13 +287,14 @@ where
 
 fn module_file<'a, Cancel>(
     index: &'a ResolutionIndex,
-    query: (&str, &str),
+    query: (&ResolutionRequest<'_>, &str),
     cancelled: &mut Cancel,
-) -> Result<Option<&'a FileId>, StageItemFailure>
+) -> Result<Option<ModuleScope<'a>>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
-    let (importing, specifier) = query;
+    let (request, specifier) = query;
+    let importing = request.file_path;
     let modules = &index.modules;
     let Some(root) = specifier.split("::").next() else {
         return Ok(None);
@@ -290,8 +303,11 @@ where
         let Some(file) = super::resolve_normalized_module_file(modules, importing, "rust") else {
             return Ok(None);
         };
-        let Some((entry, suffix)) =
-            super::rust_root_ownership::starting_module(index, file, specifier)
+        let Some((entry, suffix)) = super::rust_root_ownership::starting_module(
+            index,
+            (file, request, specifier),
+            cancelled,
+        )?
         else {
             return Ok(None);
         };
@@ -304,16 +320,24 @@ where
             .strip_prefix(root)
             .and_then(|suffix| suffix.strip_prefix("::"))
             .unwrap_or("");
-        (entry, suffix.to_owned(), true)
+        (
+            ModuleScope {
+                file: entry,
+                inline: "",
+                module: None,
+            },
+            suffix.to_owned(),
+            true,
+        )
     };
     declared_module(index, (entry, &suffix, importing, external), cancelled)
 }
 
 fn declared_module<'a, Cancel>(
     index: &'a ResolutionIndex,
-    query: (&'a FileId, &str, &str, bool),
+    query: (ModuleScope<'a>, &str, &str, bool),
     cancelled: &mut Cancel,
-) -> Result<Option<&'a FileId>, StageItemFailure>
+) -> Result<Option<ModuleScope<'a>>, StageItemFailure>
 where
     Cancel: FnMut() -> bool,
 {
@@ -328,22 +352,69 @@ where
         if !identifier(component) {
             return Ok(None);
         }
-        let edge = index
-            .rust_paths
-            .modules
-            .get(current)
-            .and_then(|edges| edges.get(component))
-            .and_then(Option::as_ref);
+        let edge = current
+            .inline
+            .is_empty()
+            .then(|| {
+                index
+                    .rust_paths
+                    .modules
+                    .get(current.file)
+                    .and_then(|edges| edges.get(component))
+            })
+            .flatten();
+        let Some(edge) = edge else {
+            let Some(scope) = inline_module(index, (current, component), cancelled)? else {
+                return Ok(None);
+            };
+            current = scope;
+            continue;
+        };
         let Some(edge) = edge else { return Ok(None) };
-        if !module_edge_visible(index, (current, importing, external), edge.public) {
+        if !module_edge_visible(index, (current.file, importing, external), edge.public) {
             return Ok(None);
         }
         let Some(file) = edge.file.as_ref() else {
             return Ok(None);
         };
-        current = file;
+        current = ModuleScope {
+            file,
+            inline: "",
+            module: None,
+        };
     }
     Ok(Some(current))
+}
+
+fn inline_module<'a, Cancel>(
+    index: &'a ResolutionIndex,
+    query: (ModuleScope<'a>, &str),
+    cancelled: &mut Cancel,
+) -> Result<Option<ModuleScope<'a>>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (scope, component) = query;
+    let Some(name) = super::rust_inline_modules::qualified_name(scope.inline, component)? else {
+        return Ok(None);
+    };
+    let candidate = select_candidate(
+        resolution_candidates_for_file(index, &name, scope.file),
+        |candidate| {
+            candidate.kind == SymbolKind::Module
+                && candidate.qualified_name == name
+                && super::rust_inline_modules::owns(scope, candidate)
+                // File visibility cannot prove access through a private inline
+                // child. Keep traversal in the public subset of the facade.
+                && candidate.visibility == Some(Visibility::Public)
+        },
+        cancelled,
+    )?;
+    Ok(candidate.map(|candidate| ModuleScope {
+        file: scope.file,
+        inline: &candidate.qualified_name,
+        module: Some(&candidate.symbol_id),
+    }))
 }
 
 fn module_edge_visible(

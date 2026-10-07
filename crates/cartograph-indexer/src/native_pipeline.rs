@@ -35,6 +35,7 @@ mod rescript_resolution;
 mod resource_resolution;
 mod rust_dependency_paths;
 mod rust_facade_resolution;
+mod rust_inline_modules;
 mod rust_local_types;
 mod rust_path_resolution;
 mod rust_root_ownership;
@@ -17050,6 +17051,7 @@ mod tests {
     mod python_imports;
     mod qualified_types;
     mod receiver_types;
+    mod rust_module_paths;
     mod rust_receivers;
     mod rust_use_bindings;
     mod script_modules;

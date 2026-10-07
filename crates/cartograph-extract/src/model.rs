@@ -191,8 +191,10 @@ pub struct JavascriptMemberCallContext {
 /// The receiver context relevant to bounded JavaScript member refinements.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JavascriptMemberReceiver {
-    /// A parameter, local, catch, destructuring, or uncertain enclosing binding.
+    /// A parameter, local, catch, or destructuring binding in an enclosing scope.
     Shadowed,
+    /// An enclosing scope whose receiver binding could not be established.
+    Uncertain,
     /// A local import binding whose existing import resolution must remain available.
     LocalImport,
     /// A direct member access on a named, unshadowed constructor expression.

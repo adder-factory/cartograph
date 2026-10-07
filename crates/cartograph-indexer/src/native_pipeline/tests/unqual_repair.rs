@@ -476,6 +476,10 @@ fn unqual_production_functions_respect_code_health_limits() {
             include_str!("../rust_root_ownership.rs"),
         ),
         (
+            "rust_inline_modules.rs",
+            include_str!("../rust_inline_modules.rs"),
+        ),
+        (
             "shell_resolution.rs",
             include_str!("../shell_resolution.rs"),
         ),

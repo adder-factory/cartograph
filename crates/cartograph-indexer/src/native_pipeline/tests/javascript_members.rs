@@ -1,6 +1,6 @@
 use super::{
     CanonicalGenerationFacts, CapabilityReferenceQuery, DYNAMIC_DISPATCH_PROVENANCE,
-    DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE, EXACT_SAME_FILE_PROVENANCE,
+    DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE, EXACT_SAME_FILE_PROVENANCE, EdgeKind,
     FRAMEWORK_CONVENTION_PROVENANCE, IMPORT_BINDING_PROVENANCE,
     JAVASCRIPT_INTRINSIC_UNRESOLVED_PROVENANCE, ReferenceKind, build_capability_generation,
     capability_file_symbol, capability_symbol,
@@ -13,6 +13,87 @@ fn generation(fixtures: &[(&str, &str)]) -> CanonicalGenerationFacts {
     assert_eq!(forward.references(), reverse.references());
     assert_eq!(forward.edges(), reverse.edges());
     forward
+}
+
+#[test]
+fn string_keyed_value_calls_keep_base_dynamic_function_dispatch() {
+    let facts = generation(&[
+        (
+            "src/service.ts",
+            "export function renderPanel(): string { return 'panel'; }\n",
+        ),
+        (
+            "src/build.ts",
+            "export function loadRenderer(mod: Record<string, () => string>): string { return mod[\"renderPanel\"](); }\nexport function singleQuoted(mod: Record<string, () => string>): string { return mod['renderPanel'](); }\nexport function templateQuoted(mod: Record<string, () => string>): string { return mod[`renderPanel`](); }\n",
+        ),
+    ]);
+    let target = capability_symbol(&facts, "src/service.ts", "renderPanel");
+    for name in ["loadRenderer", "singleQuoted", "templateQuoted"] {
+        let owner = capability_symbol(&facts, "src/build.ts", name);
+        let reference =
+            CapabilityReferenceQuery::new(&facts, owner).named("renderPanel", ReferenceKind::Calls);
+        assert_eq!(reference.target_symbol_id.as_ref(), Some(&target.symbol_id));
+        assert_eq!(reference.resolution_provenance, DYNAMIC_DISPATCH_PROVENANCE);
+        assert!((reference.confidence - 0.65).abs() < f32::EPSILON);
+        assert!(facts.edges().iter().any(|edge| {
+            edge.source_symbol_id == owner.symbol_id
+                && edge.target_symbol_id == target.symbol_id
+                && edge.kind == EdgeKind::Calls
+                && edge.provenance == DYNAMIC_DISPATCH_PROVENANCE
+                && (edge.confidence - 0.65).abs() < f32::EPSILON
+        }));
+    }
+}
+
+#[test]
+fn string_keyed_value_calls_abstain_on_ambiguous_or_private_functions() {
+    for second in [
+        "export function renderPanel(): string { return 'other'; }\n",
+        "function privatePanel(): string { return 'private'; }\n",
+    ] {
+        let facts = generation(&[
+            (
+                "src/service.ts",
+                "export function renderPanel(): string { return 'panel'; }\n",
+            ),
+            ("src/other.ts", second),
+            (
+                "src/build.ts",
+                "export function loadRenderer(mod: Record<string, () => string>): string { mod[\"privatePanel\"](); return mod[\"renderPanel\"](); }\n",
+            ),
+        ]);
+        let owner = capability_symbol(&facts, "src/build.ts", "loadRenderer");
+        let name = if second.starts_with("export ") {
+            "renderPanel"
+        } else {
+            "privatePanel"
+        };
+        let reference =
+            CapabilityReferenceQuery::new(&facts, owner).named(name, ReferenceKind::Calls);
+        assert_eq!(reference.target_symbol_id, None);
+        assert_eq!(
+            reference.resolution_provenance,
+            DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE
+        );
+    }
+}
+
+#[test]
+fn string_keyed_intrinsic_calls_abstain_when_receiver_scope_is_uncertain() {
+    let facts = generation(&[
+        ("src/service.js", "export function log() {}\n"),
+        (
+            "src/caller.js",
+            "function run() { with ({}) { console['log']('x'); } }\n",
+        ),
+    ]);
+    let owner = capability_symbol(&facts, "src/caller.js", "run");
+    let reference = CapabilityReferenceQuery::new(&facts, owner).named("log", ReferenceKind::Calls);
+    assert_eq!(reference.target_symbol_id, None);
+    assert_eq!(
+        reference.resolution_provenance,
+        DYNAMIC_DISPATCH_UNRESOLVED_PROVENANCE
+    );
 }
 
 #[test]
