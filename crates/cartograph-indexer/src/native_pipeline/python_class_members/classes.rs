@@ -30,13 +30,8 @@ pub(super) fn index_file<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    for marker in CUSTOM_CLASS_BEHAVIOR {
-        if (context.cancelled)() {
-            return Err(StageItemFailure);
-        }
-        if source.contains(marker) {
-            return Ok(());
-        }
+    if custom_class_behavior(source, context)? {
+        return Ok(());
     }
     let standard = standard_dataclass((file, source), context)?;
     let decorations =
@@ -59,22 +54,49 @@ where
         }
         let owner = &symbol.input.symbol_id;
         let decorator = decorations.get(owner).copied();
-        if decorator == Some(false) || !decorator_prefix((source, symbol), decorator) {
-            continue;
+        if admitted_class((source, symbol), decorator, &roots) {
+            publish_class(classes, (owner, decorator == Some(true)), context)?;
         }
-        let Some(bases) = header_bases(source, symbol) else {
-            continue;
-        };
-        if !bases.is_empty()
-            && !bases
-                .split(',')
-                .all(|base| roots.get(base.trim()) == Some(&true))
-        {
-            continue;
-        }
-        publish_class(classes, (owner, decorator == Some(true)), context)?;
     }
     Ok(())
+}
+
+/// Metaclasses and attribute hooks can rewrite member lookup for every class.
+fn custom_class_behavior<Cancel>(
+    source: &str,
+    context: &mut ResolutionIndexContext<'_, Cancel>,
+) -> Result<bool, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    for marker in CUSTOM_CLASS_BEHAVIOR {
+        if (context.cancelled)() {
+            return Err(StageItemFailure);
+        }
+        if source.contains(marker) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// A class is admitted when its decorators are proven and every base is a
+/// plain admitted root.
+fn admitted_class(
+    (source, symbol): (&str, &NativeSymbolFacts),
+    decorator: Option<bool>,
+    roots: &HashMap<&str, bool>,
+) -> bool {
+    if decorator == Some(false) || !decorator_prefix((source, symbol), decorator) {
+        return false;
+    }
+    let Some(bases) = header_bases(source, symbol) else {
+        return false;
+    };
+    bases.is_empty()
+        || bases
+            .split(',')
+            .all(|base| roots.get(base.trim()) == Some(&true))
 }
 
 fn publish_class<Cancel>(
