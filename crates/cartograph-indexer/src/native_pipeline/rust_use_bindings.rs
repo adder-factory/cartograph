@@ -17,6 +17,8 @@ pub(super) struct ImplScopes {
 struct FileScopes {
     impls: Vec<(u64, u64)>,
     macros: Vec<(u64, u64)>,
+    /// Item-position invocations, which alone can introduce items into a scope.
+    item_macros: Vec<(u64, u64)>,
     locals: LocalSpans,
     root_macro: bool,
 }
@@ -56,7 +58,10 @@ where
             binding.module_specifier.as_str(),
             "<rust-opaque-macro>" | "<rust-opaque-root-macro>"
         ) {
-            scopes.root_macro |= binding.module_specifier == "<rust-opaque-root-macro>";
+            if binding.module_specifier == "<rust-opaque-root-macro>" {
+                scopes.root_macro = true;
+                push_scope(target.budget, (&mut scopes.item_macros, binding))?;
+            }
             push_scope(target.budget, (&mut scopes.macros, binding))?;
         } else {
             retain_local(target.budget, (&mut scopes.locals, binding))?;
@@ -67,6 +72,7 @@ where
     }
     scopes.impls.sort_unstable();
     scopes.macros.sort_unstable();
+    scopes.item_macros.sort_unstable();
     for spans in scopes.locals.values_mut() {
         if cancelled() {
             return Err(StageItemFailure);
@@ -164,8 +170,9 @@ pub(super) fn uncertain_scope(
     let Some(file) = index.rust_paths.use_scopes.files.get(request.file_id) else {
         return false;
     };
-    // Opaque macro expansions can introduce caller-visible items and locals.
-    if starts_in_scope(&file.macros, scope) {
+    // Item-position macro expansions can introduce caller-visible items; an
+    // expression macro inside a body cannot shadow a module-level import.
+    if starts_in_scope(&file.item_macros, scope) {
         return true;
     }
     // Patterns bind values; they do not shadow names in Rust's type namespace.
