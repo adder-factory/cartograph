@@ -21,6 +21,8 @@ mod python_members;
 mod qualified_path;
 mod rust_attributes;
 mod rust_members;
+mod rust_module_scopes;
+mod rust_pattern_guards;
 mod rust_reads;
 mod rust_use_guards;
 

@@ -1,21 +1,27 @@
 //! File-module uses of `self::inline::Type` can name a public type in this file.
-//! Nested imports and impl members need richer binding evidence and abstain.
+//! Each binding needs its own root declaration proof; nested imports abstain.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use super::{
     ExtractedImportBinding, FileId, ImportBindingKind, NativeFileFacts,
     RESOLUTION_MAP_NODE_ALLOWANCE, ReferenceResolution, ResolutionIndex, ResolutionIndexTarget,
-    ResolutionRequest, StageItemFailure, SymbolKind,
+    ResolutionRequest, SourceSpan, StageItemFailure, SymbolKind,
     qualtype_resolution::{Selection, nominal, nominal_candidate},
     reference_kind_candidate, resolution_candidates_for_file, size_of, usize_to_u64,
 };
 
 pub(super) const PROVENANCE: &str = "native-rust-inline-type";
 
+type ImportScopeSpan = (u64, u64, Option<super::SymbolId>);
+
+pub(super) struct DeclarationScope<'a> {
+    pub(super) owner: Option<&'a super::SymbolId>,
+}
+
 #[derive(Default)]
 pub(super) struct RootImports {
-    files: HashSet<FileId>,
+    files: HashMap<FileId, Vec<ImportScopeSpan>>,
 }
 
 pub(super) fn index_file<Cancel>(
@@ -29,19 +35,33 @@ where
     if file.file.language != "rust" {
         return Ok(());
     }
+    target.budget.charge(
+        usize_to_u64(file.symbols.len()).saturating_mul(usize_to_u64(size_of::<ImportScopeSpan>())),
+    )?;
+    let mut declarations = Vec::new();
+    declarations
+        .try_reserve_exact(file.symbols.len())
+        .map_err(|_| StageItemFailure)?;
     for symbol in &file.symbols {
         if cancelled() {
             return Err(StageItemFailure);
         }
-        if symbol.kind == SymbolKind::Import
-            && target.index.parents.contains_key(&symbol.input.symbol_id)
-        {
-            return Ok(());
+        if symbol.kind == SymbolKind::Import {
+            let parent = target.index.parents.get(&symbol.input.symbol_id);
+            target
+                .budget
+                .charge(parent.map_or(0, |id| usize_to_u64(id.as_str().len())))?;
+            declarations.push((
+                symbol.input.start_byte,
+                symbol.input.end_byte,
+                parent.cloned(),
+            ));
         }
     }
+    declarations.sort_unstable();
     target.budget.charge(
         RESOLUTION_MAP_NODE_ALLOWANCE
-            .saturating_add(usize_to_u64(size_of::<FileId>()))
+            .saturating_add(usize_to_u64(size_of::<(FileId, Vec<ImportScopeSpan>)>()))
             .saturating_add(usize_to_u64(file.file.file_id.as_str().len())),
     )?;
     target
@@ -56,8 +76,25 @@ where
         .qualtype
         .rust
         .files
-        .insert(file.file.file_id.clone());
+        .insert(file.file.file_id.clone(), declarations);
     Ok(())
+}
+
+pub(super) fn root_declaration(index: &ResolutionIndex, query: (&FileId, SourceSpan)) -> bool {
+    declaration_scope(index, query).is_some_and(|scope| scope.owner.is_none())
+}
+
+pub(super) fn declaration_scope<'a>(
+    index: &'a ResolutionIndex,
+    query: (&FileId, SourceSpan),
+) -> Option<DeclarationScope<'a>> {
+    let (file, span) = query;
+    let declarations = index.qualtype.rust.files.get(file)?;
+    let position = declarations.partition_point(|(start, _, _)| *start <= span.start_byte());
+    let declaration = declarations.get(position.checked_sub(1)?)?;
+    (declaration.1 >= span.end_byte()).then_some(DeclarationScope {
+        owner: declaration.2.as_ref(),
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +125,9 @@ where
         let Some((module, name)) = inline_import(binding, request.name) else {
             continue;
         };
+        if !root_declaration(index, (request.file_id, binding.span)) {
+            continue;
+        }
         bound = true;
         if !import_scope_proven(index, request, cancelled)? {
             return Ok(None);
@@ -157,7 +197,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let (request, _) = query;
-    Ok(index.qualtype.rust.files.contains(request.file_id)
+    Ok(index.qualtype.rust.files.contains_key(request.file_id)
         && !super::rust_use_bindings::root_macro(index, request.file_id)
         && !super::rust_use_bindings::opaque_macro(index, request)
         && file_module_scope(index, query, cancelled)?
@@ -194,12 +234,12 @@ where
         if invalid_source_scope(evidence, request) {
             return Ok(false);
         }
-        if evidence
-            .source_scope
-            .as_ref()
-            .is_some_and(|(_, start, end)| {
-                super::rust_use_bindings::uncertain_scope(index, (request, (*start, *end)))
-            })
+        if let Some((_, start, end)) = evidence.source_scope.as_ref()
+            && super::rust_use_bindings::uncertain_scope(
+                index,
+                (request, (*start, *end)),
+                cancelled,
+            )?
         {
             return Ok(false);
         }

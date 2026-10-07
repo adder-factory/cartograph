@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 use crate::{ExtractError, ExtractedImportBinding, ImportBindingKind, walk::ExtractionBuilder};
 
-const EXPRESSION_MACROS: [&str; 22] = [
+const EXPRESSION_MACROS: [&str; 23] = [
     "assert",
     "assert_eq",
     "assert_ne",
@@ -28,24 +28,72 @@ const EXPRESSION_MACROS: [&str; 22] = [
     "vec",
     "matches",
     "dbg",
+    "compile_error",
 ];
 
 pub(super) fn unrepresented_bindings(
     builder: &mut ExtractionBuilder<'_, '_>,
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
+    super::rust_module_scopes::file_module(builder, node)?;
+    super::rust_module_scopes::module_glob(builder, node)?;
+    if node.kind() == "macro_definition" {
+        return standard_macro_definition(builder, node);
+    }
+    if node.kind() == "function_item" {
+        return lifetime_function(builder, node);
+    }
     if matches!(node.kind(), "mod_item" | "extern_crate_declaration") {
         return macro_import(builder, node);
     }
     if node.kind() == "macro_invocation" {
         return opaque_macro(builder, node);
     }
+    if super::rust_pattern_guards::retain(builder, node)? {
+        return Ok(());
+    }
     let Some(name) = local_name(builder, node)? else {
         return Ok(());
     };
+    unrepresented_binding(builder, (name, node))
+}
+
+pub(super) fn unrepresented_binding(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    (mut name, node): (String, Node<'_>),
+) -> Result<(), ExtractError> {
+    // These are private shadow keys, not public symbol identities. Rust raw
+    // identifiers share the ordinary spelling; Unicode needs NFC evidence.
+    if name.starts_with("r#") {
+        name.drain(..2);
+    }
+    if !name.is_ascii() {
+        name.clear();
+        name.push('*');
+    }
     builder.emit_import_binding(ExtractedImportBinding {
         kind: ImportBindingKind::Namespace,
         module_specifier: "<rust-unrepresented-locals>".to_owned(),
+        imported_name: "*".to_owned(),
+        local_name: name,
+        span: crate::walk::syntax::span_for(node)?,
+    })
+}
+
+fn standard_macro_definition(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    let Some(name) = node.child_by_field_name("name") else {
+        return Ok(());
+    };
+    let name = builder.context.owned_text(name)?;
+    if !EXPRESSION_MACROS.contains(&name.as_str()) {
+        return Ok(());
+    }
+    builder.emit_import_binding(ExtractedImportBinding {
+        kind: ImportBindingKind::Namespace,
+        module_specifier: "<rust-standard-macro-definition>".to_owned(),
         imported_name: "*".to_owned(),
         local_name: name,
         span: crate::walk::syntax::span_for(node)?,
@@ -60,21 +108,43 @@ fn opaque_macro(
     else {
         return Ok(());
     };
+    let item = statement_scope(node)
+        .is_some_and(|scope| matches!(scope.kind(), "source_file" | "declaration_list"));
+    let standard = if item {
+        builtin_compile_error(builder, node)?
+    } else {
+        None
+    };
     builder.emit_import_binding(ExtractedImportBinding {
         kind: ImportBindingKind::Namespace,
-        module_specifier: if statement_scope(node)
-            .is_some_and(|scope| matches!(scope.kind(), "source_file" | "declaration_list"))
-        {
+        module_specifier: if item {
             "<rust-opaque-root-macro>"
         } else {
             "<rust-opaque-macro>"
         }
         .to_owned(),
-        imported_name: "*".to_owned(),
-        local_name: "*".to_owned(),
+        imported_name: node.start_byte().to_string(),
+        local_name: standard.unwrap_or_else(|| "*".to_owned()),
         span: crate::walk::syntax::span_for(tokens)?,
     })?;
     block_macro(builder, node)
+}
+
+fn builtin_compile_error(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<Option<String>, ExtractError> {
+    let Some(name) = node.child_by_field_name("macro") else {
+        return Ok(None);
+    };
+    let path = super::qualified_path::lookup_name(builder, name)?;
+    if !matches!(
+        path.as_deref(),
+        Some("compile_error" | "std::compile_error" | "core::compile_error")
+    ) {
+        return Ok(None);
+    }
+    standard_expression_macro(builder, node)
 }
 
 fn statement_scope(node: Node<'_>) -> Option<Node<'_>> {
@@ -205,7 +275,7 @@ pub(super) fn plain_impl(
     node: Node<'_>,
 ) -> Result<(), ExtractError> {
     if node.has_error()
-        || node.child_by_field_name("type_parameters").is_some()
+        || !lifetime_parameters_only(builder, node)?
         || node
             .parent()
             .is_none_or(|parent| parent.kind() != "source_file")
@@ -215,6 +285,44 @@ pub(super) fn plain_impl(
     builder.emit_import_binding(ExtractedImportBinding {
         kind: ImportBindingKind::Namespace,
         module_specifier: "<rust-plain-root-impl>".to_owned(),
+        imported_name: "*".to_owned(),
+        local_name: "*".to_owned(),
+        span: crate::walk::syntax::span_for(node)?,
+    })
+}
+
+fn lifetime_parameters_only(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let Some(parameters) = node.child_by_field_name("type_parameters") else {
+        return Ok(true);
+    };
+    for parameter in super::named_children(parameters) {
+        builder.context.ensure_active()?;
+        if parameter.kind() != "lifetime_parameter" {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn lifetime_function(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<(), ExtractError> {
+    if node.has_error()
+        || node.child_by_field_name("type_parameters").is_none()
+        || node
+            .parent()
+            .is_none_or(|parent| parent.kind() != "source_file")
+        || !lifetime_parameters_only(builder, node)?
+    {
+        return Ok(());
+    }
+    builder.emit_import_binding(ExtractedImportBinding {
+        kind: ImportBindingKind::Namespace,
+        module_specifier: "<rust-lifetime-root-function>".to_owned(),
         imported_name: "*".to_owned(),
         local_name: "*".to_owned(),
         span: crate::walk::syntax::span_for(node)?,

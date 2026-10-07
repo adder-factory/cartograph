@@ -29,6 +29,12 @@ where
         inline: "",
         module: None,
     };
+    if request.owner.is_none()
+        && request.kind == super::ReferenceKind::Imports
+        && super::rust_local_types::root_declaration(index, (request.file_id, request.span))
+    {
+        return Ok(Some(root));
+    }
     let mut owner = request.owner;
     let mut nearest = None;
     let mut child_module = None;

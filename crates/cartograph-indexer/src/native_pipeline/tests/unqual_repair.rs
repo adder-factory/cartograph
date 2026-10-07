@@ -503,7 +503,7 @@ fn unqual_production_functions_respect_code_health_limits() {
     let limits = SourceLimits::new(TEST_SOURCE_BYTES)
         .unwrap_or_else(|error| panic!("source limits: {error}"));
     let mut issues = Vec::new();
-    for (path, source) in modules {
+    for (path, source) in modules.into_iter().chain(rust_use_module_sources()) {
         let extracted = fixture_extraction((path, source), limits);
         for symbol in extracted.symbols.iter().filter(|symbol| {
             matches!(
@@ -524,6 +524,31 @@ fn unqual_production_functions_respect_code_health_limits() {
         }
     }
     assert!(issues.is_empty(), "{}", issues.join("\n"));
+}
+
+fn rust_use_module_sources() -> [(&'static str, &'static str); 5] {
+    [
+        (
+            "rust_module_scopes.rs",
+            include_str!("../../../../cartograph-extract/src/walk/polyglot/rust_module_scopes.rs"),
+        ),
+        (
+            "rust_pattern_guards.rs",
+            include_str!("../../../../cartograph-extract/src/walk/polyglot/rust_pattern_guards.rs"),
+        ),
+        (
+            "rust_uniform_paths.rs",
+            include_str!("../rust_uniform_paths.rs"),
+        ),
+        (
+            "rust_path_visibility.rs",
+            include_str!("../rust_path_visibility.rs"),
+        ),
+        (
+            "rust_scoped_modules.rs",
+            include_str!("../rust_scoped_modules.rs"),
+        ),
+    ]
 }
 
 #[test]

@@ -183,6 +183,18 @@ pub(super) fn entry<'a>(index: &'a ResolutionIndex, query: (&str, &str)) -> Opti
         .then_some(&package.entry_file_id)
 }
 
+pub(super) fn namespace_override(index: &ResolutionIndex, query: (&str, &str)) -> bool {
+    let (source, name) = query;
+    source_directory(index, source).is_some_and(|directory| {
+        index
+            .rust_paths
+            .dependencies
+            .by_source
+            .get(&directory)
+            .is_some_and(|dependencies| dependencies.contains_key(name))
+    })
+}
+
 fn source_directory(index: &ResolutionIndex, source: &str) -> Option<String> {
     nearest_manifest(index, source).map_or_else(
         || rust_crate_module_directory(&index.modules, source),

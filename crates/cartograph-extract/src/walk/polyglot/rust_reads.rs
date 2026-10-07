@@ -63,7 +63,7 @@ const BINDING_PATTERN_SITES: [(&str, &str); 3] = [
     ("parameter", "pattern"),
 ];
 /// Patterns that nest further patterns.
-const NESTED_PATTERN_KINDS: [&str; 10] = [
+pub(super) const NESTED_PATTERN_KINDS: [&str; 10] = [
     "tuple_pattern",
     "tuple_struct_pattern",
     "struct_pattern",
@@ -78,7 +78,7 @@ const NESTED_PATTERN_KINDS: [&str; 10] = [
 /// Deepest pattern nesting followed to its binding site.
 const MAX_PATTERN_DEPTH: usize = 32;
 /// Pattern nodes that bind a name (`x`, and `S { x }` shorthand).
-const PATTERN_BINDING_KINDS: [&str; 2] = ["identifier", "shorthand_field_identifier"];
+pub(super) const PATTERN_BINDING_KINDS: [&str; 2] = ["identifier", "shorthand_field_identifier"];
 /// Patterns whose identifier child is always an explicit binding.
 const EXPLICIT_BINDING_PATTERNS: [&str; 2] = ["ref_pattern", "mut_pattern"];
 /// Expressions whose `left` operand is written, not read.

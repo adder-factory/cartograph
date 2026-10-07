@@ -14,6 +14,7 @@ pub(super) struct RootIndex {
 struct Owner {
     root: FileId,
     parent: Option<FileId>,
+    parent_module: Option<super::SymbolId>,
 }
 
 pub(super) fn index<Cancel>(
@@ -95,7 +96,12 @@ where
         let Some(child) = edge.file.as_ref() else {
             continue;
         };
-        if merge(target, (child, Some(file)), root)? {
+        let scope = ModuleScope {
+            file,
+            inline: "",
+            module: edge.parent_module.as_ref(),
+        };
+        if merge(target, (child, Some(scope)), root)? {
             enqueue(target, queue, child)?;
         }
     }
@@ -156,7 +162,9 @@ where
             let Some(edge) = edge else {
                 continue;
             };
-            let path = joined_path(&context.directory, name)?;
+            let suffix = name.replace("::", "/");
+            target.budget.charge(usize_to_u64(suffix.len()))?;
+            let path = joined_path(&context.directory, &suffix)?;
             target
                 .budget
                 .charge(usize_to_u64(path.len() + size_of::<String>()))?;
@@ -172,7 +180,7 @@ where
 
 fn merge(
     target: &mut ResolutionIndexTarget<'_>,
-    location: (&FileId, Option<&FileId>),
+    location: (&FileId, Option<ModuleScope<'_>>),
     root: Option<&FileId>,
 ) -> Result<bool, StageItemFailure> {
     let (file, parent) = location;
@@ -185,8 +193,11 @@ fn merge(
             *existing = None;
             return Ok(true);
         }
-        if owner.parent.as_ref() != parent {
+        if owner.parent.as_ref() != parent.map(|scope| scope.file)
+            || owner.parent_module.as_ref() != parent.and_then(|scope| scope.module)
+        {
             owner.parent = None;
+            owner.parent_module = None;
         }
         return Ok(false);
     }
@@ -196,7 +207,9 @@ fn merge(
                 size_of::<(FileId, Option<Owner>)>()
                     + file.as_str().len()
                     + root.map_or(0, |file| file.as_str().len())
-                    + parent.map_or(0, |file| file.as_str().len()),
+                    + parent.map_or(0, |scope| {
+                        scope.file.as_str().len() + scope.module.map_or(0, |id| id.as_str().len())
+                    }),
             ),
     )?;
     owners.try_reserve(1).map_err(|_| StageItemFailure)?;
@@ -204,7 +217,8 @@ fn merge(
         file.clone(),
         root.map(|root| Owner {
             root: root.clone(),
-            parent: parent.cloned(),
+            parent: parent.map(|scope| scope.file.clone()),
+            parent_module: parent.and_then(|scope| scope.module.cloned()),
         }),
     );
     Ok(true)
@@ -279,7 +293,7 @@ where
     Ok(Some((current, suffix)))
 }
 
-fn parent_module<'a>(
+pub(super) fn parent_module<'a>(
     index: &'a ResolutionIndex,
     scope: ModuleScope<'a>,
 ) -> Option<ModuleScope<'a>> {
@@ -298,16 +312,16 @@ fn parent_module<'a>(
             module: Some(parent),
         });
     }
+    let owner = index.rust_paths.roots.owners.get(scope.file)?.as_ref()?;
+    let file = owner.parent.as_ref()?;
+    let module = owner.parent_module.as_ref();
+    let inline = match module {
+        Some(id) => &index.qualtype.owners.get(id)?.name,
+        None => "",
+    };
     Some(ModuleScope {
-        file: index
-            .rust_paths
-            .roots
-            .owners
-            .get(scope.file)?
-            .as_ref()?
-            .parent
-            .as_ref()?,
-        inline: "",
-        module: None,
+        file,
+        inline,
+        module,
     })
 }

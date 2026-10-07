@@ -268,7 +268,12 @@ where
         };
         match index.qualtype.generics.owners.get(id) {
             Some(None) => return Ok(true),
-            Some(Some(header)) if contains_identifier(header, name) => return Ok(true),
+            Some(Some(header))
+                if contains_identifier(header, name)
+                    && !super::rust_use_bindings::lifetime_function(index, (request, id)) =>
+            {
+                return Ok(true);
+            }
             _ => {}
         }
         owner = index.parents.get(id);

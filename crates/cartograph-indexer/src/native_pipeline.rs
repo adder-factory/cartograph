@@ -38,7 +38,10 @@ mod rust_facade_resolution;
 mod rust_inline_modules;
 mod rust_local_types;
 mod rust_path_resolution;
+mod rust_path_visibility;
 mod rust_root_ownership;
+mod rust_scoped_modules;
+mod rust_uniform_paths;
 mod rust_use_bindings;
 mod salesforce_resolution;
 mod scip_spill;
@@ -10301,6 +10304,11 @@ where
             file,
             cancelled,
         )?;
+        rust_dependency_paths::index_file(
+            &mut ResolutionIndexTarget { index, budget },
+            file,
+            cancelled,
+        )?;
     }
     Ok(())
 }
@@ -10455,6 +10463,11 @@ where
         }
         index_resolution_symbol(index, (file, file_ordinal, symbol), budget)?;
     }
+    rust_scoped_modules::index_file(
+        &mut ResolutionIndexTarget { index, budget },
+        file,
+        cancelled,
+    )?;
     index_resolution_file_families(
         &mut ResolutionIndexTarget { index, budget },
         file,
@@ -14038,13 +14051,19 @@ where
     Cancel: FnMut() -> bool,
 {
     let ImportResolutionRequest { reference, site } = input;
-    let (binding, imported_name) = match matched_import_binding(reference, site, cancelled)? {
-        ImportBindingMatch::NotBound => return Ok(ImportResolution::NotBound),
-        ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
-        ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
-    };
+    let (binding, imported_name) =
+        match match_import_bindings((Some(index), reference), site, cancelled)? {
+            ImportBindingMatch::NotBound => return Ok(ImportResolution::NotBound),
+            ImportBindingMatch::Ambiguous => return Ok(ImportResolution::Unresolved),
+            ImportBindingMatch::Unique(binding, imported_name) => (binding, imported_name),
+        };
     if !rust_use_bindings::allows(index, (reference, binding), cancelled)? {
         return Ok(ImportResolution::NotBound);
+    }
+    if let Some(resolution) =
+        rust_path_resolution::resolve_binding(index, (reference, binding), cancelled)?
+    {
+        return Ok(resolution);
     }
     if reference.language == SourceLanguage::Php.as_str() {
         return php_resolution::resolve_use_binding(
@@ -14578,10 +14597,30 @@ fn matched_import_binding<'binding, Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    match_import_bindings((None, reference), site, cancelled)
+}
+
+fn match_import_bindings<'binding, Cancel>(
+    query: (Option<&ResolutionIndex>, &ResolutionRequest<'binding>),
+    site: ImportReferenceSite,
+    cancelled: &mut Cancel,
+) -> Result<ImportBindingMatch<'binding>, StageItemFailure>
+where
+    Cancel: FnMut() -> bool,
+{
+    let (index, reference) = query;
     let mut matched: Option<(&ExtractedImportBinding, &str)> = None;
     for binding in reference.import_bindings.iter() {
         if cancelled() {
             return Err(StageItemFailure);
+        }
+        if reference.language == "rust"
+            && binding.kind == ImportBindingKind::Namespace
+            && index.is_some_and(|index| {
+                !rust_local_types::root_declaration(index, (reference.file_id, binding.span))
+            })
+        {
+            continue;
         }
         let imported_name = match site {
             ImportReferenceSite::Declaration => declaration_binding_target_name(binding, reference),
@@ -17066,6 +17105,7 @@ mod tests {
     mod rust_module_paths;
     mod rust_receivers;
     mod rust_use_bindings;
+    mod rust_use_regressions;
     mod script_modules;
     mod unqual_digests;
     mod unqual_repair;
