@@ -5,9 +5,13 @@ use tree_sitter::Node;
 
 use crate::{CallScopeKind, ExtractError, ExtractedCallScopeSite};
 
+pub(super) use lexical::clean_receiver as unshadowed_receiver;
+
 use super::{ExtractionBuilder, PendingReference};
 
 mod lexical;
+mod nominal;
+mod static_receivers;
 
 pub(super) use lexical::MethodProofIndex;
 
@@ -21,7 +25,7 @@ fn implicit_language(language: SourceLanguage) -> bool {
             | SourceLanguage::Cuda
             | SourceLanguage::Swift
             | SourceLanguage::Ruby
-    )
+    ) || nominal::implicit_language(language)
 }
 
 fn receiver_call(language: SourceLanguage, name: &str) -> bool {
@@ -37,7 +41,7 @@ fn receiver_call(language: SourceLanguage, name: &str) -> bool {
         | SourceLanguage::CSharp
         | SourceLanguage::Cpp
         | SourceLanguage::Cuda => name.starts_with("this."),
-        _ => false,
+        _ => nominal::receiver_call(language, name),
     }
 }
 
@@ -78,8 +82,8 @@ fn method_body(language: SourceLanguage, node: Node<'_>) -> bool {
         }
         SourceLanguage::Kotlin | SourceLanguage::Swift => node.kind() == "function_declaration",
         SourceLanguage::Cpp | SourceLanguage::Cuda => node.kind() == "function_definition",
-        SourceLanguage::Ruby => node.kind() == "method",
-        _ => false,
+        SourceLanguage::Ruby => matches!(node.kind(), "method" | "singleton_method"),
+        _ => nominal::method_body(language, node),
     };
     callable && node.child_by_field_name("receiver").is_none()
 }
@@ -95,6 +99,8 @@ fn directly_in_type(method: Node<'_>) -> bool {
             | "declaration_list"
             | "field_declaration_list"
             | "body_statement"
+            | "template_body"
+            | "closure"
     ) {
         return false;
     }
@@ -109,6 +115,11 @@ fn directly_in_type(method: Node<'_>) -> bool {
                 | "class_specifier"
                 | "struct_specifier"
                 | "class"
+                | "class_definition"
+                | "mixin_declaration"
+                | "object_definition"
+                | "trait_definition"
+                | "module"
         )
     })
 }
@@ -129,13 +140,16 @@ fn proven_method(
             ancestor = node.parent();
             continue;
         }
+        if let Some(proven) = nominal::scope_proof(builder, (node, pending, explicit))? {
+            return Ok(proven);
+        }
         if callable_boundary(node.kind())
             || language == SourceLanguage::Ruby && matches!(node.kind(), "block" | "do_block")
         {
             return Ok(method_body(language, node)
                 && directly_in_type(node)
                 && !lexical::explicit_this_parameter(builder, node)?
-                && (explicit || lexical::clean_call(builder, node, &pending.name)?));
+                && (explicit || nominal::clean_call(builder, node, pending)?));
         }
         ancestor = node.parent();
     }
@@ -292,12 +306,13 @@ fn scope_kind(
     {
         return Ok(None);
     }
-    let explicit = receiver_call(language, &pending.name);
+    let explicit = receiver_call(language, &pending.name)
+        || nominal::explicit_instance(language, pending.node);
     let implicit = implicit_language(language) && implicit_source_call(language, pending);
     let kind = if proven_direct_call(builder, pending)? {
         CallScopeKind::DirectCallable
     } else if (explicit || implicit) && proven_method(builder, pending, explicit)? {
-        CallScopeKind::CurrentClass
+        nominal::current_kind(language, pending.node)
     } else {
         return Ok(None);
     };
@@ -333,6 +348,9 @@ fn source_callee_matches(
 }
 
 fn implicit_source_call(language: SourceLanguage, pending: &PendingReference<'_>) -> bool {
+    if language == SourceLanguage::Dart {
+        return super::dart_family::current_call(pending.node).is_some();
+    }
     !pending.name.contains(['.', ':'])
         // Java preserves a bare member name when a computed/literal receiver
         // cannot be retained; that normalization cannot prove current-class scope.
@@ -343,6 +361,7 @@ pub(super) fn capture(
     builder: &mut ExtractionBuilder<'_, '_>,
     pending: &PendingReference<'_>,
 ) -> Result<(), ExtractError> {
+    static_receivers::capture(builder, pending)?;
     let Some(owner) = pending.owner.as_ref() else {
         return Ok(());
     };
@@ -354,6 +373,13 @@ pub(super) fn capture(
         span: super::syntax::span_for(pending.node)?,
         kind,
     };
+    record_site(builder, site)
+}
+
+pub(super) fn record_site(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    site: ExtractedCallScopeSite,
+) -> Result<(), ExtractError> {
     builder.context.budget.reserve_fact(
         crate::budget::call_scope_site_budget_bytes(&site),
         [site.owner.as_str()],

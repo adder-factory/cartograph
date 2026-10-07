@@ -1,7 +1,8 @@
 use cartograph_extract::{CallScopeKind, ExtractedCallScopeSite};
 
 use super::super::{
-    EXACT_LEXICAL_PROVENANCE, ExtractedReference, RESOLUTION_MAP_NODE_ALLOWANCE, usize_to_u64,
+    EXACT_LEXICAL_PROVENANCE, ExtractedReference, RESOLUTION_MAP_NODE_ALLOWANCE, SourceSpan,
+    usize_to_u64,
 };
 use super::{
     GenericResolutionIndex, HashMap, ReferenceDispatch, ReferenceKind, ReferenceResolution,
@@ -50,22 +51,32 @@ where
     Ok(())
 }
 
-pub(super) fn proven_call(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
-    request
-        .owner
+pub(in super::super) fn proven_call(
+    index: &ResolutionIndex,
+    request: &ResolutionRequest<'_>,
+) -> bool {
+    scope(index, (request.owner, request.span)).is_some()
+}
+
+fn scope(
+    index: &ResolutionIndex,
+    (owner, span): (Option<&super::SymbolId>, SourceSpan),
+) -> Option<CallScopeKind> {
+    owner
         .and_then(|owner| index.generic.call_sites.get(owner))
-        .is_some_and(|sites| {
-            sites.contains_key(&(request.span.start_byte(), request.span.end_byte()))
-        })
+        .and_then(|sites| sites.get(&(span.start_byte(), span.end_byte())))
+        .copied()
+}
+
+pub(super) fn explicit_instance(index: &ResolutionIndex, request: &ResolutionRequest<'_>) -> bool {
+    scope(index, (request.owner, request.span)) == Some(CallScopeKind::CurrentInstance)
 }
 
 pub(super) fn reference_proven(index: &ResolutionIndex, reference: &ExtractedReference) -> bool {
-    reference
-        .owner
-        .as_ref()
-        .and_then(|owner| index.generic.call_sites.get(owner))
-        .and_then(|sites| sites.get(&(reference.span.start_byte(), reference.span.end_byte())))
-        == Some(&CallScopeKind::CurrentClass)
+    matches!(
+        scope(index, (reference.owner.as_ref(), reference.span)),
+        Some(CallScopeKind::CurrentClass | CallScopeKind::CurrentInstance)
+    )
 }
 
 fn lexical_target(candidate: &ResolutionCandidate) -> ReferenceResolution {
@@ -112,7 +123,8 @@ where
     let member = select_unique_candidate(members, binding_candidate, cancelled)?;
     Ok(member
         .filter(|candidate| {
-            callable_kind(candidate.kind) && compatible_member(index, owner, &candidate.symbol_id)
+            callable_kind(candidate.kind)
+                && compatible_member(index, (owner, &candidate.symbol_id), request)
         })
         .map(lexical_target))
 }

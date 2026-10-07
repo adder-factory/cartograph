@@ -25,6 +25,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tree_sitter::Node;
 
+mod writes;
+
 use crate::ExtractError;
 
 use super::{
@@ -187,6 +189,7 @@ enum ScopeLevel {
 /// Every scope of one file, in source (pre-)order.
 #[derive(Default)]
 struct ScopeIndex<'source> {
+    writes: writes::Writes<'source>,
     scopes: Vec<IndexedScope<'source>>,
     /// Values and types declared in blocks, by the function or class that
     /// contains the block (`None` outside all of them). The
@@ -236,6 +239,18 @@ pub(super) fn read_binding(
         return Ok(ReadBinding::UNKNOWN);
     };
     Ok(scope_index(builder, node)?.map_or(ReadBinding::UNKNOWN, |index| index.binding(node, name)))
+}
+
+pub(super) fn constructor_binding_proven(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    node: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let snapshot = builder.context.snapshot;
+    let Some(name) = snapshot.source().get(node.byte_range()) else {
+        return Ok(false);
+    };
+    Ok(scope_index(builder, node)?
+        .is_some_and(|index| !index.overflowed && index.writes.proven(name)))
 }
 
 /// Whether a bare type name inside a body resolves, by name, to the type it
@@ -350,6 +365,7 @@ impl ScopeIndex<'_> {
     /// The index of a file too large to scan: every name counts as bound.
     fn overflowed() -> Self {
         Self {
+            writes: writes::Writes::default(),
             scopes: Vec::new(),
             block_declarations: BTreeMap::new(),
             overflowed: true,
@@ -617,6 +633,7 @@ impl<'source, 'tree> IndexBuild<'source, 'tree> {
         if !self.charge(builder, 1)? || depth > self.maximum_depth {
             return Ok(false);
         }
+        self.index.writes.observe(builder, node)?;
         while self.open.last().is_some_and(|(_, open)| *open >= depth) {
             self.open.pop();
         }

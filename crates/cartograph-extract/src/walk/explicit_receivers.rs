@@ -822,7 +822,7 @@ fn nominal_marker(
     prefixed_type(context, ("@", id.as_str()))
 }
 
-fn record_non_method(
+pub(super) fn record_non_method(
     context: &mut ExtractionContext<'_, '_>,
     facts: &mut Vec<ExtractedReceiverBinding>,
     binding: (Option<&SymbolId>, Option<&str>, bool),

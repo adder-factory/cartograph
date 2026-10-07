@@ -277,6 +277,8 @@ struct CustomBuilder<'source, 'cancel> {
     containments: Vec<Containment>,
     references: Vec<ExtractedReference>,
     import_bindings: Vec<ExtractedImportBinding>,
+    call_scope_sites: Vec<crate::ExtractedCallScopeSite>,
+    javascript_member_calls: Vec<crate::JavascriptMemberCallContext>,
     /// Whether a synthesized qualified name was shortened to its canonical bound.
     shortened_canonical_names: bool,
     /// Diagnostics of embedded component regions that lost facts (script
@@ -300,6 +302,8 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             budget: ExtractionBudget::new(snapshot)?,
             identities: SymbolIdentity::new(snapshot.path()),
             symbols: Vec::new(),
+            call_scope_sites: Vec::new(),
+            javascript_member_calls: Vec::new(),
             containments: Vec::new(),
             references: Vec::new(),
             import_bindings: Vec::new(),
@@ -515,8 +519,8 @@ impl<'source, 'cancel> CustomBuilder<'source, 'cancel> {
             symbols: self.symbols,
             containments: self.containments,
             references: self.references,
-            call_scope_sites: Vec::new(),
-            javascript_member_calls: Vec::new(),
+            call_scope_sites: self.call_scope_sites,
+            javascript_member_calls: self.javascript_member_calls,
             resolution_abstentions: Vec::new(),
             local_type_scopes: Vec::new(),
             receiver_evidence: None,

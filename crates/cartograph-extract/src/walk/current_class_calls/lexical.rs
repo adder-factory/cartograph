@@ -8,13 +8,17 @@ use tree_sitter::Node;
 use super::super::ExtractionBuilder;
 use crate::ExtractError;
 
+mod receiver_names;
+pub(in super::super) use receiver_names::clean_receiver;
+use receiver_names::{METHOD_CACHE_ALLOWANCE, MethodNames, retain_token};
+
 #[derive(Default)]
 pub(in super::super) struct MethodProofIndex {
     methods: HashMap<usize, MethodEvidence>,
 }
 
 struct MethodEvidence {
-    non_calls: HashSet<String>,
+    names: MethodNames,
     this_parameter: bool,
 }
 
@@ -43,12 +47,13 @@ fn token_name(text: &str, fold: bool) -> Result<String, ExtractError> {
 fn scan(
     builder: &mut ExtractionBuilder<'_, '_>,
     method: Node<'_>,
-) -> Result<HashSet<String>, ExtractError> {
+) -> Result<MethodNames, ExtractError> {
     let source = builder.context.snapshot.source();
     let text = source.get(method.byte_range()).unwrap_or_default();
     let fold = folded(builder.context.snapshot.language());
+    let receiver_proof = super::nominal::implicit_language(builder.context.snapshot.language());
     let mut tokens = text.char_indices().peekable();
-    let mut non_calls = HashSet::new();
+    let mut names = MethodNames::default();
     while let Some((start, character)) = tokens.next() {
         builder.context.ensure_active()?;
         if !identifier(character) {
@@ -75,16 +80,15 @@ fn scan(
         {
             continue;
         }
-        builder.context.budget.reserve_working_bytes(
-            128_u64.saturating_add(u64::try_from(end - start).unwrap_or(u64::MAX)),
-        )?;
-        let name = token_name(&text[start..end], fold)?;
-        non_calls
-            .try_reserve(1)
-            .map_err(|_| ExtractError::OutputLimit)?;
-        non_calls.insert(name);
+        retain_token(builder, (&mut names.non_calls, &text[start..end], fold))?;
+        if receiver_proof && tokens.peek().is_none_or(|(_, character)| *character != '.') {
+            retain_token(
+                builder,
+                (&mut names.receiver_bindings, &text[start..end], fold),
+            )?;
+        }
     }
-    Ok(non_calls)
+    Ok(names)
 }
 
 fn cache_method(
@@ -99,8 +103,11 @@ fn cache_method(
         return Ok(());
     }
     let this_parameter = has_this_parameter(builder, method)?;
-    let non_calls = scan(builder, method)?;
-    builder.context.budget.reserve_working_bytes(128)?;
+    let names = scan(builder, method)?;
+    builder
+        .context
+        .budget
+        .reserve_working_bytes(METHOD_CACHE_ALLOWANCE)?;
     builder
         .current_class_calls
         .methods
@@ -109,14 +116,14 @@ fn cache_method(
     builder.current_class_calls.methods.insert(
         method.id(),
         MethodEvidence {
-            non_calls,
+            names,
             this_parameter,
         },
     );
     Ok(())
 }
 
-pub(super) fn clean_call(
+pub(in super::super) fn clean_call(
     builder: &mut ExtractionBuilder<'_, '_>,
     method: Node<'_>,
     name: &str,
@@ -131,7 +138,7 @@ pub(super) fn clean_call(
         .current_class_calls
         .methods
         .get(&method.id())
-        .is_some_and(|evidence| !evidence.non_calls.contains(&name)))
+        .is_some_and(|evidence| !evidence.names.non_calls.contains(&name)))
 }
 
 fn has_this_parameter(

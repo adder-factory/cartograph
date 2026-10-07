@@ -119,6 +119,14 @@ fn absorb_component_facts(builder: &mut ExtractionBuilder<'_, '_>, mut facts: Em
     builder.facts.references.append(&mut facts.references);
     builder
         .facts
+        .call_scope_sites
+        .append(&mut facts.call_scope_sites);
+    builder
+        .facts
+        .javascript_member_calls
+        .append(&mut facts.javascript_member_calls);
+    builder
+        .facts
         .import_bindings
         .append(&mut facts.import_bindings);
     builder.embedded.diagnostics.append(&mut facts.diagnostics);

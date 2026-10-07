@@ -335,6 +335,10 @@ fn merge_component_facts(
     builder.symbols.append(&mut facts.symbols);
     builder.containments.append(&mut facts.containments);
     builder.references.append(&mut facts.references);
+    builder.call_scope_sites.append(&mut facts.call_scope_sites);
+    builder
+        .javascript_member_calls
+        .append(&mut facts.javascript_member_calls);
     builder.import_bindings.append(&mut facts.import_bindings);
     for site in &facts.import_sites {
         if framework_virtual_module(builder.snapshot.language(), &site.module) {

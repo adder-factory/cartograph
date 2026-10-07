@@ -1,7 +1,7 @@
 mod bridge_transaction;
 mod cargo_path_bindings;
-pub(crate) mod literal_bindings;
 mod fwjs;
+pub(crate) mod literal_bindings;
 mod owner_index;
 
 use bridge_transaction::BridgeTransaction;

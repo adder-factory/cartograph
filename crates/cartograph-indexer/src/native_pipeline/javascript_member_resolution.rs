@@ -5,6 +5,10 @@
 
 use super::intrinsic_names::BuiltinVocabulary::JavascriptMembers;
 
+mod constructors;
+mod script_languages;
+use script_languages::member_language as javascript_family_name;
+
 use std::{collections::HashMap, mem::size_of};
 
 use super::{
@@ -17,11 +21,11 @@ use super::{
     ReferenceDispatch, ReferenceKind, ReferenceResolution, ResolutionCandidate, ResolutionIndex,
     ResolutionIndexFileInput, ResolutionRequest, ResolveBudget, ResolvedTarget, StageItemFailure,
     SymbolId, SymbolKind, UNRESOLVED_IMPORT_PROVENANCE, Visibility, framework_resolution_alias,
-    import_binding_is_project_local, is_project_candidate, javascript_family_name,
-    javascript_intrinsic_reference, matched_import_binding, native_bridge_target_language,
-    project_resolved_target, project_source_context, reference_import_scope,
-    reference_kind_candidate, resolution_candidates_for_file, resolve_import, resolve_lexical,
-    resolve_lexical_scope, select_candidate, try_clone_text, usize_to_u64,
+    import_binding_is_project_local, is_project_candidate, javascript_intrinsic_reference,
+    matched_import_binding, native_bridge_target_language, project_resolved_target,
+    project_source_context, reference_import_scope, reference_kind_candidate,
+    resolution_candidates_for_file, resolve_import, resolve_lexical, resolve_lexical_scope,
+    select_candidate, try_clone_text, usize_to_u64,
 };
 
 #[derive(Default)]
@@ -42,7 +46,10 @@ enum Companion {
         name: String,
         binding: ReceiverBinding,
     },
-    Constructor(String),
+    Constructor {
+        name: String,
+        local_proven: bool,
+    },
     Value(NamedValue),
     LocalReceiver,
 }
@@ -65,7 +72,7 @@ struct NamedValue {
 impl Companion {
     fn name(&self) -> Option<&str> {
         match self {
-            Self::Receiver { name, .. } | Self::Constructor(name) => Some(name),
+            Self::Receiver { name, .. } | Self::Constructor { name, .. } => Some(name),
             Self::Value(value) => Some(&value.name),
             Self::LocalReceiver => None,
         }
@@ -265,13 +272,21 @@ fn apply_call_context(
     context: &JavascriptMemberCallContext,
     budget: &mut ResolveBudget,
 ) -> Result<(), StageItemFailure> {
-    if let JavascriptMemberReceiver::Constructor(name) = &context.receiver {
+    if let JavascriptMemberReceiver::Constructor(name)
+    | JavascriptMemberReceiver::UnprovenConstructor(name) = &context.receiver
+    {
         charge_entry::<(u64, Option<Companion>)>(budget, name.len())?;
         return merge_call(
             calls,
             (
                 context.end_byte,
-                Some(Companion::Constructor(try_clone_text(name)?)),
+                Some(Companion::Constructor {
+                    name: try_clone_text(name)?,
+                    local_proven: matches!(
+                        context.receiver,
+                        JavascriptMemberReceiver::Constructor(_)
+                    ),
+                }),
             ),
         );
     }
@@ -473,7 +488,7 @@ where
     if request.dispatch != ReferenceDispatch::Dynamic {
         return Ok(None);
     }
-    if let Some(Companion::Constructor(name)) = companion(index, request) {
+    if let Some(Companion::Constructor { name, .. }) = companion(index, request) {
         return resolve_constructor(index, (request, name), cancelled).map(Some);
     }
     if let Some(Companion::Value(value)) = companion(index, request) {
@@ -609,6 +624,9 @@ fn resolve_constructor<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(resolution) = constructors::local(index, (request, constructor), cancelled)? {
+        return Ok(resolution);
+    }
     let lookup = ResolutionRequest {
         name: constructor,
         kind: ReferenceKind::Instantiates,

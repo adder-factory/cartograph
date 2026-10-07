@@ -1633,10 +1633,14 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
                 async_symbol: pending.async_symbol,
                 static_member: pending.static_member,
             },
-            declaration_syntax: jvm_type_lookup::declaration_syntax((
-                self.context.snapshot.language(),
-                pending.structural_node,
-            )),
+            declaration_syntax: if self.context.snapshot.language() == SourceLanguage::Dart {
+                dart_family::declaration_syntax((pending.span_node, pending.kind))
+            } else {
+                jvm_type_lookup::declaration_syntax((
+                    self.context.snapshot.language(),
+                    pending.structural_node,
+                ))
+            },
             visibility: pending.visibility,
             structural_digest,
             clone_shape_digest,

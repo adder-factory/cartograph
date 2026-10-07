@@ -1,5 +1,7 @@
 //! Dart extraction contracts ported from the v1 Dart extractor scenarios.
 
+#[path = "dart_family/constructors.rs"]
+mod constructors;
 mod credential_support;
 mod dependency_ownership;
 #[path = "credential_support/escaped_specifiers.rs"]

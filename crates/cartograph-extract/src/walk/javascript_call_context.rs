@@ -66,13 +66,24 @@ fn receiver_context(
     };
     let binding = javascript_scopes::read_binding(builder, receiver)?.nearest;
     Ok(match binding {
-        NearestBinding::Module if constructor => Some(JavascriptMemberReceiver::Constructor(
-            builder.context.owned_text(receiver)?,
-        )),
+        NearestBinding::Module if constructor => Some(constructor_context(builder, receiver)?),
         NearestBinding::Module => None,
         NearestBinding::Imported => Some(JavascriptMemberReceiver::LocalImport),
         NearestBinding::Unknown => Some(JavascriptMemberReceiver::Uncertain),
         _ => Some(JavascriptMemberReceiver::Shadowed),
+    })
+}
+
+fn constructor_context(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    receiver: Node<'_>,
+) -> Result<JavascriptMemberReceiver, ExtractError> {
+    let proven = javascript_scopes::constructor_binding_proven(builder, receiver)?;
+    let name = builder.context.owned_text(receiver)?;
+    Ok(if proven {
+        JavascriptMemberReceiver::Constructor(name)
+    } else {
+        JavascriptMemberReceiver::UnprovenConstructor(name)
     })
 }
 

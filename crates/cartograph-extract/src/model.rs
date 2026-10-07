@@ -173,6 +173,8 @@ pub struct ExtractedFile {
 pub enum CallScopeKind {
     /// A direct method or its lexical receiver closure preserves current-class ownership.
     CurrentClass,
+    /// An explicit instance receiver cannot invoke a static member.
+    CurrentInstance,
     /// A call stays in the retained callable's binding scope without an anonymous boundary.
     DirectCallable,
 }
@@ -208,6 +210,8 @@ pub enum JavascriptMemberReceiver {
     LocalImport,
     /// A direct member access on a named, unshadowed constructor expression.
     Constructor(String),
+    /// The original constructor binding remains available, but local value proof is absent.
+    UnprovenConstructor(String),
 }
 
 /// One exact source site where static syntax exposes numerical behavior or risk.
@@ -247,6 +251,8 @@ pub enum DeclarationSyntax {
     Other,
     /// A Kotlin primary or secondary constructor, rather than a same-named function.
     KotlinConstructor,
+    /// A Dart generative, factory, or extension-type representation constructor.
+    DartConstructor,
 }
 
 /// One normalized declaration emitted by a native language extractor.

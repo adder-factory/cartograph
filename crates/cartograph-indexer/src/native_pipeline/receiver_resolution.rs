@@ -21,6 +21,11 @@ use super::{
     try_clone_text, usize_to_u64, vector_capacity_bytes,
 };
 
+mod nominal;
+mod parent_index;
+mod value_receivers;
+pub(super) use value_receivers::unshadowed as unshadowed_nominal_receiver;
+
 const MAX_ANCESTORS: usize = 32;
 const EXPLICIT_PROVENANCE: &str = "native-explicit-receiver-type";
 const INHERITED_PROVENANCE: &str = "native-inherited-receiver-type";
@@ -38,6 +43,8 @@ pub(super) struct ReceiverIndex {
 struct Class {
     symbol_id: SymbolId,
     file_id: FileId,
+    name: String,
+    direct_base: Option<String>,
     members: HashMap<String, IndexedMember>,
     non_methods: HashSet<String>,
     assigned_members: HashSet<String>,
@@ -54,6 +61,7 @@ struct MemberDefinition {
     kind: SymbolKind,
     visibility: Option<Visibility>,
     instance_allowed: bool,
+    constructor: bool,
 }
 
 struct ParentFile {
@@ -67,6 +75,7 @@ struct ParentDeclaration {
     name: String,
     span: SourceSpan,
     blocked: bool,
+    kind: ReferenceKind,
 }
 
 pub(super) struct ReceiverQuery<'context, 'file> {
@@ -152,14 +161,17 @@ where
     if !matches!(
         file.file.language.as_str(),
         "python" | "go" | "typescript" | "tsx" | "javascript" | "jsx"
-    ) {
+    ) && !nominal::language(&file.file.language)
+    {
         return Ok(());
     }
     for symbol in &file.symbols {
         if cancelled() {
             return Err(StageItemFailure);
         }
-        if !nominal(symbol.kind) {
+        if !(nominal(symbol.kind)
+            || file.file.language == "ruby" && symbol.kind == SymbolKind::Module)
+        {
             continue;
         }
         target.budget.charge(
@@ -168,7 +180,8 @@ where
                 .saturating_add(
                     usize_to_u64(symbol.input.symbol_id.as_str().len()).saturating_mul(2),
                 )
-                .saturating_add(usize_to_u64(file.file.file_id.as_str().len())),
+                .saturating_add(usize_to_u64(file.file.file_id.as_str().len()))
+                .saturating_add(usize_to_u64(symbol.name.len())),
         )?;
         target
             .index
@@ -181,6 +194,8 @@ where
             Class {
                 symbol_id: symbol.input.symbol_id.clone(),
                 file_id: file.file.file_id.clone(),
+                name: try_clone_text(&symbol.name)?,
+                direct_base: None,
                 members: HashMap::new(),
                 non_methods: HashSet::new(),
                 assigned_members: HashSet::new(),
@@ -232,6 +247,7 @@ where
                 visibility: symbol.visibility,
                 instance_allowed: matches!(file.file.language.as_str(), "python" | "go")
                     || !symbol.execution.static_member,
+                constructor: symbol.declaration_syntax == super::DeclarationSyntax::DartConstructor,
             }),
         );
     }
@@ -338,7 +354,7 @@ fn index_parents<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    if file.file.language != "python" {
+    if file.file.language != "python" && !nominal::language(&file.file.language) {
         return Ok(());
     }
     let lookups = FileLookups::new(
@@ -362,67 +378,21 @@ where
         };
         if !matches!(
             reference.kind,
-            ReferenceKind::Extends | ReferenceKind::Implements
+            ReferenceKind::Extends | ReferenceKind::Implements | ReferenceKind::Inherits
         ) {
             continue;
         }
-        let name = parent_name(&lookups, reference);
-        target.budget.charge(
-            usize_to_u64(size_of::<ParentDeclaration>())
-                .saturating_add(usize_to_u64(name.len()))
-                .saturating_add(usize_to_u64(owner.as_str().len())),
-        )?;
-        declarations
-            .try_reserve_exact(1)
-            .map_err(|_| StageItemFailure)?;
-        declarations.push(ParentDeclaration {
-            owner: owner.clone(),
-            name: try_clone_text(name)?,
-            span: reference.span,
-            blocked: reference.resolution_name.as_deref().is_some_and(|name| {
-                name.starts_with(super::PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX)
-            }),
-        });
-    }
-    if declarations.is_empty() {
-        return Ok(());
-    }
-    let mut imports = Vec::new();
-    for binding in &file.import_bindings {
-        if cancelled() {
-            return Err(StageItemFailure);
+        if nominal::language(&file.file.language) && reference.kind == ReferenceKind::Implements {
+            continue;
         }
-        target.budget.charge(
-            usize_to_u64(size_of::<ExtractedImportBinding>())
-                .saturating_add(usize_to_u64(binding.module_specifier.len()))
-                .saturating_add(usize_to_u64(binding.imported_name.len()))
-                .saturating_add(usize_to_u64(binding.local_name.len())),
-        )?;
-        imports.try_reserve_exact(1).map_err(|_| StageItemFailure)?;
-        imports.push(ExtractedImportBinding {
-            kind: binding.kind,
-            module_specifier: try_clone_text(&binding.module_specifier)?,
-            imported_name: try_clone_text(&binding.imported_name)?,
-            local_name: try_clone_text(&binding.local_name)?,
-            span: binding.span,
-        });
+        let name = if nominal::language(&file.file.language) {
+            reference.name.as_str()
+        } else {
+            parent_name(&lookups, reference)
+        };
+        parent_index::declaration(target, (reference, owner, name), &mut declarations)?;
     }
-    target.budget.charge(
-        usize_to_u64(size_of::<ParentFile>())
-            .saturating_add(usize_to_u64(file.file.file_id.as_str().len())),
-    )?;
-    target
-        .index
-        .receivers
-        .pending
-        .try_reserve_exact(1)
-        .map_err(|_| StageItemFailure)?;
-    target.index.receivers.pending.push(ParentFile {
-        file_id: file.file.file_id.clone(),
-        imports,
-        declarations,
-    });
-    Ok(())
+    parent_index::retain(target, (file, declarations), cancelled)
 }
 
 fn parent_name<'lookups>(
@@ -487,7 +457,7 @@ where
             let parent = parent_class(target.index, (&declaration, &request), cancelled)?
                 .map(|class| try_clone_text(class.symbol_id.as_str()))
                 .transpose()?;
-            record_parent(target, &declaration.owner, parent)?;
+            record_parent(target, (&declaration.owner, parent, declaration.kind))?;
         }
     }
     Ok(())
@@ -502,6 +472,9 @@ where
     Cancel: FnMut() -> bool,
 {
     let (declaration, request) = query;
+    if nominal::language(request.language) {
+        return nominal::parent_class(index, query, cancelled);
+    }
     // Nested class bases need their declaration namespace, not the receiver's
     // method scope. That broader namespace model is deferred.
     if declaration.blocked || index.parents.contains_key(&declaration.owner) {
@@ -521,9 +494,9 @@ where
 
 fn record_parent(
     target: &mut ResolutionIndexTarget<'_>,
-    owner: &SymbolId,
-    parent: Option<String>,
+    (owner, parent, kind): (&SymbolId, Option<String>, ReferenceKind),
 ) -> Result<(), StageItemFailure> {
+    nominal::record_direct_base(target, (owner, &parent, kind))?;
     let parents = &mut target.index.receivers.parents;
     if !parents.contains_key(owner.as_str()) {
         target.budget.charge(
@@ -551,6 +524,8 @@ fn record_parent(
     Ok(())
 }
 
+pub(super) use nominal::constructor_redirect as resolve_constructor_redirect;
+
 pub(super) fn resolve<Cancel>(
     index: &ResolutionIndex,
     query: ReceiverQuery<'_, '_>,
@@ -564,6 +539,9 @@ where
         reference,
         import_binding_scratch,
     } = query;
+    if nominal::language(&context.identity.language) {
+        return nominal::current_member(index, reference, cancelled);
+    }
     if matches!(
         reference.kind,
         ReferenceKind::Extends | ReferenceKind::Implements
@@ -738,6 +716,7 @@ where
 
 fn member_matches(search: &MemberSearch<'_>, candidate: &MemberDefinition) -> bool {
     if !member_kind(search.kind, candidate.kind)
+        || candidate.constructor
         || !candidate.instance_allowed
         || (search.class.non_methods.contains(search.name) && candidate.kind == SymbolKind::Method)
     {
