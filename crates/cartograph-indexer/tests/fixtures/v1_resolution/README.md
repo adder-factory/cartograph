@@ -63,84 +63,44 @@ difference, inspect source, captured declarations, reference sites and the real
 native resolved edge, then record complete canonical pins. Do not change captures
 or the corpus seal, widen matching, or convert a corrected target into parity.
 
-## Measurement for the v2.1.41 release
+## Measurement for the v2.1.42 release
 
 | Disposition | Distinct facts |
 | --- | ---: |
-| Matched exactly | 602 |
-| Aligned by exact pins | 295 |
-| Pending Wave 3 | 421 |
-| Intentional | 406 |
+| Matched exactly | 679 |
+| Aligned by exact pins | 386 |
+| Pending Wave 3 | 95 |
+| Intentional | 564 |
 | Total | 1,724 |
 
 At the Wave 2 base (`e820b5ea`) the same facts were 517 exact, 243 aligned,
-833 pending and 131 intentional. Intentional facts include 57 captures without a
-unique target declaration, one without a unique owner, and external imports that
-v2 deliberately leaves targetless. A passing oracle means every fact is accounted
-for; 421 facts remain pending. It does not assert complete resolution parity.
-Wave 2 shipped in v2.1.41; its unfinished gaps are scheduled as Wave 3.
+833 pending and 131 intentional; v2.1.41 shipped 602 / 295 / 421 / 406.
+Intentional facts include captures without a unique target or owner, external
+imports v2 leaves targetless, v1 import-node and callable def-use
+representations, and v1 misresolutions with source evidence. A passing oracle
+means every fact is accounted for; 95 facts remain pending. It does not
+assert complete resolution parity.
 
 Mutation testing samples one carried edge per corpus/kind/disposition, preferring
 cross-file cases. It deletes or retargets the real native `EdgeInput`, reprojects
 the graph and requires a failure for that specific original fact using the same
-committed policy. At this release all **434/434** mutants failed (100%
-kill rate): 217 sampled edges, including 123 cross-file and 83 aligned edges.
-The 33 small gate cases additionally cover target-file/name substitutions, wrong
-kinds/owners, missing sites, readable collisions, conjunctive pins and ledger
-hygiene.
+committed policy. At this release all **470/470** mutants failed (100%
+kill rate): 235 sampled edges, including 150 cross-file and 92 aligned edges.
 
 The pending inventory below lists every gap, sorted by fact count and gap ID.
 
 | Gap ID | Wave | Pending facts |
 | --- | ---: | ---: |
-| `project-import-node-target-representation` | 3 | 93 |
-| `instance-receiver-member-resolution` | 3 | 40 |
-| `intra-class-receiver-calls` | 3 | 30 |
-| `unqualified-project-call-target-resolution` | 3 | 27 |
-| `static-qualified-member-calls` | 3 | 26 |
-| `jvm-wildcard-import-blocks-fallback` | 3 | 24 |
-| `file-path-references` | 3 | 20 |
-| `native-qualified-type-target-resolution` | 3 | 17 |
-| `drupal-service-target-identity` | 3 | 14 |
-| `self-def-use-graph-edges` | 3 | 14 |
-| `go-package-qualified-target-resolution` | 3 | 9 |
-| `module-qualified-call-target-resolution` | 3 | 7 |
-| `ts-default-public-methods-invisible` | 3 | 7 |
-| `aura-client-action-target-resolution` | 3 | 6 |
-| `drupal-tag-consumer-direction-and-hooks` | 3 | 6 |
-| `inherited-receiver-member-resolution` | 3 | 6 |
-| `play-route-handler-resolution` | 3 | 6 |
+| `instance-receiver-member-resolution` | 3 | 19 |
+| `static-qualified-member-calls` | 3 | 17 |
+| `unqualified-project-call-target-resolution` | 3 | 13 |
+| `intra-class-receiver-calls` | 3 | 12 |
+| `jvm-wildcard-import-blocks-fallback` | 3 | 8 |
+| `native-qualified-type-target-resolution` | 3 | 7 |
 | `dart-imported-constructor-target-resolution` | 3 | 4 |
-| `fabric-native-impl-class-bridge` | 3 | 4 |
 | `jvm-explicit-import-resolution` | 3 | 4 |
-| `native-bridge-physical-target-identity` | 3 | 4 |
-| `angular-routes-all-objects` | 3 | 3 |
-| `cargo-crate-root-fallbacks` | 3 | 3 |
-| `drupal-routing-handler-keys-and-methods` | 3 | 3 |
-| `php-controller-class-fallback` | 3 | 3 |
-| `php-qualified-member-resolution` | 3 | 3 |
-| `receiver-field-target-resolution` | 3 | 3 |
-| `symfony-yaml-route-files-and-defaults` | 3 | 3 |
-| `aura-client-actions-and-server-action-strings` | 3 | 2 |
-| `component-import-target-identity` | 3 | 2 |
-| `drupal-yaml-handler-forms` | 3 | 2 |
-| `flutter-route-handler-target-identity` | 3 | 2 |
-| `js-framework-name-transform-resolution` | 3 | 2 |
-| `lwc-bundle-component-and-template-refs` | 3 | 2 |
-| `mybatis-configuration-class-target-resolution` | 3 | 2 |
+| `ts-default-public-methods-invisible` | 3 | 4 |
+| `module-qualified-call-target-resolution` | 3 | 2 |
+| `native-bridge-physical-target-identity` | 3 | 2 |
 | `rust-workspace-path-target-resolution` | 3 | 2 |
-| `spring-property-injection-target-resolution` | 3 | 2 |
-| `codeigniter-loads-and-inferred-resources` | 3 | 1 |
-| `commonjs-callable-import-ownership` | 3 | 1 |
-| `enum-member-qualified-target-resolution` | 3 | 1 |
-| `fabric-view-manager-scan-forms` | 3 | 1 |
-| `flutter-builder-and-map-parsing` | 3 | 1 |
-| `multi-route-per-statement-collapse` | 3 | 1 |
-| `mybatis-template-target-resolution` | 3 | 1 |
-| `python-absolute-imports` | 3 | 1 |
 | `qualified-name-suffix-match` | 3 | 1 |
-| `recursive-self-call-edges` | 3 | 1 |
-| `rn-event-channel-gaps` | 3 | 1 |
-| `rn-native-module-scan-forms` | 3 | 1 |
-| `salesforce-controller-context-normalization` | 3 | 1 |
-| `vue-svelte-directory-index-module` | 3 | 1 |

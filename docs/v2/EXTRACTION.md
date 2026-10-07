@@ -391,6 +391,13 @@ Implemented language-level behavior includes:
   PHP and CodeIgniter route targets. Each new path abstains on shadowing,
   aliases, overloads or unproven scope and lets the existing resolver run, and
   heuristic fallbacks carry a lower confidence and their own provenance;
+- v1 framework and bridge parity (v2.1.42): Angular/Bun/CLI/Express/Hono/NeuG
+  and file-route conventions; ASP.NET, Spring, Flask, Go net/http, Rails,
+  Rocket, Flutter, Symfony, CodeIgniter, MyBatis, Drupal and Salesforce
+  Aura/LWC; React Native, Expo, Fabric and Swift/Objective-C bridges (edges
+  without ownership evidence are omitted); explicitly typed receivers in 14
+  more languages and bounded declared-return chains; Go module imports and
+  OCaml module paths;
 - edge kinds required by current graph retrieval, with confidence, provenance,
   and represented site count.
 
