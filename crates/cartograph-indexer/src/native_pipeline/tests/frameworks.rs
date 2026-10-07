@@ -2,6 +2,7 @@
 
 mod drupalsf;
 mod drupalsf_repairs;
+mod fwjs;
 mod repairs;
 
 use super::*;

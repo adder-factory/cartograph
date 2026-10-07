@@ -29,7 +29,7 @@ const ROUTES: [RouteFixture; 13] = [
         path: "src/routes.ts",
         source: "import { Routes } from '@angular/router';\nconst routes: Routes = [{ path: 'orders', component: OrdersPage }];\n",
         language: SourceLanguage::TypeScript,
-        route: "ANY orders",
+        route: "/orders",
     },
     RouteFixture {
         path: "src/server.js",

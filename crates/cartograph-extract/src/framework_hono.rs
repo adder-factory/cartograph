@@ -1,3 +1,4 @@
+mod details;
 use std::collections::BTreeSet;
 
 use cartograph_domain::SourceLanguage;
@@ -66,14 +67,14 @@ pub(crate) fn scan(
             if route.receiver != mount.child {
                 continue;
             }
-            let Some(path) = join_paths(mount.prefix, route.path) else {
+            let Some(path) = details::join_paths(mount.prefix, route.path) else {
                 continue;
             };
             builder.add_route(FrameworkRouteInput {
                 method: &route.method,
                 path: &path,
-                start: mount.prefix_start,
-                end: mount.prefix_end,
+                start: route.path_start,
+                end: route.path_end,
                 command: false,
                 handler: route.handler,
             })?;
@@ -94,7 +95,7 @@ fn collect_receivers<'source>(
         {
             builder.check_cancelled()?;
             let constructor = cursor + relative;
-            if constructor > 0 && identifier_byte(source.as_bytes()[constructor - 1]) {
+            if !details::constructor_is_syntax(builder, (constructor, constructor + marker.len())) {
                 cursor = constructor + marker.len();
                 continue;
             }
@@ -106,12 +107,8 @@ fn collect_receivers<'source>(
                 cursor = constructor + marker.len();
                 continue;
             };
-            if !statement[equals + 1..].trim().is_empty() {
-                cursor = constructor + marker.len();
-                continue;
-            }
             let declaration = statement[..equals].trim();
-            if let Some((_, receiver)) = identifiers(declaration).last() {
+            if let Some(receiver) = details::receiver(declaration) {
                 receivers.insert(receiver);
             }
             cursor = constructor + marker.len();
@@ -144,6 +141,10 @@ fn scan_receiver_calls(
             cursor = method_start;
             continue;
         };
+        if !crate::framework::member_call_is_syntax(builder, (call_start, method_end)) {
+            cursor = method_end;
+            continue;
+        }
         let open = skip_ascii_whitespace(source, method_end);
         if source.as_bytes().get(open) != Some(&b'(') {
             cursor = method_end;
@@ -153,6 +154,7 @@ fn scan_receiver_calls(
             cursor = open + 1;
             continue;
         };
+        builder.bridge.charge_work(close.saturating_sub(open))?;
         scan_hono_invocation(
             ReceiverScan {
                 source,
@@ -166,7 +168,7 @@ fn scan_receiver_calls(
                 close,
             },
         )?;
-        cursor = close + 1;
+        cursor = open + 1;
     }
     Ok(())
 }
@@ -287,8 +289,6 @@ fn scan_mount_invocation(
     }
     mounts.push(HonoMount {
         prefix: prefix.value,
-        prefix_start: prefix.start,
-        prefix_end: prefix.end,
         child,
     });
     Ok(())
@@ -323,8 +323,6 @@ struct HonoRoute<'source> {
 
 struct HonoMount<'source> {
     prefix: &'source str,
-    prefix_start: usize,
-    prefix_end: usize,
     child: &'source str,
 }
 
@@ -427,27 +425,6 @@ fn quoted_argument(source: &str, from: usize, limit: usize) -> Option<Quoted<'_>
         cursor += 1;
     }
     None
-}
-
-fn join_paths(prefix: &str, path: &str) -> Option<String> {
-    if prefix.len().saturating_add(path.len()) > MAX_ROUTE_BYTES {
-        return None;
-    }
-    let mut joined = String::new();
-    joined
-        .try_reserve(prefix.len().saturating_add(path.len()).saturating_add(1))
-        .ok()?;
-    for segment in prefix.split('/').chain(path.split('/')) {
-        if segment.is_empty() {
-            continue;
-        }
-        joined.push('/');
-        joined.push_str(segment);
-    }
-    if joined.is_empty() {
-        joined.push('/');
-    }
-    Some(joined)
 }
 
 fn identifiers(value: &str) -> impl Iterator<Item = (usize, &str)> {

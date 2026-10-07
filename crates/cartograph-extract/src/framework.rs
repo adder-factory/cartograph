@@ -1,9 +1,11 @@
 mod bridge_transaction;
 mod cargo_path_bindings;
 pub(crate) mod literal_bindings;
+mod fwjs;
 mod owner_index;
 
 use bridge_transaction::BridgeTransaction;
+pub(crate) use fwjs::member_call_is_syntax;
 
 use std::collections::{BTreeMap, BTreeSet};
 use tree_sitter::Node;
@@ -406,7 +408,10 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             file,
             root,
         } = input;
-        let bridge = BridgeTransaction::new(snapshot, file, cancelled)?;
+        let mut bridge = BridgeTransaction::new(snapshot, file, cancelled)?;
+        if !snapshot.source().is_empty() {
+            bridge.index_owners()?;
+        }
         let symbol_keys = bridge
             .file
             .symbols
@@ -538,6 +543,31 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         self.add_landmark_with_id(input).map(|_| ())
     }
 
+    /// Attach a safe framework label to the landmark just admitted, without
+    /// searching existing symbols or changing earlier declarations.
+    pub(crate) fn add_signed_landmark(
+        &mut self,
+        input: LandmarkInput<'_>,
+        signature: String,
+    ) -> Result<Option<SymbolId>, ExtractError> {
+        if looks_sensitive(&signature) || signature.len() > MAX_SIGNAL_BYTES {
+            return Ok(None);
+        }
+        let id = self.add_landmark_with_id(input)?;
+        if let Some(id) = &id {
+            self.bridge.budget.reserve_fact(
+                u64::try_from(signature.len()).map_err(|_| ExtractError::OutputLimit)?,
+                [signature.as_str()],
+            )?;
+            if let Some(symbol) = self.bridge.file.symbols.last_mut()
+                && &symbol.id == id
+            {
+                symbol.signature = Some(signature);
+            }
+        }
+        Ok(id)
+    }
+
     /// Mark a landmark added by this pass as declaring, not defining, its target.
     pub(crate) fn mark_landmark_declaration_only(&mut self, id: &SymbolId) {
         if let Some(symbol) = self.bridge.file.symbols[self.bridge.original_symbols..]
@@ -568,6 +598,9 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         let Some(identity) = reserve_landmark_identity(self, kind, &identity) else {
             return Ok(None);
         };
+        if !self.source().is_empty() {
+            self.bridge.charge_work(1)?;
+        }
         let owner = self.owner_near(start);
         let span = landmark_span(self, start, end)?;
         let id = framework_symbol_id(FrameworkSymbolIdentity {
@@ -673,6 +706,12 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             }
             return Ok(());
         }
+        let resolution_name = crate::walk::non_jsx_resolution_name((
+            self.language(),
+            input.kind,
+            resolution_name.as_deref().unwrap_or(&name),
+        ))?
+        .or(resolution_name);
         self.reference_keys
             .insert(key, self.bridge.file.references.len());
         let reference = ExtractedReference {
@@ -716,34 +755,17 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
     }
 
     fn owner_near(&self, offset: usize) -> Option<SymbolId> {
+        // Every declaration of an empty convention file is at the same
+        // synthetic site; the original nearest-owner rule selects the first.
+        if self.source().is_empty() {
+            return self.original_symbol(0).map(|symbol| symbol.id.clone());
+        }
         let offset = u64::try_from(offset).ok()?;
-        if let Some(index) = &self.bridge.original_ownership {
-            return index
-                .near(offset)
-                .and_then(|owner| self.original_symbol(owner))
-                .map(|symbol| symbol.id.clone());
-        }
-        let original = &self.bridge.file.symbols[..self.bridge.original_symbols];
-        if let Some(symbol) = original
-            .iter()
-            .filter(|symbol| symbol.span.start_byte() <= offset && offset < symbol.span.end_byte())
-            .min_by_key(|symbol| symbol.span.end_byte() - symbol.span.start_byte())
-        {
-            return Some(symbol.id.clone());
-        }
-        if let Some(symbol) = original
-            .iter()
-            .filter(|symbol| symbol.span.start_byte() >= offset)
-            .min_by_key(|symbol| symbol.span.start_byte() - offset)
-            && symbol.span.start_byte().saturating_sub(offset) <= 1_024
-        {
-            return Some(symbol.id.clone());
-        }
-        original
-            .iter()
-            .filter(|symbol| symbol.span.end_byte() <= offset)
-            .max_by_key(|symbol| symbol.span.end_byte())
-            .filter(|symbol| offset.saturating_sub(symbol.span.end_byte()) <= 1_024)
+        self.bridge
+            .original_ownership
+            .as_ref()?
+            .near(offset)
+            .and_then(|owner| self.original_symbol(owner))
             .map(|symbol| symbol.id.clone())
     }
 
@@ -781,11 +803,11 @@ fn scan_framework_signals(
     builder: &mut FrameworkBuilder<'_, '_>,
     source: &str,
 ) -> Result<(), ExtractError> {
-    scan_path_conventions(builder)?;
+    fwjs::file_routes::scan(builder)?;
     let hints = FrameworkHints::detect(builder.language(), builder.path(), source);
     scan_configuration_routes(builder, source)?;
     scan_codeigniter_routes(builder, source)?;
-    scan_neug_resources(builder, source)?;
+    fwjs::scan(builder, source)?;
     scan_swiftui_components(builder, source)?;
     scan_swiftui_app_entries(builder, source)?;
     scan_flutter_material_routes(builder, source)?;
@@ -804,41 +826,6 @@ fn scan_framework_signals(
         }
         scan_cli_line(builder, statement_start, statement)?;
         scan_config_line(builder, statement_start, statement)?;
-    }
-    Ok(())
-}
-
-fn scan_neug_resources(
-    builder: &mut FrameworkBuilder<'_, '_>,
-    source: &str,
-) -> Result<(), ExtractError> {
-    if builder.language() != SourceLanguage::Python || !source.contains("neug.") {
-        return Ok(());
-    }
-    for (marker, category) in [
-        ("neug.Graph(", "graph"),
-        ("neug.Vertex(", "vertex"),
-        ("neug.Edge(", "edge"),
-    ] {
-        let mut cursor = 0;
-        while let Some(relative) = source[cursor..].find(marker) {
-            let start = cursor + relative + marker.len();
-            let Some(value) = quoted_after(source, start) else {
-                cursor = start;
-                continue;
-            };
-            let name = format!("neug:{category}:{}", value.value);
-            builder.add_landmark(LandmarkInput {
-                kind: SymbolKind::Resource,
-                name: name.clone(),
-                identity: format!("resource::{name}"),
-                start: value.start,
-                end: value.end,
-                body_search_text: format!("neug {category} {}", value.value),
-                target: None,
-            })?;
-            cursor = value.end;
-        }
     }
     Ok(())
 }
@@ -1212,196 +1199,6 @@ pub(crate) fn join_route_paths(base: &str, subpath: &str) -> Option<String> {
         path.push('/');
     }
     Some(path)
-}
-
-fn scan_path_conventions(builder: &mut FrameworkBuilder<'_, '_>) -> Result<(), ExtractError> {
-    let path = builder.path().replace('\\', "/");
-    if let Some(route) = sveltekit_route(&path)
-        .or_else(|| nuxt_route(&path))
-        .or_else(|| next_route(&path, builder.source()))
-    {
-        let (start, end) = convention_span(builder.source());
-        builder.add_landmark(LandmarkInput {
-            kind: SymbolKind::Route,
-            name: route.clone(),
-            identity: format!("route::{route}"),
-            start,
-            end,
-            body_search_text: format!("framework file route {route}"),
-            target: None,
-        })?;
-    }
-    if let Some(name) = nuxt_middleware_name(&path) {
-        let already_extracted = builder.bridge.file.symbols[..builder.bridge.original_symbols]
-            .iter()
-            .any(|symbol| {
-                matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method)
-                    && symbol.name == name
-            });
-        if !already_extracted {
-            let (start, end) = convention_span(builder.source());
-            builder.add_landmark(LandmarkInput {
-                kind: SymbolKind::Function,
-                name: name.clone(),
-                identity: format!("middleware::{name}"),
-                start,
-                end,
-                body_search_text: format!("nuxt middleware {name}"),
-                target: None,
-            })?;
-        }
-    }
-    Ok(())
-}
-
-fn convention_span(source: &str) -> (usize, usize) {
-    let start = source
-        .char_indices()
-        .find_map(|(index, character)| (!character.is_whitespace()).then_some(index))
-        .unwrap_or(0);
-    let end = source
-        .get(start..)
-        .and_then(|tail| tail.chars().next())
-        .map_or(start, |character| {
-            start.saturating_add(character.len_utf8())
-        });
-    (start, end)
-}
-
-fn sveltekit_route(path: &str) -> Option<String> {
-    let marker = "/routes/";
-    let marker_start = format!("/{path}").find(marker)?;
-    let normalized = format!("/{path}");
-    let after_routes = &normalized[marker_start + marker.len()..];
-    let (directory, file_name) = after_routes.rsplit_once('/').unwrap_or(("", after_routes));
-    if !matches!(
-        file_name,
-        "+page.svelte"
-            | "+page.ts"
-            | "+page.js"
-            | "+page.server.ts"
-            | "+page.server.js"
-            | "+layout.svelte"
-            | "+layout.ts"
-            | "+layout.js"
-            | "+layout.server.ts"
-            | "+layout.server.js"
-            | "+server.ts"
-            | "+server.js"
-            | "+error.svelte"
-    ) {
-        return None;
-    }
-    Some(route_from_segments(directory.split('/')))
-}
-
-fn nuxt_route(path: &str) -> Option<String> {
-    let normalized = format!("/{path}");
-    if let Some(index) = normalized.find("/server/api/") {
-        let remainder = &normalized[index + "/server/api/".len()..];
-        if !matches!(file_extension(remainder), Some("ts" | "js" | "mts" | "mjs")) {
-            return None;
-        }
-        let stem = strip_final_extension(remainder);
-        let route = route_from_segments(stem.split('/'));
-        return Some(if route == "/" {
-            "/api".to_owned()
-        } else {
-            format!("/api{route}")
-        });
-    }
-    let index = normalized.find("/pages/")?;
-    let remainder = &normalized[index + "/pages/".len()..];
-    if file_extension(remainder) != Some("vue") {
-        return None;
-    }
-    Some(route_from_segments(
-        strip_final_extension(remainder).split('/'),
-    ))
-}
-
-fn nuxt_middleware_name(path: &str) -> Option<String> {
-    let normalized = format!("/{path}");
-    let index = normalized.find("/middleware/")?;
-    let remainder = &normalized[index + "/middleware/".len()..];
-    if !matches!(file_extension(remainder), Some("ts" | "js" | "mts" | "mjs")) {
-        return None;
-    }
-    let stem = strip_final_extension(remainder).trim_end_matches("/index");
-    (!stem.is_empty()).then(|| stem.replace('/', "."))
-}
-
-fn next_route(path: &str, source: &str) -> Option<String> {
-    if !matches!(
-        file_extension(path),
-        Some("ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs")
-    ) {
-        return None;
-    }
-    let normalized = format!("/{path}");
-    if let Some(index) = normalized.find("/pages/") {
-        let remainder = &normalized[index + "/pages/".len()..];
-        let stem = strip_final_extension(remainder);
-        let basename = stem.rsplit('/').next().unwrap_or(stem);
-        if basename.starts_with('_') || (!source.is_empty() && !source.contains("export default")) {
-            return None;
-        }
-        return Some(route_from_segments(stem.split('/')));
-    }
-    let index = normalized.find("/app/")?;
-    let remainder = &normalized[index + "/app/".len()..];
-    let (directory, filename) = remainder.rsplit_once('/').unwrap_or(("", remainder));
-    if !(filename.starts_with("page.") || filename.starts_with("route."))
-        || (filename.starts_with("page.")
-            && !source.is_empty()
-            && !source.contains("export default"))
-    {
-        return None;
-    }
-    Some(route_from_segments(directory.split('/').filter(
-        |segment| !(segment.starts_with('@') || segment.starts_with('(') && segment.ends_with(')')),
-    )))
-}
-
-fn strip_final_extension(value: &str) -> &str {
-    value.rsplit_once('.').map_or(value, |(stem, _)| stem)
-}
-
-fn file_extension(value: &str) -> Option<&str> {
-    value.rsplit_once('.').map(|(_, extension)| extension)
-}
-
-fn route_from_segments<'segment>(segments: impl IntoIterator<Item = &'segment str>) -> String {
-    let mut route = String::new();
-    for raw in segments {
-        if raw.is_empty() || raw == "index" {
-            continue;
-        }
-        let segment = if let Some(name) = raw
-            .strip_circumfix("[[", "]]")
-            .filter(|name| !name.is_empty())
-        {
-            format!(":{name}?")
-        } else if let Some(name) = raw
-            .strip_circumfix("[...", ']')
-            .filter(|name| !name.is_empty())
-        {
-            format!("*{name}")
-        } else if let Some(name) = raw
-            .strip_circumfix('[', ']')
-            .filter(|name| !name.is_empty())
-        {
-            format!(":{name}")
-        } else {
-            raw.to_owned()
-        };
-        route.push('/');
-        route.push_str(&segment);
-    }
-    if route.is_empty() {
-        route.push('/');
-    }
-    route
 }
 
 #[derive(Clone, Copy)]
@@ -2407,7 +2204,10 @@ fn scan_cli_line(
     line_start: usize,
     line: &str,
 ) -> Result<(), ExtractError> {
-    for marker in [".command(", ".command_name(", "Command::new("] {
+    for marker in ["Command::new("] {
+        if builder.language() != SourceLanguage::Rust {
+            continue;
+        }
         let Some(marker_start) = line.find(marker) else {
             continue;
         };

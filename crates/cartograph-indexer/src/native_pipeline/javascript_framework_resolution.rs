@@ -3,14 +3,16 @@
 //! Only a unique best convention in the same package scope binds, at lowered
 //! framework confidence; an existing exact-name bucket remains authoritative.
 
-use std::collections::HashMap;
+mod context_member;
+
+use std::collections::{HashMap, HashSet};
 
 use super::javascript_member_resolution::{charge_entry, class_member, unique_candidate};
 use super::{
     FileId, MAX_SYMBOL_QUALIFIED_NAME_BYTES, ResolutionCandidate, ResolutionIndex,
-    ResolutionIndexFileInput, ResolutionRequest, ResolveBudget, ResolvedTarget, StageItemFailure,
-    SymbolKind, Visibility, directory_has_any, framework_convention_target, javascript_family_name,
-    reference_kind_candidate, try_clone_text,
+    ResolutionIndexFileInput, ResolutionRequest, ResolveBudget, ResolvedTarget, SourceSpan,
+    StageItemFailure, SymbolKind, Visibility, directory_has_any, framework_convention_target,
+    javascript_family_name, reference_kind_candidate, try_clone_text,
 };
 
 const MAX_CASE_VARIANTS: usize = 16;
@@ -40,6 +42,7 @@ pub(super) struct JavascriptFrameworkIndex {
     packages: HashMap<String, Frameworks>,
     files: HashMap<FileId, Frameworks>,
     middleware_names: HashMap<String, Option<Vec<String>>>,
+    unbound_context_sites: HashMap<FileId, HashSet<SourceSpan>>,
 }
 
 pub(super) fn index_file<Cancel>(
@@ -54,6 +57,9 @@ where
     let javascript = javascript_family_name(&input.file.file.language);
     if !manifest && !javascript {
         return Ok(());
+    }
+    if javascript {
+        context_member::index_sites(input)?;
     }
     let flags = index_detection(input)?;
     let index = &mut input.index.javascript_frameworks;
@@ -317,6 +323,11 @@ where
             .copied()
             .unwrap_or_default(),
     );
+    if flags.react
+        && let Some(target) = context_member::resolve(index, request, cancelled)?
+    {
+        return Ok(Some(target));
+    }
     let Some(transform) = Transform::detect(request.name, flags) else {
         return Ok(None);
     };

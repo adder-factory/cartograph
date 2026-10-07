@@ -1,4 +1,5 @@
 mod codeigniter_resolution;
+mod component_imports;
 mod csharp_constructors;
 mod declaration_resolution;
 mod drupal_resolution;
@@ -7,7 +8,9 @@ mod enum_resolution;
 mod explicit_edge_resolution;
 mod file_path_resolution;
 mod framework_conventions;
+mod framework_imports;
 mod framework_methods;
+mod framework_provided;
 mod framework_resolution;
 mod generic_resolution;
 mod go_module_paths;
@@ -96,14 +99,14 @@ use cartograph_extract::{
     DYNAMIC_DISPATCH_RESOLUTION_PREFIX, DeclarationSyntax, DiagnosticCode, DiscoveredSource,
     DiscoveryLimits, EMBEDDED_SQL_RESOLUTION_PREFIX, ExtractError, ExtractedCallScopeSite,
     ExtractedFile, ExtractedImportBinding, ExtractedNumericalSite, ExtractedReceiverEvidence,
-    ExtractedReference, ImportBindingKind, JavascriptMemberCallContext, JavascriptMemberReceiver,
-    LEXICAL_SCOPE_RESOLUTION_PREFIX, MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor,
-    PHP_EXACT_RESOLUTION_PREFIX, PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX,
-    RUST_MACRO_RESOLUTION_PREFIX, RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions,
-    SourceExclusionEvidence, SourceLimits, SourceReadError, SourceReadOptions, SourceRoot,
-    SourceSnapshot, TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path,
-    native_extraction_reservation, native_extractor_contract_digest, native_read_reservation,
-    substitute_module_alias,
+    ExtractedReference, ImportBindingKind, JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX,
+    JavascriptMemberCallContext, JavascriptMemberReceiver, LEXICAL_SCOPE_RESOLUTION_PREFIX,
+    MAXIMUM_AST_DEPTH, MINIMUM_AST_DEPTH, NativeExtractor, PHP_EXACT_RESOLUTION_PREFIX,
+    PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX, RUST_MACRO_RESOLUTION_PREFIX,
+    RUST_SELF_RECEIVER_RESOLUTION_PREFIX, SourceDiscoveryOptions, SourceExclusionEvidence,
+    SourceLimits, SourceReadError, SourceReadOptions, SourceRoot, SourceSnapshot,
+    TYPE_QUERY_VALUE_RESOLUTION_PREFIX, is_test_source_path, native_extraction_reservation,
+    native_extractor_contract_digest, native_read_reservation, substitute_module_alias,
 };
 use cartograph_scip::{
     ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
@@ -11076,6 +11079,9 @@ impl<'reference> ReferenceLookup<'reference> {
         let fenced_name = resolution_name
             .and_then(|name| name.strip_prefix(PYTHON_UNBOUND_IMPORT_RESOLUTION_PREFIX));
         let resolution_name = fenced_name.or(resolution_name);
+        let resolution_name = resolution_name
+            .and_then(|name| name.strip_prefix(JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX))
+            .or(resolution_name);
         let dynamic_dispatch_name =
             resolution_name.and_then(|name| name.strip_prefix(DYNAMIC_DISPATCH_RESOLUTION_PREFIX));
         let rust_self_receiver_name = resolution_name
@@ -12760,10 +12766,20 @@ fn resolve_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
-    match rust_path_guards::resolve(index, request, cancelled)? {
+    if let Some(target) = framework_imports::resolve(index, request, cancelled)? {
+        return Ok(ReferenceResolution::resolved(target));
+    }
+    let mut resolution = match rust_path_guards::resolve(index, request, cancelled)? {
         Some(resolution) => Ok(resolution),
         None => resolve_reference_body(index, request, cancelled),
+    }?;
+    if resolution.target.is_none()
+        && !index.candidates.contains_key(request.name)
+        && let Some(provenance) = framework_provided::provenance(request, cancelled)?
+    {
+        resolution = ReferenceResolution::unresolved(provenance);
     }
+    Ok(resolution)
 }
 
 fn resolve_reference_body<Cancel>(
@@ -13640,6 +13656,7 @@ where
     }
     let mut bound = false;
     let mut matched = None;
+    let mut default_only = true;
     for binding in request.import_bindings.iter() {
         if cancelled() {
             return Err(StageItemFailure);
@@ -13653,6 +13670,7 @@ where
             continue;
         }
         bound = true;
+        default_only &= binding.kind == ImportBindingKind::Default;
         let Some(file_id) = resolve_module_file(
             &index.modules,
             ModuleResolutionRequest {
@@ -13674,12 +13692,14 @@ where
     }
     match matched {
         Some(symbol_id) => {
-            let mut target = ResolvedTarget {
-                symbol_id: symbol_id.clone(),
-                kind: SymbolKind::File,
-                confidence: IMPORT_BINDING_CONFIDENCE,
-                provenance: MODULE_IMPORT_PROVENANCE,
-            };
+            let mut target =
+                component_imports::module_target(index, (request, default_only), cancelled)?
+                    .unwrap_or(ResolvedTarget {
+                        symbol_id: symbol_id.clone(),
+                        kind: SymbolKind::File,
+                        confidence: IMPORT_BINDING_CONFIDENCE,
+                        provenance: MODULE_IMPORT_PROVENANCE,
+                    });
             javascript_modules::lower_fallback_target(
                 &mut target,
                 &index.modules,
@@ -20561,7 +20581,6 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         let reversed = build_capability_generation(&fixtures, true);
         assert_eq!(forward.digest(), reversed.digest());
 
-        let svelte_card_file = capability_file_symbol(&forward, "src/lib/Card.svelte");
         let svelte_card = capability_symbol(&forward, "src/lib/Card.svelte", "Card");
         let local_svelte_button = capability_symbol(&forward, "src/routes/Button.svelte", "Button");
         let count = capability_symbol(&forward, "src/stores.ts", "count");
@@ -20569,7 +20588,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             capability_reference_in_file(&forward, "src/routes/+page.svelte", "$lib/Card");
         assert_eq!(
             module_reference.target_symbol_id.as_ref(),
-            Some(&svelte_card_file.symbol_id)
+            Some(&svelte_card.symbol_id)
         );
         assert_eq!(
             module_reference.resolution_provenance,
@@ -20598,14 +20617,13 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             Some(&count.symbol_id)
         );
 
-        let vue_card_file = capability_file_symbol(&forward, "src/components/Card.vue");
         let vue_card = capability_symbol(&forward, "src/components/Card.vue", "Card");
         let local_vue_button = capability_symbol(&forward, "pages/Button.vue", "Button");
         let vue_module =
             capability_reference_in_file(&forward, "pages/index.vue", "@/components/Card");
         assert_eq!(
             vue_module.target_symbol_id.as_ref(),
-            Some(&vue_card_file.symbol_id)
+            Some(&vue_card.symbol_id)
         );
         assert_eq!(
             vue_module.resolution_provenance,

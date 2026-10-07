@@ -46,6 +46,7 @@ mod javascript_reads;
 mod javascript_scopes;
 mod javascript_state;
 mod javascript_types;
+mod jsx_context;
 mod jvm_dynamic_family;
 mod jvm_type_lookup;
 mod lean_family;
@@ -83,6 +84,8 @@ mod type_contracts;
 mod value_references;
 mod vbnet_family;
 
+pub use jsx_context::JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX;
+pub(crate) use jsx_context::non_jsx_resolution_name;
 use optional_facts::{OptionalFactGate, OptionalFacts, PassFailure, WalkedFile};
 pub(crate) use optional_facts::{extract_with_optional_fact_fallback, note_optional_omission};
 use syntax::{

@@ -69,6 +69,7 @@ pub use salesforce_bundle::{SalesforceBundle, SalesforceBundleKind, salesforce_b
 pub use snapshot::{
     SnapshotError, SourceLimits, SourceLimitsError, SourceSnapshot, is_test_source_path,
 };
+pub use walk::JSX_CONTEXT_UNBOUND_RESOLUTION_PREFIX;
 
 /// Digest of every Rust extractor/domain source input and the locked parser dependency graph.
 ///
