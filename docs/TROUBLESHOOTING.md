@@ -107,10 +107,10 @@ plain-FTS fallback.
 | Component | Requirement |
 | --- | --- |
 | PostgreSQL | 18.4 or newer within major version 18 |
-| `pg_search` | 0.26.0 with the expected preload state/ParadeDB access method/BM25 tokenizer behavior |
+| `pg_search` | 0.26.1 with the expected preload state/ParadeDB access method/BM25 tokenizer behavior |
 | pgvector | 0.8.4 or newer; pgvector 0.8.7 is recommended for external PostgreSQL |
 
-The managed ParadeDB 0.26.0 image bundles `pg_search` 0.26.0 and pgvector 0.8.6.
+The managed ParadeDB 0.26.1 image bundles `pg_search` 0.26.1 and pgvector 0.8.6.
 
 ## Managed database cannot start
 

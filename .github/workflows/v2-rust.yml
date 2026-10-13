@@ -382,8 +382,8 @@ jobs:
           scripts/build-linux-rust-release.sh
           x86_64-unknown-linux-gnu
           linux-x64
-          rust:1.99.0-trixie@sha256:9d5e02aa6c7e9c112ed7a4c438900b41f519a792959cd5445c25de42bfb8388b
-          debian:13-slim@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c
+          rust:1.99.0-trixie@sha256:d3ba1ad5d5b5a180ca8428b4fab8543a1b3933b32a8a7ad90a7ebbaf5497203a
+          debian:13-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483
 
   paradedb:
     name: PostgreSQL 18 + ParadeDB + pgvector (${{ matrix.shard }})
@@ -401,7 +401,7 @@ jobs:
       CARTOGRAPH_POSTGRES_PASSWORD: cartograph-v2-ci-only
       CARTOGRAPH_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
       CARTOGRAPH_TEST_DATABASE_URL: postgresql://cartograph:cartograph-v2-ci-only@127.0.0.1:55432/cartograph
-      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.26.0@sha256:52fc9c95fdfd462201168d1d82334ed61f85cbd921957cab083ec39800a217ac
+      CARTOGRAPH_PARADEDB_IMAGE: paradedb/paradedb:0.26.1@sha256:29bd8cc90a89ff15f8350f89b4849c2ef807aa9381c79febd1afb1a8a25fb706
     steps:
       - name: Documentation-only required-check fast path
         if: needs.classify.outputs.docs_only == 'true'
@@ -764,7 +764,7 @@ jobs:
           subject-path: gate-attestation/v2-main-gate.json
 
       - name: Upload exact-SHA gate manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v2-main-gate-${{ github.sha }}
           path: gate-attestation/v2-main-gate.json

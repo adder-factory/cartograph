@@ -148,8 +148,8 @@ cartograph context 'explain the primary request flow' --project-path .
 ```
 
 The managed lifecycle creates project-owned, loopback-only Docker resources
-using the pinned upstream ParadeDB 0.26.0 image. PostgreSQL 18.4 or newer within
-major version 18, `pg_search` 0.26.0, pgvector 0.8.4 or newer, preload, ParadeDB
+using the pinned upstream ParadeDB 0.26.1 image. PostgreSQL 18.4 or newer within
+major version 18, `pg_search` 0.26.1, pgvector 0.8.4 or newer, preload, ParadeDB
 index access, BM25, and source-code tokenization are hard checks. External
 administrators create pgvector before `pg_search`. The managed image bundles
 pgvector 0.8.6; external PostgreSQL installations should use pgvector 0.8.7.

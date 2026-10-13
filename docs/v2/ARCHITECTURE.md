@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-10-07 (`v2.1.42`).
+Last implementation review: 2026-10-13 (`v2.1.43`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -133,12 +133,12 @@ releases admission.
 Before migration or normal work, Cartograph proves:
 
 - PostgreSQL 18.4 or newer within major version 18;
-- `pg_search` 0.26.0, expected preload state, the `paradedb` access method, and
+- `pg_search` 0.26.1, expected preload state, the `paradedb` access method, and
   exact `pdb.source_code` token behavior;
 - pgvector 0.8.4 or newer, with 0.8.7 recommended for external PostgreSQL;
 - bounded DML/DDL capability in the selected safely quoted schema.
 
-The managed image supplies PostgreSQL 18.6, `pg_search` 0.26.0, and pgvector
+The managed image supplies PostgreSQL 18.6, `pg_search` 0.26.1, and pgvector
 0.8.6; see [Managed PostgreSQL](#managed-postgresql).
 
 ### Migration ledger
@@ -792,8 +792,8 @@ and proves all capabilities. Status/logs/stop/backup are explicit. Restore,
 upgrade, derived-index rebuild, remove, import, and prune require exact
 operation-specific confirmation and have rollback/recovery tests.
 
-The digest-pinned ParadeDB 0.26.0 image supplies PostgreSQL 18.6, `pg_search`
-0.26.0, and pgvector 0.8.6. Extension initialization runs in one transaction
+The digest-pinned ParadeDB 0.26.1 image supplies PostgreSQL 18.6, `pg_search`
+0.26.1, and pgvector 0.8.6. Extension initialization runs in one transaction
 and updates pgvector before `pg_search`.
 
 Windows supports external PostgreSQL; managed lifecycle is withheld until

@@ -100,7 +100,7 @@ jobs:
           echo "Using exact-SHA main gate run $run_id"
 
       - name: Download exact-SHA gate manifest
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: v2-main-gate-${{ github.sha }}
           path: gate-attestation
@@ -155,15 +155,15 @@ jobs:
             asset_target: linux-x64
             shell: bash
             cache_key: unused-linux-x64
-            build_image: rust:1.99.0-trixie@sha256:9d5e02aa6c7e9c112ed7a4c438900b41f519a792959cd5445c25de42bfb8388b
-            runtime_image: debian:13-slim@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c
+            build_image: rust:1.99.0-trixie@sha256:d3ba1ad5d5b5a180ca8428b4fab8543a1b3933b32a8a7ad90a7ebbaf5497203a
+            runtime_image: debian:13-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483
           - os: ubuntu-24.04-arm
             rust_target: aarch64-unknown-linux-gnu
             asset_target: linux-arm64
             shell: bash
             cache_key: unused-linux-arm64
-            build_image: rust:1.99.0-trixie@sha256:853d02b24a2315b5f276c5126aa7e690b6cfe6d146b0278fa654969e119e3072
-            runtime_image: debian:13-slim@sha256:da496358bd6934d2bd6a563a33176a2e50eff5490c54b4ac6fb051b69fef4071
+            build_image: rust:1.99.0-trixie@sha256:585dced3da590f4f7dc2719172ead5b39ea781bd8b698c092112da8ef3be0659
+            runtime_image: debian:13-slim@sha256:a2ca65377c251208de42e1a2722cb949211236c161b634f6f3663754e2d06850
           - os: macos-26
             rust_target: aarch64-apple-darwin
             asset_target: darwin-arm64
@@ -232,7 +232,7 @@ jobs:
             target/
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.asset_target }}
           path: release/cartograph-*
@@ -253,7 +253,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release-artifacts
 

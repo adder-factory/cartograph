@@ -121,8 +121,8 @@ fn public_mcp_inventory_and_bundled_skill_track_current_contracts() {
 #[test]
 fn managed_paradedb_image_pin_tracks_the_actual_extension_contract() {
     const MANAGED_IMAGE: &str = concat!(
-        "paradedb/paradedb:0.26.0@sha256:",
-        "52fc9c95fdfd462201168d1d82334ed61f85cbd921957cab083ec39800a217ac"
+        "paradedb/paradedb:0.26.1@sha256:",
+        "29bd8cc90a89ff15f8350f89b4849c2ef807aa9381c79febd1afb1a8a25fb706"
     );
     const VALIDATION_WORKFLOW: &str = include_str!("../../../../.github/workflows/v2-rust.yml");
     const DEVELOPMENT_COMPOSE: &str =
@@ -143,8 +143,8 @@ fn managed_paradedb_image_pin_tracks_the_actual_extension_contract() {
         STORAGE_GUIDE,
         TROUBLESHOOTING,
     ] {
-        assert!(document.contains("ParadeDB 0.26.0 image"));
-        assert!(document.contains("`pg_search` 0.26.0"));
+        assert!(document.contains("ParadeDB 0.26.1 image"));
+        assert!(document.contains("`pg_search` 0.26.1"));
         assert!(document.contains("pgvector 0.8.6"));
     }
 }
