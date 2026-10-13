@@ -23,6 +23,7 @@ provenance live on GitHub Releases.
 
 | Version | Date | Schema · Contract | Headline |
 | --- | --- | --- | --- |
+| [v2.1.43](releases/v2.1.43.md) | 2026-10-13 | 50 · V23 | ParadeDB 0.26.1; Rust dependency, artifact-action, and build-image refresh |
 | [v2.1.42](releases/v2.1.42.md) | 2026-10-07 | 50 ↑ · V23 ↑ | v1 framework and bridge parity; typed receivers; oracles nearly complete |
 | [v2.1.41](releases/v2.1.41.md) | 2026-10-06 | 49 ↑ · V22 ↑ | v1 cross-file resolution parity; exact v1 resolution oracle |
 | [v2.1.40](releases/v2.1.40.md) | 2026-10-06 | 48 ↑ · V21 ↑ | v1 per-file extraction parity for every language; exact v1 parity oracle; credential screening |
@@ -86,6 +87,7 @@ Dated records of dependency selection and maintenance reviews.
 
 | Date | Shipped in | Record | Scope |
 | --- | --- | --- | --- |
+| 2026-10-13 | [v2.1.43](releases/v2.1.43.md) | [Dependency update](v2/DEPENDENCY-UPDATE-2026-10-13.md) | 87 direct dependencies; ParadeDB 0.26.1; artifact actions and build images |
 | 2026-10-04 | [v2.1.39](releases/v2.1.39.md) | [Dependency update](v2/DEPENDENCY-UPDATE-2026-10-04.md) | 87 direct dependencies; ParadeDB 0.26.0 with pgvector 0.8.6 |
 | 2026-10-02 | [v2.1.35](releases/v2.1.35.md) | [Dependency update](v2/DEPENDENCY-UPDATE-2026-10-02.md) | Rust 1.99.0 toolchain and build images |
 | 2026-10-01 | [v2.1.33](releases/v2.1.33.md) | [Dependency update](v2/DEPENDENCY-UPDATE-2026-10-01.md) | 86 direct dependencies; ParadeDB 0.25.11 |

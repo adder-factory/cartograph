@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.1.42"
+version = "2.1.43"
 edition = "2024"
 rust-version = "1.99.0"
 authors = ["Adder Factory"]
@@ -102,8 +102,8 @@ regex-syntax = "0.8.11"
 rustls = { version = "=0.23.45", default-features = false, features = ["ring"] }
 secrecy = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-sha2 = "=0.11.0"
+serde_json = "1.0.154"
+sha2 = "=0.11.1"
 signal-hook = { version = "0.4.5", default-features = false }
 sqlx-core = { version = "=0.9.0", default-features = false, features = [
   "_rt-tokio",
@@ -122,16 +122,16 @@ tokio = { version = "1.53.2", features = [
   "sync",
   "time",
 ] }
-toml_edit = "=0.25.15"
-tree-sitter = "=0.27.0"
-tree-sitter-abap-sqry = "=32.0.1"
+toml_edit = "=0.25.17"
+tree-sitter = "=0.27.1"
+tree-sitter-abap-sqry = "=33.0.1"
 tree-sitter-ada = "=0.1.0"
 tree-sitter-arkts = "=0.3.0"
 tree-sitter-astro-next = "=0.1.1"
 tree-sitter-cuda = "=0.21.2"
 tree-sitter-embedded-template = "=0.25.0"
 tree-sitter-go = "=0.25.0"
-unicode-ident = "=1.0.26"
+unicode-ident = "=1.0.27"
 tree-sitter-javascript = "=0.25.0"
 tree-sitter-luau = "=1.2.0"
 tree-sitter-ocaml = "=0.26.0"

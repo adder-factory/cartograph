@@ -15,7 +15,7 @@ default = ["std"]
 std = ["tree-sitter-runtime/std"]
 
 [dependencies]
-tree-sitter-runtime = { package = "tree-sitter", version = "=0.27.0", default-features = false }
+tree-sitter-runtime = { package = "tree-sitter", version = "=0.27.1", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"
