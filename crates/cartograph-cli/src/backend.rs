@@ -17,6 +17,7 @@ use futures_util::{StreamExt as _, stream};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tempfile::NamedTempFile;
+use tokio::{io::AsyncReadExt as _, process::Command as AsyncCommand};
 use url::Url;
 
 const STATE_DIRECTORY: &str = "backends";
@@ -36,6 +37,8 @@ const STOP_GRACE: Duration = Duration::from_secs(3);
 const STOP_POLL: Duration = Duration::from_millis(100);
 const START_CONFIRMATION: Duration = Duration::from_millis(250);
 const ENDPOINT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+const PROCESS_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+const PROCESS_REAP_TIMEOUT: Duration = Duration::from_secs(1);
 #[cfg(any(unix, windows))]
 const MAXIMUM_PROCESS_OUTPUT_BYTES: usize = 128 * 1024;
 const MAXIMUM_PID_COMMAND_BYTES: usize = 4_096;
@@ -724,9 +727,18 @@ async fn build_status_row(
         }
         PidState::Invalid(message) => (None, Some(message)),
     };
-    let pid_alive = pid_record
-        .as_ref()
-        .is_some_and(|record| process_alive(record.pid));
+    let (pid_alive, state_error) = match &pid_record {
+        Some(record) => match process_alive(record.pid).await {
+            Some(alive) => (alive, state_error),
+            None => (
+                false,
+                state_error.or_else(|| {
+                    Some("pid probe unavailable; retry before managing this process".to_owned())
+                }),
+            ),
+        },
+        None => (false, state_error),
+    };
     let endpoint_reachable =
         probe_openai_compatible_endpoint(&spec.endpoint, ENDPOINT_PROBE_TIMEOUT)
             .await
@@ -904,37 +916,82 @@ fn safe_regular_file(path: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
 }
 
-fn process_alive(pid: u32) -> bool {
+async fn process_alive(pid: u32) -> Option<bool> {
+    process_alive_with_timeout(pid, PROCESS_PROBE_TIMEOUT).await
+}
+
+async fn process_alive_with_timeout(pid: u32, timeout: Duration) -> Option<bool> {
     #[cfg(unix)]
     {
         let expected_pid = pid.to_string();
-        ProcessCommand::new("ps")
-            .args(["-p", &expected_pid, "-o", "pid=,stat="])
-            .stdin(Stdio::null())
-            .output()
-            .is_ok_and(|output| {
-                if !output.status.success() || output.stdout.len() > 64 {
-                    return false;
-                }
-                let rendered = String::from_utf8_lossy(&output.stdout);
-                let mut fields = rendered.split_whitespace();
-                fields.next() == Some(expected_pid.as_str())
-                    && fields.next().is_some_and(|state| !state.starts_with('Z'))
-                    && fields.next().is_none()
-            })
+        let mut command = AsyncCommand::new("ps");
+        command.args(["-p", &expected_pid, "-o", "pid=,stat="]);
+        let output = process_probe(command, 64, timeout).await?;
+        if !output.status.success() {
+            return (output.status.code() == Some(1) && output.stdout.is_empty()).then_some(false);
+        }
+        let rendered = String::from_utf8_lossy(&output.stdout);
+        let mut fields = rendered.split_whitespace();
+        if fields.next()? != expected_pid {
+            return None;
+        }
+        let state = fields.next()?;
+        fields.next().is_none().then_some(!state.starts_with('Z'))
     }
     #[cfg(windows)]
     {
-        ProcessCommand::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .stdin(Stdio::null())
-            .output()
-            .is_ok_and(|output| {
-                output.status.success()
-                    && output.stdout.len() <= MAXIMUM_PROCESS_OUTPUT_BYTES
-                    && String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\""))
-            })
+        let mut command = AsyncCommand::new("tasklist");
+        command.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+        let output = process_probe(command, MAXIMUM_PROCESS_OUTPUT_BYTES, timeout).await?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\"")))
     }
+}
+
+/// Short OS probes have a shared byte/deadline/reaping boundary. A missing
+/// observation remains unavailable, never proof that a recorded process died.
+async fn process_probe(
+    mut command: AsyncCommand,
+    maximum_bytes: usize,
+    timeout: Duration,
+) -> Option<std::process::Output> {
+    if maximum_bytes == 0 || maximum_bytes > MAXIMUM_PROCESS_OUTPUT_BYTES || timeout.is_zero() {
+        return None;
+    }
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .ok()?;
+    let result = tokio::time::timeout(timeout, async {
+        let stdout = child.stdout.take()?;
+        let mut bytes = Vec::new();
+        stdout
+            .take(u64::try_from(maximum_bytes).ok()?.checked_add(1)?)
+            .read_to_end(&mut bytes)
+            .await
+            .ok()?;
+        if bytes.len() > maximum_bytes {
+            return None;
+        }
+        let status = child.wait().await.ok()?;
+        Some(std::process::Output {
+            status,
+            stdout: bytes,
+            stderr: Vec::new(),
+        })
+    })
+    .await;
+    if let Ok(Some(output)) = result {
+        return Some(output);
+    }
+    let _kill = child.start_kill();
+    let _reaped = tokio::time::timeout(PROCESS_REAP_TIMEOUT, child.wait()).await;
+    None
 }
 
 fn disposition(row: &BackendRow, reason: impl Into<String>) -> ActionDisposition {
@@ -1186,16 +1243,16 @@ async fn stop_row(row: &BackendRow, force: bool) -> Result<Option<String>, Strin
         remove_pid_file(&row.pid_file_path)?;
         return Ok(Some(format!("removed stale pid state for {}", record.pid)));
     }
-    if !process_identity_matches(record) {
+    if !process_identity_matches(record).await {
         return Err(format!(
             "pid {} is alive but its command identity does not match the recorded backend",
             record.pid
         ));
     }
-    signal_process(record.pid, false)?;
+    signal_process(record.pid, false).await?;
     let mut exited = wait_for_exit(record.pid, STOP_GRACE).await;
     if !exited && force {
-        signal_process(record.pid, true)?;
+        signal_process(record.pid, true).await?;
         exited = wait_for_exit(record.pid, STOP_GRACE).await;
     }
     if !exited {
@@ -1208,8 +1265,8 @@ async fn stop_row(row: &BackendRow, force: bool) -> Result<Option<String>, Strin
     Ok(Some(format!("stopped pid {}", record.pid)))
 }
 
-fn process_identity_matches(record: &BackendPidRecord) -> bool {
-    let Some(command_line) = process_command_line(record.pid) else {
+async fn process_identity_matches(record: &BackendPidRecord) -> bool {
+    let Some(command_line) = process_command_line(record.pid).await else {
         return false;
     };
     let binary = Path::new(&record.command)
@@ -1224,24 +1281,22 @@ fn process_identity_matches(record: &BackendPidRecord) -> bool {
             .is_some_and(|port| command_line.contains(&port.to_string()))
 }
 
-fn process_command_line(pid: u32) -> Option<String> {
+async fn process_command_line(pid: u32) -> Option<String> {
     #[cfg(unix)]
-    let output = ProcessCommand::new("ps")
-        .args(["-ww", "-p", &pid.to_string(), "-o", "command="])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
+    let mut command = AsyncCommand::new("ps");
+    #[cfg(unix)]
+    command.args(["-ww", "-p", &pid.to_string(), "-o", "command="]);
     #[cfg(windows)]
-    let output = ProcessCommand::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!("(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine"),
-        ])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
+    let mut command = AsyncCommand::new("powershell");
+    #[cfg(windows)]
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        &format!("(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine"),
+    ]);
+    let output =
+        process_probe(command, MAXIMUM_PROCESS_OUTPUT_BYTES, PROCESS_PROBE_TIMEOUT).await?;
     if !output.status.success() || output.stdout.len() > MAXIMUM_PROCESS_OUTPUT_BYTES {
         return None;
     }
@@ -1250,41 +1305,38 @@ fn process_command_line(pid: u32) -> Option<String> {
         .filter(|line| !line.trim().is_empty())
 }
 
-fn signal_process(pid: u32, force: bool) -> Result<(), String> {
+async fn signal_process(pid: u32, force: bool) -> Result<(), String> {
     #[cfg(unix)]
-    let status = ProcessCommand::new("kill")
-        .args([if force { "-KILL" } else { "-TERM" }, &pid.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    let mut command = AsyncCommand::new("kill");
+    #[cfg(unix)]
+    command.args([if force { "-KILL" } else { "-TERM" }, &pid.to_string()]);
     #[cfg(windows)]
-    let status = {
-        let mut command = ProcessCommand::new("taskkill");
+    let command = {
+        let mut command = AsyncCommand::new("taskkill");
         command.args(["/PID", &pid.to_string(), "/T"]);
         if force {
             command.arg("/F");
         }
         command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
     };
-    status
-        .is_ok_and(|status| status.success())
+    process_probe(command, MAXIMUM_PROCESS_OUTPUT_BYTES, PROCESS_PROBE_TIMEOUT)
+        .await
+        .is_some_and(|output| output.status.success())
         .ok_or_else(|| format!("could not signal verified backend pid {pid}"))
 }
 
 async fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if !process_alive(pid) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if process_alive_with_timeout(pid, remaining.min(PROCESS_PROBE_TIMEOUT)).await
+            == Some(false)
+        {
             return true;
         }
         tokio::time::sleep(STOP_POLL).await;
     }
-    !process_alive(pid)
+    false
 }
 
 fn remove_pid_file(path: &Path) -> Result<(), String> {
@@ -1942,6 +1994,51 @@ mod tests {
     use std::assert_matches;
 
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_probes_have_output_and_time_bounds_without_blocking_timers() {
+        assert!(
+            process_probe(
+                AsyncCommand::new("cartograph-nonexistent-probe-fixture"),
+                64,
+                PROCESS_PROBE_TIMEOUT
+            )
+            .await
+            .is_none()
+        );
+        let mut sleeping = AsyncCommand::new("sh");
+        sleeping.args(["-c", "exec sleep 30"]);
+        let start = tokio::time::Instant::now();
+        let (probe, timer_elapsed) = tokio::join!(
+            process_probe(sleeping, 64, Duration::from_millis(300)),
+            async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                start.elapsed()
+            }
+        );
+        assert!(probe.is_none());
+        assert!(
+            timer_elapsed < Duration::from_millis(200),
+            "an OS probe blocked the async runtime"
+        );
+        assert!(start.elapsed() < Duration::from_secs(2));
+        let mut noisy = AsyncCommand::new("sh");
+        noisy.args(["-c", "printf '123456789'"]);
+        assert!(
+            process_probe(noisy, 8, PROCESS_PROBE_TIMEOUT)
+                .await
+                .is_none()
+        );
+        let mut bounded = AsyncCommand::new("sh");
+        bounded.args(["-c", "printf '12345678'"]);
+        assert_eq!(
+            process_probe(bounded, 8, PROCESS_PROBE_TIMEOUT)
+                .await
+                .map(|output| output.stdout),
+            Some(b"12345678".to_vec())
+        );
+    }
     use tempfile::{TempDir, tempdir};
 
     const EMBED_ENDPOINT: &str = "http://127.0.0.1:8080";
@@ -2437,9 +2534,10 @@ mod tests {
             Some(format!("removed stale pid state for {}", u32::MAX - 1))
         );
         assert!(!row.pid_file_path.exists());
-        assert!(process_alive(std::process::id()));
-        assert!(!process_alive(u32::MAX));
-        assert!(wait_for_exit(u32::MAX, Duration::from_millis(1)).await);
+        assert_eq!(process_alive(std::process::id()).await, Some(true));
+        assert_eq!(process_alive(u32::MAX).await, Some(false));
+        assert!(!wait_for_exit(u32::MAX, Duration::ZERO).await);
+        assert!(wait_for_exit(u32::MAX, STOP_GRACE).await);
 
         fs::write(paths.directory.join("malformed.json"), b"not-json")
             .unwrap_or_else(|error| panic!("malformed pid fixture failed: {error}"));

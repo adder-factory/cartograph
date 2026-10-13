@@ -14,6 +14,8 @@ use std::time::Duration;
 pub struct GenerationRetentionAttempt {
     generation: Option<GenerationRetentionReport>,
     generation_failure: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generation_failure_at: Option<super::GenerationRetentionDiagnostic>,
     parse_cache: Option<NativeParseCacheRetentionReport>,
 }
 
@@ -27,6 +29,10 @@ impl GenerationRetentionAttempt {
         Self {
             generation: generation.as_ref().ok().copied(),
             generation_failure: generation.as_ref().err().map(super::drain::error_reason),
+            generation_failure_at: generation
+                .as_ref()
+                .err()
+                .and_then(GenerationRetentionError::diagnostic),
             parse_cache,
         }
     }
@@ -34,16 +40,9 @@ impl GenerationRetentionAttempt {
     fn failed(self) -> bool {
         self.generation_failure.is_some()
             || self.parse_cache.is_none()
-            || self.generation.is_some_and(|report| {
-                report.deferred_reason.is_some_and(|reason| {
-                    !matches!(
-                        reason,
-                        "work_budget_reached"
-                            | "search_relation_byte_budget"
-                            | "search_relation_ddl_budget"
-                    )
-                })
-            })
+            || self
+                .generation
+                .is_some_and(GenerationRetentionReport::maintenance_failed)
     }
 }
 
@@ -78,6 +77,7 @@ impl CartographDatabase {
             fence,
             quoted_schema: crate::database::quoted_schema(&self.schema),
             batch_deadline: None,
+            checkpoint: std::sync::RwLock::default(),
         };
         acquire_retention_locks(&mut transaction, &context).await?;
         require_live_fence(&mut transaction, &context).await?;

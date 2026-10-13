@@ -196,8 +196,8 @@ async fn automatic_index_drains_failed_generations_before_reserving_another() {
         0
     );
 
-    // A backlog that cannot drain (another operation holds the project) must
-    // not freeze automatic indexing behind a retryable deferral.
+    // A competing live writer remains transient contention and must not
+    // reserve another generation before returning its normal busy outcome.
     stage_generations(&runtime, &first.project_id, 3).await;
     fail_staged().await;
     std::fs::write(
@@ -215,10 +215,8 @@ async fn automatic_index_drains_failed_generations_before_reserving_another() {
         .await
         .unwrap_or_else(|error| panic!("backlog competitor lease failed: {error}"));
     let blocked = runtime.index(IndexOptions::automatic()).await;
-    assert!(
-        !matches!(blocked, Err(ProjectError::IndexRetentionBacklog)),
-        "a backlog that made no cleanup progress deferred automatic indexing"
-    );
+    assert_matches!(blocked, Err(ProjectError::IndexLeaseBusy));
+    assert_eq!(reserved().await, 0);
     runtime
         .database()
         .release_lease(&competitor)
@@ -245,4 +243,97 @@ async fn stage_generations(
             .await
             .unwrap_or_else(|error| panic!("backlog generation failed: {error}"));
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
+async fn automatic_index_defers_without_progress_on_excess_superseded_work() {
+    let (schema, settings, project) = live_project_fixture("4");
+    let source = write_incremental_fixture(project.path());
+    let runtime = ProjectRuntime::connect(project.path(), &settings)
+        .await
+        .unwrap_or_else(|error| panic!("superseded runtime failed: {error}"));
+    let first = initial_incremental_index(
+        &runtime,
+        IndexOptions::default().with_history_refresh(false),
+    )
+    .await;
+    stage_generations(&runtime, &first.project_id, 4).await;
+    let pool = cartograph_db::connect(&settings)
+        .await
+        .unwrap_or_else(|error| panic!("superseded pool failed: {error}"));
+    for statement in [
+        format!(
+            r#"UPDATE "{schema}".index_generations SET state = 'superseded' WHERE state = 'staging'"#
+        ),
+        format!(
+            r#"CREATE TABLE "{schema}".unknown_retention_child (
+            project_id uuid, generation_id uuid,
+            FOREIGN KEY (project_id, generation_id) REFERENCES "{schema}".index_generations
+                (project_id, generation_id) ON DELETE CASCADE)"#
+        ),
+    ] {
+        query(AssertSqlSafe(statement))
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("superseded fault failed: {error}"));
+    }
+    std::fs::write(
+        source.join("service.ts"),
+        "export function calculateTotal(value: number): number { return value + 9; }\n",
+    )
+    .unwrap_or_else(|error| panic!("superseded edit failed: {error}"));
+    for _ in 0..3 {
+        assert_matches!(
+            runtime.index(IndexOptions::automatic()).await,
+            Err(ProjectError::IndexRetentionBacklog)
+        );
+    }
+    assert_eq!(
+        runtime
+            .database()
+            .generation_retention_backlog(&first.project_id, 2)
+            .await
+            .unwrap_or_else(|error| panic!("superseded count failed: {error}")),
+        2
+    );
+    let snapshot = runtime
+        .status()
+        .await
+        .unwrap_or_else(|error| panic!("superseded status failed: {error}"))
+        .snapshot
+        .unwrap_or_else(|| panic!("superseded snapshot missing"));
+    assert_eq!(snapshot.generation_storage.staging, 0);
+    assert_eq!(snapshot.generation_storage.failed, 0);
+    assert_eq!(snapshot.generation_storage.superseded, 4);
+    assert_eq!(
+        snapshot
+            .current
+            .unwrap_or_else(|| panic!("superseded current missing"))
+            .generation_id,
+        first.generation_id
+    );
+    query(AssertSqlSafe(format!(
+        r#"DROP TABLE "{schema}".unknown_retention_child"#
+    )))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("superseded fault cleanup failed: {error}"));
+    let recovered = runtime
+        .index(IndexOptions::automatic())
+        .await
+        .unwrap_or_else(|error| panic!("superseded recovery failed: {error}"));
+    assert!(recovered.published);
+    assert_ne!(recovered.generation_id, first.generation_id);
+    assert_eq!(
+        runtime
+            .database()
+            .generation_retention_backlog(&first.project_id, 2)
+            .await
+            .unwrap_or_else(|error| panic!("superseded recovery count failed: {error}")),
+        0
+    );
+    pool.close().await;
+    runtime.close().await;
+    drop_schema(&settings, &schema).await;
 }

@@ -312,6 +312,9 @@ pub struct GenerationRetentionReport {
     pub batches_committed: u64,
     /// Stable reason more eligible work was left for a later invocation.
     pub deferred_reason: Option<&'static str>,
+    /// Bounded phase/relation evidence for an interrupted drain, without SQL or IDs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deferred_at: Option<GenerationRetentionDiagnostic>,
     /// Canonical and cascading rows admitted under the exact row-work cap.
     pub cascade_rows_removed: u64,
     /// Physical generation search relations removed in the bounded DDL batch.
@@ -328,6 +331,55 @@ impl GenerationRetentionReport {
     pub const fn removed(self) -> u64 {
         self.staging_removed + self.ready_removed + self.superseded_removed + self.failed_removed
     }
+
+    /// Whether cleanup encountered a failure rather than its normal work caps.
+    #[must_use]
+    pub fn maintenance_failed(self) -> bool {
+        self.deferred_reason.is_some_and(|reason| {
+            !matches!(
+                reason,
+                "work_budget_reached"
+                    | "search_relation_byte_budget"
+                    | "search_relation_ddl_budget"
+            )
+        })
+    }
+}
+
+/// Credential-free location within a bounded retention transaction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct GenerationRetentionDiagnostic {
+    /// Fixed implementation phase, never query text.
+    pub phase: GenerationRetentionPhase,
+    /// Allowlisted child relation, absent outside row draining.
+    pub relation: Option<&'static str>,
+}
+
+/// Fixed phases exposed by retention diagnostics.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationRetentionPhase {
+    /// Pool admission before a transaction starts.
+    #[default]
+    Acquire,
+    /// Transaction initialization.
+    Begin,
+    /// Lease, project, and relation locks.
+    Locks,
+    /// Foreign-key graph verification.
+    Catalog,
+    /// Generation eligibility and derived-relation budgets.
+    Candidates,
+    /// Claiming a generation as retiring.
+    Claim,
+    /// Transactional deletion of derived search data.
+    SearchRelation,
+    /// Child-before-parent row deletion.
+    Rows,
+    /// Remaining generation counts and final lease fence.
+    Verify,
+    /// Committing the independent transaction.
+    Commit,
 }
 
 /// Table-scoped post-retention maintenance. Routine cleanup never performs
@@ -395,6 +447,25 @@ pub enum GenerationRetentionError {
         /// Stable operation label.
         operation: &'static str,
     },
+    /// A bounded drain was interrupted; only fixed phase/relation labels are exposed.
+    #[error("Cartograph PostgreSQL retention operation failed during {operation} at {at:?}")]
+    Interrupted {
+        /// Stable operation label, including `batch-deadline`.
+        operation: &'static str,
+        /// The last bounded phase attempted.
+        at: GenerationRetentionDiagnostic,
+    },
+}
+
+impl GenerationRetentionError {
+    /// Location evidence available for an interrupted drain.
+    #[must_use]
+    pub const fn diagnostic(&self) -> Option<GenerationRetentionDiagnostic> {
+        match self {
+            Self::Interrupted { at, .. } => Some(*at),
+            _ => None,
+        }
+    }
 }
 
 impl CartographDatabase {
@@ -491,6 +562,21 @@ struct RetentionContext<'a> {
     quoted_schema: String,
     /// Monotonic deadline of the enclosing drain transaction, when bounded.
     batch_deadline: Option<tokio::time::Instant>,
+    checkpoint: std::sync::RwLock<GenerationRetentionDiagnostic>,
+}
+
+impl RetentionContext<'_> {
+    fn checkpoint(&self, phase: GenerationRetentionPhase, relation: Option<&'static str>) {
+        if let Ok(mut at) = self.checkpoint.write() {
+            *at = GenerationRetentionDiagnostic { phase, relation };
+        }
+    }
+
+    fn diagnostic(&self) -> GenerationRetentionDiagnostic {
+        self.checkpoint
+            .read()
+            .map_or_else(|_| GenerationRetentionDiagnostic::default(), |at| *at)
+    }
 }
 
 #[derive(Default)]
@@ -538,12 +624,15 @@ where
     Observed: Future<Output = ()>,
 {
     let context = scope.context;
+    context.checkpoint(GenerationRetentionPhase::Locks, None);
     acquire_retention_locks(connection, context).await?;
     require_live_fence(connection, context).await?;
     lock_project(connection, context).await?;
     lock_retention_relations(connection, context).await?;
+    context.checkpoint(GenerationRetentionPhase::Catalog, None);
     verify_retention_cascade_catalog(connection, context).await?;
     observe_catalog().await;
+    context.checkpoint(GenerationRetentionPhase::Candidates, None);
     let candidates = load_terminal_candidates(connection, context, true).await?;
     let relation_budget_blocked = candidates.is_empty()
         && !load_terminal_candidates(connection, context, false)
@@ -551,9 +640,11 @@ where
             .is_empty();
     let bounded = bound_candidate_work(connection, context, candidates).await?;
     let progress = drain::delete_rows(connection, scope, &bounded.candidates).await?;
+    context.checkpoint(GenerationRetentionPhase::Catalog, None);
     // Revalidate the complete FK graph while its DDL fence is still held.
     verify_retention_cascade_catalog(connection, context).await?;
     let removed = progress.removed;
+    context.checkpoint(GenerationRetentionPhase::Verify, None);
     let preserved = load_preserved_counts(connection, context).await?;
     // Row locks prevent takeover, but they do not freeze database-clock expiry.
     require_live_fence(connection, context).await?;
@@ -577,6 +668,7 @@ where
                 "search_relation_byte_budget"
             },
         ),
+        deferred_at: None,
         cascade_rows_removed: progress.rows,
         search_relations_removed: progress.relations,
         search_relation_bytes_removed: progress.bytes,

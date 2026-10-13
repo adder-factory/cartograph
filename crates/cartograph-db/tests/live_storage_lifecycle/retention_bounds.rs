@@ -53,10 +53,32 @@ pub(super) async fn assert_pool_deadline(
         .await;
     assert_eq!(
         interrupted,
-        Err(cartograph_db::GenerationRetentionError::DatabaseOperation {
+        Err(cartograph_db::GenerationRetentionError::Interrupted {
             operation: "batch-deadline",
+            at: cartograph_db::GenerationRetentionDiagnostic {
+                phase: cartograph_db::GenerationRetentionPhase::Catalog,
+                relation: None,
+            },
         })
     );
+    database
+        .record_generation_retention_attempt(
+            &lease.fence(),
+            cartograph_db::GenerationRetentionAttempt::new(&interrupted, None),
+            STATEMENT_TIMEOUT,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("deadline telemetry failed: {error}"));
+    let usage = database
+        .storage_usage(&project, 10, STATEMENT_TIMEOUT)
+        .await
+        .unwrap_or_else(|error| panic!("deadline storage failed: {error}"));
+    let attempt = usage
+        .retention_maintenance
+        .unwrap_or_else(|| panic!("deadline telemetry missing"));
+    assert_eq!(attempt.outcome["generationFailure"], "batch-deadline");
+    assert_eq!(attempt.outcome["generationFailureAt"]["phase"], "catalog");
+    assert!(attempt.outcome["generationFailureAt"]["relation"].is_null());
     let resumed = database
         .cleanup_generations(GenerationRetentionRequest::new(
             policy,

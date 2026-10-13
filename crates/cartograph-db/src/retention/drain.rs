@@ -1,8 +1,8 @@
 use super::{
-    CandidateWork, CartographDatabase, GenerationRetentionError, GenerationRetentionReport,
-    GenerationRetentionRequest, PostRetentionMaintenance, PostRetentionMaintenancePlan,
-    RemovedGenerationCounts, RetentionContext, cleanup_transaction, database_error,
-    post_retention_maintenance_plan, validate_fence_shape,
+    CandidateWork, CartographDatabase, GenerationRetentionError, GenerationRetentionPhase,
+    GenerationRetentionReport, GenerationRetentionRequest, PostRetentionMaintenance,
+    PostRetentionMaintenancePlan, RemovedGenerationCounts, RetentionContext, cleanup_transaction,
+    database_error, post_retention_maintenance_plan, validate_fence_shape,
 };
 use cartograph_domain::GenerationId;
 use sqlx_core::{acquire::Acquire, query::query, row::Row, sql_str::AssertSqlSafe};
@@ -223,6 +223,7 @@ where
             fence: request.fence,
             quoted_schema: crate::database::quoted_schema(&database.schema),
             batch_deadline: Some(batch_deadline),
+            checkpoint: std::sync::RwLock::default(),
         };
         let scope = DrainScope {
             context: &context,
@@ -248,6 +249,7 @@ where
                     return Err(error);
                 };
                 report.deferred_reason = Some(error_reason(&error));
+                report.deferred_at = error.diagnostic();
                 break;
             }
         }
@@ -327,6 +329,7 @@ where
         .map_err(|_| database_error("acquire"))?;
     let mut working = cursors.clone();
     let result = tokio::time::timeout_at(deadline, async {
+        context.checkpoint(GenerationRetentionPhase::Begin, None);
         let mut transaction = connection
             .begin()
             .await
@@ -341,6 +344,7 @@ where
         };
         match cleanup_transaction(&mut transaction, scope, observe).await {
             Ok(report) => {
+                context.checkpoint(GenerationRetentionPhase::Commit, None);
                 transaction
                     .commit()
                     .await
@@ -361,13 +365,24 @@ where
         if result.is_ok() {
             *cursors = working;
         }
-        result
+        result.map_err(|error| match error {
+            GenerationRetentionError::DatabaseOperation {
+                operation: "drain-generation-rows",
+            } => GenerationRetentionError::Interrupted {
+                operation: "drain-generation-rows",
+                at: context.diagnostic(),
+            },
+            other => other,
+        })
     } else {
         // A timed-out transaction must not be reused by the independent cache
         // pass. Dropping the detached raw connection closes its socket; no
         // unbounded rollback is awaited after the invocation deadline.
         drop(connection.detach());
-        Err(database_error("batch-deadline"))
+        Err(GenerationRetentionError::Interrupted {
+            operation: "batch-deadline",
+            at: context.diagnostic(),
+        })
     }
 }
 
@@ -392,7 +407,8 @@ fn merge(
 pub(super) const fn error_reason(error: &GenerationRetentionError) -> &'static str {
     match error {
         GenerationRetentionError::LeaseFenceLost => "lease_fence_lost_after_progress",
-        GenerationRetentionError::DatabaseOperation { operation } => operation,
+        GenerationRetentionError::DatabaseOperation { operation }
+        | GenerationRetentionError::Interrupted { operation, .. } => operation,
         GenerationRetentionError::InvalidPolicy => "invalid_policy",
         GenerationRetentionError::ProjectNotFound => "project_not_found",
     }
@@ -468,8 +484,10 @@ pub(super) async fn delete_rows(
         if progress.rows >= context.policy.maximum_cascade_rows {
             break;
         }
+        context.checkpoint(GenerationRetentionPhase::Claim, None);
         claim_generation(connection, context, work).await?;
         if work.search_relation_present {
+            context.checkpoint(GenerationRetentionPhase::SearchRelation, None);
             crate::search_relation::drop_generation_search_relation(
                 connection,
                 &context.database.schema,
@@ -511,6 +529,7 @@ impl Progress {
         let context = scope.context;
         let generation_id = &work.candidate.generation_id;
         for table in DELETE_ORDER {
+            context.checkpoint(GenerationRetentionPhase::Rows, Some(table));
             let target = DrainTarget {
                 context,
                 work,

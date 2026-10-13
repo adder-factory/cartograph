@@ -20,6 +20,7 @@ const MAX_GIT_OUTPUT_BYTES: usize = 4 * 1_048_576;
 const HARD_MAX_GIT_OUTPUT_BYTES: usize = 128 * 1_048_576;
 const GIT_READ_CHUNK_BYTES: usize = 8 * 1_024;
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+const GIT_REAP_TIMEOUT: Duration = Duration::from_secs(1);
 const HARD_MAX_GIT_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Bounded deterministic options for comparison against one Git revision.
@@ -280,6 +281,13 @@ pub enum ReviewError {
 }
 
 impl super::ProjectRuntime {
+    /// Inspect Git dirtiness through the existing bounded asynchronous Git owner.
+    /// An unavailable or oversized observation conservatively requests sync;
+    /// only a successful empty status can prove that Git is clean.
+    pub async fn git_worktree_is_dirty(&self) -> bool {
+        git_worktree_is_dirty(&self.root).await
+    }
+
     /// Compare the live checkout to a Git ref and attach deterministic current-generation
     /// exact-path, reverse-impact, and affected-test evidence.
     /// # Errors
@@ -567,8 +575,18 @@ async fn read_bounded(
 }
 
 async fn terminate(child: &mut Child) {
-    let _kill_result = child.kill().await;
-    let _wait_result = child.wait().await;
+    let _kill_result = child.start_kill();
+    let _wait_result = tokio::time::timeout(GIT_REAP_TIMEOUT, child.wait()).await;
+}
+
+async fn git_worktree_is_dirty(root: &Path) -> bool {
+    run_git_bounded(
+        root,
+        &["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+        GitCommandBounds::new(1, Duration::from_secs(2)),
+    )
+    .await
+    .map_or(true, |output| !output.success || !output.stdout.is_empty())
 }
 
 fn parse_commit(output: &[u8]) -> Result<String, ReviewError> {
@@ -649,4 +667,34 @@ pub(super) fn valid_git_ref(reference: &str) -> bool {
         && !reference
             .bytes()
             .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+}
+
+#[cfg(test)]
+mod dirtiness_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn git_dirtiness_requires_a_successful_empty_observation() {
+        let project =
+            tempfile::tempdir().unwrap_or_else(|error| panic!("Git fixture failed: {error}"));
+        assert!(
+            git_worktree_is_dirty(project.path()).await,
+            "an unavailable Git repository is not clean evidence"
+        );
+        let initialized = run_git_bounded(
+            project.path(),
+            &["init", "--initial-branch=main"],
+            GitCommandBounds::new(1_024, Duration::from_secs(2)),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("Git init failed: {error}"));
+        assert!(initialized.success);
+        assert!(!git_worktree_is_dirty(project.path()).await);
+        std::fs::write(project.path().join("untracked.rs"), "pub fn value() {}\n")
+            .unwrap_or_else(|error| panic!("Git source failed: {error}"));
+        assert!(
+            git_worktree_is_dirty(project.path()).await,
+            "oversized status must still request sync"
+        );
+    }
 }

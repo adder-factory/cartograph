@@ -162,9 +162,9 @@ pub use qualified::{
     QualifiedSymbolSort,
 };
 pub use retention::{
-    GenerationRetentionAttempt, GenerationRetentionError, GenerationRetentionPolicy,
-    GenerationRetentionReport, GenerationRetentionRequest, PostRetentionMaintenance,
-    PostRetentionMaintenancePolicy,
+    GenerationRetentionAttempt, GenerationRetentionDiagnostic, GenerationRetentionError,
+    GenerationRetentionPhase, GenerationRetentionPolicy, GenerationRetentionReport,
+    GenerationRetentionRequest, PostRetentionMaintenance, PostRetentionMaintenancePolicy,
 };
 pub use retrieval::{
     CurrentEntryPointPage, CurrentEntryPointsLookup, CurrentFileLookup, CurrentFileRecord,

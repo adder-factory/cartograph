@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last implementation review: 2026-10-13 (`v2.1.43`).
+Last implementation review: 2026-10-13 (`v2.1.44`).
 
 Cartograph v2 is a native Rust code-intelligence server for AI coding agents.
 PostgreSQL 18 is its only durable store, ParadeDB `pg_search` provides
@@ -866,6 +866,16 @@ parse-cache retention after publication/no-op detection. A failed automatic
 index also attempts bounded terminal-generation retention, and a cross-revision
 capacity circuit stops after five unresolved capacity failures.
 
+The host's existing auto-sync owner also runs periodic retention alongside its
+file-event loop, even while source is fresh or index retries are suppressed.
+Both futures belong to one supervised task and share its cancellation lifetime;
+there is at most one periodic pass per host, and project migration leases fence
+all hosts and writers. Maintenance never reserves or publishes a generation.
+Its policy-file read uses the supervised source worker and source admission
+permit rather than occupying an async runtime worker. Failures back off from
+30 seconds to 15 minutes independently of source freshness; normal bounded
+progress resumes at the 30-second cadence.
+
 **Resumable drain.** Retention marks each selected generation `retiring` and
 drains it with bounded, independently committed transactions that walk each
 large relation in key order, so committed progress survives a later timeout.
@@ -888,15 +898,22 @@ without a key suffix use a plain bounded sweep.
 
 A later transaction that fails after earlier commits records its error reason
 instead of discarding that committed progress.
+Interrupted drains also report `deferred_at` with a fixed phase and allowlisted
+relation. A failure before any commit records the same location in
+`retentionMaintenance.outcome.generationFailureAt`. SQL, credentials, source,
+and project paths never appear in these diagnostics.
 
 **Pre-admission backpressure.** Before an automatic index attempt reserves a
-generation, it counts failed and retiring generations. When more than one
+generation, it counts eligible failed, retiring, and excess superseded
+generations, protecting current, leased, incomplete-import, and the two newest
+superseded generations. When more than one
 remains, it runs one bounded drain first; if that drain made progress and more
-than one still remains, the attempt is deferred with retryable
-`retention_backlog` and the previous generation stays visible. A drain that
-commits nothing (another operation holds the project, or a search-relation
-budget or catalog check blocks it) admits the attempt rather than freezing
-automatic indexing. Explicit indexes are never deferred.
+than one still remains, or cleanup cannot make progress, the attempt is deferred
+with retryable `retention_backlog` and the previous generation stays visible.
+The watcher backs these retries off from 30 seconds to 15 minutes without
+exhausting its persistent-index-failure circuit. A live competing lease returns
+ordinary `lease_busy` before reservation. Explicit indexes are never deferred
+by retention admission.
 
 **Cache and maintenance.** The current extractor
 contract is always cache-protected; one recent older contract plus independent

@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-13 (`v2.1.43`).
+Last release audit: 2026-10-13 (`v2.1.44`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds in the installed version; destructive-operation confirmation
@@ -685,6 +685,12 @@ context, and nullable live/dead row estimates when counters are unobserved.
 It also reports the latest automatic retention attempt, retiring generations,
 and database allocation outside the observed relation catalog. This allocation
 gap does not identify safely deletable files.
+
+Interrupted generation drains include fixed phase/relation evidence in
+`deferred_at` after committed progress or in
+`retentionMaintenance.outcome.generationFailureAt` before any commit. Async
+hosts periodically retry generation and cache retention independently of source
+changes; maintenance failures use capped backoff rather than continuous retries.
 
 `db usage` is read-only: it verifies the exact current append-only migration
 ledger and fails with migration guidance instead of creating or upgrading a

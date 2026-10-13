@@ -2,7 +2,7 @@ use super::*;
 use cartograph_domain::GenerationState;
 
 const DOCUMENTS: i64 = 21_003;
-const TIED_REFERENCES: i64 = 25_003;
+const TIED_REFERENCES: i64 = 101_003;
 
 pub(super) async fn assert_search_budget_progress(
     database: &CartographDatabase,
@@ -129,6 +129,13 @@ pub(super) async fn assert_retention_progress(
     assert_eq!(report.retiring_remaining, 1);
     assert_eq!(report.deferred_reason, Some("drain-generation-rows"));
     assert_eq!(
+        report.deferred_at,
+        Some(cartograph_db::GenerationRetentionDiagnostic {
+            phase: cartograph_db::GenerationRetentionPhase::Rows,
+            relation: Some("search_documents"),
+        })
+    );
+    assert_eq!(
         count_rows(pool, schema, "document_embeddings", &generation).await,
         DOCUMENTS - 20_000
     );
@@ -217,7 +224,7 @@ pub(super) async fn assert_keyset_drain_across_transactions(
         + CASCADE_FIXTURE_ROWS;
     assert_eq!(report.cascade_rows_removed, expected_rows);
     assert!(
-        report.batches_committed >= 3,
+        report.batches_committed >= 11,
         "fixture must span transactions"
     );
     assert_eq!(count_rows(pool, schema, "references", &generation).await, 0);
