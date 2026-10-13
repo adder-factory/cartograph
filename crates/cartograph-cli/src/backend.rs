@@ -2536,7 +2536,8 @@ mod tests {
         assert!(!row.pid_file_path.exists());
         assert_eq!(process_alive(std::process::id()).await, Some(true));
         assert_eq!(process_alive(u32::MAX).await, Some(false));
-        assert!(wait_for_exit(u32::MAX, Duration::from_millis(1)).await);
+        assert!(!wait_for_exit(u32::MAX, Duration::ZERO).await);
+        assert!(wait_for_exit(u32::MAX, STOP_GRACE).await);
 
         fs::write(paths.directory.join("malformed.json"), b"not-json")
             .unwrap_or_else(|error| panic!("malformed pid fixture failed: {error}"));
