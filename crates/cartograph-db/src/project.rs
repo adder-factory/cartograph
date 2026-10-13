@@ -414,6 +414,50 @@ impl CartographDatabase {
         u64::try_from(count).map_err(|_| database_error("terminal-generation-backlog"))
     }
 
+    /// Count terminal and excess superseded work eligible for retention.
+    /// Current, leased, and incomplete-import generations are excluded using
+    /// the same protections as the drain. Superseded ranks are assigned before
+    /// applying those protections, preserving the configured newest history.
+    /// # Errors
+    /// Returns a redacted error when the bounded count cannot be read.
+    pub async fn generation_retention_backlog(
+        &self,
+        project_id: &ProjectId,
+        keep_superseded: u32,
+    ) -> Result<u64, StorageError> {
+        let schema = crate::database::quoted_schema(&self.schema);
+        let statement = format!(
+            r#"WITH ranked AS (
+            SELECT generation_id, state,
+                row_number() OVER (PARTITION BY state ORDER BY generation_sequence DESC) AS state_rank
+            FROM {schema}."index_generations" WHERE project_id = $1::uuid
+        ) SELECT count(*)::bigint FROM ranked
+        WHERE (state IN ('failed', 'retiring') OR (state = 'superseded' AND state_rank > $2))
+            AND generation_id IS DISTINCT FROM (
+                SELECT current_generation_id FROM {schema}."projects" WHERE project_id = $1::uuid)
+            AND NOT EXISTS (SELECT 1 FROM {schema}."project_operation_leases" AS active
+                WHERE active.project_id = $1::uuid AND active.generation_id = ranked.generation_id
+                    AND active.expires_at > clock_timestamp())
+            AND NOT EXISTS (SELECT 1 FROM {schema}."v1_import_runs" AS recovery
+                WHERE recovery.project_id = $1::uuid AND recovery.generation_id = ranked.generation_id
+                    AND recovery.checkpoint <> 'complete')"#
+        );
+        let row = tokio::time::timeout(
+            Duration::from_secs(5),
+            query(AssertSqlSafe(statement))
+                .bind(project_id.as_str())
+                .bind(i64::from(keep_superseded))
+                .fetch_one(&self.pool),
+        )
+        .await
+        .map_err(|_| database_error("retention-backlog-deadline"))?
+        .map_err(|_| database_error("retention-backlog"))?;
+        let count = row
+            .try_get::<i64, _>(0)
+            .map_err(|_| database_error("retention-backlog"))?;
+        u64::try_from(count).map_err(|_| database_error("retention-backlog"))
+    }
+
     /// Count all retained generation states and estimate their dominant physical bytes.
     /// # Errors
     ///

@@ -739,6 +739,20 @@ pub enum GenerationRetentionStatus {
     },
 }
 
+impl GenerationRetentionStatus {
+    /// Whether a background maintenance owner should back off and retry later.
+    /// Normal bounded progress is retried at its regular cadence.
+    #[must_use]
+    pub fn maintenance_failed(&self) -> bool {
+        match self {
+            Self::Completed { report, .. } => report.maintenance_failed(),
+            Self::CompletedWithWarning { .. } | Self::CacheOnly { .. } | Self::Deferred { .. } => {
+                true
+            }
+        }
+    }
+}
+
 /// Monotonic phase timing evidence for one index/no-op request.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1706,19 +1720,6 @@ fn generation_retention_outcome(
 }
 
 /// Whether a bounded retention attempt committed any generation cleanup.
-const fn retention_made_progress(status: &GenerationRetentionStatus) -> bool {
-    match status {
-        GenerationRetentionStatus::Completed { report, .. }
-        | GenerationRetentionStatus::CompletedWithWarning { report, .. } => {
-            report.cascade_rows_removed > 0
-                || report.search_relations_removed > 0
-                || report.removed() > 0
-        }
-        GenerationRetentionStatus::CacheOnly { .. }
-        | GenerationRetentionStatus::Deferred { .. } => false,
-    }
-}
-
 /// A prior project's terminal-generation backlog, counted and drained through
 /// its runtime for [`index_admission`].
 struct RuntimeTerminalBacklog<'runtime> {
@@ -1732,16 +1733,26 @@ impl index_admission::TerminalBacklog for RuntimeTerminalBacklog<'_> {
     async fn count(&self) -> Result<u64, ProjectError> {
         self.runtime
             .database
-            .terminal_generation_backlog(self.project_id)
+            .generation_retention_backlog(self.project_id, AUTOMATIC_RETENTION_KEEP_SUPERSEDED)
             .await
             .map_err(|_| ProjectError::StatusFailed)
     }
 
-    async fn drain(&self) -> bool {
+    async fn drain(&self) -> index_admission::BacklogDrain {
         let contract = native_parse_cache_contract_digest(self.maximum_ast_depth);
         let retention =
             maintain_generation_retention(self.runtime, self.project_id, &contract).await;
-        retention_made_progress(&retention)
+        if matches!(
+            retention,
+            GenerationRetentionStatus::Deferred {
+                reason: "project_busy",
+                ..
+            }
+        ) {
+            index_admission::BacklogDrain::ProjectBusy
+        } else {
+            index_admission::BacklogDrain::Attempted
+        }
     }
 }
 
@@ -2107,7 +2118,7 @@ impl ProjectRuntime {
     /// Apply the terminal-backlog admission policy in [`index_admission`]
     /// before an attempt reserves a generation, counting and draining the prior
     /// project's backlog through this runtime. Only automatic attempts are ever
-    /// deferred, and only while bounded cleanup is still making progress.
+    /// deferred while eligible retention work remains above its bound.
     async fn admit_automatic_generation(
         &self,
         source: &PreparedIndexSource,
@@ -2364,6 +2375,39 @@ impl ProjectRuntime {
             work,
             report_receiver,
         })
+    }
+
+    /// Run the existing bounded generation and parse-cache retention policy
+    /// without scanning, reserving, or publishing a generation. The exact
+    /// configured parsing contract remains protected, including on idle hosts.
+    /// # Errors
+    /// Returns a redacted error when project identity or policy cannot be read.
+    pub async fn maintain_retention(&self) -> Result<GenerationRetentionStatus, ProjectError> {
+        let snapshot = tokio::time::timeout(
+            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
+            self.database.project_snapshot_by_root(&self.root_identity),
+        )
+        .await
+        .map_err(|_| ProjectError::StatusFailed)?
+        .map_err(|_| ProjectError::StatusFailed)?
+        .ok_or(ProjectError::StatusFailed)?;
+        let root = self.root.clone();
+        let permit = tokio::time::timeout(
+            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
+            self.source_scan_permits.clone().acquire_owned(),
+        )
+        .await
+        .map_err(|_| ProjectError::SourceScanFailed)?
+        .map_err(|_| ProjectError::SourceScanFailed)?;
+        let policy = run_source_worker(move || {
+            let _permit = permit;
+            project_source_policy(&root)
+        })
+        .await?;
+        let contract = native_parse_cache_contract_digest(policy.index.maximum_ast_depth);
+        Ok(self
+            .maintain_generation_retention(&snapshot.project_id, &contract)
+            .await)
     }
 
     async fn maintain_generation_retention(
@@ -3841,6 +3885,7 @@ mod tests {
                 retiring_remaining: 0,
                 batches_committed: 1,
                 deferred_reason: None,
+                deferred_at: None,
                 cascade_rows_removed: 20,
                 search_relations_removed: 2,
                 search_relation_bytes_removed: 1_024,

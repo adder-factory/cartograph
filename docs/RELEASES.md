@@ -23,6 +23,7 @@ provenance live on GitHub Releases.
 
 | Version | Date | Schema · Contract | Headline |
 | --- | --- | --- | --- |
+| [v2.1.44](releases/v2.1.44.md) | 2026-10-13 | 50 · V23 | Async idle retention, backlog backpressure, cleanup diagnostics, and bounded process probes |
 | [v2.1.43](releases/v2.1.43.md) | 2026-10-13 | 50 · V23 | ParadeDB 0.26.1; Rust dependency, artifact-action, and build-image refresh |
 | [v2.1.42](releases/v2.1.42.md) | 2026-10-07 | 50 ↑ · V23 ↑ | v1 framework and bridge parity; typed receivers; oracles nearly complete |
 | [v2.1.41](releases/v2.1.41.md) | 2026-10-06 | 49 ↑ · V22 ↑ | v1 cross-file resolution parity; exact v1 resolution oracle |

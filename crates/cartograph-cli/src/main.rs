@@ -9,9 +9,9 @@ use std::{
     env,
     fmt::Write as _,
     fs,
-    io::{IsTerminal as _, Read as _, Write as _},
+    io::{IsTerminal as _, Write as _},
     path::{Path, PathBuf},
-    process::{self, Command as ProcessCommand, ExitCode, Stdio},
+    process::{self, ExitCode},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -3329,7 +3329,7 @@ async fn run_sync_if_dirty(
     let maximum_source_bytes = max_file_size.map(parse_max_file_size).transpose()?;
     let runtime = open_runtime(&project_path).await?;
     let status = runtime.status().await.map_err(|error| error.to_string())?;
-    let dirty = git_worktree_dirty(&project_path);
+    let dirty = runtime.git_worktree_is_dirty().await;
     if !dirty && status.fresh {
         if !quiet {
             println!("No source changes and index is current; skipping sync");
@@ -3443,33 +3443,6 @@ fn parse_max_file_size(raw: &str) -> Result<usize, String> {
 
 fn max_file_size_error(raw: &str) -> String {
     format!("--max-file-size must be between 1 byte and 10mb (got {raw:?})")
-}
-
-fn git_worktree_dirty(project_path: &PathBuf) -> bool {
-    let Ok(mut child) = ProcessCommand::new("git")
-        .args(["status", "--porcelain=v1", "-z", "--untracked-files=normal"])
-        .current_dir(project_path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    let Some(mut stdout) = child.stdout.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return true;
-    };
-    let mut byte = [0_u8; 1];
-    let read = stdout.read(&mut byte);
-    drop(stdout);
-    if let Ok(0) = read {
-        child.wait().map_or(true, |status| !status.success())
-    } else {
-        let _ = child.kill();
-        let _ = child.wait();
-        true
-    }
 }
 
 struct StatusRunInput {

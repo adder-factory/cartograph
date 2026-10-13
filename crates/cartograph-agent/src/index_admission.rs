@@ -2,11 +2,10 @@
 //!
 //! Repeated automatic failures on a large corpus reserve complete generations
 //! faster than bounded cleanup can delete them, so an automatic attempt whose
-//! project is over the backlog bound first drains terminal generations once.
-//! The attempt is deferred only while that drain is still making progress: a
-//! backlog that cannot clear without operator action (a held project, a
-//! search-relation budget, a catalog mismatch) never freezes automatic
-//! indexing, and its retention outcome remains visible in storage usage.
+//! project is over the backlog bound first drains eligible generations once.
+//! An unresolved backlog defers automatic indexing even when cleanup cannot
+//! make progress. Transient lease contention returns the ordinary busy outcome
+//! before a new generation can be reserved.
 //! Explicit requests are never deferred.
 //!
 //! This module owns the decision and the order of observations. The runtime
@@ -22,12 +21,20 @@ const AUTOMATIC_TERMINAL_BACKLOG_LIMIT: u64 = 1;
 
 /// One project's terminal-generation backlog as the admission policy observes it.
 pub(crate) trait TerminalBacklog {
-    /// Failed or partially retired generations still awaiting cleanup.
+    /// Eligible failed, retiring, and excess superseded generations.
     async fn count(&self) -> Result<u64, ProjectError>;
 
-    /// Run one bounded retention pass and report whether it committed any
-    /// generation cleanup.
-    async fn drain(&self) -> bool;
+    /// Run one bounded pass, distinguishing lease contention from an attempted drain.
+    async fn drain(&self) -> BacklogDrain;
+}
+
+/// Whether retention could enter its fenced maintenance operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BacklogDrain {
+    /// Another live operation owns the project; defer before reservation.
+    ProjectBusy,
+    /// Cleanup ran or failed; recount before admitting another generation.
+    Attempted,
 }
 
 /// Whether an index attempt may reserve its generation now.
@@ -35,7 +42,7 @@ pub(crate) trait TerminalBacklog {
 pub(crate) enum BacklogAdmission {
     /// Reserve the generation.
     Admit,
-    /// Retention is still making progress but the backlog remains over bound.
+    /// The backlog remains over bound after a bounded maintenance attempt.
     Defer,
 }
 
@@ -54,7 +61,7 @@ impl BacklogAdmission {
 ///
 /// `backlog` is `None` for a project with no prior snapshot, which has nothing
 /// to drain. The backlog is counted only for automatic attempts, drained only
-/// when over bound, and counted again only after a drain that made progress.
+/// when over bound, and counted again unless another live writer owns the project.
 ///
 /// # Errors
 ///
@@ -70,10 +77,8 @@ pub(crate) async fn admit_index_attempt<B: TerminalBacklog>(
     if backlog.count().await? <= AUTOMATIC_TERMINAL_BACKLOG_LIMIT {
         return Ok(BacklogAdmission::Admit);
     }
-    // A drain that commits nothing needs operator action; deferring on it
-    // would freeze automatic indexing.
-    if !backlog.drain().await {
-        return Ok(BacklogAdmission::Admit);
+    if backlog.drain().await == BacklogDrain::ProjectBusy {
+        return Err(ProjectError::IndexLeaseBusy);
     }
     if backlog.count().await? > AUTOMATIC_TERMINAL_BACKLOG_LIMIT {
         return Ok(BacklogAdmission::Defer);
@@ -92,15 +97,15 @@ mod tests {
     /// Answers counts in order and a fixed drain outcome, logging each call.
     struct Scripted {
         counts: RefCell<VecDeque<u64>>,
-        drain_progress: bool,
+        drain: BacklogDrain,
         calls: RefCell<Vec<&'static str>>,
     }
 
     impl Scripted {
-        fn new(counts: &[u64], drain_progress: bool) -> Self {
+        fn new(counts: &[u64], drain: BacklogDrain) -> Self {
             Self {
                 counts: RefCell::new(counts.iter().copied().collect()),
-                drain_progress,
+                drain,
                 calls: RefCell::new(Vec::new()),
             }
         }
@@ -117,16 +122,16 @@ mod tests {
             std::future::ready(count.ok_or(ProjectError::StatusFailed))
         }
 
-        fn drain(&self) -> impl Future<Output = bool> {
+        fn drain(&self) -> impl Future<Output = BacklogDrain> {
             self.calls.borrow_mut().push("drain");
-            std::future::ready(self.drain_progress)
+            std::future::ready(self.drain)
         }
     }
 
     #[tokio::test]
     async fn explicit_requests_are_admitted_without_reading_the_backlog() -> Result<(), ProjectError>
     {
-        let backlog = Scripted::new(&[OVER_BOUND], true);
+        let backlog = Scripted::new(&[OVER_BOUND], BacklogDrain::Attempted);
         let admission = admit_index_attempt(
             IndexFailureRetention::SuccessfulRequestsOnly,
             Some(&backlog),
@@ -138,25 +143,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_drain_that_commits_nothing_admits_without_recounting() -> Result<(), ProjectError> {
-        let backlog = Scripted::new(&[OVER_BOUND], false);
+    async fn transient_project_contention_defers_before_reserving_a_generation() {
+        let backlog = Scripted::new(&[OVER_BOUND], BacklogDrain::ProjectBusy);
         let admission =
-            admit_index_attempt(IndexFailureRetention::AutomaticFailures, Some(&backlog)).await?;
-        assert_eq!(admission, BacklogAdmission::Admit);
+            admit_index_attempt(IndexFailureRetention::AutomaticFailures, Some(&backlog)).await;
+        assert!(matches!(admission, Err(ProjectError::IndexLeaseBusy)));
         assert_eq!(backlog.calls(), ["count", "drain"]);
-        Ok(())
     }
 
     #[tokio::test]
-    async fn a_progressing_drain_defers_only_while_the_backlog_stays_over_bound()
+    async fn an_attempted_drain_defers_even_without_progress_while_over_bound()
     -> Result<(), ProjectError> {
-        let stuck = Scripted::new(&[OVER_BOUND, OVER_BOUND], true);
+        let stuck = Scripted::new(&[OVER_BOUND, OVER_BOUND], BacklogDrain::Attempted);
         let admission =
             admit_index_attempt(IndexFailureRetention::AutomaticFailures, Some(&stuck)).await?;
         assert_eq!(admission, BacklogAdmission::Defer);
         assert_eq!(stuck.calls(), ["count", "drain", "count"]);
 
-        let cleared = Scripted::new(&[OVER_BOUND, AUTOMATIC_TERMINAL_BACKLOG_LIMIT], true);
+        let cleared = Scripted::new(
+            &[OVER_BOUND, AUTOMATIC_TERMINAL_BACKLOG_LIMIT],
+            BacklogDrain::Attempted,
+        );
         let admission =
             admit_index_attempt(IndexFailureRetention::AutomaticFailures, Some(&cleared)).await?;
         assert_eq!(admission, BacklogAdmission::Admit);

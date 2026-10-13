@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-13 (`v2.1.43`).
+Last release audit: 2026-10-13 (`v2.1.44`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -94,6 +94,8 @@ for a full index.
 `autoSync` in `cartograph_status` exposes:
 
 - attempts, publications, no-ops, and errors;
+- `retentionAttempts`, consecutive `retentionFailures`, and `nextRetentionAt`,
+  independent of source freshness and index retry suppression;
 - stable stage-specific `lastErrorCode`;
 - failure/retry times;
 - unchanged-revision attempt count and retry suppression;
@@ -108,7 +110,7 @@ for a full index.
 | Persistent failure of an unchanged revision | — | Bounded exponential backoff; stops after five automatic attempts until source changes |
 | Concurrent edits | `source_changed_during_index` or `parse_source_changed` | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
 | Another live lease owner, a writer still inside its prepare transaction, or a lock that keeps the read of the project's leases waiting past its bounded wait | `lease_busy`, normally detected before reserving a generation; a writer that wins after that check is refused at lease acquisition | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
-| An undrained failed-generation backlog | `retention_backlog` | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
+| Eligible failed, retiring, or excess superseded backlog | `retention_backlog` | Bounded exponential backoff from 30 seconds to 15 minutes; does not exhaust the persistent-failure circuit |
 | A lease the attempt could not establish, keep, or confirm: an acquisition that failed for a reason other than contention, or a lost or unconfirmed heartbeat | `lease_failed` | Retains its separate failure handling |
 | Database errors, including a read of the project's leases that fails for another reason | `status_failed` for that lease read | Retain their separate failure handling |
 | Generation-capacity failure | — | Five trip a separate circuit that new source revisions cannot bypass; adjust the reported capacity setting and run an explicit index to prove recovery and clear the circuit |
@@ -129,6 +131,10 @@ Watcher events use a 750 ms quiet window with a default two-second hard
 coalescing deadline, then call the indexer's own manifest/no-op fence directly.
 Automatic attempts cap native extraction at four workers and omit independent
 Git-history enrichment; explicit indexing refreshes those auxiliary channels.
+Periodic retention runs concurrently with this event loop under the same
+supervised host lifetime. It drains generations and parse-cache rows while
+source is unchanged, with independent capped failure backoff and exact project
+leases. `--no-auto-sync` also disables this periodic maintenance owner.
 
 | `serve` flag | Effect |
 | --- | --- |
