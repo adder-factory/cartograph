@@ -2309,9 +2309,9 @@ dependencies = [
 
 [[package]]
 name = "sqry-tree-sitter-support"
-version = "32.0.1"
+version = "33.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6539262b76d760b51ad4259df34b0537702921b10529d660903ed0db4c46f2d0"
+checksum = "60ad8aa40902dfc8feff4296b47e576ff7f1aa4bc483c17dec6f4d3df8100935"
 dependencies = [
  "thiserror",
  "tree-sitter 0.26.13",
@@ -2640,9 +2640,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-abap-sqry"
-version = "32.0.1"
+version = "33.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e384a20b6113e894047cd3798714fc3cdf99701efba452befb06f745ad472c14"
+checksum = "77163f8cc45f6848de880e0f89a425a4531233c8cba64c8561b53ee012498cfe"
 dependencies = [
  "cc",
  "sqry-tree-sitter-support",
