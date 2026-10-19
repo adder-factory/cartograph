@@ -18,37 +18,40 @@ pub(crate) struct OwnerClient {
 }
 
 impl OwnerClient {
+    #[cfg(unix)]
     pub(crate) async fn connect(root: &Path) -> Result<Option<Self>, String> {
-        #[cfg(unix)]
-        {
-            Ok(unix::OwnerClient::connect(root)
-                .await?
-                .map(|inner| Self { inner }))
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = root;
-            Ok(None)
-        }
+        Ok(unix::OwnerClient::connect(root)
+            .await?
+            .map(|inner| Self { inner }))
     }
 
+    #[cfg(not(unix))]
+    pub(crate) fn connect(root: &Path) -> impl Future<Output = Result<Option<Self>, String>> {
+        let _ = root;
+        std::future::ready(Ok(None))
+    }
+
+    #[cfg(unix)]
     pub(crate) async fn call_owned(
         self,
         call: ToolCall,
         context: ToolCallContext,
         expected_owner: Option<String>,
     ) -> Result<(String, ToolResult), ToolError> {
-        #[cfg(unix)]
-        {
-            self.inner.call_owned(call, context, expected_owner).await
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (call, context, expected_owner);
-            Err(transport_error(
-                "native project owner transport is unavailable",
-            ))
-        }
+        self.inner.call_owned(call, context, expected_owner).await
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn call_owned(
+        self,
+        call: ToolCall,
+        context: ToolCallContext,
+        expected_owner: Option<String>,
+    ) -> impl Future<Output = Result<(String, ToolResult), ToolError>> {
+        let _ = (self, call, context, expected_owner);
+        std::future::ready(Err(transport_error(
+            "native project owner transport is unavailable",
+        )))
     }
 }
 
@@ -201,33 +204,36 @@ impl Shutdown {
     }
 }
 
+#[cfg(unix)]
 pub(super) async fn watch(
     root: &Path,
     handler: Arc<crate::mcp_handler::RocksHandler>,
     mut shutdown: Shutdown,
 ) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        let mut listener = unix::OwnerListener::bind(root)?;
-        let (stop, stopped) = tokio::sync::watch::channel(false);
-        let owner = listener.run(handler, stopped);
-        std::io::Write::write_all(
-            &mut std::io::stdout().lock(),
-            b"{\"owner\":\"ready\",\"autoSync\":true}\n",
-        )
-        .map_err(|_| "headless owner readiness output failed".to_owned())?;
-        tokio::pin!(owner);
-        tokio::select! {
-            result = &mut owner => result,
-            () = shutdown.requested() => {
-                let _ = stop.send(true);
-                owner.await
-            }
+    let mut listener = unix::OwnerListener::bind(root)?;
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let owner = listener.run(handler, stopped);
+    std::io::Write::write_all(
+        &mut std::io::stdout().lock(),
+        b"{\"owner\":\"ready\",\"autoSync\":true}\n",
+    )
+    .map_err(|_| "headless owner readiness output failed".to_owned())?;
+    tokio::pin!(owner);
+    tokio::select! {
+        result = &mut owner => result,
+        () = shutdown.requested() => {
+            let _ = stop.send(true);
+            owner.await
         }
     }
-    #[cfg(not(unix))]
-    {
-        let _ = (root, handler, &mut shutdown);
-        Err("headless owner transport requires Unix".to_owned())
-    }
+}
+
+#[cfg(not(unix))]
+pub(super) fn watch(
+    root: &Path,
+    handler: Arc<crate::mcp_handler::RocksHandler>,
+    shutdown: Shutdown,
+) -> impl Future<Output = Result<(), String>> {
+    let _ = (root, handler, shutdown);
+    std::future::ready(Err("headless owner transport requires Unix".to_owned()))
 }
