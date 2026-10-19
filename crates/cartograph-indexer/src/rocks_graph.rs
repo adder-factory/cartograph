@@ -10,6 +10,8 @@ use crate::{
     task_scope::TaskScope,
 };
 
+mod prepare;
+
 /// One-shot native build and publication progress, shared with its request host.
 #[derive(Clone)]
 pub struct NativeBuildProgress {
@@ -113,12 +115,28 @@ pub async fn build_native_rocks_graph(
     request: &StorageRequest,
 ) -> Result<(GraphPublicationInput, NativePipelineReport), NativeRocksGraphError> {
     request.check()?;
+    let preparation_bytes =
+        build
+            .maximum_stage_reservation_bytes()
+            .map_err(|_| RocksError::Limit {
+                resource: "native_stage_bytes",
+            })?;
+    let preparation_deadlines = build.publication_deadlines();
     let generation = build_native_generation_with_scip_and_cache(runner, build).await?;
     request.check()?;
     let (facts, report) = generation.into_parts();
-    let input = tokio::task::block_in_place(|| {
-        GraphPublicationInput::new(identity, facts, policy, request)
-    })?;
+    let input = prepare::run(
+        runner,
+        facts,
+        identity,
+        prepare::Policy {
+            graph: policy,
+            maximum_bytes: preparation_bytes,
+            deadlines: preparation_deadlines,
+        },
+        request,
+    )
+    .await?;
     Ok((input, report))
 }
 

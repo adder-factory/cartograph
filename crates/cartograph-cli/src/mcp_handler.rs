@@ -16189,6 +16189,36 @@ async fn status_tool(
     arguments: Map<String, Value>,
     cancellation: ProjectCancellation,
 ) -> Result<ToolResult, ToolError> {
+    let result = Box::pin(status_attempt(
+        handler,
+        arguments.clone(),
+        cancellation.clone(),
+    ))
+    .await;
+    match result {
+        Err(error) if error.code() == ToolErrorCode::Conflict => {
+            if cancellation.is_cancelled() {
+                return Err(safe_error(
+                    ToolErrorCode::Unavailable,
+                    "Cartograph status request was cancelled",
+                ));
+            }
+            // Derive from the active routed request; this checks its original
+            // deadline and cancellation without renewing either. Discard all
+            // first-attempt evidence and permit only one complete recomputation.
+            cartograph_db::NativeDatabase::request_control(Duration::from_secs(300))
+                .map_err(|error| status_phase_error("retry", std::time::Instant::now(), &error))?;
+            Box::pin(status_attempt(handler, arguments, cancellation)).await
+        }
+        result => result,
+    }
+}
+
+async fn status_attempt(
+    handler: &CartographMcpHandler,
+    arguments: Map<String, Value>,
+    cancellation: ProjectCancellation,
+) -> Result<ToolResult, ToolError> {
     reject_unknown(
         &arguments,
         &[
@@ -29789,7 +29819,7 @@ pub fn target(value: u32) -> u32 {
             release: tokio::sync::Notify::new(),
         });
         *handler.session_trace.pause.lock().await = Some(pause.clone());
-        let reading = Box::pin(status_tool(
+        let reading = Box::pin(status_attempt(
             &handler,
             Map::new(),
             ProjectCancellation::new(),
@@ -29819,6 +29849,141 @@ pub fn target(value: u32) -> u32 {
         handler.shutdown().await;
         runtime.shutdown().await?;
         Ok(())
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum StatusRetryRace {
+        Recover,
+        RepeatedPublication,
+        Cancelled,
+        Expired,
+    }
+
+    async fn verify_status_retry_race(
+        race: StatusRetryRace,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let project = tempfile::tempdir()?;
+        let path = project.path().join("lib.rs");
+        std::fs::write(&path, "pub fn status_generation_one() -> u32 { 1 }\n")?;
+        let runtime = Arc::new(ProjectRuntime::open(project.path()).await?);
+        let options = IndexOptions::default().with_history_refresh(false);
+        runtime.index(options.clone()).await?;
+        let handler = CartographMcpHandler::new(runtime.clone())?;
+        let pause = Arc::new(TracePause {
+            stage: "status-features-loaded",
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        *handler.session_trace.pause.lock().await = Some(pause.clone());
+        let cancellation = ProjectCancellation::new();
+        let control = cartograph_db::rocks::StorageRequest::new(Duration::from_secs(
+            if race == StatusRetryRace::Expired {
+                2
+            } else {
+                30
+            },
+        ))?;
+        let reading = cartograph_db::NativeDatabase::with_request(
+            control.clone(),
+            Box::pin(status_tool(&handler, Map::new(), cancellation.clone())),
+        );
+        let publishing = async {
+            let publications = if race == StatusRetryRace::RepeatedPublication {
+                2
+            } else {
+                1
+            };
+            let mut generation = None;
+            for number in 0..publications {
+                tokio::time::timeout(Duration::from_secs(10), pause.entered.notified()).await?;
+                std::fs::write(
+                    &path,
+                    format!(
+                        "pub fn status_generation_new_{number}() -> u32 {{ 2 }}\npub fn added() {{}}\n"
+                    ),
+                )?;
+                let publication = runtime.index(options.clone()).await?;
+                generation = Some(publication.generation_id);
+                if race == StatusRetryRace::Cancelled {
+                    cancellation.cancel();
+                } else if race == StatusRetryRace::Expired {
+                    while control.check().is_ok() {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                } else if race == StatusRetryRace::Recover {
+                    *handler.session_trace.pause.lock().await = None;
+                }
+                pause.release.notify_one();
+            }
+            Ok::<_, Box<dyn std::error::Error>>(generation.ok_or("missing publication")?)
+        };
+        let (result, publication) =
+            Box::pin(tokio::time::timeout(Duration::from_secs(15), async {
+                tokio::join!(reading, publishing)
+            }))
+            .await?;
+        let generation = publication?;
+        match race {
+            StatusRetryRace::Recover => {
+                let value = serde_json::to_value(result?)?;
+                let content = &value["structuredContent"];
+                assert_eq!(
+                    content["project"]["snapshot"]["current"]["generation_id"],
+                    json!(generation)
+                );
+                assert_eq!(content["inventory"]["totalSymbols"], 2);
+            }
+            StatusRetryRace::RepeatedPublication => {
+                assert_eq!(
+                    result.err().ok_or("status retried a third time")?.code(),
+                    ToolErrorCode::Conflict
+                );
+            }
+            StatusRetryRace::Cancelled => {
+                assert_eq!(
+                    result.err().ok_or("status ignored cancellation")?.code(),
+                    ToolErrorCode::Unavailable
+                );
+            }
+            StatusRetryRace::Expired => {
+                assert_eq!(
+                    result
+                        .err()
+                        .ok_or("status renewed the request deadline")?
+                        .code(),
+                    ToolErrorCode::Timeout
+                );
+            }
+        }
+        *handler.session_trace.pause.lock().await = None;
+        handler.shutdown().await;
+        runtime.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn status_retries_one_publication_with_complete_new_generation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        Box::pin(verify_status_retry_race(StatusRetryRace::Recover)).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn status_does_not_retry_a_second_publication() -> Result<(), Box<dyn std::error::Error>>
+    {
+        Box::pin(verify_status_retry_race(
+            StatusRetryRace::RepeatedPublication,
+        ))
+        .await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn status_retry_preserves_cancellation() -> Result<(), Box<dyn std::error::Error>> {
+        Box::pin(verify_status_retry_race(StatusRetryRace::Cancelled)).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn status_retry_preserves_original_deadline() -> Result<(), Box<dyn std::error::Error>> {
+        Box::pin(verify_status_retry_race(StatusRetryRace::Expired)).await
     }
 
     #[test]

@@ -557,11 +557,11 @@ impl RocksProjectRuntime {
             progress.publishing().await?;
         }
         let publication = self.store.publish_graph(input, request).await?;
-        *warm = Some(incremental::WarmGraph {
+        *warm = retained_facts.map(|facts| incremental::WarmGraph {
             generation: publication.revision.generation_id.clone(),
             policy: index_policy,
             scip_overlay,
-            facts: retained_facts,
+            facts,
         });
         progress.finish(true, false).await;
         let pipeline_millis = monotonic_millis(pipeline_started.elapsed());

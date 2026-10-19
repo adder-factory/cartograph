@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 rust-version = "1.99.0"
 authors = ["Adder Factory"]
@@ -91,6 +91,7 @@ ignore = "0.4.33"
 itoa = "=1.0.18"
 jiff = { version = "=0.2.35", default-features = false, features = ["std"] }
 libc = "0.2.190"
+lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-encode", "safe-decode"] }
 memchr = "=2.8.3"
 notify = "=8.2.0"
 num-traits = "=0.2.19"

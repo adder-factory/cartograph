@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last release audit: 2026-10-19 (`v3.0.0`).
+Last release audit: 2026-10-19 (`v3.0.1`).
 
 Cartograph v3 is a native Rust code-intelligence server for AI coding agents.
 Each project owns an embedded RocksDB 11.8.1 store. Rust implements
@@ -237,6 +237,8 @@ ordinary complete digest and publishes only the file record changes. Base
 generation and content digest both fence sparse publication. Unsupported or
 unproven edits and explicit `maxGenerationBytes` ceilings use the complete builder; the warm allocation is dropped before
 that build. A new process warms only after its first complete build.
+Large inputs prepared as lossless publication blocks do not retain this warm
+canonical allocation and continue through the complete builder for later edits.
 
 Complete source-only scans hash at most four files concurrently with bounded
 queues and source buffers, then reduce observations in deterministic path order.
@@ -252,15 +254,32 @@ backend-selection effect. `maxGenerationBytes` and independent queue/record/
 mutation budgets fail oversized work safely; RocksDB does not remove global
 resolution/centrality memory bounds.
 
+When validated facts exceed the storage input allowance, the existing task
+scope admits a preparation worker under the unchanged maximum native stage
+reservation. The ordered `copy` stage covers this CPU work, including parent,
+stage and request cancellation and the earlier deadline. It charges canonical
+facts, packed output, sorting workspace and bounded codec buffers together,
+then drops canonical tables before transferring the measured package to storage.
+Checksummed 64 KiB blocks preserve complete canonical rows, including rows that
+span blocks. Replay checks framing, counts and strict native key order. Per-file
+reference and per-pair edge sorts and index-only adjacency ordering avoid full
+duplicated key arrays. UUID-ordered tables stream directly; all original input,
+workspace, record, batch and pool bounds remain enforced.
+
 The publisher compares canonical records against the prior revision, writes
 changed values and tombstones in bounded batches, builds packed adjacency
 and optional name postings under the same workspace limit,
 validates counts/digest, and atomically changes the current pointer with a
 synchronous WAL commit. Failed staging revisions cannot become current.
 
-Four dedicated native workers isolate blocking I/O from Tokio. Item and byte
-admission reserve read capacity while mutations run. CLI pending reservations
-are 512 MiB; this is not a process RSS limit. Cache/write-buffer policy is
+Four dedicated native workers isolate blocking I/O from Tokio. Mutation
+admission preserves workers for readers; all operations share bounded byte
+admission, so a large publication can delay reads until its reservation is
+released. Packed replay destroys completed tables and returns only their freed
+allocation capacities through the original permit. Source manifests, working
+buffers, pending batches and the remaining completion reservation stay charged.
+CLI pending reservations are 512 MiB; this is not a process RSS limit.
+Cache/write-buffer policy is
 shared across column families. Snapshots preserve complete prior revisions
 while current publication proceeds.
 

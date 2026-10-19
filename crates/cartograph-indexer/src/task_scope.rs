@@ -1,10 +1,11 @@
 use std::{
     collections::BTreeMap,
-    future::Future,
+    future::{Future, poll_fn},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    task::Poll,
 };
 
 use thiserror::Error;
@@ -123,6 +124,8 @@ struct TaskRegistry {
     pending_observations: Vec<PendingObservation>,
     worker_failed: bool,
     unobserved_results: bool,
+    #[cfg(test)]
+    completion_gate: Option<oneshot::Receiver<()>>,
 }
 
 struct PendingObservation {
@@ -182,6 +185,8 @@ impl TaskScope {
                 pending_observations: Vec::new(),
                 worker_failed: false,
                 unobserved_results: false,
+                #[cfg(test)]
+                completion_gate: None,
             })),
         }
     }
@@ -210,6 +215,8 @@ impl TaskScope {
         let abort = worker.abort_handle();
         let worker_abort = abort.clone();
         registry.worker_controls.insert(worker_id, abort.clone());
+        #[cfg(test)]
+        let completion_gate = registry.completion_gate.take();
         registry.workers.spawn(async move {
             let abort_on_drop = AbortOnDrop(worker_abort);
             let joined = worker.await;
@@ -228,6 +235,10 @@ impl TaskScope {
                 Err(_) => (WorkerOutcome::Failed, Err(ScopedTaskError::WorkerPanicked)),
             };
             let delivered = sender.send(result).is_ok();
+            #[cfg(test)]
+            if let Some(completion_gate) = completion_gate {
+                let _ = completion_gate.await;
+            }
             WorkerCompletion {
                 worker_id,
                 outcome,
@@ -260,6 +271,46 @@ impl TaskScope {
             .map_err(|_| ScopedTaskError::RegistryUnavailable)?;
         registry.reap_finished();
         registry.next_reservation(reserved_bytes).map(|_| ())
+    }
+
+    /// Reap the existing observer tasks after a stage's local joins are drained.
+    /// Result delivery precedes observer completion; reservations stay charged
+    /// until both completion and output acknowledgement have been observed.
+    pub(crate) async fn reap_workers(&self) -> Result<(), ScopedTaskError> {
+        poll_fn(|context| {
+            let Ok(mut registry) = self.registry.lock() else {
+                return Poll::Ready(Err(ScopedTaskError::RegistryUnavailable));
+            };
+            registry.release_observed_results();
+            loop {
+                match registry.workers.poll_join_next(context) {
+                    Poll::Ready(Some(Ok(completion))) => registry.record_completion(completion),
+                    Poll::Ready(Some(Err(_))) => registry.worker_failed = true,
+                    Poll::Ready(None) => {
+                        registry.release_observed_results();
+                        return Poll::Ready(Ok(()));
+                    }
+                    Poll::Pending => {
+                        registry.release_observed_results();
+                        return Poll::Pending;
+                    }
+                }
+            }
+        })
+        .await
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_next_completion(
+        &self,
+        gate: oneshot::Receiver<()>,
+    ) -> Result<(), ScopedTaskError> {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| ScopedTaskError::RegistryUnavailable)?;
+        registry.completion_gate = Some(gate);
+        Ok(())
     }
 
     pub(crate) fn max_tasks(&self) -> Result<usize, ScopedTaskError> {
@@ -419,6 +470,38 @@ mod tests {
         fn drop(&mut self) {
             self.0.store(true, Ordering::Release);
         }
+    }
+
+    #[tokio::test]
+    async fn reaping_workers_preserves_unread_and_unacknowledged_output_reservations() {
+        let scope = TaskScope::new(SINGLE_TASK_CAPACITY, SMALL_BYTE_CAPACITY);
+        let task = scope
+            .spawn(FOUR_BYTES, async {
+                Ok::<_, PipelineFailure>(vec![0_u8; 4])
+            })
+            .unwrap_or_else(|error| panic!("worker admission failed: {error}"));
+        assert!(scope.reap_workers().await.is_ok());
+        assert_eq!(
+            scope.probe_admission(ONE_BYTE),
+            Err(ScopedTaskError::TaskCapacityExceeded)
+        );
+        let (output, reservation) = task
+            .join_retaining_reservation()
+            .await
+            .unwrap_or_else(|error| panic!("worker result failed: {error}"));
+        assert_eq!(
+            scope.probe_admission(ONE_BYTE),
+            Err(ScopedTaskError::TaskCapacityExceeded)
+        );
+        drop(output);
+        reservation.acknowledge();
+        assert_eq!(scope.probe_admission(FOUR_BYTES), Ok(()));
+        let report = scope
+            .close_abort_and_reap_retained(Instant::now() + REAP_TIMEOUT)
+            .await;
+        assert!(report.all_joined);
+        assert!(!report.worker_failed);
+        assert!(!report.unobserved_results);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

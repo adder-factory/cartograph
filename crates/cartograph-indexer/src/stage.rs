@@ -173,6 +173,16 @@ pub struct StageCancellation {
 }
 
 impl StageCancellation {
+    pub(crate) fn storage_request(
+        &self,
+        request: &cartograph_db::rocks::StorageRequest,
+    ) -> Result<cartograph_db::rocks::StorageRequest, cartograph_db::rocks::RocksError> {
+        request.with_cancellation_signals(
+            [self.parent.clone(), self.stage.clone()],
+            self.deadline.into_std(),
+        )
+    }
+
     fn new(parent: watch::Receiver<bool>, stage: watch::Receiver<bool>, deadline: Instant) -> Self {
         let initially_cancelled = *parent.borrow() || *stage.borrow();
         Self {
@@ -597,7 +607,7 @@ pub enum StageRunError {
         actual: StageSequence,
     },
     /// Supervisor-owned task/byte admission rejected the item.
-    #[error("Cartograph stage admission failed during {stage:?}")]
+    #[error("Cartograph stage admission failed during {stage:?}: {source}")]
     Admission {
         /// Stage being admitted.
         stage: PipelineStage,
@@ -1336,6 +1346,26 @@ where
                 })?;
             self.fold.next_output = sequence.value().checked_add(1);
         }
+        if self.schedule.joins.is_empty() && self.schedule.ready.is_empty() {
+            // A delivered result can be reduced before its scope observer has
+            // returned. Reap those observers before reusing their admission,
+            // both for a window refill and for the next pipeline stage.
+            tokio::select! {
+                biased;
+                () = wait_for_cancellation(&mut self.control.cancellation) => {
+                    return Err(StageRunError::Cancelled { stage: self.policy.stage });
+                }
+                () = sleep_until(self.policy.deadline) => {
+                    return Err(StageRunError::StageDeadline { stage: self.policy.stage });
+                }
+                result = self.control.runner.tasks.reap_workers() => {
+                    result.map_err(|source| StageRunError::Admission {
+                        stage: self.policy.stage,
+                        source,
+                    })?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1511,6 +1541,142 @@ mod tests {
     use super::*;
 
     const TEST_WORKERS: usize = 2;
+
+    #[tokio::test]
+    async fn stage_completion_reaps_delivered_worker_before_reusing_scope_capacity() {
+        assert_completed_workers_reaped(1, 1, CompletionEnd::Continue).await;
+    }
+
+    #[tokio::test]
+    async fn window_refill_reaps_delivered_worker_before_reusing_scope_capacity() {
+        assert_completed_workers_reaped(2, 1, CompletionEnd::Continue).await;
+    }
+
+    #[tokio::test]
+    async fn window_refill_reaps_delivered_worker_before_reusing_scope_byte_capacity() {
+        assert_completed_workers_reaped(2, 2, CompletionEnd::Continue).await;
+    }
+
+    #[tokio::test]
+    async fn completed_worker_barrier_preserves_cancellation_and_retained_ownership() {
+        assert_completed_workers_reaped(1, 1, CompletionEnd::Cancel).await;
+    }
+
+    #[tokio::test]
+    async fn completed_worker_barrier_preserves_original_deadline_and_retained_ownership() {
+        assert_completed_workers_reaped(1, 1, CompletionEnd::Deadline).await;
+    }
+
+    #[derive(Clone, Copy)]
+    enum CompletionEnd {
+        Continue,
+        Cancel,
+        Deadline,
+    }
+
+    async fn assert_completed_workers_reaped(
+        items: usize,
+        task_capacity: usize,
+        ending: CompletionEnd,
+    ) {
+        let (runner, tasks, cancellation) = runner(task_capacity, ITEM_BYTES).await;
+        let deadline = Instant::now() + TEST_TIMEOUT;
+        let (release, gate) = tokio::sync::oneshot::channel();
+        assert!(tasks.gate_next_completion(gate).is_ok());
+        let (folded, folded_receiver) = tokio::sync::oneshot::channel();
+        let mut folded = Some(folded);
+        let execution = StageExecution::new(
+            config(1, 0, deadline),
+            StageWorkload::new(
+                (0..items).map(|sequence| StageEnvelope::new(meta(sequence, deadline), ())),
+                |_item: StageWorkItem<usize, ()>| async { Ok::<_, StageItemFailure>(()) },
+            ),
+            StageFold::new((), move |(): &mut (), _output: StageOutput<usize, ()>| {
+                if let Some(folded) = folded.take() {
+                    let _ = folded.send(());
+                }
+                Ok(())
+            }),
+        );
+        let stage = runner.execute(execution);
+        tokio::pin!(stage);
+        tokio::select! {
+            biased;
+            result = &mut stage => panic!("stage completed before its worker was reaped: {result:?}"),
+            result = folded_receiver => assert!(result.is_ok()),
+        }
+        let capacity_error = if task_capacity == 1 {
+            ScopedTaskError::TaskCapacityExceeded
+        } else {
+            ScopedTaskError::ByteCapacityExceeded
+        };
+        assert_eq!(tasks.probe_admission(ITEM_BYTES), Err(capacity_error));
+        match ending {
+            CompletionEnd::Continue => {
+                assert!(release.send(()).is_ok());
+                assert_eq!(stage.await, Ok(()));
+                assert_eq!(tasks.probe_admission(ITEM_BYTES), Ok(()));
+                assert_resolve_reuses_scope_capacity(&runner, deadline).await;
+            }
+            CompletionEnd::Cancel | CompletionEnd::Deadline => {
+                let expected = if matches!(ending, CompletionEnd::Cancel) {
+                    cancellation.send_replace(true);
+                    StageRunError::Cancelled {
+                        stage: PipelineStage::Parse,
+                    }
+                } else {
+                    StageRunError::StageDeadline {
+                        stage: PipelineStage::Parse,
+                    }
+                };
+                assert_eq!(stage.await, Err(expected));
+                assert_eq!(tasks.probe_admission(ITEM_BYTES), Err(capacity_error));
+                assert!(release.send(()).is_ok());
+            }
+        }
+        let report = tasks
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
+            .await;
+        assert!(report.all_joined);
+        assert!(!report.unobserved_results);
+        assert_eq!(
+            report.worker_failed,
+            matches!(ending, CompletionEnd::Deadline)
+        );
+    }
+
+    async fn assert_resolve_reuses_scope_capacity(runner: &StageRunner, deadline: Instant) {
+        let execution = StageExecution::new(
+            StageRunConfig::new(
+                PipelineStage::Resolve,
+                StageCapacity::new(1, 0),
+                StageDeadlinePolicy::new(deadline, CLEANUP_GRACE),
+            ),
+            StageWorkload::new(
+                [StageEnvelope::new(meta(0, deadline), ())],
+                |_item: StageWorkItem<usize, ()>| async { Ok::<_, StageItemFailure>(()) },
+            ),
+            StageFold::new((), |(): &mut (), _output: StageOutput<usize, ()>| Ok(())),
+        );
+        assert_eq!(runner.execute(execution).await, Ok(()));
+    }
+
+    #[test]
+    fn preparation_control_preserves_expired_deadline_category()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_parent, parent) = watch::channel(false);
+        let (_stage, stage) = watch::channel(false);
+        let control = StageCancellation::new(parent, stage, Instant::now());
+        let request = cartograph_db::rocks::StorageRequest::new(Duration::from_secs(10))?;
+        assert!(matches!(
+            control.storage_request(&request),
+            Err(cartograph_db::rocks::RocksError::Limit {
+                resource: "operation_deadline"
+            })
+        ));
+        assert!(request.check().is_ok());
+        Ok(())
+    }
     const TEST_QUEUE: usize = 3;
     const TEST_ITEMS: usize = 10;
     const TEST_SCOPE_BYTES: u64 = 128;

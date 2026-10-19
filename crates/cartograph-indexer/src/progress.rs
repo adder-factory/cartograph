@@ -23,7 +23,7 @@ pub enum PipelineStage {
     Overlay,
     /// Canonically reduce unordered worker facts.
     Reduce,
-    /// COPY the validated logical generation.
+    /// Prepare the validated logical generation for durable storage.
     Copy,
     /// Build relational/derived graph state.
     RelationalMerge,

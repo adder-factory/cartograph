@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use super::*;
 use crate::rocks::StorageRequest;
 
+mod batching;
 mod cache;
 
 type TestResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

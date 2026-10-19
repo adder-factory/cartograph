@@ -284,6 +284,11 @@ automation surface where exposed by command help.
 Extraction uses bounded native workers and deterministic reduction. The
 `maxGenerationBytes` policy and storage admission reject oversized work safely;
 RocksDB does not remove the whole-generation extraction working-set limit.
+Large validated graphs use lossless publication blocks when their canonical
+tables exceed the storage input allowance. Preparation stays supervised and
+bounded; graph identities, source evidence and stored records remain identical.
+These larger graphs use complete reconciliation for subsequent edits and do
+not retain the canonical allocation for the warm local-edit path.
 Legacy `generationStorage` and spill settings do not select another backend.
 Measure a representative corpus before raising limits or worker counts.
 
