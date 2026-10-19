@@ -2,22 +2,23 @@ use cartograph_db::{CurrentGraphLookup, GraphDirection};
 
 use super::{
     CurrentGenerationLookup, ExactTextLookup, FileTestImpactQuery, IndexOptions, NormalizedPath,
-    ProjectRuntime, drop_schema, live_project_fixture,
+    ProjectRuntime, live_project_fixture,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn rust_self_callers_and_test_impact_survive_both_storage_paths_and_worker_counts() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     write_receiver_fixture(project.path());
-    let runtime = ProjectRuntime::connect(project.path(), &settings)
+    let runtime = ProjectRuntime::open(project.path())
         .await
         .unwrap_or_else(|error| panic!("receiver runtime failed: {error}"));
     let mut expected_digest = None;
-    for storage in ["memory", "postgres"] {
-        std::fs::write(project.path().join(".cartograph/config.json"), format!(
-            r#"{{"generationStorage":"{storage}","maxSpillBytes":67108864,"maxSpillRows":1000000,"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}}"#
-        )).unwrap_or_else(|error| panic!("receiver policy fixture failed: {error}"));
+    for storage in ["rocksdb"] {
+        std::fs::write(
+            project.path().join(".cartograph/config.json"),
+            r#"{"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
+        )
+        .unwrap_or_else(|error| panic!("receiver policy fixture failed: {error}"));
         for workers in [1, 2, 4, 8, 16] {
             let report = runtime
                 .index(
@@ -93,8 +94,10 @@ async fn rust_self_callers_and_test_impact_survive_both_storage_paths_and_worker
             assert!(!impact.nodes_truncated());
         }
     }
-    runtime.close().await;
-    drop_schema(&settings, &schema).await;
+    runtime
+        .close()
+        .await
+        .unwrap_or_else(|error| panic!("native shutdown: {error}"));
 }
 
 fn write_receiver_fixture(root: &std::path::Path) {

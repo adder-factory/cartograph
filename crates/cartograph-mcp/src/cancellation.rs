@@ -27,7 +27,8 @@ impl CancellationToken {
         }
     }
 
-    pub(crate) fn cancel(&self) {
+    /// Cancel this request, including work forwarded to a project owner.
+    pub fn cancel(&self) {
         if !self.inner.cancelled.swap(true, Ordering::AcqRel) {
             self.inner.notify.notify_waiters();
         }

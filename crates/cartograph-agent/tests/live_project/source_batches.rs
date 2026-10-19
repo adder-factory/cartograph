@@ -2,8 +2,7 @@ use std::assert_matches;
 
 use super::{
     CurrentGenerationLookup, ExactTextLookup, IndexOptions, ProjectCancellation, ProjectError,
-    ProjectRuntime, SourceContextOptions, SourceContextRequest, SymbolId, drop_schema,
-    live_project_fixture,
+    ProjectRuntime, SourceContextOptions, SourceContextRequest, SymbolId, live_project_fixture,
 };
 
 fn requests(ids: &[SymbolId]) -> Vec<SourceContextRequest> {
@@ -13,9 +12,8 @@ fn requests(ids: &[SymbolId]) -> Vec<SourceContextRequest> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn source_batches_scan_once_and_preserve_source_and_generation_fences() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     for index in 0..12 {
         std::fs::write(
             project.path().join(format!("file{index}.rs")),
@@ -23,7 +21,7 @@ async fn source_batches_scan_once_and_preserve_source_and_generation_fences() {
         )
         .unwrap_or_else(|error| panic!("source batch fixture failed: {error}"));
     }
-    let runtime = ProjectRuntime::connect(project.path(), &settings)
+    let runtime = ProjectRuntime::open(project.path())
         .await
         .unwrap_or_else(|error| panic!("source batch runtime failed: {error}"));
     let report = runtime
@@ -103,8 +101,10 @@ async fn source_batches_scan_once_and_preserve_source_and_generation_fences() {
         Err(ProjectError::SourceContextUnavailable)
     );
     assert_eq!(runtime.source_scan_observations(), before);
-    runtime.close().await;
-    drop_schema(&settings, &schema).await;
+    runtime
+        .close()
+        .await
+        .unwrap_or_else(|error| panic!("native shutdown: {error}"));
 }
 
 async fn source_window_ids(runtime: &ProjectRuntime, report: &super::IndexReport) -> Vec<SymbolId> {

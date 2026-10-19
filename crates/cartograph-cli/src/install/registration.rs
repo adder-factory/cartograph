@@ -5,8 +5,9 @@
 //! key of an existing entry (`env`, `cwd`, host-specific keys) and every extra
 //! server argument is preserved. An entry that launches Cartograph through a
 //! wrapper (a non-Cartograph `command` whose arguments name a Cartograph
-//! executable followed by `serve`) is never replaced: only that one embedded
-//! argument is repinned, and only when it is an absolute path.
+//! executable followed by `serve`) retains its wrapper. The embedded executable
+//! is repinned only when absolute; retired database options are removed only
+//! from the Cartograph server suffix.
 
 use std::path::Path;
 
@@ -60,13 +61,19 @@ fn repin_json_wrapper(
     command: &str,
 ) -> Map<String, Value> {
     let mut entry = existing.clone();
-    if let Some(argument) = entry
-        .get_mut(ARGS_KEY)
-        .and_then(Value::as_array_mut)
-        .and_then(|args| args.get_mut(index))
-        && argument.as_str().is_some_and(is_repinnable)
-    {
-        *argument = Value::String(command.to_owned());
+    if let Some(args) = entry.get_mut(ARGS_KEY).and_then(Value::as_array_mut) {
+        if let Some(argument) = args.get_mut(index)
+            && argument.as_str().is_some_and(is_repinnable)
+        {
+            *argument = Value::String(command.to_owned());
+        }
+        let values = args.iter().map(Value::as_str).collect::<Vec<_>>();
+        for retired in retired_database_argument_indices(&values, index + 1)
+            .into_iter()
+            .rev()
+        {
+            args.remove(retired);
+        }
     }
     entry
 }
@@ -146,14 +153,52 @@ fn toml_wrapped_index(server: &dyn TableLike) -> Option<usize> {
 }
 
 fn repin_toml_wrapper(server: &mut dyn TableLike, index: usize, command: &str) {
-    if let Some(args) = server.get_mut(ARGS_KEY).and_then(Item::as_array_mut)
-        && args
+    if let Some(args) = server.get_mut(ARGS_KEY).and_then(Item::as_array_mut) {
+        if args
             .get(index)
             .and_then(toml_edit::Value::as_str)
             .is_some_and(is_repinnable)
-    {
-        args.replace(index, command);
+        {
+            args.replace(index, command);
+        }
+        let values = args
+            .iter()
+            .map(toml_edit::Value::as_str)
+            .collect::<Vec<_>>();
+        for retired in retired_database_argument_indices(&values, index + 1)
+            .into_iter()
+            .rev()
+        {
+            args.remove(retired);
+        }
     }
+}
+
+/// Only the recognized server suffix belongs to Cartograph. Identically named
+/// wrapper options before the executable are outside this migration boundary.
+fn retired_database_argument_indices(args: &[Option<&str>], start: usize) -> Vec<usize> {
+    let mut retired = Vec::new();
+    let mut index = start;
+    while index < args.len() {
+        match args[index] {
+            Some("--managed-database-port") => {
+                retired.push(index);
+                if args
+                    .get(index + 1)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|arg| !arg.starts_with('-'))
+                {
+                    index += 1;
+                    retired.push(index);
+                }
+            }
+            Some(arg) if arg.starts_with("--managed-database-port=") => retired.push(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    retired
 }
 
 /// A wrapped executable is repinned only when it is an absolute path; a
@@ -165,10 +210,12 @@ fn is_repinnable(executable: &str) -> bool {
 /// Existing server arguments that Cartograph does not write, in order.
 fn extra_server_args<'arg>(args: &[&'arg str]) -> Vec<&'arg str> {
     let mut extras = Vec::new();
-    let mut arguments = args.iter().copied();
+    let mut arguments = args.iter().copied().peekable();
     while let Some(argument) = arguments.next() {
         if OWNED_OPTIONS.contains(&argument) {
-            arguments.next();
+            if arguments.peek().is_some_and(|next| !next.starts_with('-')) {
+                arguments.next();
+            }
         } else if !OWNED_FLAGS.contains(&argument) && !is_owned_inline_option(argument) {
             extras.push(argument);
         }
@@ -189,6 +236,87 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wrapped_json_cutover_removes_only_retired_server_options() {
+        for executable in ["/old/bin/cartograph", "cartograph"] {
+            let existing = serde_json::json!({
+                "command": "credential-helper",
+                "args": ["--managed-database-port", "wrapper-value", "--", executable,
+                    "serve", "--mcp", "--managed-database-port", "55435",
+                    "--profile", "coding", "--managed-database-port=55436", "--no-auto-sync"],
+                "env": {"FIXTURE_FLAG": "preserved"}
+            });
+            let merged = merge_json_entry(Some(&existing), Value::Null, "/new/bin/cartograph");
+            let chosen = if executable == "cartograph" {
+                executable
+            } else {
+                "/new/bin/cartograph"
+            };
+            assert_eq!(
+                merged,
+                serde_json::json!({
+                    "command": "credential-helper",
+                    "args": ["--managed-database-port", "wrapper-value", "--", chosen,
+                        "serve", "--mcp", "--profile", "coding", "--no-auto-sync"],
+                    "env": {"FIXTURE_FLAG": "preserved"}
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn wrapped_toml_cutover_preserves_path_lookup_and_other_server_flags() {
+        let mut server = toml_edit::Table::new();
+        server.insert("command", value("credential-helper"));
+        let mut args = Array::new();
+        for argument in [
+            "--managed-database-port=wrapper-value",
+            "--",
+            "cartograph",
+            "serve",
+            "--mcp",
+            "--managed-database-port=55433",
+            "--managed-database-port",
+            "--profile",
+            "coding",
+            "--no-auto-sync",
+        ] {
+            args.push(argument);
+        }
+        server.insert("args", value(args));
+        server.insert("cwd", value("preserved"));
+        merge_codex_server(
+            &mut server,
+            &DesiredServer {
+                command: "/new/bin/cartograph",
+                args: &[],
+            },
+        );
+        let actual = server.get("args").and_then(Item::as_array).map(|args| {
+            args.iter()
+                .filter_map(toml_edit::Value::as_str)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            actual,
+            Some(vec![
+                "--managed-database-port=wrapper-value",
+                "--",
+                "cartograph",
+                "serve",
+                "--mcp",
+                "--profile",
+                "coding",
+                "--no-auto-sync"
+            ])
+        );
+        assert_eq!(
+            server.get("command").and_then(Item::as_str),
+            Some("credential-helper")
+        );
+        assert_eq!(server.get("cwd").and_then(Item::as_str), Some("preserved"));
+    }
+
+    #[test]
     fn extra_server_arguments_drop_only_owned_flags_and_option_values() {
         assert_eq!(
             extra_server_args(&[
@@ -203,5 +331,82 @@ mod tests {
             ]),
             vec!["--profile", "coding", "--no-auto-sync"]
         );
+    }
+
+    #[test]
+    fn direct_cutover_keeps_options_after_a_bare_retired_flag() {
+        assert_eq!(
+            extra_server_args(&[
+                "serve",
+                "--mcp",
+                "--managed-database-port",
+                "--no-auto-sync",
+                "--profile",
+                "coding"
+            ]),
+            vec!["--no-auto-sync", "--profile", "coding"]
+        );
+        let existing = serde_json::json!({
+            "command": "/old/bin/cartograph",
+            "args": ["serve", "--mcp", "--managed-database-port", "--no-auto-sync", "--profile", "coding"],
+            "env": {"FIXTURE_FLAG": "preserved"}
+        });
+        let desired =
+            serde_json::json!({"command": "/new/bin/cartograph", "args": ["serve", "--mcp"]});
+        let migrated = merge_json_entry(Some(&existing), desired.clone(), "/new/bin/cartograph");
+        assert_eq!(
+            migrated,
+            serde_json::json!({
+                "command": "/new/bin/cartograph",
+                "args": ["serve", "--mcp", "--no-auto-sync", "--profile", "coding"],
+                "env": {"FIXTURE_FLAG": "preserved"}
+            })
+        );
+        assert_eq!(
+            merge_json_entry(Some(&migrated), desired, "/new/bin/cartograph"),
+            migrated
+        );
+    }
+
+    #[test]
+    fn direct_toml_cutover_keeps_following_flags_and_is_idempotent() {
+        let mut server = toml_edit::Table::new();
+        server.insert("command", value("/old/bin/cartograph"));
+        let mut args = Array::new();
+        for argument in [
+            "serve",
+            "--mcp",
+            "--managed-database-port",
+            "--no-auto-sync",
+            "--profile",
+            "coding",
+        ] {
+            args.push(argument);
+        }
+        server.insert("args", value(args));
+        server.insert("cwd", value("preserved"));
+        let desired_args = vec!["serve".to_owned(), "--mcp".to_owned()];
+        let desired = DesiredServer {
+            command: "/new/bin/cartograph",
+            args: &desired_args,
+        };
+        merge_codex_server(&mut server, &desired);
+        assert_eq!(
+            server.get("args").and_then(Item::as_array).map(|args| args
+                .iter()
+                .filter_map(toml_edit::Value::as_str)
+                .collect::<Vec<_>>()),
+            Some(vec![
+                "serve",
+                "--mcp",
+                "--no-auto-sync",
+                "--profile",
+                "coding"
+            ])
+        );
+        assert_eq!(server.get("cwd").and_then(Item::as_str), Some("preserved"));
+        let migrated = server.to_string();
+        merge_codex_server(&mut server, &desired);
+        assert_eq!(server.to_string(), migrated);
     }
 }

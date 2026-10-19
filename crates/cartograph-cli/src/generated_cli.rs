@@ -1448,7 +1448,7 @@ pub(super) async fn run(
     let render_mode = invocation.render_mode;
     let result = execute(invocation).await?;
     render_tool_result(&result, render_mode);
-    if result.is_error() {
+    if crate::rocks_cli::remote_job::failed(&result) {
         Ok(std::process::ExitCode::FAILURE)
     } else {
         Ok(std::process::ExitCode::SUCCESS)
@@ -1456,16 +1456,35 @@ pub(super) async fn run(
 }
 
 async fn execute(invocation: GeneratedToolInvocation) -> Result<ToolResult, String> {
+    crate::rocks_cli::validate_project_storage(&invocation.project_path).await?;
+    if crate::rocks_cli::owner::OwnerClient::connect(&invocation.project_path)
+        .await?
+        .is_some()
+    {
+        let timeout = generated_tool_timeout(&invocation.tool_name, &invocation.arguments);
+        return crate::rocks_cli::remote_job::run(
+            &invocation.project_path,
+            ToolCall {
+                name: invocation.tool_name,
+                arguments: invocation.arguments,
+            },
+            ToolCallContext::local(timeout),
+            |_| {},
+        )
+        .await;
+    }
     let runtime = std::sync::Arc::new(crate::open_runtime(&invocation.project_path).await?);
     let handler = mcp_handler::CartographMcpHandler::new(runtime)
         .map_err(|_| "generated CLI handler contract is invalid".to_owned())?;
     let result = call_until_terminal(&handler, invocation).await;
-    // Always cancel and reap (with a bound) an admin job this process started,
-    // including when the CLI deadline elapsed, so the job gets to fail its
-    // staging generation and release its lease instead of being abandoned when
-    // the process exits.
     handler.shutdown().await;
-    result
+    let shutdown = handler
+        .close_native()
+        .await
+        .map_err(|error| error.to_string());
+    let result = result?;
+    shutdown?;
+    Ok(result)
 }
 
 async fn call_until_terminal(
@@ -1473,19 +1492,18 @@ async fn call_until_terminal(
     invocation: GeneratedToolInvocation,
 ) -> Result<ToolResult, String> {
     let tool_name = invocation.tool_name;
-    let is_admin = tool_name == "cartograph_admin";
     let local_timeout = generated_tool_timeout(&tool_name, &invocation.arguments);
+    let call = ToolCall {
+        name: tool_name,
+        arguments: invocation.arguments,
+    };
+    let wait_for_job =
+        call.name == "cartograph_admin" && !crate::rocks_cli::remote_job::is_status_request(&call);
     let result = handler
-        .call(
-            ToolCall {
-                name: tool_name,
-                arguments: invocation.arguments,
-            },
-            ToolCallContext::local(local_timeout),
-        )
+        .call(call, ToolCallContext::local(local_timeout))
         .await
         .map_err(|error| error.wire_message().to_owned())?;
-    if is_admin {
+    if wait_for_job {
         await_admin_terminal(handler, result).await
     } else {
         Ok(result)
@@ -1874,11 +1892,11 @@ mod tests {
                 ),
                 (
                     "databaseQueryTimeoutMs".to_owned(),
-                    Value::Number(Number::from(15 * 60 * 1_000_u64)),
+                    Value::Number(Number::from(300_000_u64)),
                 ),
             ]),
         );
-        assert_eq!(extended, Duration::from_mins(16));
+        assert_eq!(extended, LOCAL_TOOL_TIMEOUT);
         let capped = generated_tool_timeout(
             "cartograph_admin",
             &Map::from_iter([
@@ -1892,7 +1910,7 @@ mod tests {
                 ),
             ]),
         );
-        assert_eq!(capped, Duration::from_mins(31));
+        assert_eq!(capped, LOCAL_TOOL_TIMEOUT);
         assert_eq!(
             generated_tool_timeout("cartograph_find", &Map::new()),
             LOCAL_TOOL_TIMEOUT
@@ -1937,7 +1955,6 @@ mod tests {
             "propose-rename",
             "role",
             "session",
-            "sql",
             "summaries",
             "tests-for",
             "trace-to-culprits",
@@ -1992,38 +2009,23 @@ mod tests {
 
     #[test]
     fn parsed_cli_debug_never_prints_argument_values() {
-        // Assembled at runtime so no source literal reads as a stored credential.
-        let database_url = [
-            "postgresql://cartograph:",
-            "debug-secret",
-            "@127.0.0.1:1/cartograph",
-        ]
-        .concat();
-        let database_url = database_url.as_str();
-        let tool = parse_from([
-            "cartograph",
-            "admin",
-            "init",
-            "--database-url",
-            database_url,
-        ])
-        .unwrap_or_else(|error| panic!("admin init parse failed: {error}"));
-        let static_command = parse_from([
-            "cartograph",
-            "llm",
-            "install",
-            "--no-models",
-            "--database-url",
-            database_url,
-        ])
-        .unwrap_or_else(|error| panic!("llm install parse failed: {error}"));
-        let rendered = format!("{tool:?} {static_command:?}");
-        assert!(!rendered.contains("debug-secret"));
-        assert_eq!(format!("{static_command:?}"), "Static(<redacted>)");
-        let ParsedCli::Tool(admin) = tool else {
-            panic!("admin init did not route through generated tool command");
-        };
-        assert_eq!(admin.arguments["databaseUrl"], database_url);
+        let secret = ["private", "argument", "value"].join("-");
+        let tool = parse_from(["cartograph", "find", &secret])
+            .unwrap_or_else(|error| panic!("find parse: {error}"));
+        let rendered = format!("{tool:?}");
+        assert!(!rendered.contains(&secret));
+        assert!(parse_from(["cartograph", "admin", "init", "--database-url", &secret]).is_err());
+        assert!(
+            parse_from([
+                "cartograph",
+                "llm",
+                "install",
+                "--no-models",
+                "--database-url",
+                &secret
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -2334,7 +2336,6 @@ mod tests {
     fn v1_cli_aliases_preserve_analysis_positionals_and_session_actions() {
         for (command, value, property) in [
             ("blame", "OrderService::save", "symbol"),
-            ("sql", "SELECT * FROM symbols", "query"),
             ("coverage", "OrderService::save", "symbol"),
             ("numerical", "coverage", "mode"),
         ] {

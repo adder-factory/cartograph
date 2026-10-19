@@ -13,11 +13,10 @@ members = [
   "crates/cartograph-mcp",
   "crates/cartograph-search",
   "crates/cartograph-scip",
-  "crates/cartograph-test-support",
 ]
 
 [workspace.package]
-version = "2.1.44"
+version = "3.0.0"
 edition = "2024"
 rust-version = "1.99.0"
 authors = ["Adder Factory"]
@@ -78,7 +77,6 @@ cartograph-llm = { path = "crates/cartograph-llm" }
 cartograph-mcp = { path = "crates/cartograph-mcp" }
 cartograph-scip = { path = "crates/cartograph-scip" }
 cartograph-search = { path = "crates/cartograph-search" }
-cartograph-test-support = { path = "crates/cartograph-test-support" }
 clap = { version = "4.6.7", default-features = false, features = [
   "derive",
   "error-context",
@@ -90,6 +88,8 @@ clap = { version = "4.6.7", default-features = false, features = [
 ] }
 getrandom = "0.4.3"
 ignore = "0.4.33"
+itoa = "=1.0.18"
+jiff = { version = "=0.2.35", default-features = false, features = ["std"] }
 libc = "0.2.190"
 memchr = "=2.8.3"
 notify = "=8.2.0"
@@ -99,17 +99,16 @@ globset = "0.4.20"
 reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 regex = "1.13.1"
 regex-syntax = "0.8.11"
-rustls = { version = "=0.23.45", default-features = false, features = ["ring"] }
+# Native 11.8.1, with the upstream bindgen 0.73 build-dependency update.
+# Keep this immutable source until its next crates.io release includes that fix.
+rocksdb = { package = "rust-rocksdb", version = "=0.53.0", git = "https://github.com/zaidoon1/rust-rocksdb", rev = "50017c3de5bc24cf5d81fdc0fe6b0f23df700765", default-features = false, features = ["bindgen-runtime", "lz4", "zstd", "multi-threaded-cf"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring"] }
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "process"] }
 secrecy = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "=0.11.1"
 signal-hook = { version = "0.4.5", default-features = false }
-sqlx-core = { version = "=0.9.0", default-features = false, features = [
-  "_rt-tokio",
-  "_tls-rustls-ring-native-roots",
-] }
-sqlx-postgres = { version = "=0.9.0", default-features = false }
 thiserror = "2.0.21"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = [
@@ -117,6 +116,7 @@ tokio = { version = "1.53.2", features = [
   "io-std",
   "io-util",
   "macros",
+  "net",
   "process",
   "rt-multi-thread",
   "sync",

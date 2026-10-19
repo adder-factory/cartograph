@@ -211,6 +211,7 @@ pub struct NavigationReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     provider_error_detail: Option<String>,
     decisions: Vec<NavigationStep>,
+    decision_requests: Vec<cartograph_domain::DecisionRequestMetrics>,
     candidates: Vec<NavigationCandidate>,
     source_windows: Vec<SymbolSourceContext>,
     candidates_truncated: bool,
@@ -228,6 +229,7 @@ impl NavigationReport {
             provider_error: None,
             provider_error_detail: None,
             decisions: Vec::new(),
+            decision_requests: Vec::new(),
             candidates: Vec::new(),
             source_windows: Vec::new(),
             candidates_truncated: false,
@@ -495,6 +497,9 @@ impl<'a> Navigator<'a> {
                 return Ok(None);
             }
         };
+        if let Some(metrics) = decision.metrics {
+            self.ledger.report.decision_requests.push(metrics);
+        }
         let outcome = prompt.outcome(&decision);
         if outcome.is_none() {
             self.ledger.report.stop = NavigationStop::ProviderUnavailable;

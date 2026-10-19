@@ -8,6 +8,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
+use cartograph_domain::DecisionRequestMetrics;
 use cartograph_llm::{JevDecision, JevError, JevQuestion};
 use futures_util::{StreamExt as _, stream::FuturesOrdered};
 use serde_json::Value;
@@ -37,6 +38,14 @@ pub(crate) struct BatchOutcomes<A> {
     pub(crate) batches: Vec<(usize, Result<Vec<A>, JevError>)>,
     /// Unavailability that ended judging; later items were not judged.
     pub(crate) stopped: Option<JevError>,
+    /// Validated responses observed in the returned prefix, in batch order.
+    pub(crate) requests: Vec<DecisionRequestMetrics>,
+}
+
+struct BatchDecision<A> {
+    count: usize,
+    decided: Result<Vec<A>, JevError>,
+    requests: Vec<DecisionRequestMetrics>,
 }
 
 /// Failures tied to the batch itself; anything else means the provider is
@@ -83,8 +92,15 @@ where
     let mut outcomes = BatchOutcomes {
         batches: Vec::new(),
         stopped: None,
+        requests: Vec::new(),
     };
-    while let Some((count, decided)) = in_flight.next().await {
+    while let Some(BatchDecision {
+        count,
+        decided,
+        requests,
+    }) = in_flight.next().await
+    {
+        outcomes.requests.extend(requests);
         match decided {
             Err(error) if !rejects_the_batch(&error) => {
                 outcomes.stopped = Some(error);
@@ -106,11 +122,12 @@ async fn decide_batch<T, R>(
     provider: &impl DecisionProvider,
     request: &R,
     batch: &[T],
-) -> (usize, Result<Vec<R::Answer>, JevError>)
+) -> BatchDecision<R::Answer>
 where
     R: BatchRequest<T>,
 {
-    let decided = match decide_once(provider, request, batch).await {
+    let mut requests = Vec::new();
+    let decided = match decide_once(provider, request, batch, &mut requests).await {
         Err(
             error @ (JevError::InvalidResponse
             | JevError::EndpointUnavailable
@@ -119,29 +136,47 @@ where
             if error == JevError::RateLimited {
                 tokio::time::sleep(RATE_LIMIT_PAUSE).await;
             }
-            decide_once(provider, request, batch).await
+            decide_once(provider, request, batch, &mut requests).await
         }
         decided => decided,
     };
-    (batch.len(), decided)
+    BatchDecision {
+        count: batch.len(),
+        decided,
+        requests,
+    }
 }
 
 async fn decide_once<T, R>(
     provider: &impl DecisionProvider,
     request: &R,
     batch: &[T],
+    requests: &mut Vec<DecisionRequestMetrics>,
 ) -> Result<Vec<R::Answer>, JevError>
 where
     R: BatchRequest<T>,
 {
     let (state, questions) = request.build(batch);
     let decision = provider.decide(&state, &questions).await?;
+    requests.extend(decision.metrics);
     request.read(&decision, batch.len())
 }
 
 /// `text` cut to at most `limit` bytes on a character boundary.
 pub(crate) fn truncated(text: &str, limit: usize) -> &str {
     &text[..text.floor_char_boundary(limit)]
+}
+
+#[cfg(test)]
+pub(crate) const fn fixture_request_metrics() -> DecisionRequestMetrics {
+    DecisionRequestMetrics {
+        cache: cartograph_domain::DecisionCacheOutcome::Miss,
+        elapsed_ms: 7,
+        provider_requests: 1,
+        input_tokens: Some(120),
+        output_tokens: Some(12),
+        background: false,
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +291,8 @@ mod tests {
                 })
                 .collect();
             Ok(JevDecision {
+                usage: None,
+                metrics: None,
                 model: JEV_MODEL.to_owned(),
                 answers,
             })

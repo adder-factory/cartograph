@@ -37,34 +37,31 @@ use std::{
 
 use cartograph_agent::{
     IndexFailure, IndexOptions, IndexReport, PipelineStage, ProjectCancellation, ProjectError,
-    ProjectRuntime, ReservedIndexGeneration, SupervisorState, SupervisorStatus,
+    ProjectRuntime, SupervisorState, SupervisorStatus,
 };
-use cartograph_db::LeaseTarget;
-use cartograph_domain::{GenerationId, GenerationState, ProjectId, ProjectOperation};
+use cartograph_domain::ProjectId;
 use serde::Serialize;
 use tokio::time::{Instant, MissedTickBehavior};
 
 /// Longest a supervised index waits for other live writers (for example an
 /// MCP server's auto-sync) to release the project before it reports
 /// `lease_busy`. Each writer's own supervisor bounds its run.
-pub(crate) const SUPERVISED_WRITER_WAIT: Duration = Duration::from_mins(30);
+pub(crate) const SUPERVISED_WRITER_WAIT: Duration = Duration::from_secs(300);
 /// Longest a supervised child reports liveness while it starts: resolving
 /// its database settings, connecting, and applying schema migrations and
 /// startup search-relation repairs, each statement of which runs under the
 /// session statement timeout. A startup still running after this stops
 /// changing its progress line, so the parent's inactivity bound then stops it
 /// like any other child that stopped reporting.
-pub(crate) const SUPERVISED_STARTUP_ALLOWANCE: Duration = Duration::from_mins(30);
-/// Interval between reads of the project's operation leases.
-const WRITER_POLL_INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const SUPERVISED_STARTUP_ALLOWANCE: Duration = Duration::from_secs(300);
 /// First pause after a `lease_busy` attempt that no live lease explained,
 /// such as a project lock held past the bounded staging-preflight wait by an
 /// operation without a lease, or a schema-maintenance lock; it doubles up to
 /// [`MAXIMUM_COLLISION_BACKOFF`] because every collision costs a source scan.
 /// A collision with a live writer instead waits for that writer's lease.
-const INITIAL_COLLISION_BACKOFF: Duration = Duration::from_secs(15);
+const INITIAL_COLLISION_BACKOFF: Duration = Duration::from_millis(100);
 /// Longest pause between acquisition collisions.
-const MAXIMUM_COLLISION_BACKOFF: Duration = Duration::from_mins(4);
+const MAXIMUM_COLLISION_BACKOFF: Duration = Duration::from_secs(2);
 /// Interval between progress observations; a line is written only on change.
 const PROGRESS_POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Scratch buffer for discarding unexpected bytes written to a supervised stdin.
@@ -77,28 +74,6 @@ const SIGNAL_EXIT_STATUS_BASE: i32 = 128;
 /// with on Ctrl-C.
 #[cfg(windows)]
 const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
-/// Every operation whose live lease makes index acquisition on the project
-/// fail with `Busy`; the test-only `operation_slot` keeps it exhaustive.
-const PROJECT_OPERATIONS: [ProjectOperation; 5] = [
-    ProjectOperation::Index,
-    ProjectOperation::Sync,
-    ProjectOperation::Hook,
-    ProjectOperation::Migration,
-    ProjectOperation::Rebuild,
-];
-
-/// Position of `operation` in [`PROJECT_OPERATIONS`]. A new operation fails
-/// to compile here until the writer wait observes it too.
-#[cfg(test)]
-const fn operation_slot(operation: ProjectOperation) -> usize {
-    match operation {
-        ProjectOperation::Index => 0,
-        ProjectOperation::Sync => 1,
-        ProjectOperation::Hook => 2,
-        ProjectOperation::Migration => 3,
-        ProjectOperation::Rebuild => 4,
-    }
-}
 
 /// How one `cartograph index` request is driven.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,21 +162,22 @@ async fn report_startup_liveness(emit: &mut impl FnMut(&StartupProgress)) {
 /// become cooperative stops only while the request runs (see
 /// [`InterruptForwarding`]); before it starts, nothing would act on a
 /// cancellation yet, so they end the process.
-/// A failure keeps the attempt's primary error and whether cleanup of what
-/// the request held also failed; for a cancellation, PostgreSQL decides the
-/// latter (see [`confirm_cancellation_cleanup`]).
-pub(crate) async fn run_cancellable_index(
+/// A failure keeps the primary error and any cleanup failure. Cancellation
+/// drains the owned native work before releasing the project writer guard.
+pub(crate) fn run_cancellable_index(
     request: CancellableIndex<'_>,
-) -> Result<IndexReport, IndexFailure> {
-    let interrupts = request.interrupts;
-    if let Some(interrupts) = interrupts {
-        interrupts.request_started();
-    }
-    let result = run_request(request).await;
-    if let Some(interrupts) = interrupts {
-        interrupts.request_finished();
-    }
-    result
+) -> impl std::future::Future<Output = Result<IndexReport, IndexFailure>> + Send + '_ {
+    Box::pin(async move {
+        let interrupts = request.interrupts;
+        if let Some(interrupts) = interrupts {
+            interrupts.request_started();
+        }
+        let result = Box::pin(run_request(request)).await;
+        if let Some(interrupts) = interrupts {
+            interrupts.request_finished();
+        }
+        result
+    })
 }
 
 /// Run the request in its direct or supervised mode.
@@ -215,11 +191,11 @@ async fn run_request(request: CancellableIndex<'_>) -> Result<IndexReport, Index
     } = request;
     match supervision {
         IndexSupervision::Direct => {
-            with_cleanup_proof(
+            Box::pin(with_cleanup_proof(
                 runtime,
                 &cancellation,
                 runtime.index_with_cancellation_detail(options, cancellation.clone()),
-            )
+            ))
             .await
         }
         IndexSupervision::Supervised => {
@@ -275,13 +251,13 @@ impl InterruptForwarding {
 
     /// The cancellable index request started; an interrupt now stops it
     /// cooperatively.
-    fn request_started(&self) {
+    pub(crate) fn request_started(&self) {
         self.phase.enter(RequestPhase::RUNNING);
     }
 
     /// The index request ended; any later interrupt ends the process as the
     /// default disposition would have.
-    fn request_finished(&self) {
+    pub(crate) fn request_finished(&self) {
         self.phase.enter(RequestPhase::ENDED);
     }
 }
@@ -312,220 +288,14 @@ impl RequestPhase {
     }
 }
 
-/// Every generation one index request reserved, across all of its attempts.
-///
-/// A supervised request retries after a collision, and a collided attempt's
-/// own staging cleanup can still be blocked behind the other writer, so a
-/// later cancellation must account for every reservation, not only the last.
-#[derive(Default)]
-struct OwnedReservations {
-    reserved: Vec<ReservedIndexGeneration>,
-}
-
-impl OwnedReservations {
-    /// Record the reservation `cancellation` gained since `before`, if any.
-    fn record_since(
-        &mut self,
-        cancellation: &ProjectCancellation,
-        before: Option<&ReservedIndexGeneration>,
-    ) {
-        if let Some(reserved) = cancellation
-            .reserved_index_generation()
-            .filter(|reserved| Some(reserved) != before)
-        {
-            self.reserved.push(reserved);
-        }
-    }
-}
-
-/// Await one direct request that indexes under `cancellation` and settle a
-/// cancelled outcome's cleanup the way an index request does (see
-/// [`confirm_cancellation_cleanup`]).
-///
-/// An MCP SCIP import, for example, forces one index under its job's
-/// cancellation, so its cancelled job reports the same PostgreSQL-confirmed
-/// `cleanupFailure` as a cancelled index job, and keeps the
-/// `overlayRollbackFailure` of an overlay restore that failed afterward.
+/// Await the native owner through cancellation and preserve its primary and cleanup outcomes.
+/// Native staging rollback and worker reaping complete inside the runtime future.
 pub(crate) async fn with_cleanup_proof<Report>(
-    runtime: &ProjectRuntime,
-    cancellation: &ProjectCancellation,
+    _runtime: &ProjectRuntime,
+    _cancellation: &ProjectCancellation,
     request: impl Future<Output = Result<Report, IndexFailure>>,
 ) -> Result<Report, IndexFailure> {
-    let mut owned = OwnedReservations::default();
-    let reserved_before = cancellation.reserved_index_generation();
-    let result = request.await;
-    owned.record_since(cancellation, reserved_before.as_ref());
-    confirm_cancellation_cleanup(FinishedRequest {
-        result,
-        runtime,
-        cancelled: cancellation.is_cancelled(),
-        owned: &owned,
-    })
-    .await
-}
-
-/// One finished request whose cancellation may need a cleanup proof.
-struct FinishedRequest<'request, Report> {
-    result: Result<Report, IndexFailure>,
-    runtime: &'request ProjectRuntime,
-    /// Whether the request's cancellation was requested.
-    cancelled: bool,
-    owned: &'request OwnedReservations,
-}
-
-/// Report a cancelled request as `request_cancelled`, with a secondary
-/// cleanup failure unless PostgreSQL proves the request cleaned up what it
-/// held.
-///
-/// Neither the agent's cleanup flag nor its absence settles a cancellation.
-/// The agent reports any supervisor error under a cancelled token as
-/// `RequestCancelled`, including one whose owned cleanup failed or was
-/// skipped. Conversely, an attempt whose own cleanup already completed can
-/// still carry a cleanup failure when a redundant bounded cleanup afterwards
-/// waits behind another writer's project lock; and a supervised request may
-/// hold reservations from earlier attempts. A request that reserved no
-/// generation held nothing. Otherwise each generation it reserved must have
-/// left `staging`/`ready` (cleanup marks it `failed`; it may also have been
-/// published, superseded, or retired) and the project's index lease row must
-/// name none of them. Another writer's lease and generations, which a
-/// concurrent auto-sync may hold at the same moment, are not this request's
-/// and never count against it. An unreadable row is reported as a cleanup
-/// failure: conservative, never optimistic. A secondary failure that the
-/// proof does not cover, a SCIP import's failed overlay rollback, is kept.
-async fn confirm_cancellation_cleanup<Report>(
-    request: FinishedRequest<'_, Report>,
-) -> Result<Report, IndexFailure> {
-    let FinishedRequest {
-        result,
-        runtime,
-        cancelled,
-        owned,
-    } = request;
-    let failure = match result {
-        Err(failure) if cancellation_outcome(failure.error(), cancelled) => failure,
-        other => return other,
-    };
-    let cancellation = failure.into_requested_cancellation();
-    if owned_cleanup_proven(runtime, owned).await {
-        Err(cancellation)
-    } else {
-        Err(cancellation.with_failed_cleanup())
-    }
-}
-
-/// Whether a failure is the outcome of a cancellation that the cleanup
-/// proof settles: `RequestCancelled`, or `lease_busy` after cancellation was
-/// requested.
-///
-/// A cancelled attempt that reserved a generation already reports
-/// `RequestCancelled`. One that met another writer before reserving (a live
-/// lease, or the project lock still held past the bounded staging-preflight
-/// wait) answers `lease_busy` without checking cancellation, yet it is the
-/// requested stop, not contention left to retry, so it is reported as one;
-/// so is a collision that ended just before the stop arrived, which the same
-/// proof settles. Any other primary failure, including a pre-reservation
-/// staging recovery that failed for a reason other than contention, is not
-/// the request's own cleanup and is reported as it is.
-const fn cancellation_outcome(error: &ProjectError, cancelled: bool) -> bool {
-    match error {
-        ProjectError::RequestCancelled => true,
-        ProjectError::IndexLeaseBusy => cancelled,
-        _ => false,
-    }
-}
-
-/// Whether PostgreSQL shows every generation in `owned` settled and no index
-/// lease row naming one of them; trivially true when nothing was reserved.
-async fn owned_cleanup_proven(runtime: &ProjectRuntime, owned: &OwnedReservations) -> bool {
-    let Some(project_id) = owned.reserved.first().map(|first| first.project_id.clone()) else {
-        return true;
-    };
-    let database = runtime.database();
-    let mut generations = Vec::with_capacity(owned.reserved.len());
-    let mut generation_ids = Vec::with_capacity(owned.reserved.len());
-    for reserved in &owned.reserved {
-        generations.push(
-            database
-                .generation_state(&reserved.project_id, &reserved.generation_id)
-                .await
-                .map_or(OwnedGeneration::Unreadable, |state| {
-                    state.map_or(OwnedGeneration::Settled, OwnedGeneration::from_state)
-                }),
-        );
-        generation_ids.push(reserved.generation_id.clone());
-    }
-    let target = LeaseTarget::new(project_id, ProjectOperation::Index, None);
-    let lease = match database.lease_status(&target).await {
-        Ok(None) => IndexLeaseRow::Absent,
-        Ok(Some(lease)) => IndexLeaseRow::Names(lease.generation_id().cloned()),
-        Err(_) => IndexLeaseRow::Unreadable,
-    };
-    owned_cleanup_confirmed(&OwnedCleanup {
-        owned: &generation_ids,
-        generations: &generations,
-        lease,
-    })
-}
-
-/// One generation the cancelled request reserved, as PostgreSQL reports it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OwnedGeneration {
-    /// Failed, published, superseded, retiring, or already removed.
-    Settled,
-    /// Still `staging` or `ready`: cleanup did not fail it.
-    Unpublished,
-    /// The state could not be read.
-    Unreadable,
-}
-
-impl OwnedGeneration {
-    const fn from_state(state: GenerationState) -> Self {
-        match state {
-            GenerationState::Staging | GenerationState::Ready => Self::Unpublished,
-            GenerationState::Current
-            | GenerationState::Superseded
-            | GenerationState::Failed
-            | GenerationState::Retiring => Self::Settled,
-        }
-    }
-}
-
-/// The project's index lease row at proof time.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum IndexLeaseRow {
-    /// No index lease row exists.
-    Absent,
-    /// A row exists and names this generation, if any.
-    Names(Option<GenerationId>),
-    /// The row could not be read.
-    Unreadable,
-}
-
-/// Evidence about one cancelled request's own cleanup.
-struct OwnedCleanup<'evidence> {
-    /// Every generation the request reserved.
-    owned: &'evidence [GenerationId],
-    /// Their states, in the same order.
-    generations: &'evidence [OwnedGeneration],
-    lease: IndexLeaseRow,
-}
-
-/// Whether every generation the request reserved settled and none of them is
-/// still named by the project's index lease. A lease row naming any other
-/// generation, or none, belongs to another writer and does not count.
-fn owned_cleanup_confirmed(evidence: &OwnedCleanup<'_>) -> bool {
-    let lease_released = match &evidence.lease {
-        IndexLeaseRow::Absent => true,
-        IndexLeaseRow::Names(named) => named
-            .as_ref()
-            .is_none_or(|named| !evidence.owned.contains(named)),
-        IndexLeaseRow::Unreadable => false,
-    };
-    lease_released
-        && evidence
-            .generations
-            .iter()
-            .all(|generation| *generation == OwnedGeneration::Settled)
+    request.await
 }
 
 /// Treat EOF or a read failure on stdin as a cooperative cancellation request.
@@ -742,120 +512,48 @@ async fn run_supervised_index(request: SupervisedIndex<'_>) -> Result<IndexRepor
     }
 }
 
-/// Wait out other live writers, then index. A collision with another writer
-/// is awaited again within the same bound: one whose live lease explains it
-/// waits for that lease, and an unexplained one pauses for a growing interval.
-/// A cancellation at any point, including while waiting, is confirmed against
-/// every generation the request's attempts reserved.
 async fn index_after_other_writers(
     wait: &WriterWait<'_>,
     options: IndexOptions,
 ) -> Result<IndexReport, IndexFailure> {
-    let mut owned = OwnedReservations::default();
-    let result = attempt_until_final(wait, options, &mut owned).await;
-    confirm_cancellation_cleanup(FinishedRequest {
-        result,
-        runtime: wait.runtime,
-        cancelled: wait.cancellation.is_cancelled(),
-        owned: &owned,
-    })
-    .await
+    attempt_until_final(wait, options).await
 }
 
-/// Run attempts until one is final, recording each attempt's reservation.
-/// The wait itself ends the request with `request_cancelled` or, once its
-/// bound expires, `lease_busy`; neither ran a cleanup of its own.
 async fn attempt_until_final(
     wait: &WriterWait<'_>,
     options: IndexOptions,
-    owned: &mut OwnedReservations,
 ) -> Result<IndexReport, IndexFailure> {
     let mut backoff = INITIAL_COLLISION_BACKOFF;
     loop {
-        wait.progress.indexing.store(false, Ordering::Relaxed);
-        wait_for_other_writers(wait).await?;
+        if wait.cancellation.is_cancelled() {
+            return Err(ProjectError::RequestCancelled.into());
+        }
+        if Instant::now() >= wait.deadline {
+            return Err(ProjectError::IndexLeaseBusy.into());
+        }
         wait.progress.attempts.fetch_add(1, Ordering::Relaxed);
         wait.progress.indexing.store(true, Ordering::Relaxed);
-        let reserved_before = wait.cancellation.reserved_index_generation();
         let result = wait
             .runtime
             .index_with_cancellation_detail(options.clone(), wait.cancellation.clone())
             .await;
-        owned.record_since(wait.cancellation, reserved_before.as_ref());
-        match attempt_verdict(wait, &result).await {
-            AttemptVerdict::Final => return result,
-            AttemptVerdict::AwaitWriter => {}
-            AttemptVerdict::Backoff => {
-                wait.progress.indexing.store(false, Ordering::Relaxed);
-                within_wait(wait, tokio::time::sleep(backoff)).await?;
-                backoff = backoff.saturating_mul(2).min(MAXIMUM_COLLISION_BACKOFF);
-            }
+        if !refused_by_another_writer(&result) || wait.cancellation.is_cancelled() {
+            return result;
         }
+        wait.progress.indexing.store(false, Ordering::Relaxed);
+        within_wait(wait, tokio::time::sleep(backoff)).await?;
+        backoff = backoff.saturating_mul(2).min(MAXIMUM_COLLISION_BACKOFF);
     }
-}
-
-/// What a finished attempt means for the supervised loop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AttemptVerdict {
-    /// Report the attempt's own result.
-    Final,
-    /// Another writer's live lease explains the failure: wait it out.
-    AwaitWriter,
-    /// The project was busy without a live lease to explain it, for example
-    /// a schema-maintenance lock: pause, then try again.
-    Backoff,
 }
 
 /// Whether another project writer refused the attempt.
 ///
-/// The agent reports every collision as `lease_busy`: a live project lease, a
-/// project lock still held past the bounded staging-preflight wait (another
-/// writer's prepare transaction holds it for its whole COPY), or a lock that
-/// kept the lease read waiting past that wait, before any generation is
-/// reserved, and a writer that won after that check at lease acquisition. A cleanup failure that follows the collision is secondary
-/// detail of that primary. `index_cleanup_failed` as the primary failure
-/// means only that the pre-reservation staging recovery failed for a reason
-/// other than contention, so it is a final fault, never a collision.
+/// The native project owner reports `lease_busy` when another index holds its
+/// publication guard. Storage faults remain errors rather than contention.
 const fn refused_by_another_writer(result: &Result<IndexReport, IndexFailure>) -> bool {
     match result {
         Err(failure) => matches!(failure.error(), ProjectError::IndexLeaseBusy),
         Ok(_) => false,
-    }
-}
-
-/// Decide a collision from whether another writer's lease is live.
-const fn contention_verdict(live_writer: bool) -> AttemptVerdict {
-    if live_writer {
-        AttemptVerdict::AwaitWriter
-    } else {
-        AttemptVerdict::Backoff
-    }
-}
-
-/// Classify one finished attempt. A cancelled request reports its own
-/// result, which the cleanup proof then settles. The contention probe runs
-/// inside the wait's bounds: cancellation during it does the same, and an
-/// expired wait during it leaves the writer wait that follows to report the
-/// bound as `lease_busy`.
-async fn attempt_verdict(
-    wait: &WriterWait<'_>,
-    result: &Result<IndexReport, IndexFailure>,
-) -> AttemptVerdict {
-    if wait.cancellation.is_cancelled() || !refused_by_another_writer(result) {
-        return AttemptVerdict::Final;
-    }
-    match within_wait(wait, live_writer_on_project(wait.runtime)).await {
-        Ok(live_writer) => contention_verdict(live_writer),
-        Err(ProjectError::RequestCancelled) => AttemptVerdict::Final,
-        Err(_) => AttemptVerdict::AwaitWriter,
-    }
-}
-
-/// Whether any operation holds a live lease on the project right now.
-async fn live_writer_on_project(runtime: &ProjectRuntime) -> bool {
-    match registered_project(runtime).await {
-        Some(project_id) => live_writer_heartbeat(runtime, &project_id).await.is_some(),
-        None => false,
     }
 }
 
@@ -866,27 +564,12 @@ struct WriterWait<'wait> {
     deadline: Instant,
 }
 
-/// Wait out other writers on the request's registered project; see
-/// [`wait_for_project_leases`].
-async fn wait_for_other_writers(wait: &WriterWait<'_>) -> Result<(), ProjectError> {
-    let Some(project_id) = within_wait(wait, registered_project(wait.runtime)).await? else {
-        return Ok(());
-    };
-    wait_for_project_leases(wait, &project_id).await
-}
-
 /// `sync-if-dirty`'s bounded wait between its `lease_busy` attempts; a
 /// deadline that passes first reports the retryable `lease_busy`.
 ///
-/// A live lease of any operation in [`PROJECT_OPERATIONS`] refuses index
-/// acquisition, so waiting on the index lease alone would retry, and rescan
-/// the checkout, while a sync, hook, migration, or rebuild lease is still
-/// live: the wait outlasts every one of them. A collision that no live lease
-/// explains (a project lock held past the bounded staging-preflight wait by
-/// an operation without a lease, or a schema-maintenance lock) pauses instead,
-/// from [`INITIAL_COLLISION_BACKOFF`] doubling up to
-/// [`MAXIMUM_COLLISION_BACKOFF`], as the supervised attempts do. The wait is
-/// the supervised one without cancellation or progress reporting.
+/// Native writer collisions pause from [`INITIAL_COLLISION_BACKOFF`], doubling
+/// up to [`MAXIMUM_COLLISION_BACKOFF`], under the original overall deadline.
+/// This path does not start another source scan while backing off.
 pub(crate) struct WriterCollisionWait {
     deadline: Instant,
     backoff: Duration,
@@ -906,91 +589,24 @@ impl WriterCollisionWait {
         self.deadline
     }
 
-    /// Wait out the collision an attempt on `project_id` just reported.
     pub(crate) async fn after_collision(
         &mut self,
-        runtime: &ProjectRuntime,
-        project_id: &ProjectId,
+        _runtime: &ProjectRuntime,
+        _project_id: &ProjectId,
     ) -> Result<(), ProjectError> {
-        let progress = SupervisedProgress::default();
-        let cancellation = ProjectCancellation::new();
-        let wait = WriterWait {
-            runtime,
-            progress: &progress,
-            cancellation: &cancellation,
-            deadline: self.deadline,
-        };
-        if within_wait(&wait, live_writer_heartbeat(runtime, project_id))
-            .await?
-            .is_some()
-        {
-            return wait_for_project_leases(&wait, project_id).await;
+        if Instant::now() >= self.deadline {
+            return Err(ProjectError::IndexLeaseBusy);
         }
-        within_wait(&wait, tokio::time::sleep(self.backoff)).await?;
+        tokio::time::sleep_until((Instant::now() + self.backoff).min(self.deadline)).await;
+        if Instant::now() >= self.deadline {
+            return Err(ProjectError::IndexLeaseBusy);
+        }
         self.backoff = self
             .backoff
             .saturating_mul(2)
             .min(MAXIMUM_COLLISION_BACKOFF);
         Ok(())
     }
-}
-
-/// Poll the project's operation leases while another writer holds one.
-///
-/// Missing, expired, or unreadable lease rows end the wait: they never
-/// authorize anything, because the index's own exact lease acquisition stays
-/// the only authority. Each renewal observed from another writer advances
-/// `writer_heartbeats`, so the supervising parent sees the wait is live.
-async fn wait_for_project_leases(
-    wait: &WriterWait<'_>,
-    project_id: &ProjectId,
-) -> Result<(), ProjectError> {
-    let mut last_heartbeat = None;
-    loop {
-        let Some(heartbeat) =
-            within_wait(wait, live_writer_heartbeat(wait.runtime, project_id)).await?
-        else {
-            return Ok(());
-        };
-        if last_heartbeat.as_ref() != Some(&heartbeat) {
-            wait.progress
-                .writer_heartbeats
-                .fetch_add(1, Ordering::Relaxed);
-            last_heartbeat = Some(heartbeat);
-        }
-        within_wait(wait, tokio::time::sleep(WRITER_POLL_INTERVAL)).await?;
-    }
-}
-
-/// The project's identifier, read without creating or touching its row.
-/// `None` when the root was never registered, so no lease can exist on it,
-/// or when the row is unreadable, which never authorizes anything either.
-async fn registered_project(runtime: &ProjectRuntime) -> Option<ProjectId> {
-    runtime
-        .database()
-        .project_snapshot_by_root(runtime.root_identity())
-        .await
-        .ok()
-        .flatten()
-        .map(|snapshot| snapshot.project_id)
-}
-
-/// The renewal timestamps of every live operation lease on the project, or
-/// `None` when no live lease is readable.
-async fn live_writer_heartbeat(
-    runtime: &ProjectRuntime,
-    project_id: &ProjectId,
-) -> Option<Vec<String>> {
-    let mut heartbeats = Vec::new();
-    for operation in PROJECT_OPERATIONS {
-        let target = LeaseTarget::new(project_id.clone(), operation, None);
-        if let Ok(Some(lease)) = runtime.database().lease_status(&target).await
-            && !lease.expired()
-        {
-            heartbeats.push(lease.heartbeat_at().to_owned());
-        }
-    }
-    (!heartbeats.is_empty()).then_some(heartbeats)
 }
 
 /// Run `work` unless cancellation (`request_cancelled`) or the wait deadline
@@ -1235,242 +851,9 @@ mod tests {
         );
     }
 
-    fn failed(failure: IndexFailure) -> Result<IndexReport, IndexFailure> {
-        Err(failure)
-    }
-
-    #[test]
-    fn only_lease_contention_is_a_collision_even_with_a_failed_cleanup_beside_it() {
-        // A collided attempt whose own staging cleanup then timed out behind
-        // the other writer keeps `lease_busy` as its primary: still a
-        // collision to wait out, not a final cleanup failure.
-        let collided = IndexFailure::from(ProjectError::IndexLeaseBusy).with_failed_cleanup();
-        assert!(refused_by_another_writer(&failed(collided)));
-        assert!(refused_by_another_writer(&failed(
-            ProjectError::IndexLeaseBusy.into()
-        )));
-        assert_eq!(contention_verdict(true), AttemptVerdict::AwaitWriter);
-        assert_eq!(contention_verdict(false), AttemptVerdict::Backoff);
-
-        // A lock wait behind another writer's prepare is `lease_busy` before
-        // reservation, so `index_cleanup_failed` as the primary is a real
-        // staging-recovery fault: final, whether or not a writer is live.
-        for other in [
-            ProjectError::IndexCleanupFailed,
-            ProjectError::RequestCancelled,
-            ProjectError::IndexFailed,
-            ProjectError::IndexLeaseFailed,
-        ] {
-            assert!(!refused_by_another_writer(&failed(other.into())));
-        }
-    }
-
-    fn generation(value: &str) -> GenerationId {
-        GenerationId::parse(value)
-            .unwrap_or_else(|error| panic!("fixture generation id is invalid: {error}"))
-    }
-
-    #[test]
-    fn a_cancelled_requests_contention_is_settled_by_the_proof_but_other_faults_are_not() {
-        assert!(cancellation_outcome(&ProjectError::RequestCancelled, false));
-        assert!(cancellation_outcome(&ProjectError::RequestCancelled, true));
-        // A stop that met another writer before reserving anything is the
-        // requested cancellation, not contention left to retry.
-        assert!(cancellation_outcome(&ProjectError::IndexLeaseBusy, true));
-        assert!(!cancellation_outcome(&ProjectError::IndexLeaseBusy, false));
-        // A failed pre-reservation staging recovery is not this request's own
-        // cleanup, so no proof about its reservations may relabel it.
-        assert!(!cancellation_outcome(
-            &ProjectError::IndexCleanupFailed,
-            true
-        ));
-        assert!(!cancellation_outcome(&ProjectError::IndexLeaseFailed, true));
-    }
-
-    #[test]
-    fn a_cancellation_proof_covers_only_what_the_attempt_held() {
-        let owned = generation("00000000-0000-4000-8000-000000000001");
-        let foreign = generation("00000000-0000-4000-8000-000000000002");
-        let confirmed = |state, lease| {
-            owned_cleanup_confirmed(&OwnedCleanup {
-                owned: std::slice::from_ref(&owned),
-                generations: &[state],
-                lease,
-            })
-        };
-        // Another writer's lease on the project, naming its own generation or
-        // none, does not count against this request's cleanup.
-        for lease in [
-            IndexLeaseRow::Absent,
-            IndexLeaseRow::Names(Some(foreign.clone())),
-            IndexLeaseRow::Names(None),
-        ] {
-            assert!(confirmed(OwnedGeneration::Settled, lease));
-        }
-        // The request's own lease row, its own unfailed generation, or an
-        // unreadable row is not a confirmed cleanup.
-        assert!(!confirmed(
-            OwnedGeneration::Settled,
-            IndexLeaseRow::Names(Some(owned.clone()))
-        ));
-        assert!(!confirmed(
-            OwnedGeneration::Unpublished,
-            IndexLeaseRow::Absent
-        ));
-        assert!(!confirmed(
-            OwnedGeneration::Unreadable,
-            IndexLeaseRow::Absent
-        ));
-        assert!(!confirmed(
-            OwnedGeneration::Settled,
-            IndexLeaseRow::Unreadable
-        ));
-        // An earlier collided attempt's reservation counts too: it may still
-        // be staging when a later wait is cancelled.
-        let retried = generation("00000000-0000-4000-8000-000000000003");
-        let both = [retried.clone(), owned.clone()];
-        let across_attempts = |generations: &[OwnedGeneration], lease| {
-            owned_cleanup_confirmed(&OwnedCleanup {
-                owned: &both,
-                generations,
-                lease,
-            })
-        };
-        assert!(!across_attempts(
-            &[OwnedGeneration::Unpublished, OwnedGeneration::Settled],
-            IndexLeaseRow::Absent
-        ));
-        assert!(!across_attempts(
-            &[OwnedGeneration::Settled, OwnedGeneration::Settled],
-            IndexLeaseRow::Names(Some(retried))
-        ));
-        assert!(across_attempts(
-            &[OwnedGeneration::Settled, OwnedGeneration::Settled],
-            IndexLeaseRow::Names(Some(foreign))
-        ));
-        for state in [GenerationState::Staging, GenerationState::Ready] {
-            assert_eq!(
-                OwnedGeneration::from_state(state),
-                OwnedGeneration::Unpublished
-            );
-        }
-        for state in [
-            GenerationState::Current,
-            GenerationState::Superseded,
-            GenerationState::Failed,
-            GenerationState::Retiring,
-        ] {
-            assert_eq!(OwnedGeneration::from_state(state), OwnedGeneration::Settled);
-        }
-    }
-
-    #[test]
-    fn writer_wait_observes_every_operation_that_blocks_index_acquisition() {
-        for (slot, operation) in PROJECT_OPERATIONS.into_iter().enumerate() {
-            assert_eq!(operation_slot(operation), slot);
-        }
-    }
-
     /// Bound of each live wait that another operation's lease outlasts, and
     /// how long the competing writer holds its lease before releasing it.
-    const LIVE_WAIT_BOUND: Duration = Duration::from_millis(1_500);
     /// Bound of the wait that the competing writer's release ends first.
-    const RELEASED_WAIT_BOUND: Duration = Duration::from_secs(30);
-    /// The competing lease outlives every wait in the test.
-    const COMPETING_LEASE: Duration = Duration::from_mins(1);
-
-    /// Take another writer's live `operation` lease on the project.
-    async fn competing_lease(
-        runtime: &ProjectRuntime,
-        project_id: &ProjectId,
-        operation: ProjectOperation,
-    ) -> cartograph_db::ProjectLease {
-        runtime
-            .database()
-            .acquire_lease(cartograph_db::LeaseRequest::new(
-                LeaseTarget::new(project_id.clone(), operation, None),
-                cartograph_db::LeaseOwner::new(std::process::id(), "competing-project-writer"),
-                COMPETING_LEASE,
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("competing {operation:?} lease failed: {error}"))
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn project_writer_wait_outlasts_every_operations_live_lease() {
-        let url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live writer-wait database is not configured"));
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_writer_wait_{}_{nanos}", std::process::id());
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("writer-wait schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("4"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("writer-wait settings failed: {error}"));
-        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::write(project.path().join("lib.rs"), "pub fn waited() {}\n")
-            .unwrap_or_else(|error| panic!("writer-wait fixture failed: {error}"));
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("writer-wait runtime failed: {error}"));
-        let project_id = runtime
-            .index(IndexOptions::default().with_history_refresh(false))
-            .await
-            .unwrap_or_else(|error| panic!("writer-wait initial index failed: {error}"))
-            .project_id;
-
-        // Every operation's live lease refuses index acquisition, so a wait
-        // that ignored one would retry (and rescan the checkout) at once. A
-        // wait that outlives its bound is the retryable contention code.
-        for operation in PROJECT_OPERATIONS {
-            let lease = competing_lease(&runtime, &project_id, operation).await;
-            let waited = WriterCollisionWait::until(Instant::now() + LIVE_WAIT_BOUND)
-                .after_collision(&runtime, &project_id)
-                .await;
-            assert_eq!(
-                waited,
-                Err(ProjectError::IndexLeaseBusy),
-                "the wait did not hold for a live {operation:?} lease"
-            );
-            runtime
-                .database()
-                .release_lease(&lease)
-                .await
-                .unwrap_or_else(|error| panic!("{operation:?} lease release failed: {error}"));
-        }
-
-        // A writer that releases its lease mid-wait ends the wait.
-        let lease = competing_lease(&runtime, &project_id, ProjectOperation::Sync).await;
-        let started = Instant::now();
-        let release = async {
-            tokio::time::sleep(LIVE_WAIT_BOUND).await;
-            runtime.database().release_lease(&lease).await
-        };
-        let mut released_wait = WriterCollisionWait::until(started + RELEASED_WAIT_BOUND);
-        let (waited, released) = tokio::join!(
-            released_wait.after_collision(&runtime, &project_id),
-            release
-        );
-        released.unwrap_or_else(|error| panic!("sync lease release failed: {error}"));
-        assert_eq!(waited, Ok(()));
-        assert!(started.elapsed() >= LIVE_WAIT_BOUND);
-
-        // A collision that no live lease explains (a lock held without one)
-        // pauses instead of retrying, and rescanning the checkout, at once:
-        // a bound shorter than the first pause ends as `lease_busy`.
-        assert_eq!(
-            WriterCollisionWait::until(Instant::now() + LIVE_WAIT_BOUND)
-                .after_collision(&runtime, &project_id)
-                .await,
-            Err(ProjectError::IndexLeaseBusy),
-        );
-        runtime.close().await;
-    }
-
     /// A broken stdin: interrupted once, then failing permanently.
     struct BrokenStdin {
         reads: u8,

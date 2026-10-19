@@ -332,25 +332,34 @@ impl DeterministicRetriever {
         exact_records_at::<ExactReferenceLookup>(&self.database, input).await
     }
 
-    /// Current-generation `ParadeDB` BM25 with ordered field provenance.
+    /// Current-generation native BM25 with ordered field provenance.
     /// # Errors
     ///
-    /// Returns an error if the current generation cannot be read or `ParadeDB`
-    /// rejects or cannot execute the bounded code query.
+    /// Retries only publication races within the original request; all other
+    /// bounded query failures are terminal.
     pub async fn bm25(
         &self,
         project_id: ProjectId,
         query: LexicalQuery,
     ) -> Result<Vec<SearchHit>, RetrievalError> {
-        let Some(generation) = self.database.current_generation_record(&project_id).await? else {
-            return Ok(Vec::new());
-        };
-        self.bm25_at(LexicalAtInput {
-            project_id,
-            expected_generation_id: generation.generation_id().clone(),
-            query: &query,
-        })
-        .await
+        for attempt in 0..GENERATION_ATTEMPTS {
+            let Some(generation) = self.database.current_generation_record(&project_id).await?
+            else {
+                return Ok(Vec::new());
+            };
+            match self
+                .bm25_at(LexicalAtInput {
+                    project_id: project_id.clone(),
+                    expected_generation_id: generation.generation_id().clone(),
+                    query: &query,
+                })
+                .await
+            {
+                Err(error) if attempt == 0 && is_generation_changed(&error) => {}
+                result => return result,
+            }
+        }
+        Err(cartograph_db::StorageError::CurrentGenerationChanged.into())
     }
 
     /// Current-generation `ParadeDB` fuzzy name search with explicit edit distance.

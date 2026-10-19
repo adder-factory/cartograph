@@ -11,37 +11,23 @@ use std::{
     fs,
     io::{IsTerminal as _, Write as _},
     path::{Path, PathBuf},
-    process::{self, ExitCode},
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    process::ExitCode,
+    time::Duration,
 };
 
 use cartograph_agent::{
-    EmbeddingOptions, IndexFailure, IndexOptions, IndexReport, ProjectCancellation, ProjectError,
-    ProjectRuntime, ProjectStatus, RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport,
-    SourceContextOptions, SourceContextRequest, WorkingTreeOverlayRequest,
-    semantic_readiness_from_database,
+    IndexFailure, IndexOptions, IndexReport, ProjectCancellation, ProjectError, ProjectRuntime,
+    RetrievalOptions, RetrievalRequest, ReviewOptions, ReviewReport, SourceContextOptions,
+    SourceContextRequest, WorkingTreeOverlayRequest, semantic_readiness_from_database,
 };
-use cartograph_config::{DATABASE_URL_ENV, DatabaseSettings};
-use cartograph_db::{
-    CapabilityReport, CartographDatabase, CheckStatus, DEFAULT_MANAGED_DATABASE_PORT,
-    GenerationRetentionPolicy, GenerationRetentionRequest, GenerationStorageSummary,
-    GenerationValidationLimits, HeapCompactionPolicy, HeapCompactionPolicyInput, LeaseOwner,
-    LeaseRequest, LeaseTarget, ManagedContainerState, ManagedDatabase, ManagedDatabaseError,
-    ManagedDatabaseStatus, ManagedDestructiveConfirmation, ManagedDestructiveOperation,
-    ManagedPostgresSettings, ManagedStartReport, SemanticReadinessState, StorageCompactionPolicy,
-    StorageCompactionPolicyInput, V1PostgresImportExecution, V1PostgresImportLimits,
-    V1PostgresImportRequest, V1PostgresSource, V1PostgresSourceRevision,
-};
-use cartograph_domain::{
-    EdgeKind, ModelId, NormalizedPath, ProjectId, ProjectOperation, SourceLanguage, SymbolId,
-};
+use cartograph_db::{GenerationStorageSummary, SemanticReadinessState};
+use cartograph_domain::{EdgeKind, ModelId, NormalizedPath, ProjectId, SourceLanguage, SymbolId};
 use cartograph_llm::{
     CredentialCommand, CredentialCommandError, JevError, JevSettings, ProjectLlmConfigError,
     ProjectLlmCredentialSource, ProjectLlmTier, ProjectLlmTierConfig, load_exact_project_llm_tier,
     load_project_llm_credential_environment, probe_openai_compatible_endpoint,
 };
-use cartograph_mcp::{ProtocolServer, ServerConfig, ServerLimits, ServerMetadata, ToolProfile};
+use cartograph_mcp::{ServerConfig, ServerLimits, ServerMetadata, ToolProfile};
 use cartograph_search::{
     ContextAnchor, ContextBudget, ContextRequest, ContextRequestOptions, DeterministicRetriever,
     EntryPointBucket, EntryPointsQuery, ExactPathQuery, ExactTextQuery, FileInventoryQuery,
@@ -55,10 +41,7 @@ use install::{
     InstallLocation as AgentInstallLocation, InstallReport, InstallRequest, InstallRequestInput,
     InstallTarget,
 };
-use mcp_handler::{
-    AGENT_PLAYBOOK, CartographMcpHandler, HandlerDefaults, HandlerEvidenceDefaults,
-    HandlerExecutionDefaults,
-};
+use mcp_handler::AGENT_PLAYBOOK;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use url::Url;
@@ -76,28 +59,15 @@ mod install;
 mod llm_commands;
 mod mcp_budget;
 mod mcp_handler;
+mod rocks_cli;
 mod supervised_index;
 mod upgrade;
 
 use byte_format::format_binary_bytes;
-use graph_export::{DEFAULT_NODE_LIMIT, GraphExportFormat, GraphExportRequest};
+use graph_export::{DEFAULT_NODE_LIMIT, GraphExportFormat};
 use supervised_index::{CancellableIndex, IndexSupervision, InterruptForwarding};
 
-const MANAGED_DATABASE_PORT_ENV: &str = "CARTOGRAPH_MANAGED_DATABASE_PORT";
-const V1_IMPORT_CONFIRMATION: &str = "import-v1-postgres";
 const RETENTION_CONFIRMATION: &str = "prune-old-generations";
-const ONLINE_COMPACTION_CONFIRMATION: &str = "compact-online-indexes";
-const HEAP_COMPACTION_CONFIRMATION: &str = "compact-heap-relations";
-const DEFAULT_IMPORT_MAXIMUM_ROWS: u64 = 10_000_000;
-const MAXIMUM_IMPORT_ROWS: u64 = 100_000_000;
-const DEFAULT_IMPORT_MAXIMUM_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
-const MAXIMUM_IMPORT_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
-#[cfg(test)]
-const EXCESSIVE_IMPORT_SOURCE_BYTES_TEXT: &str = "536870913";
-const DEFAULT_IMPORT_OUTPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-const DEFAULT_IMPORT_WORKING_BYTES: u64 = 8 * 1024 * 1024 * 1024;
-const MAINTENANCE_LEASE_DURATION: Duration = Duration::from_mins(5);
-const MAINTENANCE_STATEMENT_TIMEOUT: Duration = Duration::from_mins(4);
 /// Longest `sync-if-dirty` waits for other project writers' leases in total.
 const SYNC_IF_DIRTY_LEASE_WAIT: Duration = Duration::from_mins(5);
 /// Bound on the post-failure lookup of whether a generation is still current.
@@ -106,7 +76,6 @@ const MAXIMUM_TRANSIENT_FILE_BYTES: usize = 10 * 1024 * 1024;
 const KIBIBYTE: usize = 1_024;
 const MEBIBYTE: usize = KIBIBYTE * KIBIBYTE;
 const GIBIBYTE_U64: u64 = 1_024 * 1_024 * 1_024;
-const MEBIBYTE_U64: u64 = 1_024 * 1_024;
 const RETAINED_BYTE_WARNING: u64 = 4 * GIBIBYTE_U64;
 const MAXIMUM_SUPERSEDED_GENERATIONS_WITHOUT_ATTENTION: u64 = 34;
 const MAXIMUM_FAILED_GENERATIONS_WITHOUT_ATTENTION: u64 = 32;
@@ -116,7 +85,7 @@ const MCP_SERVER_INSTRUCTIONS: &str = "Start with cartograph_status and do not t
 #[command(
     name = "cartograph",
     version,
-    about = "Rust/PostgreSQL/ParadeDB code intelligence for coding agents"
+    about = "Native Rust/RocksDB code intelligence for coding agents"
 )]
 struct Cli {
     /// Disable ANSI color output. Retained for v1 command-line compatibility.
@@ -202,7 +171,7 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
-    /// Probe the configured embedding model and report PostgreSQL semantic readiness.
+    /// Probe the configured embedding model and report native semantic readiness.
     EmbeddingStatus {
         /// Existing indexed project whose semantic coverage should be checked.
         #[arg(default_value = ".")]
@@ -571,9 +540,6 @@ enum Command {
         /// Existing project root to expose through the MCP server.
         #[arg(long, default_value = ".")]
         project_path: PathBuf,
-        /// Loopback port for this project's managed PostgreSQL database.
-        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-        managed_database_port: Option<u16>,
         /// Use non-interactive defaults: global, auto-detected targets, permissions enabled.
         #[arg(short = 'y', long)]
         yes: bool,
@@ -608,6 +574,14 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
+    /// Keep this project's graph current independently of an MCP connection.
+    Watch {
+        /// Existing project root owned by this foreground process.
+        #[arg(short = 'p', long, default_value = ".")]
+        project_path: PathBuf,
+    },
+    /// Manage the project-scoped autosync login service (macOS).
+    Service(rocks_cli::service::ServiceArguments),
     /// Serve Cartograph's bounded Model Context Protocol connection over stdio.
     Serve {
         /// Confirm stdio MCP transport (the only v2 transport in this release).
@@ -616,13 +590,10 @@ enum Command {
         /// Existing project root exposed to this MCP process.
         #[arg(short = 'p', long, default_value = ".")]
         project_path: PathBuf,
-        /// Loopback port for this project's managed PostgreSQL database.
-        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-        managed_database_port: Option<u16>,
         /// Advertised MCP tool profile.
         #[arg(long, value_enum, default_value_t = McpProfile::Core)]
         profile: McpProfile,
-        /// Compatibility flag; PostgreSQL advisory locks replace the v1 writer daemon.
+        /// Compatibility flag; native project ownership replaces the v1 writer daemon.
         #[arg(long, conflicts_with = "no_daemon")]
         daemon: bool,
         /// Run this MCP connection directly (the native v2 default).
@@ -650,12 +621,12 @@ enum Command {
         #[arg(long)]
         no_auto_sync: bool,
     },
-    /// Verify PostgreSQL 18, `ParadeDB`, pgvector, and code tokenization.
+    /// Verify native storage, the current graph, and retrieval readiness.
     Doctor {
-        /// Existing project root used to discover managed credentials when no URL is exported.
+        /// Existing project root whose native storage and readiness should be checked.
         #[arg(default_value = ".")]
         project_path: PathBuf,
-        /// Repair safe local gaps: create private state, start the managed database, and install/configure missing minimal LLM tiers.
+        /// Repair safe local gaps: create private state and install/configure missing minimal LLM tiers.
         #[arg(long)]
         fix: bool,
         /// Skip project state, index, and LLM checks for fresh-install verification.
@@ -668,7 +639,7 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
-    /// Manage Cartograph's project-owned PostgreSQL + `ParadeDB` container.
+    /// Inspect and maintain this project's native `RocksDB` storage.
     Db {
         #[command(subcommand)]
         command: DatabaseCommand,
@@ -677,152 +648,12 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum DatabaseCommand {
-    /// Idempotently start, initialize, and verify the managed database.
-    Start(DatabaseStartArguments),
-    /// Report the owned container state without creating anything.
-    Status(DatabaseStatusArguments),
-    /// Stop only the container owned by this project.
-    Stop(DatabaseStopArguments),
-    /// Print a bounded tail from only the project-owned container.
-    Logs(DatabaseLogsArguments),
-    /// Write a private, verified custom-format PostgreSQL archive.
-    Backup(DatabaseBackupArguments),
-    /// Replace managed contents from a verified archive with automatic rollback.
-    Restore(DatabaseRestoreArguments),
-    /// Permanently remove only the resources owned by this project.
-    Remove(DatabaseDestructiveArguments),
-    /// Replace an owned older container with the supported image and rollback on failure.
-    Upgrade(DatabaseDestructiveArguments),
-    /// Inspect or transactionally rebuild the derived `ParadeDB` BM25 index.
-    DerivedIndex(DatabaseDerivedIndexArguments),
-    /// Validate or resume a PostgreSQL-only v1.1.33 schema import.
-    ImportV1(V1ImportArguments),
-    /// Delete a bounded batch of stale staging/ready, failed, and old superseded generations.
-    Prune(PruneArguments),
-    /// Report database/schema heap, index, TOAST, cache, and generation storage.
+    /// Rebuild this project in `RocksDB` and verify exact source freshness.
+    Migrate(rocks_cli::MigrationArguments),
+    /// Report native files, WAL, memtables and compaction backlog.
     Usage(DatabaseUsageArguments),
-    /// Plan or explicitly apply bounded B-tree or heap compaction.
-    Compact(DatabaseCompactArguments),
-}
-
-#[derive(Debug, Args)]
-struct DatabaseStartArguments {
-    /// Existing project root whose managed resources should be used.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port for PostgreSQL.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Maximum seconds to wait for managed database readiness.
-    #[arg(long, default_value_t = 90, value_parser = clap::value_parser!(u64).range(1..=600))]
-    wait_seconds: u64,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseStatusArguments {
-    /// Existing project root whose managed resources should be inspected.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseStopArguments {
-    /// Existing project root whose managed resources should be stopped.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseLogsArguments {
-    /// Existing project root whose managed logs should be read.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Maximum number of log lines.
-    #[arg(long, default_value_t = 200, value_parser = clap::value_parser!(u16).range(1..=10000))]
-    tail: u16,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseBackupArguments {
-    /// New archive path; an existing path is refused.
-    destination: PathBuf,
-    /// Existing project root whose owned database should be backed up.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseRestoreArguments {
-    /// Existing custom-format archive to restore.
-    source: PathBuf,
-    /// Exact acknowledgement: restore-managed-database.
-    #[arg(long)]
-    confirm: String,
-    /// Existing project root whose owned database should be restored.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseDestructiveArguments {
-    /// Exact acknowledgement for the requested destructive operation.
-    #[arg(long)]
-    confirm: String,
-    /// Existing project root whose owned database should be changed.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseDerivedIndexArguments {
-    /// Rebuild instead of only checking health.
-    #[arg(long)]
-    rebuild: bool,
-    /// Exact acknowledgement required with --rebuild.
-    #[arg(long, requires = "rebuild")]
-    confirm: Option<String>,
-    /// Existing project root whose derived index should be inspected.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Loopback host port used by the managed database.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=65535))]
-    port: Option<u16>,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
+    /// Collect one bounded batch of obsolete graph versions while preserving readers.
+    Prune(PruneArguments),
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
@@ -1071,14 +902,12 @@ struct IndexArguments {
     preserve_current_excludes: bool,
     supervised: bool,
     format: OutputFormat,
-    managed_database_port: Option<u16>,
 }
 
 struct AgentInstallArguments {
     target: Option<String>,
     location: InstallLocation,
     project_path: PathBuf,
-    managed_database_port: Option<u16>,
     behavior: AgentInstallBehavior,
     command: Option<String>,
     print_config: Option<String>,
@@ -1095,7 +924,6 @@ struct AgentInstallBehavior {
 struct McpServeArguments {
     mcp: bool,
     project_path: PathBuf,
-    managed_database_port: Option<u16>,
     profile: McpProfile,
     no_write_tools: bool,
     defaults: McpServeDefaults,
@@ -1115,127 +943,26 @@ enum McpServeSync {
 }
 
 #[derive(Debug, Args)]
-struct V1ImportArguments {
-    /// Existing initialized v2 project that owns the destination schema.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Byte-exact historical checkout for the v1 rows. Defaults to project-path.
-    #[arg(long)]
-    source_checkout: Option<PathBuf>,
-    /// Existing v1.1.33 PostgreSQL schema in the same database.
-    #[arg(long)]
-    source_schema: String,
-    /// Hard aggregate row ceiling for source admission.
-    #[arg(
-        long,
-        default_value_t = DEFAULT_IMPORT_MAXIMUM_ROWS,
-        value_parser = clap::value_parser!(u64).range(1..=MAXIMUM_IMPORT_ROWS)
-    )]
-    maximum_rows: u64,
-    /// Hard aggregate source and legacy-metadata byte ceiling.
-    #[arg(
-        long,
-        default_value_t = DEFAULT_IMPORT_MAXIMUM_SOURCE_BYTES,
-        value_parser = clap::value_parser!(u64).range(1..=MAXIMUM_IMPORT_SOURCE_BYTES)
-    )]
-    maximum_source_bytes: u64,
-    /// Validate source, checkout hashes, bounds, and canonical facts without importing.
-    #[arg(long)]
-    dry_run: bool,
-    /// Exact acknowledgement required for mutation: import-v1-postgres.
-    #[arg(long, required_unless_present = "dry_run")]
-    confirm: Option<String>,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
 struct PruneArguments {
-    /// Existing project whose current generation is always preserved.
     #[arg(long, default_value = ".")]
     project_path: PathBuf,
-    /// Number of newest superseded generations that must be retained.
-    #[arg(long, default_value_t = 2)]
-    keep_superseded: u32,
-    /// Maximum generations deleted across this invocation's committed batches.
-    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=10000))]
-    maximum_deletions: u32,
-    /// Maximum canonical rows deleted across this invocation's committed batches.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=100_000_000))]
-    maximum_cascade_rows: Option<u64>,
-    /// Audited physical search-relation byte budget (default 8 GiB, maximum 64 GiB).
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=68_719_476_736))]
-    maximum_search_relation_bytes: Option<u64>,
+    #[arg(long, default_value_t = 2, value_parser=clap::value_parser!(u8).range(0..=32))]
+    keep_superseded: u8,
+    #[arg(long, default_value_t = 4, value_parser=clap::value_parser!(u16).range(1..=100))]
+    maximum_deletions: u16,
+    #[arg(long, default_value_t = 10_000, value_parser=clap::value_parser!(u32).range(1..=10_000))]
+    maximum_cascade_rows: u32,
     /// Exact acknowledgement: prune-old-generations.
     #[arg(long)]
     confirm: String,
-    /// Output format for humans or automation.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
 }
 
 #[derive(Debug, Args)]
 struct DatabaseUsageArguments {
-    /// Existing indexed project whose configured schema should be inspected.
     #[arg(long, default_value = ".")]
     project_path: PathBuf,
-    /// Maximum largest table and index rows returned per list.
-    #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u16).range(1..=128))]
-    limit: u16,
-    /// Skip this many table rows in the bounded storage inventory.
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=100_000))]
-    table_offset: u32,
-    /// Skip this many index rows in the bounded storage inventory.
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=100_000))]
-    index_offset: u32,
-    /// Output format for humans or automation.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-struct DatabaseCompactArguments {
-    /// Existing project whose configured PostgreSQL schema should be compacted.
-    #[arg(long, default_value = ".")]
-    project_path: PathBuf,
-    /// Apply the plan. Omit for the default read-only dry run.
-    #[arg(long)]
-    apply: bool,
-    /// Rewrite table heaps with bounded one-at-a-time `VACUUM FULL`. This takes
-    /// an ACCESS EXCLUSIVE lock; omit for online B-tree compaction.
-    #[arg(long)]
-    heap: bool,
-    /// Exact acknowledgement required with --apply: compact-online-indexes,
-    /// or compact-heap-relations when --heap is selected.
-    #[arg(long, requires = "apply")]
-    confirm: Option<String>,
-    /// Maximum B-tree indexes rebuilt one at a time.
-    #[arg(long, default_value_t = 32, value_parser = clap::value_parser!(u16).range(1..=64))]
-    maximum_indexes: u16,
-    /// Maximum heap relations rewritten one at a time.
-    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u16).range(1..=32))]
-    maximum_relations: u16,
-    /// Maximum aggregate bytes admitted into one resumable plan. Must be at
-    /// least --minimum-reclaimable-bytes.
-    #[arg(long, default_value_t = 16 * GIBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
-    maximum_candidate_bytes: u64,
-    /// Ignore B-tree indexes smaller than this allocation.
-    #[arg(long, default_value_t = 8 * MEBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
-    minimum_index_bytes: u64,
-    /// Ignore indexes and heap relations with less estimated reclaimable
-    /// allocation. Index estimates need `pgstattuple`; without it, index
-    /// candidates are chosen by size alone.
-    #[arg(long, default_value_t = 64 * MEBIBYTE_U64, value_parser = clap::value_parser!(u64).range(1..=64 * GIBIBYTE_U64))]
-    minimum_reclaimable_bytes: u64,
-    /// Hard PostgreSQL deadline for each index rebuild or heap rewrite.
-    #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u64).range(1..=86400))]
-    timeout_seconds: u64,
-    /// Operator-observed free bytes for external PostgreSQL. Managed mode reads
-    /// the validated container filesystem automatically.
-    #[arg(long, requires = "apply")]
-    available_headroom_bytes: Option<u64>,
-    /// Output format for humans or automation.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
 }
@@ -1310,7 +1037,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
-    match cli.command {
+    let command = cli.command;
+    match command {
         command @ (Command::Index { .. }
         | Command::Status { .. }
         | Command::Embed { .. }
@@ -1324,7 +1052,7 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
         | Command::Show { .. }
         | Command::Affected { .. }
         | Command::Review { .. }) => run_graph_command(command).await,
-        command => run_operator_command(command).await,
+        command => Box::pin(run_operator_command(command)).await,
     }
 }
 
@@ -1347,7 +1075,6 @@ async fn run_index_command(command: Command) -> Result<ExitCode, String> {
                 preserve_current_excludes,
                 supervised,
                 format,
-                managed_database_port: None,
             })
             .await
         }
@@ -1581,7 +1308,6 @@ async fn run_operator_command(command: Command) -> Result<ExitCode, String> {
             target,
             location,
             project_path,
-            managed_database_port,
             yes,
             no_permissions,
             no_hooks,
@@ -1593,7 +1319,6 @@ async fn run_operator_command(command: Command) -> Result<ExitCode, String> {
                 target,
                 location,
                 project_path,
-                managed_database_port,
                 behavior: AgentInstallBehavior {
                     yes,
                     permissions: !no_permissions,
@@ -1616,7 +1341,6 @@ async fn run_operator_command(command: Command) -> Result<ExitCode, String> {
                 target,
                 location,
                 project_path,
-                managed_database_port: None,
                 behavior: AgentInstallBehavior {
                     yes: true,
                     permissions: false,
@@ -1635,10 +1359,11 @@ async fn run_operator_command(command: Command) -> Result<ExitCode, String> {
 
 async fn run_runtime_operator_command(command: Command) -> Result<ExitCode, String> {
     match command {
+        Command::Watch { project_path } => rocks_cli::watch(&project_path).await,
+        Command::Service(arguments) => rocks_cli::service::run(arguments).await,
         Command::Serve {
             mcp,
             project_path,
-            managed_database_port,
             profile,
             daemon: _,
             no_daemon: _,
@@ -1653,7 +1378,6 @@ async fn run_runtime_operator_command(command: Command) -> Result<ExitCode, Stri
             run_mcp_server(McpServeArguments {
                 mcp,
                 project_path,
-                managed_database_port,
                 profile,
                 no_write_tools,
                 defaults: McpServeDefaults {
@@ -1827,24 +1551,52 @@ async fn run_graph_export_command(
     project_path: PathBuf,
     input: GraphExportCommandInput,
 ) -> Result<ExitCode, String> {
-    let runtime = open_runtime(&project_path).await?;
-    let (project_id, freshness) = current_project(&runtime).await?;
-    require_current(freshness)?;
-    let output = graph_export::run_graph_export(
-        runtime.database(),
-        GraphExportRequest {
-            project_id,
-            format: input.format,
-            output: input.output,
-            limit: input.limit,
-            kinds: input.kinds,
-            edge_kinds: input.edge_kinds,
-            languages: input.languages,
-            file_prefix: input.file_prefix,
-        },
+    let mut arguments = Map::from_iter([
+        (
+            "action".to_owned(),
+            Value::String("graph-export".to_owned()),
+        ),
+        ("limit".to_owned(), Value::from(input.limit)),
+        (
+            "exportFormat".to_owned(),
+            Value::String(
+                match input.format {
+                    graph_export::GraphExportFormat::Json => "json",
+                    graph_export::GraphExportFormat::Dot => "dot",
+                    graph_export::GraphExportFormat::Mermaid => "mermaid",
+                    graph_export::GraphExportFormat::Cytoscape => "cytoscape",
+                }
+                .to_owned(),
+            ),
+        ),
+    ]);
+    for (field, value) in [
+        ("kinds", input.kinds),
+        ("edgeKinds", input.edge_kinds),
+        ("languages", input.languages),
+        ("filePrefix", input.file_prefix),
+    ] {
+        if let Some(value) = value {
+            arguments.insert(field.to_owned(), Value::String(value));
+        }
+    }
+    let result =
+        generated_cli::run_direct_result("cartograph_admin", project_path, arguments).await?;
+    let report: Value = serde_json::from_str(
+        result
+            .primary_text()
+            .ok_or("Native export returned no report")?,
     )
-    .await?;
-    print!("{output}");
+    .map_err(|_| "Native export returned a malformed report")?;
+    let artifact = report["artifact"]
+        .as_str()
+        .ok_or("Native export returned no artifact")?;
+    if let Some(output) = input.output {
+        graph_export::write_artifact(&output, artifact.as_bytes())?;
+        println!("Exported graph snapshot");
+    } else {
+        print!("{artifact}");
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1959,7 +1711,7 @@ async fn run_find(arguments: FindArguments) -> Result<ExitCode, String> {
             FindBy::Bm25 => run_bm25_find(&context, query).await,
         }
     };
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     result?;
     Ok(ExitCode::SUCCESS)
 }
@@ -2063,7 +1815,7 @@ async fn run_files(arguments: FilesArguments) -> Result<ExitCode, String> {
         .await
         .map_err(|error| error.to_string())?;
     print_fresh_evidence(freshness, &result, arguments.format)?;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2080,7 +1832,7 @@ async fn run_entry_points(arguments: EntryPointsArguments) -> Result<ExitCode, S
         .await
         .map_err(|error| error.to_string())?;
     print_fresh_evidence(freshness, &result, arguments.format)?;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2103,7 +1855,7 @@ async fn run_at_range(arguments: AtRangeArguments) -> Result<ExitCode, String> {
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "source file was not found in the current generation".to_owned())?;
     print_fresh_evidence(freshness, &result, arguments.format)?;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2176,7 +1928,7 @@ async fn run_context(arguments: ContextArguments) -> Result<ExitCode, String> {
         result.with_working_tree_overlay(overlay)
     };
     print_serialized(&result, format)?;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2234,7 +1986,7 @@ async fn run_graph(arguments: GraphArguments) -> Result<ExitCode, String> {
         )
         .await?;
     }
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2413,7 +2165,7 @@ async fn run_affected(arguments: AffectedArguments) -> Result<ExitCode, String> 
         .await
         .map_err(|error| error.to_string())?;
     print_fresh_evidence(freshness, &result, format)?;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2428,7 +2180,7 @@ async fn run_show(arguments: ShowArguments) -> Result<ExitCode, String> {
     let result = runtime
         .source_context(SourceContextRequest::new(symbol_id, options))
         .await;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     let result = result.map_err(|error| error.to_string())?;
     if !result.fresh() && !arguments.allow_stale {
         return Err(stale_index_message());
@@ -2453,91 +2205,14 @@ async fn run_review(arguments: ReviewArguments) -> Result<ExitCode, String> {
         .await
         .map_err(|error| error.to_string())?;
     print_review_report(&report, format)?;
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 
 async fn open_runtime(project_path: &PathBuf) -> Result<ProjectRuntime, String> {
-    let settings = resolve_database_settings(project_path).await?;
-    ProjectRuntime::connect(project_path, &settings)
+    ProjectRuntime::open(project_path)
         .await
         .map_err(|error| error.to_string())
-}
-
-async fn resolve_database_settings(project_path: &PathBuf) -> Result<DatabaseSettings, String> {
-    resolve_database_settings_with_port(project_path, None).await
-}
-
-async fn resolve_database_settings_with_port(
-    project_path: &PathBuf,
-    managed_database_port: Option<u16>,
-) -> Result<DatabaseSettings, String> {
-    if env::var_os(DATABASE_URL_ENV).is_some() {
-        return DatabaseSettings::from_env().map_err(|error| error.to_string());
-    }
-    let port = resolve_managed_database_port(project_path, managed_database_port).await?;
-    ManagedDatabase::new(project_path, port)
-        .and_then(|database| database.connection_settings())
-        .map_err(|error| format!("{error}; run `cartograph db start --project-path <path>` first"))
-}
-
-async fn resolve_managed_database_port(
-    project_path: &Path,
-    explicit: Option<u16>,
-) -> Result<u16, String> {
-    let selected = configured_managed_database_port(explicit)?;
-    let probe_port = selected.unwrap_or(DEFAULT_MANAGED_DATABASE_PORT);
-    let probe =
-        ManagedDatabase::new(project_path, probe_port).map_err(|error| error.to_string())?;
-    let status = probe
-        .lifecycle()
-        .status()
-        .await
-        .map_err(|error| {
-            format!(
-                "could not discover this project's managed database port: {error}; set {MANAGED_DATABASE_PORT_ENV} or pass an explicit managed database port"
-            )
-        })?;
-    reconcile_managed_database_port(
-        selected,
-        (status.state != ManagedContainerState::Missing).then_some(status.port),
-    )
-}
-
-fn configured_managed_database_port(explicit: Option<u16>) -> Result<Option<u16>, String> {
-    if let Some(port) = explicit {
-        return (port > 0).then_some(Some(port)).ok_or_else(|| {
-            "managed database port must be an integer between 1 and 65535".to_owned()
-        });
-    }
-    match env::var(MANAGED_DATABASE_PORT_ENV) {
-        Ok(raw) => raw
-            .parse::<u16>()
-            .ok()
-            .filter(|value| *value > 0)
-            .map(Some)
-            .ok_or_else(|| {
-                format!("{MANAGED_DATABASE_PORT_ENV} must be an integer between 1 and 65535")
-            }),
-        Err(env::VarError::NotPresent) => Ok(None),
-        Err(env::VarError::NotUnicode(_)) => Err(format!(
-            "{MANAGED_DATABASE_PORT_ENV} must be an integer between 1 and 65535"
-        )),
-    }
-}
-
-fn reconcile_managed_database_port(
-    configured: Option<u16>,
-    discovered: Option<u16>,
-) -> Result<u16, String> {
-    match (configured, discovered) {
-        (Some(configured), Some(discovered)) if configured != discovered => Err(format!(
-            "managed database publishes loopback port {discovered}, not selected port {configured}; remove the explicit port override or set {MANAGED_DATABASE_PORT_ENV}={discovered}"
-        )),
-        (Some(configured), _) => Ok(configured),
-        (None, Some(discovered)) => Ok(discovered),
-        (None, None) => Ok(DEFAULT_MANAGED_DATABASE_PORT),
-    }
 }
 
 async fn current_project(runtime: &ProjectRuntime) -> Result<(ProjectId, IndexFreshness), String> {
@@ -2556,6 +2231,7 @@ async fn current_project(runtime: &ProjectRuntime) -> Result<(ProjectId, IndexFr
 }
 
 /// Stale-index failure for a command that cannot be told to accept stale evidence.
+#[cfg(test)]
 const STALE_WITHOUT_OVERRIDE_MESSAGE: &str =
     "Cartograph index is stale; synchronize it with `cartograph index` and retry";
 
@@ -2572,6 +2248,7 @@ fn stale_index_message() -> String {
 }
 
 /// Freshness gate for commands that offer no `--allow-stale` override.
+#[cfg(test)]
 fn require_current(freshness: IndexFreshness) -> Result<(), String> {
     if freshness == IndexFreshness::Current {
         Ok(())
@@ -2680,17 +2357,9 @@ struct AgentInstallContext {
     project_path: PathBuf,
     executable: PathBuf,
     location: AgentInstallLocation,
-    managed_database_port: Option<u16>,
     command: Option<String>,
     permissions: bool,
     format: OutputFormat,
-}
-
-struct ManagedDatabasePortInstallInput<'project> {
-    project_path: &'project Path,
-    configured_port: Option<u16>,
-    location: AgentInstallLocation,
-    remove: bool,
 }
 
 impl AgentInstallContext {
@@ -2704,10 +2373,7 @@ impl AgentInstallContext {
             permissions: self.permissions,
         })
         .map_err(|error| error.to_string())?;
-        Ok(match self.managed_database_port {
-            Some(port) => request.with_managed_database_port(port),
-            None => request,
-        })
+        Ok(request)
     }
 
     fn print_config(&self, target: &str) -> Result<(), String> {
@@ -2748,28 +2414,9 @@ impl AgentInstallContext {
     }
 
     async fn initialize_local_project(&self) -> Result<(), String> {
-        if env::var_os(DATABASE_URL_ENV).is_none() {
-            run_database_start(DatabaseStartArguments {
-                project_path: self.project_path.clone(),
-                port: self.managed_database_port,
-                wait_seconds: 90,
-                format: self.format,
-            })
+        rocks_cli::initialize_project(&self.project_path, self.format)
             .await
-            .and_then(local_database_outcome)?;
-        }
-        run_index(IndexArguments {
-            project_path: self.project_path.clone(),
-            workers: None,
-            force: false,
-            exclude: Vec::new(),
-            preserve_current_excludes: false,
-            supervised: false,
-            format: self.format,
-            managed_database_port: self.managed_database_port,
-        })
-        .await
-        .and_then(local_index_outcome)
+            .and_then(local_index_outcome)
     }
 
     fn install_hooks(&self) {
@@ -2798,7 +2445,6 @@ async fn run_agent_install(arguments: AgentInstallArguments) -> Result<ExitCode,
         target,
         location,
         project_path,
-        managed_database_port,
         behavior:
             AgentInstallBehavior {
                 yes,
@@ -2813,18 +2459,10 @@ async fn run_agent_install(arguments: AgentInstallArguments) -> Result<ExitCode,
     let executable = env::current_exe()
         .map_err(|_| "could not resolve the current Cartograph executable".to_owned())?;
     let location = AgentInstallLocation::from(location);
-    let managed_database_port = install_managed_database_port(ManagedDatabasePortInstallInput {
-        project_path: &project_path,
-        configured_port: managed_database_port,
-        location,
-        remove,
-    })
-    .await?;
     let context = AgentInstallContext {
         project_path,
         executable,
         location,
-        managed_database_port,
         command,
         permissions,
         format,
@@ -2856,24 +2494,6 @@ async fn run_agent_install(arguments: AgentInstallArguments) -> Result<ExitCode,
         context.install_hooks();
     }
     Ok(ExitCode::SUCCESS)
-}
-
-async fn install_managed_database_port(
-    input: ManagedDatabasePortInstallInput<'_>,
-) -> Result<Option<u16>, String> {
-    let ManagedDatabasePortInstallInput {
-        project_path,
-        configured_port,
-        location,
-        remove,
-    } = input;
-    if remove || location != AgentInstallLocation::Local || env::var_os(DATABASE_URL_ENV).is_some()
-    {
-        return Ok(None);
-    }
-    resolve_managed_database_port(project_path, configured_port)
-        .await
-        .map(Some)
 }
 
 fn resolve_install_targets(
@@ -3009,68 +2629,10 @@ fn print_install_reports(
 }
 
 async fn run_mcp_server(arguments: McpServeArguments) -> Result<ExitCode, String> {
-    let McpServeArguments {
-        mcp,
-        project_path,
-        managed_database_port,
-        profile,
-        no_write_tools,
-        defaults:
-            McpServeDefaults {
-                allow_stale: allow_stale_default,
-                low_tokens: low_tokens_default,
-            },
-        disable_tool,
-        sync,
-    } = arguments;
-    if !mcp {
-        return Err("serve requires --mcp; Cartograph v2 uses stdio MCP transport".to_owned());
+    if !arguments.mcp {
+        return Err("serve requires --mcp; Cartograph uses stdio MCP transport".to_owned());
     }
-    let read_only_mode = no_write_tools || profile == McpProfile::ReadOnly;
-    let managed_database_port = if env::var_os(DATABASE_URL_ENV).is_some() {
-        managed_database_port.unwrap_or(DEFAULT_MANAGED_DATABASE_PORT)
-    } else {
-        resolve_managed_database_port(&project_path, managed_database_port).await?
-    };
-    if env::var_os(DATABASE_URL_ENV).is_none() {
-        preflight_mcp_managed_database(&project_path, managed_database_port).await?;
-    }
-    let settings =
-        resolve_database_settings_with_port(&project_path, Some(managed_database_port)).await?;
-    let runtime = ProjectRuntime::connect(&project_path, &settings)
-        .await
-        .map_err(|error| error.to_string())?;
-    let runtime = Arc::new(runtime);
-    let handler = CartographMcpHandler::new(runtime)
-        .map_err(|error| error.to_string())?
-        .configured(
-            HandlerDefaults {
-                evidence: HandlerEvidenceDefaults {
-                    allow_stale: allow_stale_default,
-                    low_tokens: low_tokens_default,
-                },
-                execution: HandlerExecutionDefaults {
-                    trace_calls: !read_only_mode,
-                    read_only: read_only_mode,
-                },
-            },
-            managed_database_port,
-        );
-    if let McpServeSync::Enabled {
-        startup_reconciliation,
-    } = sync
-    {
-        mcp_handler::enable_handler_auto_sync(&handler, startup_reconciliation)
-            .await
-            .map_err(|error| error.to_string())?;
-    }
-    let config = mcp_server_config(profile, disable_tool, read_only_mode)?;
-    let server = ProtocolServer::new(config, handler).map_err(|error| error.to_string())?;
-    server
-        .serve_stdio()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(ExitCode::SUCCESS)
+    rocks_cli::serve(arguments).await
 }
 
 /// Stdio server configuration for the selected profile, after checking that every
@@ -3103,42 +2665,6 @@ fn mcp_server_config(
     .map_err(|error| error.to_string())
 }
 
-async fn preflight_mcp_managed_database(project_path: &Path, port: u16) -> Result<(), String> {
-    let database = ManagedDatabase::new(project_path, port).map_err(|error| error.to_string())?;
-    let status = database
-        .lifecycle()
-        .status()
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Some(error) = managed_mcp_preflight_error(&status) {
-        Err(error)
-    } else {
-        Ok(())
-    }
-}
-
-fn managed_mcp_preflight_error(status: &ManagedDatabaseStatus) -> Option<String> {
-    if status.state == ManagedContainerState::Missing {
-        return Some(
-            "managed database is missing; run `cartograph db start --project-path <path>` before starting MCP"
-                .to_owned(),
-        );
-    }
-    if status.image_matches && status.hnsw_shared_memory_ready && status.resource_limits_match {
-        return (status.state != ManagedContainerState::Healthy).then(|| {
-            format!(
-                "managed database is {}; run `cartograph db start --project-path <path> --port {}` and require doctor to pass before starting MCP",
-                managed_state_label(status.state),
-                status.port
-            )
-        });
-    }
-    Some(format!(
-        "managed database compatibility preflight failed; run `cartograph doctor <path>`, create a fresh backup with `cartograph db backup ./cartograph-pre-upgrade.backup --project-path <path> --port {}`, then run `cartograph db upgrade --project-path <path> --port {} --confirm upgrade-managed-database`; restart the MCP host only after doctor passes",
-        status.port, status.port
-    ))
-}
-
 /// Message when `install`'s initial index failed after reporting its own
 /// failure (JSON format) or was cancelled.
 const LOCAL_INDEX_INCOMPLETE: &str = "the initial project index did not complete (see the index failure above); install stopped before Git hooks. Rerun `cartograph index <path>`, then rerun install";
@@ -3148,17 +2674,6 @@ const LOCAL_INDEX_INCOMPLETE: &str = "the initial project index did not complete
 /// of an error, which must stop `install` too.
 fn local_index_outcome(code: ExitCode) -> Result<(), String> {
     (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_INDEX_INCOMPLETE.to_owned())
-}
-
-/// Message when `install`'s managed database start reported its own retryable
-/// failure (a schema that another process kept busy).
-const LOCAL_DATABASE_INCOMPLETE: &str = "the managed database start did not complete (see the failure above); install stopped before the initial index. Rerun install once the other Cartograph process is stopped or restarted";
-
-/// `install` indexes only after its managed database start succeeded. A start
-/// whose schema stayed busy reports that itself and returns its dedicated
-/// exit status instead of an error, which must stop `install` too.
-fn local_database_outcome(code: ExitCode) -> Result<(), String> {
-    (code == ExitCode::SUCCESS).ok_or_else(|| LOCAL_DATABASE_INCOMPLETE.to_owned())
 }
 
 /// Run one `cartograph index` request.
@@ -3176,7 +2691,6 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
         preserve_current_excludes,
         supervised,
         format,
-        managed_database_port,
     } = arguments;
     let cancellation = ProjectCancellation::new();
     // Installed before any work and kept for the rest of the process: tokio
@@ -3193,15 +2707,30 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
     } else {
         IndexSupervision::Direct
     };
-    let runtime = match supervised_index::start_up(
-        supervision,
-        connect_index_runtime(&project_path, managed_database_port),
-    )
-    .await
+    if rocks_cli::owner::OwnerClient::connect(&project_path)
+        .await?
+        .is_some()
     {
-        Ok(runtime) => runtime,
-        Err(error) => return index_startup_failure(error, format),
-    };
+        return run_owner_index(
+            IndexArguments {
+                project_path,
+                workers,
+                force,
+                exclude,
+                preserve_current_excludes,
+                supervised,
+                format,
+            },
+            cancellation,
+            &interrupts,
+        )
+        .await;
+    }
+    let runtime =
+        match supervised_index::start_up(supervision, connect_index_runtime(&project_path)).await {
+            Ok(runtime) => runtime,
+            Err(error) => return index_startup_failure(error, format),
+        };
     let mut options = if preserve_current_excludes {
         IndexOptions::reconciliation()
     } else {
@@ -3232,7 +2761,7 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
     match result {
         Ok(report) => {
             let rendered = print_index_report(&report, format);
-            runtime.close().await;
+            runtime.close().await.map_err(|error| error.to_string())?;
             rendered?;
             Ok(ExitCode::SUCCESS)
         }
@@ -3244,13 +2773,13 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
                     previous_generation_visible,
                 })
                 .map_err(|_| "could not serialize the index failure".to_owned())?;
-            runtime.close().await;
+            runtime.close().await.map_err(|error| error.to_string())?;
             eprintln!("{rendered}");
             Ok(ExitCode::FAILURE)
         }
         Err(failure) => {
             let rendered = error_codes::direct_index_attempt_failure_message(&failure);
-            runtime.close().await;
+            runtime.close().await.map_err(|error| error.to_string())?;
             Err(rendered)
         }
     }
@@ -3259,23 +2788,29 @@ async fn run_index(arguments: IndexArguments) -> Result<ExitCode, String> {
 /// Why one index request could not start.
 enum IndexStartupError {
     /// The database settings could not be resolved.
-    Settings(String),
     /// Connecting or applying the append-only schema migrations failed.
     Connect(ProjectError),
 }
 
-/// The startup of one index request: resolve the database settings, then
-/// connect and apply the append-only schema migrations.
 async fn connect_index_runtime(
     project_path: &PathBuf,
-    managed_database_port: Option<u16>,
 ) -> Result<ProjectRuntime, IndexStartupError> {
-    let settings = resolve_database_settings_with_port(project_path, managed_database_port)
-        .await
-        .map_err(IndexStartupError::Settings)?;
-    ProjectRuntime::connect(project_path, &settings)
-        .await
-        .map_err(IndexStartupError::Connect)
+    let deadline = tokio::time::Instant::now() + supervised_index::SUPERVISED_STARTUP_ALLOWANCE;
+    let mut reported_busy = false;
+    loop {
+        match ProjectRuntime::open(project_path).await {
+            Err(ProjectError::IndexLeaseBusy) if tokio::time::Instant::now() < deadline => {
+                if !reported_busy {
+                    eprintln!(
+                        "cartograph: native project owner is active; waiting for storage admission"
+                    );
+                    reported_busy = true;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            result => return result.map_err(IndexStartupError::Connect),
+        }
+    }
 }
 
 /// Report an index request that could not start. A schema that another
@@ -3301,7 +2836,6 @@ fn index_startup_failure(
             Ok(ExitCode::FAILURE)
         }
         IndexStartupError::Connect(error) => Err(error_codes::direct_index_failure_message(&error)),
-        IndexStartupError::Settings(message) => Err(message),
     }
 }
 
@@ -3311,6 +2845,61 @@ fn index_startup_failure(
 /// unknown instead of guessing from the failure kind. The client deadline also
 /// covers connection acquisition, which the statement timeout cannot bound, so
 /// this diagnostic never holds back the already-known primary failure.
+async fn run_owner_index(
+    arguments: IndexArguments,
+    cancellation: ProjectCancellation,
+    interrupts: &InterruptForwarding,
+) -> Result<ExitCode, String> {
+    let IndexArguments {
+        project_path,
+        workers,
+        force,
+        exclude,
+        preserve_current_excludes,
+        supervised,
+        format,
+    } = arguments;
+    interrupts.request_started();
+    let context = cartograph_mcp::ToolCallContext::local(Duration::from_secs(300));
+    let call=cartograph_mcp::ToolCall {name:"cartograph_admin".to_owned(),arguments:serde_json::json!({"action":"index","workers":workers.unwrap_or(16),"force":force,"exclude":exclude,"preserveCurrentExcludes":preserve_current_excludes,"singlePublication":supervised,"refreshHistory":!supervised,"enrich":false,"baseOnly":true}).as_object().cloned().ok_or_else(||"native index request is malformed".to_owned())?};
+    let operation = rocks_cli::remote_job::run(&project_path, call, context.clone(), |progress| {
+        if supervised {
+            eprintln!("{}", serde_json::json!({"progress":progress}));
+        }
+    });
+    tokio::pin!(operation);
+    let result = tokio::select! {
+        biased;
+        ()=cancellation.cancelled()=>{context.cancellation().cancel();operation.await},
+        result=&mut operation=>result,
+    };
+    interrupts.request_finished();
+    let result = result?;
+    let value: Value = serde_json::from_str(
+        result
+            .primary_text()
+            .ok_or_else(|| "native index returned no report".to_owned())?,
+    )
+    .map_err(|_| "native index returned malformed report".to_owned())?;
+    if value["status"] == "succeeded" {
+        print_serialized(completed_owner_index_report(&value)?, format)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    eprintln!("{value}");
+    Ok(ExitCode::FAILURE)
+}
+
+fn completed_owner_index_report(value: &Value) -> Result<&Value, String> {
+    if value["report"]["enrichment"]["optionalPhaseFailures"] == true {
+        return Err("native owner published the base graph but optional enrichment failed; inspect cartograph admin status".to_owned());
+    }
+    let report = &value["report"]["report"];
+    if !report.is_object() {
+        return Err("native owner returned malformed completed index".to_owned());
+    }
+    Ok(report)
+}
+
 async fn observed_generation_visibility(runtime: &ProjectRuntime) -> Option<bool> {
     let lookup = runtime
         .database()
@@ -3327,6 +2916,12 @@ async fn run_sync_if_dirty(
     max_file_size: Option<&str>,
 ) -> Result<ExitCode, String> {
     let maximum_source_bytes = max_file_size.map(parse_max_file_size).transpose()?;
+    if rocks_cli::owner::OwnerClient::connect(&project_path)
+        .await?
+        .is_some()
+    {
+        return run_owner_sync_if_dirty(&project_path, quiet, maximum_source_bytes).await;
+    }
     let runtime = open_runtime(&project_path).await?;
     let status = runtime.status().await.map_err(|error| error.to_string())?;
     let dirty = runtime.git_worktree_is_dirty().await;
@@ -3334,7 +2929,7 @@ async fn run_sync_if_dirty(
         if !quiet {
             println!("No source changes and index is current; skipping sync");
         }
-        runtime.close().await;
+        runtime.close().await.map_err(|error| error.to_string())?;
         return Ok(ExitCode::SUCCESS);
     }
     let mut options = IndexOptions::reconciliation();
@@ -3368,7 +2963,61 @@ async fn run_sync_if_dirty(
             }
         }
     }
-    runtime.close().await;
+    runtime.close().await.map_err(|error| error.to_string())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+async fn run_owner_sync_if_dirty(
+    project_path: &std::path::Path,
+    quiet: bool,
+    maximum_source_bytes: Option<usize>,
+) -> Result<ExitCode, String> {
+    let mut arguments = Map::from_iter([
+        ("action".to_owned(), Value::from("sync")),
+        ("refreshHistory".to_owned(), Value::from(false)),
+        ("enrich".to_owned(), Value::from(false)),
+        ("baseOnly".to_owned(), Value::from(true)),
+    ]);
+    if let Some(bytes) = maximum_source_bytes {
+        arguments.insert("maxFileSize".to_owned(), Value::from(bytes.to_string()));
+    }
+    let cancellation = ProjectCancellation::new();
+    let interrupts = InterruptForwarding::install(cancellation.clone(), !quiet);
+    interrupts.request_started();
+    let context = cartograph_mcp::ToolCallContext::local(Duration::from_secs(300));
+    let operation = rocks_cli::remote_job::run(
+        project_path,
+        cartograph_mcp::ToolCall {
+            name: "cartograph_admin".to_owned(),
+            arguments,
+        },
+        context.clone(),
+        |_| {},
+    );
+    tokio::pin!(operation);
+    let result = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => { context.cancellation().cancel(); operation.await },
+        result = &mut operation => result,
+    };
+    interrupts.request_finished();
+    let result = result?;
+    if rocks_cli::remote_job::failed(&result) {
+        if let Some(report) = result.primary_text() {
+            eprintln!("{report}");
+        }
+        return Ok(ExitCode::FAILURE);
+    }
+    let job: Value = serde_json::from_str(
+        result
+            .primary_text()
+            .ok_or_else(|| "native sync returned no report".to_owned())?,
+    )
+    .map_err(|_| "native sync returned malformed report".to_owned())?;
+    completed_owner_index_report(&job)?;
+    if !quiet {
+        println!("Source reconciled by the running project owner");
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -3574,38 +3223,21 @@ fn database_storage_text(value: &Value) -> Option<String> {
         .and_then(Value::as_str)
     {
         Some("ready") => {
-            let database_bytes = value
-                .pointer("/databaseStorage/databaseBytes")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let schema_bytes = value
-                .pointer("/databaseStorage/schemaBytes")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let heap_bytes = value
-                .pointer("/databaseStorage/heapBytes")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let index_bytes = value
-                .pointer("/databaseStorage/indexBytes")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let btree_index_bytes = value
-                .pointer("/databaseStorage/btreeIndexBytes")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let toast_bytes = value
-                .pointer("/databaseStorage/toastBytes")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let usage = value.pointer("/databaseStorage/native")?;
+            let bytes = |name| {
+                usage
+                    .get(name)
+                    .and_then(Value::as_u64)
+                    .map_or_else(|| "unavailable".to_owned(), format_binary_bytes)
+            };
             Some(format!(
-                "Database storage: {} database; {} Cartograph schema.\nSchema allocation: {} heap, {} indexes ({} B-tree), {} TOAST; details: `cartograph db usage --project-path <path>`",
-                format_binary_bytes(database_bytes),
-                format_binary_bytes(schema_bytes),
-                format_binary_bytes(heap_bytes),
-                format_binary_bytes(index_bytes),
-                format_binary_bytes(btree_index_bytes),
-                format_binary_bytes(toast_bytes),
+                "RocksDB storage: {} files; {} allocated; {} WAL.\nEngine allocation: {} SST, {} memtables; estimated pending compaction {}; details: `cartograph db usage --project-path <path>`",
+                bytes("fileBytes"),
+                bytes("allocatedBytes"),
+                bytes("walBytes"),
+                bytes("sstBytes"),
+                bytes("memtableBytes"),
+                bytes("estimatedPendingCompactionBytes")
             ))
         }
         Some("unavailable") => Some(format!(
@@ -3673,27 +3305,46 @@ async fn run_embed(
     workers: Option<u16>,
     format: OutputFormat,
 ) -> Result<ExitCode, String> {
-    let runtime = open_runtime(&project_path).await?;
-    let mut options = EmbeddingOptions::default();
+    let mut arguments = Map::from_iter([("action".to_owned(), Value::String("embed".to_owned()))]);
     if let Some(workers) = workers {
-        options = options
-            .with_max_workers(workers)
-            .map_err(|error| error.to_string())?;
+        arguments.insert("workers".to_owned(), Value::from(workers));
     }
-    let result = runtime.embed_current(options).await;
-    runtime.close().await;
-    print_serialized(&result.map_err(|error| error.to_string())?, format)?;
-    Ok(ExitCode::SUCCESS)
+    print_admin_report(project_path, arguments, format).await
 }
 
 async fn run_embedding_status(
     project_path: PathBuf,
     format: OutputFormat,
 ) -> Result<ExitCode, String> {
-    let runtime = open_runtime(&project_path).await?;
-    let result = runtime.embedding_status().await;
-    runtime.close().await;
-    print_serialized(&result.map_err(|error| error.to_string())?, format)?;
+    print_admin_report(
+        project_path,
+        Map::from_iter([(
+            "action".to_owned(),
+            Value::String("embedding-status".to_owned()),
+        )]),
+        format,
+    )
+    .await
+}
+
+async fn print_admin_report(
+    project_path: PathBuf,
+    arguments: Map<String, Value>,
+    format: OutputFormat,
+) -> Result<ExitCode, String> {
+    let result =
+        generated_cli::run_direct_result("cartograph_admin", project_path, arguments).await?;
+    let report: Value = serde_json::from_str(
+        result
+            .primary_text()
+            .ok_or("Native admin returned no report")?,
+    )
+    .map_err(|_| "Native admin returned a malformed report")?;
+    if rocks_cli::remote_job::failed(&result) {
+        eprintln!("{report}");
+        return Ok(ExitCode::FAILURE);
+    }
+    print_serialized(report.get("report").unwrap_or(&report), format)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -3743,663 +3394,68 @@ fn print_index_report(report: &IndexReport, format: OutputFormat) -> Result<(), 
 
 async fn run_database_command(command: DatabaseCommand) -> Result<ExitCode, String> {
     match command {
-        command @ (DatabaseCommand::Start(_)
-        | DatabaseCommand::Status(_)
-        | DatabaseCommand::Stop(_)
-        | DatabaseCommand::Logs(_)) => run_database_lifecycle_command(command).await,
-        command @ (DatabaseCommand::Backup(_)
-        | DatabaseCommand::Restore(_)
-        | DatabaseCommand::Remove(_)
-        | DatabaseCommand::Upgrade(_)) => run_database_protection_command(command).await,
-        command @ (DatabaseCommand::DerivedIndex(_)
-        | DatabaseCommand::ImportV1(_)
-        | DatabaseCommand::Prune(_)
-        | DatabaseCommand::Usage(_)
-        | DatabaseCommand::Compact(_)) => run_database_maintenance_command(command).await,
-    }
-}
-
-async fn run_database_lifecycle_command(command: DatabaseCommand) -> Result<ExitCode, String> {
-    match command {
-        DatabaseCommand::Start(arguments) => run_database_start(arguments).await,
-        DatabaseCommand::Status(arguments) => run_database_status(arguments).await,
-        DatabaseCommand::Stop(arguments) => run_database_stop(arguments).await,
-        DatabaseCommand::Logs(arguments) => run_database_logs(arguments).await,
-        _ => Err("database lifecycle command was routed incorrectly".to_owned()),
-    }
-}
-
-async fn run_database_protection_command(command: DatabaseCommand) -> Result<ExitCode, String> {
-    match command {
-        DatabaseCommand::Backup(arguments) => run_database_backup(arguments).await,
-        DatabaseCommand::Restore(arguments) => run_database_restore(arguments).await,
-        DatabaseCommand::Remove(arguments) => run_database_remove(arguments).await,
-        DatabaseCommand::Upgrade(arguments) => run_database_upgrade(arguments).await,
-        _ => Err("database protection command was routed incorrectly".to_owned()),
-    }
-}
-
-async fn run_database_maintenance_command(command: DatabaseCommand) -> Result<ExitCode, String> {
-    match command {
-        DatabaseCommand::DerivedIndex(arguments) => run_derived_index(arguments).await,
-        DatabaseCommand::ImportV1(arguments) => run_v1_postgres_import(arguments).await,
-        DatabaseCommand::Prune(arguments) => run_generation_prune(arguments).await,
-        DatabaseCommand::Usage(arguments) => run_database_usage(arguments).await,
-        DatabaseCommand::Compact(arguments) => run_database_compact(arguments).await,
-        _ => Err("database maintenance command was routed incorrectly".to_owned()),
-    }
-}
-
-async fn run_database_start(arguments: DatabaseStartArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port)
-        .await?
-        .with_startup_timeout(Duration::from_secs(arguments.wait_seconds));
-    let report = match database.lifecycle().start().await {
-        Ok(report) => report,
-        Err(error @ ManagedDatabaseError::SchemaBusy) => {
-            eprintln!(
-                "cartograph: {error} (reason: {})",
-                error_codes::SCHEMA_BUSY_CODE
-            );
-            return Ok(ExitCode::from(error_codes::SCHEMA_BUSY_EXIT_STATUS));
-        }
-        Err(error) => return Err(error.to_string()),
-    };
-    print_managed_start(&report, arguments.format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_status(arguments: DatabaseStatusArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    let status = database
-        .lifecycle()
-        .status()
-        .await
-        .map_err(|error| error.to_string())?;
-    print_managed_status(&status, arguments.format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_stop(arguments: DatabaseStopArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    let stopped = database
-        .lifecycle()
-        .stop()
-        .await
-        .map_err(|error| error.to_string())?;
-    println!(
-        "{}",
-        if stopped {
-            "Managed Cartograph database stopped."
-        } else {
-            "Managed Cartograph database was already stopped or absent."
-        }
-    );
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_logs(arguments: DatabaseLogsArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    let logs = database
-        .lifecycle()
-        .logs(arguments.tail)
-        .await
-        .map_err(|error| error.to_string())?;
-    print!("{logs}");
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_backup(arguments: DatabaseBackupArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    let report = database
-        .archives()
-        .backup(arguments.destination)
-        .await
-        .map_err(|error| error.to_string())?;
-    print_serialized(&report, arguments.format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_restore(arguments: DatabaseRestoreArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    let confirmation = database
-        .confirm_destructive_operation(ManagedDestructiveOperation::Restore, &arguments.confirm)
-        .map_err(|error| error.to_string())?;
-    let report = database
-        .archives()
-        .restore(arguments.source, confirmation)
-        .await
-        .map_err(|error| error.to_string())?;
-    print_serialized(&report, arguments.format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_remove(arguments: DatabaseDestructiveArguments) -> Result<ExitCode, String> {
-    let (database, confirmation, format) =
-        prepare_database_destruction(arguments, ManagedDestructiveOperation::Remove).await?;
-    let report = database
-        .maintenance()
-        .remove(confirmation)
-        .await
-        .map_err(|error| error.to_string())?;
-    print_serialized(&report, format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_upgrade(arguments: DatabaseDestructiveArguments) -> Result<ExitCode, String> {
-    let (database, confirmation, format) =
-        prepare_database_destruction(arguments, ManagedDestructiveOperation::Upgrade).await?;
-    let report = database
-        .maintenance()
-        .upgrade(confirmation)
-        .await
-        .map_err(|error| error.to_string())?;
-    print_serialized(&report, format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn prepare_database_destruction(
-    arguments: DatabaseDestructiveArguments,
-    operation: ManagedDestructiveOperation,
-) -> Result<
-    (
-        ManagedDatabase,
-        ManagedDestructiveConfirmation,
-        OutputFormat,
-    ),
-    String,
-> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    let confirmation = database
-        .confirm_destructive_operation(operation, &arguments.confirm)
-        .map_err(|error| error.to_string())?;
-    Ok((database, confirmation, arguments.format))
-}
-
-async fn run_derived_index(arguments: DatabaseDerivedIndexArguments) -> Result<ExitCode, String> {
-    let database = managed_database_for_project(&arguments.project_path, arguments.port).await?;
-    if arguments.rebuild {
-        rebuild_derived_index(&database, arguments.confirm, arguments.format).await?;
-    } else {
-        let report = database
-            .maintenance()
-            .derived_index_health()
-            .await
-            .map_err(|error| error.to_string())?;
-        print_serialized(&report, arguments.format)?;
-    }
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn managed_database_for_project(
-    project_path: &Path,
-    explicit_port: Option<u16>,
-) -> Result<ManagedDatabase, String> {
-    let port = resolve_managed_database_port(project_path, explicit_port).await?;
-    ManagedDatabase::new(project_path, port).map_err(|error| error.to_string())
-}
-
-async fn rebuild_derived_index(
-    database: &ManagedDatabase,
-    confirmation: Option<String>,
-    format: OutputFormat,
-) -> Result<(), String> {
-    let acknowledgement = confirmation
-        .ok_or_else(|| "--confirm rebuild-managed-derived-indexes is required".to_owned())?;
-    let confirmation = database
-        .confirm_destructive_operation(
-            ManagedDestructiveOperation::RebuildDerivedIndexes,
-            &acknowledgement,
-        )
-        .map_err(|error| error.to_string())?;
-    let report = database
-        .maintenance()
-        .rebuild_derived_indexes(confirmation)
-        .await
-        .map_err(|error| error.to_string())?;
-    print_serialized(&report, format)
-}
-
-async fn run_v1_postgres_import(arguments: V1ImportArguments) -> Result<ExitCode, String> {
-    let V1ImportArguments {
-        project_path,
-        source_checkout,
-        source_schema,
-        maximum_rows,
-        maximum_source_bytes,
-        dry_run,
-        confirm,
-        format,
-    } = arguments;
-    if !dry_run && confirm.as_deref() != Some(V1_IMPORT_CONFIRMATION) {
-        return Err(format!(
-            "v1 import requires --confirm {V1_IMPORT_CONFIRMATION}"
-        ));
-    }
-    let source_schema = cartograph_config::DatabaseSchema::parse(&source_schema)
-        .map_err(|error| error.to_string())?;
-    let destination_identity = ProjectRuntime::inspect_source_identity(&project_path)
-        .map_err(|error| error.to_string())?;
-    let source_checkout = source_checkout.unwrap_or_else(|| project_path.clone());
-    let source_identity = ProjectRuntime::inspect_source_identity(&source_checkout)
-        .map_err(|error| error.to_string())?;
-    let validation =
-        GenerationValidationLimits::new(DEFAULT_IMPORT_OUTPUT_BYTES, DEFAULT_IMPORT_WORKING_BYTES)
-            .map_err(|error| error.to_string())?;
-    let limits = V1PostgresImportLimits::new(maximum_rows, maximum_source_bytes, validation)
-        .map_err(|error| error.to_string())?;
-    let execution = V1PostgresImportExecution::new(
-        maintenance_owner(),
-        MAINTENANCE_LEASE_DURATION,
-        MAINTENANCE_STATEMENT_TIMEOUT,
-    );
-    let source_revision = V1PostgresSourceRevision::new(
-        destination_identity.repository_fingerprint,
-        source_identity.v1_source_manifest,
-    );
-    let source = V1PostgresSource::new(source_schema, source_checkout, source_revision);
-    let request = V1PostgresImportRequest::new(source, execution, limits);
-    let settings = resolve_database_settings(&project_path).await?;
-    let pool = cartograph_db::connect(&settings)
-        .await
-        .map_err(|error| error.to_string())?;
-    let database = CartographDatabase::new(pool, settings.schema().clone());
-    let result = if dry_run {
-        database
-            .dry_run_v1_postgres_import(&request)
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|report| print_serialized(&report, format))
-    } else {
-        database
-            .import_v1_postgres(request)
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|report| print_serialized(&report, format))
-    };
-    database.close().await;
-    result?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_generation_prune(arguments: PruneArguments) -> Result<ExitCode, String> {
-    let PruneArguments {
-        project_path,
-        keep_superseded,
-        maximum_deletions,
-        maximum_cascade_rows,
-        maximum_search_relation_bytes,
-        confirm,
-        format,
-    } = arguments;
-    if confirm != RETENTION_CONFIRMATION {
-        return Err(format!(
-            "generation pruning requires --confirm {RETENTION_CONFIRMATION}"
-        ));
-    }
-    let mut policy = GenerationRetentionPolicy::new(keep_superseded, maximum_deletions)
-        .map_err(|error| error.to_string())?;
-    if let Some(maximum_cascade_rows) = maximum_cascade_rows {
-        policy = policy
-            .with_maximum_cascade_rows(maximum_cascade_rows)
-            .map_err(|error| error.to_string())?;
-    }
-    if let Some(maximum_search_relation_bytes) = maximum_search_relation_bytes {
-        policy = policy
-            .with_maximum_search_relation_bytes(maximum_search_relation_bytes)
-            .map_err(|error| error.to_string())?;
-    }
-    let runtime = open_runtime(&project_path).await?;
-    let status = runtime.status().await.map_err(|error| error.to_string())?;
-    let project_id = status
-        .snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.project_id.clone())
-        .ok_or_else(|| "project has no index; nothing can be pruned".to_owned())?;
-    let lease = runtime
-        .database()
-        .acquire_lease(LeaseRequest::new(
-            LeaseTarget::new(project_id, ProjectOperation::Migration, None),
-            maintenance_owner(),
-            MAINTENANCE_LEASE_DURATION,
-        ))
-        .await
-        .map_err(|error| error.to_string())?;
-    let fence = lease.fence();
-    let cleanup = runtime
-        .database()
-        .cleanup_generations(GenerationRetentionRequest::new(
-            policy,
-            &fence,
-            MAINTENANCE_STATEMENT_TIMEOUT,
-        ))
-        .await
-        .map_err(|error| error.to_string());
-    let release = runtime
-        .database()
-        .release_lease(&lease)
-        .await
-        .map_err(|error| error.to_string());
-    let result = cleanup.and_then(|report| release.map(|()| report));
-    runtime.close().await;
-    print_serialized(&result?, format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_usage(arguments: DatabaseUsageArguments) -> Result<ExitCode, String> {
-    let runtime = open_current_read_only_runtime(&arguments.project_path).await?;
-    let status = runtime.status().await.map_err(|error| error.to_string())?;
-    let project_id = status
-        .snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.project_id.clone())
-        .ok_or_else(|| "project has no index; storage usage is unavailable".to_owned())?;
-    let report = runtime
-        .database()
-        .storage_usage_page(
-            &project_id,
-            cartograph_db::StorageUsagePage {
-                limit: arguments.limit,
-                offsets: cartograph_db::StorageUsageOffsets {
-                    tables: arguments.table_offset,
-                    indexes: arguments.index_offset,
-                },
-                statement_timeout: MAINTENANCE_STATEMENT_TIMEOUT,
-            },
-        )
-        .await
-        .map_err(|error| error.to_string());
-    runtime.close().await;
-    print_serialized(&report?, arguments.format)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_database_compact(arguments: DatabaseCompactArguments) -> Result<ExitCode, String> {
-    let policy = database_compaction_policy(&arguments)?;
-    let external_database = env::var_os(DATABASE_URL_ENV).is_some();
-    let headroom_authority = arguments
-        .apply
-        .then(|| {
-            compaction_headroom_authority(external_database, arguments.available_headroom_bytes)
-        })
-        .transpose()?;
-    let settings = resolve_database_settings(&arguments.project_path).await?;
-    let pool = cartograph_db::connect(&settings)
-        .await
-        .map_err(|error| error.to_string())?;
-    let database = CartographDatabase::new(pool, settings.schema().clone());
-    if let Err(error) = database.verify_current_schema().await {
-        database.close().await;
-        return Err(current_schema_guidance(&error));
-    }
-    let result = if arguments.apply {
-        let headroom = match headroom_authority {
-            Some(CompactionHeadroomAuthority::Managed) => {
-                let port = resolve_managed_database_port(&arguments.project_path, None).await?;
-                ManagedDatabase::new(&arguments.project_path, port)
-                    .map_err(|error| error.to_string())?
-                    .lifecycle()
-                    .available_storage_bytes()
-                    .await
-                    .map_err(|error| error.to_string())?
+        DatabaseCommand::Migrate(arguments) => rocks_cli::migrate(arguments).await,
+        DatabaseCommand::Usage(arguments) => {
+            if !arguments
+                .project_path
+                .join(".cartograph/data/CURRENT")
+                .try_exists()
+                .map_err(|_| "native storage inventory is unavailable".to_owned())?
+            {
+                print_serialized(
+                    &serde_json::json!({"storage":"rocksdb","initialized":false,"native":null}),
+                    arguments.format,
+                )?;
+                return Ok(ExitCode::SUCCESS);
             }
-            Some(CompactionHeadroomAuthority::External(bytes)) => bytes,
-            None => return Err("online compaction headroom authority is unavailable".to_owned()),
-        };
-        match policy {
-            DatabaseCompactionPolicy::Heap(policy) => database
-                .compact_heap_storage(policy, headroom)
-                .await
-                .map_err(|error| error.to_string())
-                .and_then(|report| print_serialized(&report, arguments.format)),
-            DatabaseCompactionPolicy::Online(policy) => database
-                .compact_storage_online(policy, headroom)
-                .await
-                .map_err(|error| error.to_string())
-                .and_then(|report| print_serialized(&report, arguments.format)),
-        }
-    } else {
-        match policy {
-            DatabaseCompactionPolicy::Heap(policy) => database
-                .heap_compaction_plan(policy)
-                .await
-                .map_err(|error| error.to_string())
-                .and_then(|plan| print_serialized(&plan, arguments.format)),
-            DatabaseCompactionPolicy::Online(policy) => database
-                .storage_compaction_plan(policy)
-                .await
-                .map_err(|error| error.to_string())
-                .and_then(|plan| print_serialized(&plan, arguments.format)),
-        }
-    };
-    database.close().await;
-    result?;
-    Ok(ExitCode::SUCCESS)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DatabaseCompactionPolicy {
-    Online(StorageCompactionPolicy),
-    Heap(HeapCompactionPolicy),
-}
-
-fn database_compaction_policy(
-    arguments: &DatabaseCompactArguments,
-) -> Result<DatabaseCompactionPolicy, String> {
-    let (confirmation, label) = if arguments.heap {
-        (HEAP_COMPACTION_CONFIRMATION, "heap")
-    } else {
-        (ONLINE_COMPACTION_CONFIRMATION, "online")
-    };
-    if arguments.apply && arguments.confirm.as_deref() != Some(confirmation) {
-        return Err(format!(
-            "{label} compaction requires --confirm {confirmation}"
-        ));
-    }
-    if arguments.heap {
-        HeapCompactionPolicy::new(HeapCompactionPolicyInput {
-            maximum_relations: arguments.maximum_relations,
-            maximum_candidate_bytes: arguments.maximum_candidate_bytes,
-            minimum_reclaimable_bytes: arguments.minimum_reclaimable_bytes,
-            statement_timeout: Duration::from_secs(arguments.timeout_seconds),
-        })
-        .map(DatabaseCompactionPolicy::Heap)
-        .map_err(|error| error.to_string())
-    } else {
-        StorageCompactionPolicy::new(StorageCompactionPolicyInput {
-            maximum_indexes: arguments.maximum_indexes,
-            maximum_candidate_bytes: arguments.maximum_candidate_bytes,
-            minimum_index_bytes: arguments.minimum_index_bytes,
-            minimum_reclaimable_bytes: arguments.minimum_reclaimable_bytes,
-            statement_timeout: Duration::from_secs(arguments.timeout_seconds),
-        })
-        .map(DatabaseCompactionPolicy::Online)
-        .map_err(|error| error.to_string())
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CompactionHeadroomAuthority {
-    Managed,
-    External(u64),
-}
-
-fn compaction_headroom_authority(
-    external_database: bool,
-    supplied_bytes: Option<u64>,
-) -> Result<CompactionHeadroomAuthority, String> {
-    match (external_database, supplied_bytes) {
-        (false, None) => Ok(CompactionHeadroomAuthority::Managed),
-        (false, Some(_)) => Err(
-            "managed PostgreSQL compaction rejects --available-headroom-bytes; Cartograph measures the validated data volume"
-                .to_owned(),
-        ),
-        (true, Some(bytes)) => Ok(CompactionHeadroomAuthority::External(bytes)),
-        (true, None) => {
-            Err("external PostgreSQL compaction requires --available-headroom-bytes".to_owned())
-        }
-    }
-}
-
-async fn open_current_read_only_runtime(project_path: &PathBuf) -> Result<ProjectRuntime, String> {
-    let settings = resolve_database_settings(project_path).await?;
-    let runtime = ProjectRuntime::connect_read_only(project_path, &settings)
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = runtime.database().verify_current_schema().await {
-        runtime.close().await;
-        return Err(current_schema_guidance(&error));
-    }
-    Ok(runtime)
-}
-
-fn current_schema_guidance(error: &cartograph_db::MigrationError) -> String {
-    format!(
-        "{}; run `cartograph db start --project-path .` or the approved external migration workflow before retrying",
-        schema_migration_diagnostic(error)
-    )
-}
-
-fn schema_migration_diagnostic(error: &cartograph_db::MigrationError) -> String {
-    match error {
-        cartograph_db::MigrationError::SchemaVersionBehind {
-            version,
-            required_version,
-        } => format!(
-            "database schema version {version} is below required version {required_version}; next pending migration is {}",
-            version.saturating_add(1)
-        ),
-        _ => error.to_string(),
-    }
-}
-
-fn maintenance_owner() -> LeaseOwner {
-    let started = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_nanos();
-    LeaseOwner::new(process::id(), format!("cartograph-cli:{started}"))
-}
-
-fn print_managed_start(report: &ManagedStartReport, format: OutputFormat) -> Result<(), String> {
-    match format {
-        OutputFormat::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(report)
-                .map_err(|_| "could not serialize the managed start report".to_owned())?
-        ),
-        OutputFormat::Text => {
-            println!(
-                "Managed credentials: {}",
-                if report.credentials_created {
-                    "created privately"
-                } else {
-                    "reused"
-                }
-            );
-            println!(
-                "Managed container: {}",
-                if report.container_created {
-                    "created"
-                } else {
-                    "reused"
-                }
-            );
-            println!(
-                "Cartograph schema: {} at version {} (applied now: {})",
-                report.schema,
-                report.migrations.current_version,
-                if report.migrations.applied_versions.is_empty() {
-                    "none".to_owned()
-                } else {
-                    report
-                        .migrations
-                        .applied_versions
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                }
-            );
-            print!("{}", render_text_report(&report.capabilities));
-        }
-    }
-    Ok(())
-}
-
-fn render_text_report(report: &CapabilityReport) -> String {
-    let mut output = format!(
-        "# Cartograph v2 database capabilities\n\n{}\n",
-        report.postgres_version
-    );
-    for check in &report.checks {
-        let marker = match check.status {
-            CheckStatus::Pass => "✓",
-            CheckStatus::Fail => "✗",
-        };
-        let _ = write!(output, "\n{marker} {} — {}\n", check.id, check.message);
-        if let Some(remediation) = check.remediation {
-            let _ = writeln!(output, "  Fix: {remediation}");
-        }
-    }
-    output
-}
-
-fn print_managed_status(
-    status: &ManagedDatabaseStatus,
-    format: OutputFormat,
-) -> Result<(), String> {
-    match format {
-        OutputFormat::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(status)
-                .map_err(|_| "could not serialize the managed database status".to_owned())?
-        ),
-        OutputFormat::Text => println!(
-            "Managed database: {} ({}, loopback port {}, image {}, HNSW shared memory {}, resource limits {})",
-            managed_state_label(status.state),
-            status.container_name,
-            status.port,
-            if status.image_matches {
-                "supported"
-            } else {
-                "absent or different"
-            },
-            if status.hnsw_shared_memory_ready {
-                "ready"
-            } else {
-                "upgrade required"
-            },
-            if status.resource_limits_match {
-                "bounded"
-            } else {
-                "upgrade required"
+            let result = generated_cli::run_direct_result(
+                "cartograph_status",
+                arguments.project_path,
+                Map::new(),
+            )
+            .await?;
+            if result.is_error() {
+                return Err("native storage inventory failed".to_owned());
             }
-        ),
+            let value: Value = serde_json::from_str(
+                result
+                    .primary_text()
+                    .ok_or_else(|| "native status returned no inventory".to_owned())?,
+            )
+            .map_err(|_| "native status inventory is malformed".to_owned())?;
+            print_serialized(&value["databaseStorage"], arguments.format)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        DatabaseCommand::Prune(arguments) => {
+            if arguments.confirm != RETENTION_CONFIRMATION {
+                return Err(
+                    "generation pruning requires --confirm prune-old-generations".to_owned(),
+                );
+            }
+            let input = serde_json::json!({"action":"prune-generations","keepSuperseded":arguments.keep_superseded,"maximumDeletions":arguments.maximum_deletions,"maximumCascadeRows":arguments.maximum_cascade_rows,"confirm":true});
+            let result = generated_cli::run_direct_result(
+                "cartograph_admin",
+                arguments.project_path,
+                input
+                    .as_object()
+                    .cloned()
+                    .ok_or_else(|| "native retention request is malformed".to_owned())?,
+            )
+            .await?;
+            let value: Value = serde_json::from_str(
+                result
+                    .primary_text()
+                    .ok_or_else(|| "native retention returned no report".to_owned())?,
+            )
+            .map_err(|_| "native retention report is malformed".to_owned())?;
+            print_serialized(&value, arguments.format)?;
+            Ok(if result.is_error() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
     }
-    Ok(())
-}
-
-const fn managed_state_label(state: ManagedContainerState) -> &'static str {
-    match state {
-        ManagedContainerState::Missing => "missing",
-        ManagedContainerState::Created => "created",
-        ManagedContainerState::Starting => "starting",
-        ManagedContainerState::Healthy => "healthy",
-        ManagedContainerState::Unhealthy => "unhealthy",
-        ManagedContainerState::Paused => "paused",
-        ManagedContainerState::Restarting => "restarting",
-        ManagedContainerState::Stopped => "stopped",
-        ManagedContainerState::Unknown => "unknown",
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum DoctorStatus {
-    Pass,
-    Warn,
-    Fail,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -4530,14 +3586,6 @@ enum EmbeddingConfigurationState {
 }
 
 #[derive(Clone, Copy)]
-struct SemanticReadinessInput<'input> {
-    project_path: &'input Path,
-    settings: Option<&'input DatabaseSettings>,
-    project_index: ProjectIndexObservation,
-    configuration: EmbeddingConfigurationState,
-}
-
-#[derive(Clone, Copy)]
 struct DoctorLlmTier {
     tier: ProjectLlmTier,
     label: &'static str,
@@ -4644,7 +3692,7 @@ struct DoctorReport {
     fixes_applied: Vec<String>,
     checks: Vec<DoctorCheck>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    database: Option<CapabilityReport>,
+    database: Option<Value>,
 }
 
 struct DoctorRunInput {
@@ -4654,11 +3702,10 @@ struct DoctorRunInput {
     format: OutputFormat,
 }
 
-pub(crate) struct DoctorReportInput<'settings> {
+pub(crate) struct DoctorReportInput {
     pub(crate) project_path: PathBuf,
     pub(crate) fix: bool,
     pub(crate) skip_project_checks: bool,
-    pub(crate) explicit_database_settings: Option<&'settings DatabaseSettings>,
 }
 
 pub(crate) struct ProjectStateCheckInput<'input> {
@@ -4695,41 +3742,8 @@ async fn build_doctor_report(
         project_path,
         fix,
         skip_project_checks,
-        explicit_database_settings: None,
     })
     .await
-}
-
-async fn apply_managed_database_doctor_fix(
-    project_path: &Path,
-    fixes_applied: &mut Vec<String>,
-    checks: &mut Vec<DoctorCheck>,
-) {
-    match managed_database_for_project(project_path, None).await {
-        Ok(database) => match database.lifecycle().start().await {
-            Ok(report) => fixes_applied.push(format!(
-                "managed PostgreSQL is ready; {} migration(s) applied",
-                report.migrations.applied_versions.len()
-            )),
-            Err(error) => {
-                let remediation = if error == ManagedDatabaseError::SchemaBusy {
-                    "Restart or stop the other Cartograph process, then run `cartograph db start --project-path <path>`."
-                } else {
-                    "Start Docker, then run `cartograph db start --project-path <path>`."
-                };
-                checks.push(doctor_fail(
-                    "database-fix",
-                    error.to_string(),
-                    remediation.to_owned(),
-                ));
-            }
-        },
-        Err(error) => checks.push(doctor_fail(
-            "database-fix",
-            error,
-            "Run `cartograph db start --project-path <path>`.".to_owned(),
-        )),
-    }
 }
 
 async fn apply_llm_doctor_fix(
@@ -4758,139 +3772,146 @@ fn canonical_doctor_project_path(project_path: &Path) -> Result<PathBuf, String>
     }
 }
 
-struct DoctorPreparationInput<'input, 'settings> {
-    report: &'input DoctorReportInput<'settings>,
-    project_path: &'input Path,
-    fixes_applied: &'input mut Vec<String>,
-    checks: &'input mut Vec<DoctorCheck>,
-}
-
-async fn prepare_doctor_checks(input: DoctorPreparationInput<'_, '_>) -> Result<(), String> {
-    let DoctorPreparationInput {
-        report,
-        project_path,
-        fixes_applied,
-        checks,
-    } = input;
-    check_native_executable(checks);
-    if !report.skip_project_checks {
+async fn build_doctor_report_with_settings(
+    input: DoctorReportInput,
+) -> Result<DoctorReport, String> {
+    let project_path = canonical_doctor_project_path(&input.project_path)?;
+    let mut checks = Vec::new();
+    let mut fixes_applied = Vec::new();
+    check_native_executable(&mut checks);
+    if !input.skip_project_checks {
         check_or_fix_project_state(&mut ProjectStateCheckInput {
-            project_path,
-            fix: report.fix,
-            fixes: fixes_applied,
-            checks,
+            project_path: &project_path,
+            fix: input.fix,
+            fixes: &mut fixes_applied,
+            checks: &mut checks,
         })?;
+        if input.fix {
+            apply_llm_doctor_fix(&project_path, &mut fixes_applied, &mut checks).await;
+        }
     }
-
-    let external_database =
-        report.explicit_database_settings.is_some() || env::var_os(DATABASE_URL_ENV).is_some();
-    if report.fix && !external_database {
-        apply_managed_database_doctor_fix(project_path, fixes_applied, checks).await;
-    }
-    if report.fix && !report.skip_project_checks {
-        apply_llm_doctor_fix(project_path, fixes_applied, checks).await;
-    }
-
-    if external_database {
-        let message = if report.explicit_database_settings.is_some() {
-            "Using validated external PostgreSQL settings supplied to this process."
-        } else {
-            "Using validated external PostgreSQL settings from the process environment."
-        };
-        checks.push(doctor_pass("database-source", message));
-    } else {
-        check_managed_database(project_path, checks).await;
-    }
-    Ok(())
-}
-
-struct DoctorReadinessObservationInput<'input, 'settings> {
-    report: &'input DoctorReportInput<'settings>,
-    project_path: &'input Path,
-    settings: Option<&'input DatabaseSettings>,
-    checks: &'input mut Vec<DoctorCheck>,
-}
-
-async fn observe_doctor_project_readiness(
-    input: DoctorReadinessObservationInput<'_, '_>,
-) -> (ProjectIndexObservation, EmbeddingConfigurationState) {
-    let DoctorReadinessObservationInput {
-        report,
-        project_path,
-        settings,
-        checks,
-    } = input;
-    let project_index = if report.skip_project_checks {
+    let arguments = Map::from_iter([
+        ("action".to_owned(), Value::from("doctor")),
+        (
+            "skipProjectChecks".to_owned(),
+            Value::Bool(input.skip_project_checks),
+        ),
+    ]);
+    let observation =
+        generated_cli::run_direct_result("cartograph_admin", project_path.clone(), arguments).await;
+    let mut project_index = if input.skip_project_checks {
         ProjectIndexObservation::not_checked()
-    } else if let Some(settings) = settings {
-        check_project_index(project_path, settings, checks).await
     } else {
         ProjectIndexObservation::unavailable()
     };
-    let embedding_configuration = if report.skip_project_checks {
-        EmbeddingConfigurationState::NotChecked
+    let mut semantic = if input.skip_project_checks {
+        SemanticRetrievalReadinessState::NotChecked
     } else {
-        check_llm_configuration(project_path, checks).await
+        SemanticRetrievalReadinessState::Unavailable
     };
-    (project_index, embedding_configuration)
-}
-
-async fn build_doctor_report_with_settings(
-    input: DoctorReportInput<'_>,
-) -> Result<DoctorReport, String> {
-    let project_path = canonical_doctor_project_path(&input.project_path)?;
-    let mut fixes_applied = Vec::new();
-    let mut checks = Vec::new();
-    prepare_doctor_checks(DoctorPreparationInput {
-        report: &input,
-        project_path: &project_path,
-        fixes_applied: &mut fixes_applied,
-        checks: &mut checks,
-    })
-    .await?;
-
-    let (database, settings) =
-        check_database_capabilities(&project_path, input.explicit_database_settings, &mut checks)
-            .await;
-    let (project_index, embedding_configuration) =
-        observe_doctor_project_readiness(DoctorReadinessObservationInput {
-            report: &input,
-            project_path: &project_path,
-            settings: settings.as_ref(),
-            checks: &mut checks,
-        })
-        .await;
-    let semantic_retrieval = check_semantic_readiness(SemanticReadinessInput {
-        project_path: &project_path,
-        settings: settings.as_ref(),
-        project_index,
-        configuration: embedding_configuration,
-    })
-    .await;
-
+    if input.skip_project_checks {
+        semantic = semantic_readiness_without_probe(
+            EmbeddingConfigurationState::NotChecked,
+            project_index,
+        )
+        .unwrap_or(SemanticRetrievalReadinessState::Unavailable);
+    }
+    let database = match observation {
+        Ok(result) if !result.is_error() => {
+            let value: Value = serde_json::from_str(
+                result
+                    .primary_text()
+                    .ok_or_else(|| "native doctor returned no report".to_owned())?,
+            )
+            .map_err(|_| "native doctor report is malformed".to_owned())?;
+            checks.push(doctor_pass(
+                "database-native",
+                "RocksDB format, project identity and owned worker access passed.",
+            ));
+            if !input.skip_project_checks {
+                (project_index, semantic) = observe_native_doctor_project(&value, &mut checks)?;
+            }
+            Some(value["capabilities"].clone())
+        }
+        _ => {
+            checks.push(doctor_fail(
+                "database-native",
+                "Native project storage could not be opened or read.",
+                "Inspect the owning Cartograph process and project state, then retry doctor."
+                    .to_owned(),
+            ));
+            None
+        }
+    };
+    if !input.skip_project_checks {
+        check_llm_configuration(&project_path, &mut checks).await;
+    }
     let capabilities_ready = !checks
         .iter()
         .any(|check| check.status == DoctorStatus::Fail);
-    let database_readiness = database_readiness(database.as_ref(), &checks);
     let project_readiness = build_project_readiness(ProjectReadinessInput {
         capabilities_ready,
-        database: database_readiness,
+        database: if database.is_some() {
+            DatabaseReadinessState::Ready
+        } else {
+            DatabaseReadinessState::Unavailable
+        },
         project_index,
-        semantic_retrieval,
+        semantic_retrieval: semantic,
         project_checks_skipped: input.skip_project_checks,
         registration: HostVerificationReadinessState::NotChecked,
         live_transport: HostVerificationReadinessState::NotChecked,
     });
-    let next_actions = doctor_next_actions(project_readiness, input.skip_project_checks);
     Ok(DoctorReport {
         ready: capabilities_ready,
         capabilities_ready,
         project_readiness,
-        next_actions,
+        next_actions: doctor_next_actions(project_readiness, input.skip_project_checks),
         fixes_applied,
         checks,
         database,
     })
+}
+
+fn observe_native_doctor_project(
+    value: &Value,
+    checks: &mut Vec<DoctorCheck>,
+) -> Result<(ProjectIndexObservation, SemanticRetrievalReadinessState), String> {
+    let status = &value["project"];
+    let fresh = status["fresh"]
+        .as_bool()
+        .ok_or_else(|| "native doctor project status is malformed".to_owned())?;
+    let project_index = project_index_observation(status);
+    checks.push(if project_index.index == IndexReadinessState::NotIndexed {
+        doctor_warn(
+            "project-index",
+            "No complete native generation is published.",
+            "Run cartograph index <project>.".to_owned(),
+        )
+    } else if !fresh {
+        doctor_warn(
+            "project-index",
+            "The current graph differs from live source.",
+            "Run cartograph index <project>.".to_owned(),
+        )
+    } else {
+        doctor_pass(
+            "project-index",
+            "A complete current native generation matches live source.",
+        )
+    });
+    let semantic = match value["embedding"]["state"].as_str() {
+        Some("not_configured") => SemanticRetrievalReadinessState::NotConfigured,
+        Some("ready") => serde_json::from_value::<SemanticReadinessState>(
+            value["embedding"]["report"]["readiness"]["state"].clone(),
+        )
+        .map_or(
+            SemanticRetrievalReadinessState::Unavailable,
+            map_semantic_readiness,
+        ),
+        _ => SemanticRetrievalReadinessState::Unavailable,
+    };
+    Ok((project_index, semantic))
 }
 
 fn check_native_executable(checks: &mut Vec<DoctorCheck>) {
@@ -4956,7 +3977,7 @@ fn check_or_fix_project_state(input: &mut ProjectStateCheckInput<'_>) -> Result<
             input.checks.push(doctor_warn(
                 "project-state",
                 "The project is not initialized yet.",
-                "Run `cartograph doctor --fix` or `cartograph db start`.".to_owned(),
+                "Run `cartograph doctor --fix` or `cartograph index .`.".to_owned(),
             ));
         }
         Err(_) => input.checks.push(doctor_fail(
@@ -4968,279 +3989,26 @@ fn check_or_fix_project_state(input: &mut ProjectStateCheckInput<'_>) -> Result<
     Ok(())
 }
 
-async fn check_managed_database(project_path: &Path, checks: &mut Vec<DoctorCheck>) {
-    let database = match managed_database_for_project(project_path, None).await {
-        Ok(database) => database,
-        Err(error) => {
-            checks.push(doctor_fail(
-                "managed-database",
-                error,
-                "Run `cartograph db start --project-path <path>`.".to_owned(),
-            ));
-            return;
-        }
-    };
-    match database.lifecycle().status().await {
-        Ok(status) => check_managed_database_status(&status, checks),
-        Err(error) => checks.push(doctor_fail(
-            "managed-database",
-            error.to_string(),
-            "Start Docker and run `cartograph db start --project-path <path>`.".to_owned(),
-        )),
-    }
-}
-
-fn check_managed_database_status(status: &ManagedDatabaseStatus, checks: &mut Vec<DoctorCheck>) {
-    if status.state == ManagedContainerState::Healthy && status.image_matches {
-        checks.push(doctor_pass(
-            "managed-database",
-            "The project-owned PostgreSQL container is healthy and uses the pinned image.",
-        ));
-    } else {
-        checks.push(doctor_fail(
-            "managed-database",
-            format!(
-                "Managed database state is {} and pinned-image match is {}.",
-                managed_state_label(status.state),
-                status.image_matches
-            ),
-            "Run `cartograph db start`; use `cartograph db upgrade` for an owned older image."
-                .to_owned(),
-        ));
-    }
-    checks.push(if status.hnsw_shared_memory_ready {
-        doctor_pass(
-            "managed-hnsw-shared-memory",
-            format!(
-                "Managed PostgreSQL reserves {} bytes of shared memory for bounded HNSW maintenance.",
-                status.shared_memory_bytes.unwrap_or_default()
-            ),
-        )
-    } else {
-        doctor_fail(
-            "managed-hnsw-shared-memory",
-            "Managed PostgreSQL shared memory is below the HNSW maintenance requirement."
-                .to_owned(),
-            "Create a backup, then run `cartograph db upgrade --confirm upgrade-managed-database --project-path <path>`."
-                .to_owned(),
-        )
-    });
-    checks.push(if status.resource_limits_match {
-        doctor_pass(
-            "managed-resource-limits",
-            format!(
-                "Managed PostgreSQL is bounded to {} memory bytes, {} reserved bytes, {} nano CPUs, and {} processes.",
-                status.memory_limit_bytes.unwrap_or_default(),
-                status.memory_reservation_bytes.unwrap_or_default(),
-                status.nano_cpus.unwrap_or_default(),
-                status.pids_limit.unwrap_or_default()
-            ),
-        )
-    } else {
-        doctor_fail(
-            "managed-resource-limits",
-            "Managed PostgreSQL does not match the supported CPU, memory, and process ceilings."
-                .to_owned(),
-            "Create a backup, then run `cartograph db upgrade --confirm upgrade-managed-database --project-path <path>`."
-                .to_owned(),
-        )
-    });
-    checks.push(if status.postgres_settings == ManagedPostgresSettings::Current {
-        doctor_pass(
-            "managed-postgres-settings",
-            "Managed PostgreSQL runs the current server settings.".to_owned(),
-        )
-    } else {
-        doctor_warn(
-            "managed-postgres-settings",
-            "Managed PostgreSQL predates the current server settings, which cap retained WAL at 2 GB and compress it."
-                .to_owned(),
-            "Create a backup, then run `cartograph db upgrade --confirm upgrade-managed-database --project-path <path>`; the data volume is kept."
-                .to_owned(),
-        )
-    });
-}
-
-async fn check_database_capabilities(
-    project_path: &PathBuf,
-    explicit_database_settings: Option<&DatabaseSettings>,
-    checks: &mut Vec<DoctorCheck>,
-) -> (Option<CapabilityReport>, Option<DatabaseSettings>) {
-    let settings = match if let Some(settings) = explicit_database_settings {
-        Ok(settings.clone())
-    } else {
-        resolve_database_settings(project_path).await
-    } {
-        Ok(settings) => settings,
-        Err(error) => {
-            checks.push(doctor_fail(
-                "database-settings",
-                error,
-                "Set CARTOGRAPH_DATABASE_URL or run `cartograph db start`.".to_owned(),
-            ));
-            return (None, None);
-        }
-    };
-    let pool = match cartograph_db::connect(&settings).await {
-        Ok(pool) => pool,
-        Err(error) => {
-            checks.push(doctor_fail(
-                "database-connection",
-                error.to_string(),
-                "Verify PostgreSQL connectivity or restart the managed database.".to_owned(),
-            ));
-            return (None, Some(settings));
-        }
-    };
-    let report = match cartograph_db::probe_capabilities(&pool).await {
-        Ok(report) => report,
-        Err(error) => {
-            pool.close().await;
-            checks.push(doctor_fail(
-                "database-capabilities",
-                error.to_string(),
-                "Use PostgreSQL 18 with pg_search and pgvector enabled.".to_owned(),
-            ));
-            return (None, Some(settings));
-        }
-    };
-    pool.close().await;
-    for capability in &report.checks {
-        checks.push(DoctorCheck {
-            id: format!("database-{}", capability.id),
-            status: match capability.status {
-                CheckStatus::Pass => DoctorStatus::Pass,
-                CheckStatus::Fail => DoctorStatus::Fail,
-            },
-            message: capability.message.clone(),
-            remediation: capability.remediation.map(str::to_owned),
-        });
-    }
-    (Some(report), Some(settings))
-}
-
-async fn check_project_index(
-    project_path: &Path,
-    settings: &DatabaseSettings,
-    checks: &mut Vec<DoctorCheck>,
-) -> ProjectIndexObservation {
-    let runtime = match ProjectRuntime::connect_read_only(project_path, settings).await {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            checks.push(doctor_fail(
-                "schema-migrations",
-                error.to_string(),
-                "Run `cartograph db start` or verify the configured schema permissions.".to_owned(),
-            ));
-            return ProjectIndexObservation::unavailable();
-        }
-    };
-    if has_real_project_state(project_path)
-        && let Err(error) = runtime.database().verify_current_schema().await
-    {
-        checks.push(doctor_fail(
-            "schema-migrations",
-            schema_migration_diagnostic(&error),
-            "Run `cartograph db start --project-path <path>` or resume the exact confirmed managed upgrade before serving project queries."
-                .to_owned(),
-        ));
-        runtime.close().await;
-        return ProjectIndexObservation::unavailable();
-    }
-    let status = runtime.status().await;
-    if let Ok(status) = &status
-        && let Some(snapshot) = &status.snapshot
-    {
-        check_generation_storage(snapshot.generation_storage, checks);
-    }
-    let observation = match status {
-        Ok(status)
-            if status
-                .snapshot
-                .as_ref()
-                .and_then(|snapshot| snapshot.current.as_ref())
-                .is_none() =>
-        {
-            checks.push(doctor_warn(
-                "project-index",
-                "No published graph generation exists yet.",
-                "Run `cartograph index`.".to_owned(),
-            ));
-            ProjectIndexObservation {
-                index: IndexReadinessState::NotIndexed,
-                freshness: FreshnessReadinessState::Unavailable,
-                deterministic_retrieval: DeterministicRetrievalReadinessState::Unavailable,
-            }
-        }
-        Ok(status) if status.fresh => {
-            checks.push(doctor_pass(
-                "project-index",
-                "The published graph generation matches the live source manifest.",
-            ));
-            project_index_observation(&status)
-        }
-        Ok(status) => {
-            checks.push(doctor_warn(
-                "project-index",
-                "The published graph generation is stale relative to live source.",
-                "Run `cartograph index` or `cartograph sync-if-dirty`.".to_owned(),
-            ));
-            project_index_observation(&status)
-        }
-        Err(error) => {
-            checks.push(doctor_warn(
-                "project-index",
-                "Project index status could not be determined.",
-                format!("Run `cartograph index`; status detail: {error}"),
-            ));
-            ProjectIndexObservation::unavailable()
-        }
-    };
-    runtime.close().await;
-    observation
-}
-
-fn has_real_project_state(project_path: &Path) -> bool {
-    fs::symlink_metadata(project_path.join(".cartograph"))
-        .is_ok_and(|metadata| metadata.file_type().is_dir())
-}
-
-fn project_index_observation(status: &ProjectStatus) -> ProjectIndexObservation {
-    let indexed = status
-        .snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.current.as_ref())
-        .is_some();
-    if !indexed {
-        return ProjectIndexObservation {
-            index: IndexReadinessState::NotIndexed,
-            freshness: FreshnessReadinessState::Unavailable,
-            deterministic_retrieval: DeterministicRetrievalReadinessState::Unavailable,
-        };
-    }
+fn project_index_observation(status: &Value) -> ProjectIndexObservation {
+    let indexed = status["snapshot"]["current"].is_object();
     ProjectIndexObservation {
-        index: IndexReadinessState::Ready,
-        freshness: if status.fresh {
+        index: if indexed {
+            IndexReadinessState::Ready
+        } else {
+            IndexReadinessState::NotIndexed
+        },
+        freshness: if !indexed {
+            FreshnessReadinessState::Unavailable
+        } else if status["fresh"] == true {
             FreshnessReadinessState::Current
         } else {
             FreshnessReadinessState::Stale
         },
-        deterministic_retrieval: DeterministicRetrievalReadinessState::Ready,
-    }
-}
-
-fn database_readiness(
-    database: Option<&CapabilityReport>,
-    checks: &[DoctorCheck],
-) -> DatabaseReadinessState {
-    let database_failure = checks.iter().any(|check| {
-        check.status == DoctorStatus::Fail
-            && (check.id.starts_with("database-") || check.id.starts_with("managed-"))
-    });
-    if database.is_some_and(|report| report.ready) && !database_failure {
-        DatabaseReadinessState::Ready
-    } else {
-        DatabaseReadinessState::Unavailable
+        deterministic_retrieval: if indexed {
+            DeterministicRetrievalReadinessState::Ready
+        } else {
+            DeterministicRetrievalReadinessState::Unavailable
+        },
     }
 }
 
@@ -5334,26 +4102,6 @@ fn doctor_next_actions(readiness: ProjectReadiness, project_checks_skipped: bool
     actions
 }
 
-async fn check_semantic_readiness(
-    input: SemanticReadinessInput<'_>,
-) -> SemanticRetrievalReadinessState {
-    if let Some(state) = semantic_readiness_without_probe(input.configuration, input.project_index)
-    {
-        return state;
-    }
-    let Some(settings) = input.settings else {
-        return SemanticRetrievalReadinessState::Unavailable;
-    };
-    let Ok(runtime) = ProjectRuntime::connect_read_only(input.project_path, settings).await else {
-        return SemanticRetrievalReadinessState::Unavailable;
-    };
-    let status = runtime.embedding_status().await;
-    runtime.close().await;
-    status.map_or(SemanticRetrievalReadinessState::Unavailable, |report| {
-        map_semantic_readiness(report.readiness().state())
-    })
-}
-
 fn semantic_readiness_without_probe(
     configuration: EmbeddingConfigurationState,
     project_index: ProjectIndexObservation,
@@ -5395,28 +4143,6 @@ const fn map_semantic_readiness(state: SemanticReadinessState) -> SemanticRetrie
         RetrievalSemanticReadiness::NotIndexed => SemanticRetrievalReadinessState::NotIndexed,
         RetrievalSemanticReadiness::Stale => SemanticRetrievalReadinessState::Stale,
         RetrievalSemanticReadiness::Unavailable => SemanticRetrievalReadinessState::Unavailable,
-    }
-}
-
-fn check_generation_storage(storage: GenerationStorageSummary, checks: &mut Vec<DoctorCheck>) {
-    let message = format!(
-        "Retained generations: {} staging, {} ready, {} current, {} superseded, {} failed; \
-         source plus generation-local BM25 lower bound {}.",
-        storage.staging,
-        storage.ready,
-        storage.current,
-        storage.superseded,
-        storage.failed,
-        render_byte_count(storage.estimated_retained_bytes)
-    );
-    if generation_storage_needs_attention(storage) {
-        checks.push(doctor_warn(
-            "generation-retention",
-            message,
-            "Run `cartograph index` to trigger automatic bounded cleanup; if the backlog remains, inspect `cartograph db prune --help` and database free space.".to_owned(),
-        ));
-    } else {
-        checks.push(doctor_pass("generation-retention", message));
     }
 }
 
@@ -5858,6 +4584,15 @@ fn render_doctor_report(report: &DoctorReport) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn owner_index_reports_optional_failure_instead_of_discarding_it() {
+        let base = serde_json::json!({"published":false});
+        let mut value = serde_json::json!({"status":"succeeded", "report":{"report":base,"enrichment":{"optionalPhaseFailures":true}}});
+        assert!(super::completed_owner_index_report(&value).is_err());
+        value["report"]["enrichment"] = serde_json::json!({"state":"not_requested","reason":"base_only","optionalPhaseFailures":false});
+        assert_eq!(super::completed_owner_index_report(&value), Ok(&base));
+    }
+
     use std::assert_matches;
 
     use super::*;
@@ -5865,7 +4600,6 @@ mod tests {
 
     mod doctor_llm;
     mod documentation_contract;
-    pub(crate) mod index_cleanup_fixture;
 
     fn walk_cli_contract(
         command: &clap::Command,
@@ -5948,7 +4682,28 @@ mod tests {
         let path = command["path"]
             .as_str()
             .unwrap_or_else(|| panic!("legacy CLI path was invalid"));
-        if path == "cartograph viewer" || path.starts_with("cartograph viewer ") {
+        if [
+            "cartograph viewer",
+            "cartograph sql",
+            "cartograph db start",
+            "cartograph db stop",
+            "cartograph db logs",
+            "cartograph db backup",
+            "cartograph db restore",
+            "cartograph db remove",
+            "cartograph db upgrade",
+            "cartograph db import-v1",
+            "cartograph db derived-index",
+            "cartograph db compact",
+            "cartograph admin uninit",
+            "cartograph admin unlock",
+            "cartograph admin migrate",
+            "cartograph admin storage-migrate",
+            "cartograph admin prune-store",
+        ]
+        .iter()
+        .any(|retired| path == *retired || path.starts_with(&format!("{retired} ")))
+        {
             return;
         }
         let segments = path.split_whitespace().collect::<Vec<_>>();
@@ -6019,7 +4774,28 @@ mod tests {
             collapsed,
             field,
         } = input;
-        let legacy_values = cli_contract_values(legacy, path, field, "legacy");
+        let mut legacy_values = cli_contract_values(legacy, path, field, "legacy");
+        if field == "options" {
+            legacy_values.retain(|value| {
+                !matches!(
+                    *value,
+                    "database-provider"
+                        | "database-url"
+                        | "database-schema"
+                        | "database-pgvector"
+                        | "database-ssl"
+                        | "database-pool-max"
+                        | "database-max-connections"
+                        | "database-require-ssl"
+                        | "database-acquire-timeout-ms"
+                        | "database-query-timeout-ms"
+                        | "database-connection-timeout-seconds"
+                        | "managed-database-port"
+                        | "source-schema"
+                        | "maximum-search-relation-bytes"
+                )
+            });
+        }
         let actual_values = cli_contract_values(actual, path, field, "current");
         if collapsed && field == "aliases" {
             assert!(
@@ -6283,7 +5059,7 @@ mod tests {
                 SemanticRetrievalReadinessState::NotIndexed,
             ),
             (
-                SemanticReadinessState::HnswUnavailable,
+                SemanticReadinessState::IndexUnavailable,
                 SemanticRetrievalReadinessState::NotIndexed,
             ),
             (
@@ -6384,210 +5160,22 @@ mod tests {
     }
 
     #[test]
-    fn doctor_rejects_managed_database_without_hnsw_shared_memory() {
-        let mut checks = Vec::new();
-        check_managed_database_status(
-            &ManagedDatabaseStatus {
-                container_name: "cartograph-v2-test".to_owned(),
-                state: ManagedContainerState::Healthy,
-                port: 55_432,
-                image_matches: true,
-                shared_memory_bytes: Some(64 * 1_024 * 1_024),
-                hnsw_shared_memory_ready: false,
-                memory_limit_bytes: Some(cartograph_db::MANAGED_DATABASE_MEMORY_LIMIT_BYTES),
-                memory_reservation_bytes: Some(
-                    cartograph_db::MANAGED_DATABASE_MEMORY_RESERVATION_BYTES,
-                ),
-                nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
-                pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
-                resource_limits_match: true,
-                postgres_settings: ManagedPostgresSettings::Current,
-            },
-            &mut checks,
-        );
-
-        let shared_memory = checks
-            .iter()
-            .find(|check| check.id == "managed-hnsw-shared-memory")
-            .unwrap_or_else(|| panic!("managed HNSW shared-memory check was missing"));
-        assert_eq!(shared_memory.status, DoctorStatus::Fail);
-        assert!(
-            shared_memory
-                .remediation
-                .as_deref()
-                .is_some_and(|message| message.contains("upgrade-managed-database"))
-        );
-    }
-
-    #[test]
-    fn doctor_rejects_managed_database_without_resource_limits() {
-        let mut checks = Vec::new();
-        check_managed_database_status(
-            &ManagedDatabaseStatus {
-                container_name: "cartograph-v2-test".to_owned(),
-                state: ManagedContainerState::Healthy,
-                port: 55_432,
-                image_matches: true,
-                shared_memory_bytes: Some(cartograph_db::MANAGED_DATABASE_SHARED_MEMORY_BYTES),
-                hnsw_shared_memory_ready: true,
-                memory_limit_bytes: Some(0),
-                memory_reservation_bytes: Some(0),
-                nano_cpus: Some(0),
-                pids_limit: Some(0),
-                resource_limits_match: false,
-                postgres_settings: ManagedPostgresSettings::Outdated,
-            },
-            &mut checks,
-        );
-
-        let resource_limits = checks
-            .iter()
-            .find(|check| check.id == "managed-resource-limits")
-            .unwrap_or_else(|| panic!("managed resource-limit check was missing"));
-        assert_eq!(resource_limits.status, DoctorStatus::Fail);
-        assert!(
-            resource_limits
-                .remediation
-                .as_deref()
-                .is_some_and(|message| message.contains("upgrade-managed-database"))
-        );
-    }
-
-    #[test]
-    fn mcp_preflight_blocks_incompatible_managed_database_with_exact_recovery() {
-        let status = ManagedDatabaseStatus {
-            container_name: "cartograph-v2-test".to_owned(),
-            state: ManagedContainerState::Healthy,
-            port: 55_435,
-            image_matches: false,
-            shared_memory_bytes: Some(64 * 1_024 * 1_024),
-            hnsw_shared_memory_ready: false,
-            memory_limit_bytes: Some(0),
-            memory_reservation_bytes: Some(0),
-            nano_cpus: Some(0),
-            pids_limit: Some(0),
-            resource_limits_match: false,
-            postgres_settings: ManagedPostgresSettings::Outdated,
-        };
-        let error = managed_mcp_preflight_error(&status)
-            .unwrap_or_else(|| panic!("incompatible managed database passed MCP preflight"));
-
-        assert!(error.contains("cartograph db backup"));
-        assert!(error.contains("--port 55435"));
-        assert!(error.contains("--confirm upgrade-managed-database"));
-        assert!(error.contains("restart the MCP host only after doctor passes"));
-
-        let missing = ManagedDatabaseStatus {
-            container_name: "cartograph-v2-test".to_owned(),
-            state: ManagedContainerState::Missing,
-            port: 55_435,
-            image_matches: false,
-            shared_memory_bytes: None,
-            hnsw_shared_memory_ready: false,
-            memory_limit_bytes: None,
-            memory_reservation_bytes: None,
-            nano_cpus: None,
-            pids_limit: None,
-            resource_limits_match: false,
-            postgres_settings: ManagedPostgresSettings::Outdated,
-        };
-        assert!(
-            managed_mcp_preflight_error(&missing)
-                .is_some_and(|message| message.contains("db start"))
-        );
-        let stopped = ManagedDatabaseStatus {
-            state: ManagedContainerState::Stopped,
-            image_matches: true,
-            shared_memory_bytes: Some(cartograph_db::MANAGED_DATABASE_SHARED_MEMORY_BYTES),
-            hnsw_shared_memory_ready: true,
-            memory_limit_bytes: Some(cartograph_db::MANAGED_DATABASE_MEMORY_LIMIT_BYTES),
-            memory_reservation_bytes: Some(
-                cartograph_db::MANAGED_DATABASE_MEMORY_RESERVATION_BYTES,
-            ),
-            nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
-            pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
-            resource_limits_match: true,
-            postgres_settings: ManagedPostgresSettings::Current,
-            ..status.clone()
-        };
-        assert!(
-            managed_mcp_preflight_error(&stopped)
-                .is_some_and(|message| message.contains("is stopped"))
-        );
-        let healthy = ManagedDatabaseStatus {
-            state: ManagedContainerState::Healthy,
-            image_matches: true,
-            shared_memory_bytes: Some(cartograph_db::MANAGED_DATABASE_SHARED_MEMORY_BYTES),
-            hnsw_shared_memory_ready: true,
-            memory_limit_bytes: Some(cartograph_db::MANAGED_DATABASE_MEMORY_LIMIT_BYTES),
-            memory_reservation_bytes: Some(
-                cartograph_db::MANAGED_DATABASE_MEMORY_RESERVATION_BYTES,
-            ),
-            nano_cpus: Some(cartograph_db::MANAGED_DATABASE_NANO_CPUS),
-            pids_limit: Some(cartograph_db::MANAGED_DATABASE_PIDS_LIMIT),
-            resource_limits_match: true,
-            postgres_settings: ManagedPostgresSettings::Current,
-            ..status
-        };
-        assert!(managed_mcp_preflight_error(&healthy).is_none());
-    }
-
-    #[test]
     fn status_text_renders_compact_storage_ready_and_unavailable_states() {
-        let ready = serde_json::json!({
-            "version": "2.1.0",
-            "storage": "postgresql_paradedb_pgvector",
-            "databaseStorage": {
-                "state": "ready",
-                "databaseBytes": 2 * GIBIBYTE_U64,
-                "schemaBytes": 512 * MEBIBYTE_U64,
-                "heapBytes": 192 * MEBIBYTE_U64,
-                "indexBytes": 256 * MEBIBYTE_U64,
-                "btreeIndexBytes": 128 * MEBIBYTE_U64,
-                "toastBytes": 64 * MEBIBYTE_U64
-            },
-            "project": {
-                "fresh": true,
-                "snapshot": {
-                    "current": {
-                        "generation_id": "11111111-1111-4111-8111-111111111111",
-                        "counts": {"files": 3, "symbols": 5, "edges": 8}
-                    },
-                    "generation_storage": {
-                        "staging": 0,
-                        "ready": 0,
-                        "current": 1,
-                        "superseded": 2,
-                        "failed": 0,
-                        "estimated_retained_bytes": MEBIBYTE_U64
-                    }
-                }
-            },
-            "featureReadiness": {"state": "indexed"},
-            "rollups": {"hotspots": [{"score": 1}], "biomarkers": [{"score": 1}]}
-        });
+        let ready = serde_json::json!({"databaseStorage":{"state":"ready","native":{
+            "fileBytes":2*GIBIBYTE_U64,"allocatedBytes":3*GIBIBYTE_U64,"walBytes":64*(1024_u64*1024),
+            "sstBytes":512*(1024_u64*1024),"memtableBytes":128*(1024_u64*1024),"estimatedPendingCompactionBytes":0}}});
         assert_eq!(
             database_storage_text(&ready).as_deref(),
             Some(
-                "Database storage: 2 GiB database; 512 MiB Cartograph schema.\nSchema allocation: 192 MiB heap, 256 MiB indexes (128 MiB B-tree), 64 MiB TOAST; details: `cartograph db usage --project-path <path>`"
+                "RocksDB storage: 2 GiB files; 3 GiB allocated; 64 MiB WAL.\nEngine allocation: 512 MiB SST, 128 MiB memtables; estimated pending compaction 0 B; details: `cartograph db usage --project-path <path>`"
             )
         );
-        render_status_text(&ready);
-
-        let unavailable = serde_json::json!({
-            "version": "2.1.0",
-            "storage": "postgresql_paradedb_pgvector",
-            "databaseStorage": {"state": "unavailable", "reason": "timeout"},
-            "project": {"fresh": false, "snapshot": {"current": null}},
-            "featureReadiness": {"state": "not_indexed"}
-        });
-        assert_eq!(
-            database_storage_text(&unavailable).as_deref(),
-            Some(
-                "Database storage: unavailable (timeout) — run `cartograph db usage --project-path <path>` for the detailed report"
-            )
+        let unavailable =
+            serde_json::json!({"databaseStorage":{"state":"unavailable","reason":"timeout"}});
+        assert!(
+            database_storage_text(&unavailable)
+                .is_some_and(|text| text.contains("unavailable (timeout)"))
         );
-        render_status_text(&unavailable);
         assert!(database_storage_text(&Value::Null).is_none());
     }
 
@@ -6613,46 +5201,6 @@ mod tests {
         for warning in warnings {
             assert!(generation_storage_needs_attention(warning));
         }
-    }
-
-    #[test]
-    fn doctor_generation_retention_check_is_actionable_and_byte_exact() {
-        let mut healthy_checks = Vec::new();
-        check_generation_storage(
-            GenerationStorageSummary {
-                current: 1,
-                estimated_retained_bytes: 1_024 * 1_024,
-                ..GenerationStorageSummary::default()
-            },
-            &mut healthy_checks,
-        );
-        assert_eq!(healthy_checks.len(), 1);
-        assert_eq!(healthy_checks[0].id, "generation-retention");
-        assert_eq!(healthy_checks[0].status, DoctorStatus::Pass);
-        assert!(healthy_checks[0].message.contains("1 MiB (1048576 bytes)"));
-        assert!(healthy_checks[0].remediation.is_none());
-
-        let mut warning_checks = Vec::new();
-        check_generation_storage(
-            GenerationStorageSummary {
-                staging: 2,
-                current: 1,
-                estimated_retained_bytes: 5 * 1_024 * 1_024 * 1_024,
-                ..GenerationStorageSummary::default()
-            },
-            &mut warning_checks,
-        );
-        assert_eq!(warning_checks.len(), 1);
-        assert_eq!(warning_checks[0].id, "generation-retention");
-        assert_eq!(warning_checks[0].status, DoctorStatus::Warn);
-        assert!(warning_checks[0].message.contains("2 staging"));
-        assert!(warning_checks[0].message.contains("5 GiB"));
-        assert!(
-            warning_checks[0]
-                .remediation
-                .as_deref()
-                .is_some_and(|message| message.contains("cartograph db prune --help"))
-        );
     }
 
     #[cfg(unix)]
@@ -6736,8 +5284,6 @@ mod tests {
             "--mcp",
             "--project-path",
             "workspace",
-            "--managed-database-port",
-            "55435",
             "--profile",
             "read-only",
             "--no-auto-sync",
@@ -6747,78 +5293,10 @@ mod tests {
             serve.command,
             Command::Serve {
                 mcp: true,
-                managed_database_port: Some(55_435),
                 profile: McpProfile::ReadOnly,
                 no_auto_sync: true,
                 ..
             }
-        );
-    }
-
-    #[test]
-    fn managed_database_port_resolution_accepts_explicit_values_and_rejects_zero() {
-        assert_eq!(
-            configured_managed_database_port(Some(55_435)),
-            Ok(Some(55_435))
-        );
-        assert!(configured_managed_database_port(Some(0)).is_err());
-        assert_eq!(
-            reconcile_managed_database_port(None, Some(55_435)),
-            Ok(55_435)
-        );
-        assert_eq!(
-            reconcile_managed_database_port(None, None),
-            Ok(DEFAULT_MANAGED_DATABASE_PORT)
-        );
-        let mismatch = match reconcile_managed_database_port(
-            Some(DEFAULT_MANAGED_DATABASE_PORT),
-            Some(55_435),
-        ) {
-            Ok(port) => panic!("an explicit wrong managed port resolved to {port}"),
-            Err(error) => error,
-        };
-        assert!(mismatch.contains("publishes loopback port 55435"));
-        assert!(mismatch.contains("CARTOGRAPH_MANAGED_DATABASE_PORT=55435"));
-    }
-
-    #[test]
-    fn explicit_managed_database_port_keeps_missing_credentials_actionable() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("could not create managed port fixture: {error}"));
-        let result = ManagedDatabase::new(directory.path(), 55_435)
-            .and_then(|database| database.connection_settings())
-            .map_err(|error| {
-                format!("{error}; run `cartograph db start --project-path <path>` first")
-            });
-        let Err(error) = result else {
-            panic!("missing managed credentials unexpectedly resolved");
-        };
-
-        assert!(error.contains("cartograph db start --project-path <path>"));
-    }
-
-    #[tokio::test]
-    async fn serve_dispatch_preserves_managed_port_before_transport_validation() {
-        let result = run_operator_command(Command::Serve {
-            mcp: false,
-            project_path: PathBuf::from("workspace"),
-            managed_database_port: Some(55_435),
-            profile: McpProfile::Core,
-            daemon: false,
-            no_daemon: false,
-            daemon_child: false,
-            no_write_tools: false,
-            allow_stale_default: false,
-            low_tokens_default: false,
-            disable_tool: Vec::new(),
-            no_startup_sync: true,
-            no_auto_sync: false,
-        })
-        .await;
-
-        assert_eq!(
-            result,
-            Err("serve requires --mcp; Cartograph v2 uses stdio MCP transport".to_owned())
         );
     }
 
@@ -6841,30 +5319,6 @@ mod tests {
         assert!(
             mcp_server_config(McpProfile::Core, vec!["cartograph_find".to_owned()], false).is_ok()
         );
-    }
-
-    #[tokio::test]
-    async fn local_print_config_accepts_an_explicit_managed_port() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("could not create install fixture: {error}"));
-        let result = run_agent_install(AgentInstallArguments {
-            target: None,
-            location: InstallLocation::Local,
-            project_path: directory.path().to_path_buf(),
-            managed_database_port: Some(55_435),
-            behavior: AgentInstallBehavior {
-                yes: true,
-                permissions: false,
-                hooks: false,
-            },
-            command: None,
-            print_config: Some("codex".to_owned()),
-            format: OutputFormat::Json,
-            remove: false,
-        })
-        .await;
-
-        assert_matches!(result, Ok(code) if code == ExitCode::SUCCESS);
     }
 
     #[test]
@@ -7008,147 +5462,25 @@ mod tests {
             "local",
             "--project-path",
             "workspace",
-            "--managed-database-port",
-            "55435",
         ])
-        .unwrap_or_else(|error| panic!("install CLI did not parse: {error}"));
+        .unwrap_or_else(|error| panic!("install CLI: {error}"));
+        assert_matches!(install.command,Command::Install {target:Some(ref target),yes:true,..} if target=="codex");
+        let install =
+            Cli::try_parse_from(["cartograph", "llm", "install", "workspace", "--no-models"])
+                .unwrap_or_else(|error| panic!("model install CLI: {error}"));
         assert_matches!(
             install.command,
-            Command::Install {
-                target: Some(ref target),
-                managed_database_port: Some(55_435),
-                yes: true,
-                ..
-            } if target == "codex"
-        );
-
-        let llm_install = Cli::try_parse_from([
-            "cartograph",
-            "llm",
-            "install",
-            "workspace",
-            "--no-models",
-            "--database-provider",
-            "postgres",
-            "--database-url",
-            "postgresql://cartograph@127.0.0.1:55432/cartograph",
-            "--database-schema",
-            "review_project",
-            "--database-pgvector",
-            "require",
-            "--database-max-connections",
-            "12",
-            "--database-query-timeout-ms",
-            "45000",
-            "--database-connection-timeout-seconds",
-            "7",
-            "--database-ssl",
-        ])
-        .unwrap_or_else(|error| panic!("LLM install compatibility CLI did not parse: {error}"));
-        assert_matches!(
-            llm_install.command,
             Command::Llm {
                 command: llm_commands::LlmCommand::Install(_)
             }
         );
-    }
-
-    #[test]
-    fn cli_parses_database_lifecycle_and_maintenance_commands() {
-        let database = Cli::try_parse_from(["cartograph", "db", "start"])
-            .unwrap_or_else(|error| panic!("database start CLI did not parse: {error}"));
-        assert_matches!(
-            database.command,
-            Command::Db {
-                command: DatabaseCommand::Start(DatabaseStartArguments { port: None, .. })
-            }
-        );
-
-        let import = Cli::try_parse_from([
-            "cartograph",
-            "db",
-            "import-v1",
-            "--source-schema",
-            "cartograph_v1",
-            "--dry-run",
-        ])
-        .unwrap_or_else(|error| panic!("database import CLI did not parse: {error}"));
-        assert_matches!(
-            import.command,
-            Command::Db {
-                command: DatabaseCommand::ImportV1(V1ImportArguments {
-                    dry_run: true,
-                    maximum_rows: DEFAULT_IMPORT_MAXIMUM_ROWS,
-                    maximum_source_bytes: DEFAULT_IMPORT_MAXIMUM_SOURCE_BYTES,
-                    ..
-                })
-            }
-        );
-        assert!(
-            Cli::try_parse_from([
-                "cartograph",
-                "db",
-                "import-v1",
-                "--source-schema",
-                "cartograph_v1",
-                "--dry-run",
-                "--maximum-source-bytes",
-                EXCESSIVE_IMPORT_SOURCE_BYTES_TEXT,
-            ])
-            .is_err()
-        );
-
-        let usage = Cli::try_parse_from([
-            "cartograph",
-            "db",
-            "usage",
-            "--project-path",
-            "workspace",
-            "--limit",
-            "32",
-            "--format",
-            "json",
-        ])
-        .unwrap_or_else(|error| panic!("database usage CLI did not parse: {error}"));
-        assert_matches!(
-            usage.command,
-            Command::Db {
-                command: DatabaseCommand::Usage(DatabaseUsageArguments { limit: 32, .. })
-            }
-        );
-
-        let compact = Cli::try_parse_from([
-            "cartograph",
-            "db",
-            "compact",
-            "--apply",
-            "--confirm",
-            ONLINE_COMPACTION_CONFIRMATION,
-            "--available-headroom-bytes",
-            "1073741824",
-        ])
-        .unwrap_or_else(|error| panic!("database compact CLI did not parse: {error}"));
-        assert_matches!(
-            compact.command,
-            Command::Db {
-                command: DatabaseCommand::Compact(DatabaseCompactArguments {
-                    apply: true,
-                    heap: false,
-                    available_headroom_bytes: Some(1_073_741_824),
-                    ..
-                })
-            }
-        );
-        assert!(
-            Cli::try_parse_from([
-                "cartograph",
-                "db",
-                "compact",
-                "--available-headroom-bytes",
-                "1073741824",
-            ])
-            .is_err()
-        );
+        for flag in [
+            "--managed-database-port",
+            "--database-provider",
+            "--database-url",
+        ] {
+            assert!(Cli::try_parse_from(["cartograph", "install", flag, "retired"]).is_err());
+        }
     }
 
     #[test]
@@ -7158,33 +5490,33 @@ mod tests {
             "db",
             "prune",
             "--maximum-cascade-rows",
-            "7700000",
-            "--maximum-search-relation-bytes",
-            "10737418240",
+            "7700",
+            "--maximum-deletions",
+            "8",
             "--confirm",
             RETENTION_CONFIRMATION,
         ])
-        .unwrap_or_else(|error| panic!("database prune CLI did not parse: {error}"));
+        .unwrap_or_else(|error| panic!("prune CLI: {error}"));
         assert_matches!(
             prune.command,
             Command::Db {
                 command: DatabaseCommand::Prune(PruneArguments {
-                    maximum_cascade_rows: Some(7_700_000),
-                    maximum_search_relation_bytes: Some(10_737_418_240),
+                    maximum_cascade_rows: 7700,
+                    maximum_deletions: 8,
                     ..
                 })
             }
         );
-        for invalid in ["0", "68719476737"] {
+        for invalid in ["0", "10001"] {
             assert!(
                 Cli::try_parse_from([
                     "cartograph",
                     "db",
                     "prune",
-                    "--maximum-search-relation-bytes",
+                    "--maximum-cascade-rows",
                     invalid,
                     "--confirm",
-                    RETENTION_CONFIRMATION,
+                    RETENTION_CONFIRMATION
                 ])
                 .is_err()
             );
@@ -7194,40 +5526,12 @@ mod tests {
                 "cartograph",
                 "db",
                 "prune",
-                "--maximum-cascade-rows",
-                "100000001",
+                "--maximum-search-relation-bytes",
+                "1",
                 "--confirm",
-                RETENTION_CONFIRMATION,
+                RETENTION_CONFIRMATION
             ])
             .is_err()
-        );
-    }
-
-    #[test]
-    fn cli_parses_heap_compaction_as_a_distinct_confirmed_mode() {
-        let heap = Cli::try_parse_from([
-            "cartograph",
-            "db",
-            "compact",
-            "--heap",
-            "--apply",
-            "--confirm",
-            HEAP_COMPACTION_CONFIRMATION,
-            "--available-headroom-bytes",
-            "1073741824",
-        ])
-        .unwrap_or_else(|error| panic!("database heap compact CLI did not parse: {error}"));
-        assert_matches!(
-            heap.command,
-            Command::Db {
-                command: DatabaseCommand::Compact(DatabaseCompactArguments {
-                    apply: true,
-                    heap: true,
-                    maximum_relations: 8,
-                    minimum_reclaimable_bytes: 67_108_864,
-                    ..
-                })
-            }
         );
     }
 
@@ -7265,46 +5569,12 @@ mod tests {
             }
         );
     }
+}
 
-    #[test]
-    fn compaction_headroom_authority_cannot_be_overridden_in_managed_mode() {
-        assert_eq!(
-            compaction_headroom_authority(false, None),
-            Ok(CompactionHeadroomAuthority::Managed)
-        );
-        assert!(compaction_headroom_authority(false, Some(u64::MAX)).is_err());
-        assert_eq!(
-            compaction_headroom_authority(true, Some(1_073_741_824)),
-            Ok(CompactionHeadroomAuthority::External(1_073_741_824))
-        );
-        assert!(compaction_headroom_authority(true, None).is_err());
-    }
-
-    #[test]
-    fn schema_diagnostic_names_the_exact_pending_migration() {
-        let diagnostic =
-            schema_migration_diagnostic(&cartograph_db::MigrationError::SchemaVersionBehind {
-                version: 38,
-                required_version: 39,
-            });
-        assert_eq!(
-            diagnostic,
-            "database schema version 38 is below required version 39; next pending migration is 39"
-        );
-    }
-
-    #[test]
-    fn schema_diagnostics_require_a_real_initialized_project_state() {
-        let project = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("could not create doctor project: {error}"));
-        assert!(!has_real_project_state(project.path()));
-        fs::create_dir(project.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("could not create doctor state: {error}"));
-        assert!(has_real_project_state(project.path()));
-        fs::remove_dir(project.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("could not remove doctor state: {error}"));
-        fs::write(project.path().join(".cartograph"), b"not a directory")
-            .unwrap_or_else(|error| panic!("could not create invalid doctor state: {error}"));
-        assert!(!has_real_project_state(project.path()));
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum DoctorStatus {
+    Pass,
+    Warn,
+    Fail,
 }

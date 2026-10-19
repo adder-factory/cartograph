@@ -197,7 +197,7 @@ where
 
     fn finish(
         mut self,
-        facts: &CanonicalGenerationFacts,
+        facts: &mut CanonicalGenerationFacts,
     ) -> Result<GenerationValidationReport, GenerationValidationError> {
         self.poll()?;
         let measurement = {
@@ -206,6 +206,7 @@ where
         };
         let output_bytes = measurement.retained_bytes();
         self.charge(measurement.transient_bytes())?;
+        facts.retained_measurement = Some(measurement);
         Ok(GenerationValidationReport {
             input: self.input_bytes,
             output: output_bytes,
@@ -254,47 +255,215 @@ where
     )
 }
 
-pub(crate) fn validate_spill_fact_batch<Cancel>(
-    facts: GenerationFacts,
+/// Replace complete file-local tables while preserving the validated topology.
+///
+/// The caller proves that resolution inputs are unchanged. This boundary still
+/// validates every replacement, requires the same file and symbol identities,
+/// checks cross-table relations, and recomputes the ordinary logical digest.
+/// A failed operation consumes the candidate; it can never become a cache base.
+pub(crate) fn replace_file_facts<Cancel>(
+    mut base: CanonicalGenerationFacts,
+    replacements: GenerationFacts,
     limits: GenerationValidationLimits,
     cancelled: Cancel,
-) -> Result<(ValidatedFactTables, u64), GenerationValidationError>
+) -> Result<CanonicalGenerationFacts, GenerationValidationError>
 where
     Cancel: FnMut() -> bool,
 {
     let mut control = ValidationControl::new(limits, cancelled);
-    control.admit(&facts)?;
+    control.admit(&replacements)?;
+    let retained =
+        base.admission_measurement(limits.maximum_output_bytes(), || (control.cancelled)())?;
+    control.charge(
+        retained
+            .retained_bytes()
+            .checked_add(retained.transient_bytes())
+            .ok_or(GenerationValidationError::RetainedLimit)?,
+    )?;
+    if !replacements.edges.is_empty() || base.digest_version != GenerationDigestVersion::CURRENT {
+        return Err(invalid("incremental_topology").into());
+    }
     let tables = ValidatedFactTables {
-        files: reduce_files(facts.files, &mut control)?,
-        symbols: reduce_symbols(facts.symbols, &mut control)?,
-        edges: reduce_edges(facts.edges, &mut control)?,
-        references: reduce_references(facts.references, &mut control)?,
-        numerical_sites: reduce_numerical_sites(facts.numerical_sites, &mut control)?,
-        documents: reduce_documents(facts.documents, &mut control)?,
+        files: reduce_files(replacements.files, &mut control)?,
+        symbols: reduce_symbols(replacements.symbols, &mut control)?,
+        edges: Vec::new(),
+        references: reduce_references(replacements.references, &mut control)?,
+        numerical_sites: reduce_numerical_sites(replacements.numerical_sites, &mut control)?,
+        documents: reduce_documents(replacements.documents, &mut control)?,
     };
-    control.poll()?;
-    Ok((tables, control.input_bytes))
+    let affected = validate_file_replacements(&base, &tables, &mut control)?;
+    validate_replacement_relations(&base.tables, &tables, &mut control)?;
+    base.retained_measurement = None;
+    replace_tables(&mut base.tables, tables, &affected, &mut control)?;
+    base.digest = logical_digest(&base.tables, base.digest_version, || (control.cancelled)())
+        .map_err(|()| GenerationValidationError::Cancelled)?;
+    control.finish(&mut base)?;
+    Ok(base)
 }
 
-pub(crate) fn validate_generation_facts_for_v1_import<Cancel>(
-    facts: GenerationFacts,
-    limits: GenerationValidationLimits,
-    cancelled: Cancel,
-) -> Result<(CanonicalGenerationFacts, GenerationValidationReport), GenerationValidationError>
-where
-    Cancel: FnMut() -> bool,
-{
-    if !facts.numerical_sites.is_empty() {
-        return Err(invalid("v1_import_numerical_sites").into());
+fn validate_file_replacements<Cancel: FnMut() -> bool>(
+    base: &CanonicalGenerationFacts,
+    next: &ValidatedFactTables,
+    control: &mut ValidationControl<Cancel>,
+) -> Result<std::collections::BTreeSet<FileId>, GenerationValidationError> {
+    let affected = next
+        .files
+        .iter()
+        .map(|row| row.file_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    control.charge(usize_to_u64(affected.len()).saturating_mul(256))?;
+    if affected.is_empty()
+        || affected.len() > 16
+        || next
+            .symbols
+            .iter()
+            .any(|row| !affected.contains(&row.file_id))
+        || next
+            .references
+            .iter()
+            .any(|row| !affected.contains(&row.file_id))
+        || next
+            .numerical_sites
+            .iter()
+            .any(|row| !affected.contains(&row.file_id))
+        || next
+            .documents
+            .iter()
+            .any(|row| row.file_id.as_ref().is_none_or(|id| !affected.contains(id)))
+    {
+        return Err(invalid("incremental_file_set").into());
     }
-    validate_generation_facts_with_version(
-        facts,
-        GenerationValidationPolicy {
-            limits,
-            digest_version: GenerationDigestVersion::V6,
-        },
-        cancelled,
+    for file in &next.files {
+        control.poll()?;
+        let previous = base
+            .files()
+            .binary_search_by(|row| row.file_id.cmp(&file.file_id))
+            .ok()
+            .and_then(|index| base.files().get(index))
+            .ok_or_else(|| invalid("incremental_file_set"))?;
+        if file.normalized_path != previous.normalized_path || file.language != previous.language {
+            return Err(invalid("incremental_file_identity").into());
+        }
+    }
+    validate_replacement_identities(base, next, &affected, control)?;
+    Ok(affected)
+}
+
+fn validate_replacement_identities<Cancel: FnMut() -> bool>(
+    base: &CanonicalGenerationFacts,
+    next: &ValidatedFactTables,
+    affected: &std::collections::BTreeSet<FileId>,
+    control: &mut ValidationControl<Cancel>,
+) -> Result<(), GenerationValidationError> {
+    // Identity preservation protects edges and references in other files.
+    // Compare borrowed rows in canonical order without allocating global maps.
+    let mut old_symbols = base
+        .symbols()
+        .iter()
+        .filter(|row| affected.contains(&row.file_id));
+    for row in &next.symbols {
+        control.poll()?;
+        if old_symbols.next().is_none_or(|old| {
+            old.symbol_id != row.symbol_id
+                || old.file_id != row.file_id
+                || old.qualified_name != row.qualified_name
+        }) {
+            return Err(invalid("incremental_symbol_set").into());
+        }
+    }
+    if old_symbols.next().is_some() {
+        return Err(invalid("incremental_symbol_set").into());
+    }
+    let mut old_documents = base
+        .documents()
+        .iter()
+        .filter(|row| row.file_id.as_ref().is_some_and(|id| affected.contains(id)));
+    for row in &next.documents {
+        control.poll()?;
+        if old_documents.next().is_none_or(|old| {
+            old.document_id != row.document_id
+                || old.file_id != row.file_id
+                || old.symbol_id != row.symbol_id
+        }) {
+            return Err(invalid("incremental_document_set").into());
+        }
+    }
+    if old_documents.next().is_some() {
+        return Err(invalid("incremental_document_set").into());
+    }
+    for site in &next.numerical_sites {
+        control.poll()?;
+        if let Ok(index) = base
+            .numerical_sites()
+            .binary_search_by(|row| row.site_id.cmp(&site.site_id))
+            && base
+                .numerical_sites()
+                .get(index)
+                .is_some_and(|row| !affected.contains(&row.file_id))
+        {
+            return Err(invalid("duplicate_numerical_site_id").into());
+        }
+    }
+    Ok(())
+}
+
+fn replace_tables<Cancel: FnMut() -> bool>(
+    base: &mut ValidatedFactTables,
+    next: ValidatedFactTables,
+    affected: &std::collections::BTreeSet<FileId>,
+    control: &mut ValidationControl<Cancel>,
+) -> Result<(), GenerationValidationError> {
+    control.poll()?;
+    base.files.retain(|row| !affected.contains(&row.file_id));
+    base.files.extend(next.files);
+    base.files
+        .sort_unstable_by(|a, b| a.file_id.cmp(&b.file_id));
+    control.poll()?;
+    base.symbols.retain(|row| !affected.contains(&row.file_id));
+    base.symbols.extend(next.symbols);
+    base.symbols
+        .sort_unstable_by(|a, b| a.symbol_id.cmp(&b.symbol_id));
+    control.poll()?;
+    base.references
+        .retain(|row| !affected.contains(&row.file_id));
+    base.references.extend(next.references);
+    base.references.sort_unstable_by(reference_order);
+    control.poll()?;
+    base.numerical_sites
+        .retain(|row| !affected.contains(&row.file_id));
+    base.numerical_sites.extend(next.numerical_sites);
+    base.numerical_sites
+        .sort_unstable_by(|a, b| a.site_id.cmp(&b.site_id));
+    control.poll()?;
+    base.documents
+        .retain(|row| row.file_id.as_ref().is_none_or(|id| !affected.contains(id)));
+    base.documents.extend(next.documents);
+    base.documents
+        .sort_unstable_by(|a, b| a.document_id.cmp(&b.document_id));
+    Ok(())
+}
+
+fn reference_order(a: &ReferenceInput, b: &ReferenceInput) -> std::cmp::Ordering {
+    (
+        &a.file_id,
+        &a.owner_symbol_id,
+        &a.target_symbol_id,
+        &a.reference_name,
+        &a.reference_kind,
+        a.start_byte,
+        a.end_byte,
+        &a.resolution_provenance,
     )
+        .cmp(&(
+            &b.file_id,
+            &b.owner_symbol_id,
+            &b.target_symbol_id,
+            &b.reference_name,
+            &b.reference_kind,
+            b.start_byte,
+            b.end_byte,
+            &b.resolution_provenance,
+        ))
 }
 
 #[derive(Clone, Copy)]
@@ -326,12 +495,13 @@ where
     let digest = logical_digest(&tables, policy.digest_version, || (control.cancelled)())
         .map_err(|()| GenerationValidationError::Cancelled)?;
     control.charge(usize_to_u64(digest.as_str().len()))?;
-    let facts = CanonicalGenerationFacts {
+    let mut facts = CanonicalGenerationFacts {
         tables,
         digest,
         digest_version: policy.digest_version,
+        retained_measurement: None,
     };
-    let report = control.finish(&facts)?;
+    let report = control.finish(&mut facts)?;
     Ok((facts, report))
 }
 
@@ -762,10 +932,77 @@ where
     Ok(())
 }
 
+trait SymbolLookup {
+    fn symbol(&self, id: &SymbolId) -> Option<&SymbolInput>;
+}
+
+impl SymbolLookup for BTreeMap<&str, &SymbolInput> {
+    fn symbol(&self, id: &SymbolId) -> Option<&SymbolInput> {
+        self.get(id.as_str()).copied()
+    }
+}
+
+struct ReplacementSymbols<'a> {
+    base: &'a [SymbolInput],
+    next: &'a [SymbolInput],
+}
+
+impl SymbolLookup for ReplacementSymbols<'_> {
+    fn symbol(&self, id: &SymbolId) -> Option<&SymbolInput> {
+        for rows in [self.next, self.base] {
+            if let Ok(index) = rows.binary_search_by(|row| row.symbol_id.cmp(id)) {
+                return rows.get(index);
+            }
+        }
+        None
+    }
+}
+
+fn validate_replacement_relations<Cancel: FnMut() -> bool>(
+    base: &ValidatedFactTables,
+    next: &ValidatedFactTables,
+    control: &mut ValidationControl<Cancel>,
+) -> Result<(), GenerationValidationError> {
+    // Files, symbol ownership, and document identities were preserved exactly.
+    // Existing edges and untouched rows therefore keep their validated foreign
+    // keys. Check every changed row against the merged symbol view; no global
+    // relation map or skipped validation of replacement spans is necessary.
+    let mut files = BTreeMap::new();
+    for file in &next.files {
+        control.charge(
+            MAP_NODE_ALLOWANCE.saturating_add(usize_to_u64(size_of::<(&str, &FileInput)>())),
+        )?;
+        files.insert(file.file_id.as_str(), file);
+    }
+    let symbols = ReplacementSymbols {
+        base: &base.symbols,
+        next: &next.symbols,
+    };
+    for symbol in &next.symbols {
+        control.poll()?;
+        let file = require_file(&files, &symbol.file_id, "symbol_file_id")?;
+        require_structural_file(file, "symbol_file_parse_status")?;
+        require_within_file(symbol.end_byte, file, "symbol_byte_span")?;
+    }
+    for row in &next.references {
+        control.poll()?;
+        validate_reference_relations(row, &files, &symbols)?;
+    }
+    for row in &next.numerical_sites {
+        control.poll()?;
+        validate_numerical_site_relations(row, &files, &symbols)?;
+    }
+    for row in &next.documents {
+        control.poll()?;
+        validate_document_relations(row, &files, &symbols)?;
+    }
+    Ok(())
+}
+
 fn validate_reference_relations(
     reference: &ReferenceInput,
     files: &BTreeMap<&str, &FileInput>,
-    symbols: &BTreeMap<&str, &SymbolInput>,
+    symbols: &impl SymbolLookup,
 ) -> Result<(), GenerationValidationError> {
     let file = require_file(files, &reference.file_id, "reference_file_id")?;
     require_structural_file(file, "reference_file_parse_status")?;
@@ -785,7 +1022,7 @@ fn validate_reference_relations(
 fn validate_numerical_site_relations(
     site: &NumericalSiteInput,
     files: &BTreeMap<&str, &FileInput>,
-    symbols: &BTreeMap<&str, &SymbolInput>,
+    symbols: &impl SymbolLookup,
 ) -> Result<(), GenerationValidationError> {
     let file = require_file(files, &site.file_id, "numerical_site_file_id")?;
     require_structural_file(file, "numerical_site_file_parse_status")?;
@@ -805,7 +1042,7 @@ fn validate_numerical_site_relations(
 fn validate_document_relations(
     document: &CanonicalSearchDocument,
     files: &BTreeMap<&str, &FileInput>,
-    symbols: &BTreeMap<&str, &SymbolInput>,
+    symbols: &impl SymbolLookup,
 ) -> Result<(), StorageError> {
     let explicit_file = document
         .file_id
@@ -845,14 +1082,11 @@ fn require_file<'a>(
 }
 
 fn require_symbol<'a>(
-    symbols: &BTreeMap<&str, &'a SymbolInput>,
+    symbols: &'a impl SymbolLookup,
     symbol_id: &SymbolId,
     field: &'static str,
 ) -> Result<&'a SymbolInput, StorageError> {
-    symbols
-        .get(symbol_id.as_str())
-        .copied()
-        .ok_or(invalid(field))
+    symbols.symbol(symbol_id).ok_or(invalid(field))
 }
 
 fn require_within_file(
@@ -1029,17 +1263,6 @@ where
     String::from_utf8(output.into_bytes()).map_err(|_| invalid("metadata").into())
 }
 
-pub(crate) fn canonical_stored_metadata(
-    value: &Value,
-) -> Result<String, GenerationValidationError> {
-    let limits = GenerationValidationLimits {
-        maximum_output_bytes: usize_to_u64(MAX_METADATA_BYTES),
-        maximum_working_bytes: usize_to_u64(MAX_METADATA_BYTES).saturating_mul(8),
-    };
-    let mut control = ValidationControl::new(limits, || false);
-    canonical_json(value, &mut control)
-}
-
 fn write_canonical_json<Cancel>(
     value: &Value,
     output: &mut BoundedJsonWriter<'_, Cancel>,
@@ -1170,6 +1393,39 @@ where
     fn charge(&mut self, bytes: u64) -> Result<(), GenerationValidationError> {
         self.control.charge(bytes)
     }
+
+    fn reserve(&mut self, required: usize) -> io::Result<()> {
+        let previous_capacity = self.bytes.capacity();
+        if required <= previous_capacity {
+            return Ok(());
+        }
+        let remaining = self
+            .control
+            .limits
+            .maximum_working_bytes
+            .saturating_sub(self.control.charged_bytes);
+        let available = usize::try_from(remaining).unwrap_or(usize::MAX);
+        // Amortize small serializer fragments within both existing byte caps.
+        let capacity = required
+            .max(previous_capacity.saturating_mul(2))
+            .min(MAX_METADATA_BYTES)
+            .min(previous_capacity.saturating_add(available));
+        if capacity < required {
+            return Err(io::Error::other("canonical metadata validation stopped"));
+        }
+        let reserved = capacity.saturating_sub(previous_capacity);
+        self.control
+            .charge(usize_to_u64(reserved))
+            .map_err(|_| io::Error::other("canonical metadata validation stopped"))?;
+        self.bytes
+            .try_reserve_exact(capacity.saturating_sub(self.bytes.len()))
+            .map_err(|_| io::Error::other("canonical metadata allocation failed"))?;
+        let added_capacity = self.bytes.capacity().saturating_sub(previous_capacity);
+        self.control
+            .charge(usize_to_u64(added_capacity.saturating_sub(reserved)))
+            .map_err(|_| io::Error::other("canonical metadata validation stopped"))?;
+        Ok(())
+    }
 }
 
 impl<Cancel> Write for BoundedJsonWriter<'_, Cancel>
@@ -1177,19 +1433,16 @@ where
     Cancel: FnMut() -> bool,
 {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if self.bytes.len().saturating_add(bytes.len()) > MAX_METADATA_BYTES {
+        let required = self.bytes.len().saturating_add(bytes.len());
+        if required > MAX_METADATA_BYTES {
             return Err(io::Error::other(
                 "canonical metadata exceeds its byte budget",
             ));
         }
-        let previous_capacity = self.bytes.capacity();
-        self.bytes
-            .try_reserve_exact(bytes.len())
-            .map_err(|_| io::Error::other("canonical metadata allocation failed"))?;
-        let added_capacity = self.bytes.capacity().saturating_sub(previous_capacity);
         self.control
-            .charge(usize_to_u64(added_capacity))
+            .poll()
             .map_err(|_| io::Error::other("canonical metadata validation stopped"))?;
+        self.reserve(required)?;
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
@@ -1577,39 +1830,6 @@ mod tests {
     }
 
     #[test]
-    fn v1_import_validation_remains_digest_v6_and_refuses_new_fact_families() {
-        let (legacy, _) = validate_generation_facts_for_v1_import(
-            GenerationFacts {
-                files: vec![file()],
-                ..GenerationFacts::default()
-            },
-            validation_limits(),
-            || false,
-        )
-        .unwrap_or_else(|error| panic!("legacy fact mapping was rejected: {error}"));
-        assert_eq!(legacy.digest_version(), GenerationDigestVersion::V6);
-
-        assert_matches!(
-            validate_generation_facts_for_v1_import(
-                GenerationFacts {
-                    files: vec![file()],
-                    symbols: vec![symbol()],
-                    numerical_sites: vec![numerical_site()],
-                    ..GenerationFacts::default()
-                },
-                validation_limits(),
-                || false,
-            )
-            .err(),
-            Some(GenerationValidationError::Storage(
-                StorageError::InvalidInput {
-                    field: "v1_import_numerical_sites"
-                }
-            ))
-        );
-    }
-
-    #[test]
     fn validation_rejects_document_identity_that_contradicts_its_file() {
         let mut wrong_path = document();
         wrong_path.path = "src/other.rs".to_owned();
@@ -1726,6 +1946,65 @@ mod tests {
             .measure_retained_bytes(MAX_VALIDATION_RETAINED_BYTES, || false)
             .unwrap_or_else(|error| panic!("capacity-aware model failed: {error:?}"));
         assert!(measurement.retained_bytes() >= minimum_capacity_bytes);
+    }
+
+    #[test]
+    fn canonical_metadata_amortizes_fragment_growth_and_charges_capacity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        const FRAGMENTS: usize = 16_384;
+        let limits = GenerationValidationLimits::new(65_536, 65_536)?;
+        let mut control = ValidationControl::new(limits, || false);
+        let mut writer = BoundedJsonWriter::new(&mut control);
+        let mut growths = 0;
+        for _ in 0..FRAGMENTS {
+            let previous = writer.bytes.capacity();
+            writer.write_all(b"x")?;
+            growths += usize::from(writer.bytes.capacity() != previous);
+        }
+        assert!(
+            growths <= 16,
+            "fragment writes caused {growths} allocations"
+        );
+        assert_eq!(writer.bytes.len(), FRAGMENTS);
+        assert_eq!(
+            writer.control.charged_bytes,
+            usize_to_u64(writer.bytes.capacity())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_metadata_preserves_nested_order_and_escaped_utf8()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let value: Value =
+            serde_json::from_str(r#"{"z":[null,1],"a":{"z":true,"b":"quote\"\n\u0001雪"}}"#)?;
+        let limits = GenerationValidationLimits::new(65_536, 65_536)?;
+        let mut control = ValidationControl::new(limits, || false);
+        assert_eq!(
+            canonical_json(&value, &mut control)?,
+            r#"{"a":{"b":"quote\"\n\u0001雪","z":true},"z":[null,1]}"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_metadata_growth_honors_tight_admission_and_spare_capacity_cancellation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cancelled = Cell::new(false);
+        let limits = GenerationValidationLimits::new(300, 300)?;
+        let mut control = ValidationControl::new(limits, || cancelled.get());
+        let mut writer = BoundedJsonWriter::new(&mut control);
+        writer.write_all(&[b'x'; 256])?;
+        writer.write_all(b"y")?;
+        assert!(writer.bytes.capacity() <= 300);
+        assert_eq!(writer.bytes.len(), 257);
+        assert!(writer.write_all(&[b'z'; 44]).is_err());
+        assert_eq!(writer.bytes.len(), 257);
+        assert!(writer.control.charged_bytes <= 300);
+        cancelled.set(true);
+        assert!(writer.write_all(b"z").is_err());
+        assert_eq!(writer.bytes.len(), 257);
+        Ok(())
     }
 
     #[test]

@@ -1226,58 +1226,50 @@ async fn execute_tool(execution: ToolExecution) -> JsonRpcResponse {
         request_era,
         metadata,
     } = execution;
+    let cooperative = handler.drain_cancelled_calls();
     let context = ToolCallContext::new(cancellation.clone(), deadline);
     let mut worker = tokio::spawn(async move { handler.call(call, context).await });
-    tokio::select! {
+    let joined = tokio::select! {
         biased;
         () = cancellation.cancelled() => {
-            worker.abort();
-            let _join_result = worker.await;
-            JsonRpcResponse::error(
-                Some(id),
-                ErrorSpec::new(
-                    ErrorCode::REQUEST_CANCELLED,
-                    "Request cancelled",
-                    StableErrorCode::RequestCancelled,
-                ),
-            )
+            if !cooperative {
+                worker.abort();
+                let _join_result = worker.await;
+                return JsonRpcResponse::error(Some(id), ErrorSpec::new(ErrorCode::REQUEST_CANCELLED, "Request cancelled", StableErrorCode::RequestCancelled));
+            }
+            worker.await
         }
         () = sleep_until(deadline) => {
             cancellation.cancel();
-            worker.abort();
-            let _join_result = worker.await;
-            JsonRpcResponse::error(
-                Some(id),
-                ErrorSpec::new(
-                    ErrorCode::REQUEST_TIMEOUT,
-                    "Request deadline exceeded",
-                    StableErrorCode::RequestTimeout,
-                ),
-            )
-        }
-        joined = &mut worker => {
-            let result = match joined {
-                Ok(Ok(result)) => result,
-                Ok(Err(error)) => ToolResult::from_error(&error),
-                Err(_) => ToolResult::from_error(&crate::ToolError::internal()),
-            };
-            match serde_json::to_value(result) {
-                Ok(mut value) => {
-                    if request_era == RequestEra::Modern {
-                        add_modern_result(&mut value, &metadata);
-                    }
-                    JsonRpcResponse::success(id, value)
-                }
-                Err(_) => JsonRpcResponse::error(
-                    Some(id),
-                    ErrorSpec::new(
-                        ErrorCode::INTERNAL_ERROR,
-                        "Internal error",
-                        StableErrorCode::InternalError,
-                    ),
-                ),
+            if !cooperative {
+                worker.abort();
+                let _join_result = worker.await;
+                return JsonRpcResponse::error(Some(id), ErrorSpec::new(ErrorCode::REQUEST_TIMEOUT, "Request deadline exceeded", StableErrorCode::RequestTimeout));
             }
+            worker.await
         }
+        joined = &mut worker => joined,
+    };
+    let result = match joined {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => ToolResult::from_error(&error),
+        Err(_) => ToolResult::from_error(&crate::ToolError::internal()),
+    };
+    match serde_json::to_value(result) {
+        Ok(mut value) => {
+            if request_era == RequestEra::Modern {
+                add_modern_result(&mut value, &metadata);
+            }
+            JsonRpcResponse::success(id, value)
+        }
+        Err(_) => JsonRpcResponse::error(
+            Some(id),
+            ErrorSpec::new(
+                ErrorCode::INTERNAL_ERROR,
+                "Internal error",
+                StableErrorCode::InternalError,
+            ),
+        ),
     }
 }
 

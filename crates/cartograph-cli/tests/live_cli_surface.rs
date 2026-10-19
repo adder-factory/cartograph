@@ -7,36 +7,12 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     path::Path,
     process::{Command, Output},
-    sync::mpsc,
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use cartograph_db::{CartographDatabase, LeaseOwner, LeaseRequest, LeaseTarget};
-use cartograph_domain::{ProjectId, ProjectOperation};
 use serde_json::Value;
-use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
-
-/// Connection pool size of the competing writer's own database session.
-const COMPETING_WRITER_POOL_SIZE: &str = "2";
-/// Query timeout, in milliseconds, of the competing writer's session.
-const COMPETING_WRITER_QUERY_TIMEOUT_MS: &str = "10000";
-/// The competing writer's lease outlives the contended CLI index.
-const COMPETING_WRITER_LEASE: Duration = Duration::from_mins(2);
-/// Bound on the competing writer taking its lease and project lock.
-const COMPETING_WRITER_READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 fn public_cli_exercises_native_agent_backend_and_optional_llm_routes() {
-    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_cli_public_surface_{}_{}", std::process::id(), nanos);
-    let read_only_schema = format!("{schema}_read_only");
     let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
     let project_path = project.path().to_string_lossy().into_owned();
     let missing_model = project
@@ -47,30 +23,19 @@ fn public_cli_exercises_native_agent_backend_and_optional_llm_routes() {
 
     let scenario = LiveCliScenario {
         project: &project,
-        database_url: &database_url,
-        schema: &schema,
-        read_only_schema: &read_only_schema,
+
         project_path: &project_path,
         missing_model: &missing_model,
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| run_live_cli_scenario(&scenario)));
 
-    cleanup_schema(&database_url, &schema);
     if let Err(payload) = outcome {
         resume_unwind(payload);
     }
 }
 
 #[test]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 fn doctor_exposes_layered_readiness_before_the_first_generation() {
-    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_cli_doctor_layers_{}_{}", std::process::id(), nanos);
     let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
     let project_path = project.path().to_string_lossy().into_owned();
     write_project_fixture(project.path());
@@ -78,8 +43,6 @@ fn doctor_exposes_layered_readiness_before_the_first_generation() {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         json_success(
             project.path(),
-            &database_url,
-            &schema,
             &[
                 "llm",
                 "install",
@@ -89,12 +52,7 @@ fn doctor_exposes_layered_readiness_before_the_first_generation() {
                 "--json",
             ],
         );
-        let report = json_success(
-            project.path(),
-            &database_url,
-            &schema,
-            &["doctor", &project_path, "--json"],
-        );
+        let report = json_success(project.path(), &["doctor", &project_path, "--json"]);
         assert_eq!(report["ready"], true);
         assert_eq!(report["capabilitiesReady"], true);
         assert_eq!(report["projectReadiness"]["database"], "ready");
@@ -119,8 +77,6 @@ fn doctor_exposes_layered_readiness_before_the_first_generation() {
 
         let skipped = json_success(
             project.path(),
-            &database_url,
-            &schema,
             &["doctor", &project_path, "--no-project-checks", "--json"],
         );
         assert_eq!(skipped["projectReadiness"]["index"], "not_checked");
@@ -135,12 +91,7 @@ fn doctor_exposes_layered_readiness_before_the_first_generation() {
         );
         assert_eq!(skipped["projectReadiness"]["overall"], "not_checked");
 
-        let text = success(
-            project.path(),
-            &database_url,
-            &schema,
-            &["doctor", &project_path],
-        );
+        let text = success(project.path(), &["doctor", &project_path]);
         let rendered = String::from_utf8_lossy(&text.stdout);
         assert!(rendered.contains("Readiness layers:"));
         assert!(rendered.contains("- overall onboarding: incomplete"));
@@ -149,87 +100,15 @@ fn doctor_exposes_layered_readiness_before_the_first_generation() {
         let encoded = serde_json::to_string(&report)
             .unwrap_or_else(|error| panic!("doctor report encoding failed: {error}"));
         assert!(!encoded.contains(&project_path));
-        assert!(!encoded.contains(&database_url));
     }));
 
-    cleanup_schema(&database_url, &schema);
     if let Err(payload) = outcome {
         resume_unwind(payload);
     }
 }
 
 #[test]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-fn doctor_warns_for_uninitialized_behind_schema_and_fails_for_real_state() {
-    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_cli_doctor_behind_{}_{}", std::process::id(), nanos);
-    let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-    let project_path = project.path().to_string_lossy().into_owned();
-
-    let outcome = catch_unwind(AssertUnwindSafe(|| {
-        prepare_schema_one_version_behind(&database_url, &schema);
-
-        let uninitialized = json_success(
-            project.path(),
-            &database_url,
-            &schema,
-            &["doctor", &project_path, "--json"],
-        );
-        assert_eq!(uninitialized["ready"], true);
-        assert_eq!(
-            doctor_check(&uninitialized, "project-state")["status"],
-            "warn"
-        );
-        assert_eq!(
-            doctor_check(&uninitialized, "project-index")["status"],
-            "warn"
-        );
-        assert!(doctor_check_optional(&uninitialized, "schema-migrations").is_none());
-
-        std::fs::create_dir(project.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("Cartograph fixture directory failed: {error}"));
-        let initialized = invoke(
-            project.path(),
-            &database_url,
-            &schema,
-            &["doctor", &project_path, "--json"],
-        );
-        assert_eq!(initialized.status.code(), Some(2));
-        let initialized: Value = serde_json::from_slice(&initialized.stdout)
-            .unwrap_or_else(|error| panic!("doctor failure report was not JSON: {error}"));
-        assert_eq!(initialized["ready"], false);
-        let migration = doctor_check(&initialized, "schema-migrations");
-        assert_eq!(migration["status"], "fail");
-        assert!(
-            migration["message"]
-                .as_str()
-                .is_some_and(|message| message.contains(
-                    "database schema version 49 is below required version 50; next pending migration is 50"
-                ))
-        );
-    }));
-
-    cleanup_schema(&database_url, &schema);
-    if let Err(payload) = outcome {
-        resume_unwind(payload);
-    }
-}
-
-#[test]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 fn parse_failure_json_names_relative_input_and_preserves_the_current_generation() {
-    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_cli_parse_failure_{}_{}", std::process::id(), nanos);
     let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
     let project_path = project.path().to_string_lossy().into_owned();
     write_project_fixture(project.path());
@@ -237,8 +116,6 @@ fn parse_failure_json_names_relative_input_and_preserves_the_current_generation(
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         let initial = json_success(
             project.path(),
-            &database_url,
-            &schema,
             &["index", &project_path, "--format", "json"],
         );
         let initial_generation = initial["generation_id"]
@@ -255,8 +132,6 @@ fn parse_failure_json_names_relative_input_and_preserves_the_current_generation(
 
         let output = failure(
             project.path(),
-            &database_url,
-            &schema,
             &["index", &project_path, "--format", "json"],
         );
         assert_eq!(output.stdout, b"");
@@ -286,8 +161,6 @@ fn parse_failure_json_names_relative_input_and_preserves_the_current_generation(
 
         let status = json_success(
             project.path(),
-            &database_url,
-            &schema,
             &["status", &project_path, "--format", "json"],
         );
         assert_eq!(
@@ -297,312 +170,15 @@ fn parse_failure_json_names_relative_input_and_preserves_the_current_generation(
         assert_eq!(status["project"]["fresh"], false);
     }));
 
-    cleanup_schema(&database_url, &schema);
     if let Err(payload) = outcome {
         resume_unwind(payload);
     }
-}
-
-#[test]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-fn index_json_reports_retryable_lease_busy_under_a_live_competing_writer() {
-    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_cli_lease_busy_{}_{}", std::process::id(), nanos);
-    let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-    write_project_fixture(project.path());
-
-    let outcome = catch_unwind(AssertUnwindSafe(|| {
-        run_competing_writer_index_scenario(&project, &database_url, &schema);
-    }));
-
-    cleanup_schema(&database_url, &schema);
-    if let Err(payload) = outcome {
-        resume_unwind(payload);
-    }
-}
-
-fn run_competing_writer_index_scenario(
-    project: &tempfile::TempDir,
-    database_url: &str,
-    schema: &str,
-) {
-    let project_path = project.path().to_string_lossy().into_owned();
-    let project_path = project_path.as_str();
-    let indexed = json_success(
-        project.path(),
-        database_url,
-        schema,
-        &["index", project_path, "--format", "json"],
-    );
-    let generation = indexed["generation_id"]
-        .as_str()
-        .unwrap_or_else(|| panic!("index report omitted its generation: {indexed}"))
-        .to_owned();
-    let project_id = indexed["project_id"]
-        .as_str()
-        .and_then(|project_id| ProjectId::parse(project_id).ok())
-        .unwrap_or_else(|| panic!("index report omitted a valid project identity: {indexed}"));
-    std::fs::write(
-        project.path().join("src/index.ts"),
-        "export const marker = 3;\n",
-    )
-    .unwrap_or_else(|error| panic!("contended source fixture write failed: {error}"));
-
-    let writer = CompetingIndexWriter::start(database_url, schema, project_id);
-    let output = failure(
-        project.path(),
-        database_url,
-        schema,
-        &["index", project_path, "--format", "json"],
-    );
-    writer.finish();
-    let report: Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
-        panic!(
-            "contended index stderr was not standalone JSON: {error}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-    });
-    assert_eq!(report["error"]["code"], "lease_busy", "{report}");
-    assert_eq!(report["error"]["previous_generation_visible"], true);
-    assert!(report["error"].get("cleanup_failure").is_none());
-    assert!(
-        report["error"]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("waiting for another project operation"))
-    );
-
-    let status = json_success(
-        project.path(),
-        database_url,
-        schema,
-        &["status", project_path, "--format", "json"],
-    );
-    assert_eq!(
-        status["project"]["snapshot"]["current"]["generation_id"],
-        generation.as_str()
-    );
-    let storage = &status["project"]["snapshot"]["generation_storage"];
-    assert_eq!(storage["staging"], 0, "contention reserved a generation");
-    assert_eq!(storage["failed"], 0, "contention abandoned a generation");
-}
-
-/// Another session's index: a live index lease plus the project operation lock
-/// its long prepare transaction holds, kept until [`Self::finish`].
-struct CompetingIndexWriter {
-    release: mpsc::SyncSender<()>,
-    holder: thread::JoinHandle<()>,
-}
-
-impl CompetingIndexWriter {
-    fn start(database_url: &str, schema: &str, project_id: ProjectId) -> Self {
-        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
-        let (release, release_receiver) = mpsc::sync_channel::<()>(1);
-        let database_url = database_url.to_owned();
-        let schema = schema.to_owned();
-        let holder = thread::spawn(move || {
-            let settings = cartograph_config::DatabaseSettings::parse(
-                &database_url,
-                Some(COMPETING_WRITER_POOL_SIZE),
-                Some(COMPETING_WRITER_QUERY_TIMEOUT_MS),
-            )
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("writer settings failed: {error}"));
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap_or_else(|error| panic!("writer runtime failed: {error}"));
-            runtime.block_on(async {
-                let pool = cartograph_db::connect(&settings)
-                    .await
-                    .unwrap_or_else(|error| panic!("writer connection failed: {error}"));
-                let database = CartographDatabase::new(pool.clone(), settings.schema().clone());
-                let lease = database
-                    .acquire_lease(LeaseRequest::new(
-                        LeaseTarget::new(project_id.clone(), ProjectOperation::Index, None),
-                        LeaseOwner::new(std::process::id(), "live-cli-competing-index"),
-                        COMPETING_WRITER_LEASE,
-                    ))
-                    .await
-                    .unwrap_or_else(|error| panic!("competing index lease failed: {error}"));
-                let mut prepare = pool
-                    .begin()
-                    .await
-                    .unwrap_or_else(|error| panic!("writer prepare transaction failed: {error}"));
-                query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-                    .bind(format!("cartograph-v2-operation:{schema}:{project_id}"))
-                    .execute(&mut *prepare)
-                    .await
-                    .unwrap_or_else(|error| panic!("writer project lock failed: {error}"));
-                ready_sender
-                    .send(())
-                    .unwrap_or_else(|error| panic!("writer ready signal failed: {error}"));
-                let _released = release_receiver.recv();
-                prepare
-                    .rollback()
-                    .await
-                    .unwrap_or_else(|error| panic!("writer prepare rollback failed: {error}"));
-                database
-                    .release_lease(&lease)
-                    .await
-                    .unwrap_or_else(|error| {
-                        panic!("competing index lease release failed: {error}")
-                    });
-                database.close().await;
-            });
-        });
-        ready_receiver
-            .recv_timeout(COMPETING_WRITER_READY_TIMEOUT)
-            .unwrap_or_else(|error| panic!("competing writer did not become ready: {error}"));
-        Self { release, holder }
-    }
-
-    fn finish(self) {
-        let _released = self.release.send(());
-        self.holder
-            .join()
-            .unwrap_or_else(|payload| resume_unwind(payload));
-    }
-}
-
-#[test]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-fn sync_if_dirty_waits_for_a_competing_index_lease() {
-    let database_url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("live CLI database is not configured"));
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_cli_sync_lease_{}_{}", std::process::id(), nanos);
-    let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-    let project_path = project.path().to_string_lossy().into_owned();
-    write_project_fixture(project.path());
-
-    let outcome = catch_unwind(AssertUnwindSafe(|| {
-        run_sync_if_dirty_lease_scenario(&project, &database_url, &schema, &project_path);
-    }));
-
-    cleanup_schema(&database_url, &schema);
-    if let Err(payload) = outcome {
-        resume_unwind(payload);
-    }
-}
-
-fn run_sync_if_dirty_lease_scenario(
-    project: &tempfile::TempDir,
-    database_url: &str,
-    schema: &str,
-    project_path: &str,
-) {
-    git(project.path(), &["init", "--initial-branch=main"]);
-    git(
-        project.path(),
-        &["config", "user.email", "sync-lease@example.invalid"],
-    );
-    git(
-        project.path(),
-        &["config", "user.name", "Sync Lease Fixture"],
-    );
-    git(project.path(), &["add", "."]);
-    git(project.path(), &["commit", "-m", "establish sync fixture"]);
-
-    let indexed = json_success(
-        project.path(),
-        database_url,
-        schema,
-        &["index", project_path, "--format", "json"],
-    );
-    let project_id = indexed["project_id"]
-        .as_str()
-        .and_then(|project_id| ProjectId::parse(project_id).ok())
-        .unwrap_or_else(|| panic!("index report omitted a valid project identity: {indexed}"));
-    std::fs::write(
-        project.path().join("src/index.ts"),
-        "export const marker = 2;\n",
-    )
-    .unwrap_or_else(|error| panic!("stale source fixture write failed: {error}"));
-
-    let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
-    let lease_database_url = database_url.to_owned();
-    let lease_schema = schema.to_owned();
-    let lease_holder = thread::spawn(move || {
-        let settings = cartograph_config::DatabaseSettings::parse(
-            &lease_database_url,
-            Some("2"),
-            Some("10000"),
-        )
-        .and_then(|settings| settings.with_schema(&lease_schema))
-        .unwrap_or_else(|error| panic!("lease settings failed: {error}"));
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap_or_else(|error| panic!("lease runtime failed: {error}"));
-        runtime.block_on(async {
-            let pool = cartograph_db::connect(&settings)
-                .await
-                .unwrap_or_else(|error| panic!("lease connection failed: {error}"));
-            let database = CartographDatabase::new(pool, settings.schema().clone());
-            let lease = database
-                .acquire_lease(LeaseRequest::new(
-                    LeaseTarget::new(project_id, ProjectOperation::Index, None),
-                    LeaseOwner::new(std::process::id(), "live-cli-competing-sync"),
-                    Duration::from_secs(5),
-                ))
-                .await
-                .unwrap_or_else(|error| panic!("competing lease acquisition failed: {error}"));
-            ready_sender
-                .send(())
-                .unwrap_or_else(|error| panic!("lease-ready signal failed: {error}"));
-            tokio::time::sleep(Duration::from_millis(750)).await;
-            database
-                .release_lease(&lease)
-                .await
-                .unwrap_or_else(|error| panic!("competing lease release failed: {error}"));
-            database.close().await;
-        });
-    });
-    ready_receiver
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap_or_else(|error| panic!("competing lease did not become ready: {error}"));
-
-    let sync = invoke(
-        project.path(),
-        database_url,
-        schema,
-        &["sync-if-dirty", project_path],
-    );
-    lease_holder
-        .join()
-        .unwrap_or_else(|payload| resume_unwind(payload));
-    assert!(
-        sync.status.success(),
-        "sync-if-dirty failed instead of waiting: {}",
-        String::from_utf8_lossy(&sync.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&sync.stdout)
-            .contains("Synced changed source into a new generation")
-    );
-    let status = json_success(
-        project.path(),
-        database_url,
-        schema,
-        &["status", project_path, "--json"],
-    );
-    assert_eq!(status.pointer("/project/fresh"), Some(&Value::Bool(true)));
 }
 
 #[derive(Clone, Copy)]
 struct LiveCliScenario<'a> {
     project: &'a tempfile::TempDir,
-    database_url: &'a str,
-    schema: &'a str,
-    read_only_schema: &'a str,
+
     project_path: &'a str,
     missing_model: &'a str,
 }
@@ -613,7 +189,6 @@ struct NativeSymbols {
 }
 
 fn run_live_cli_scenario(scenario: &LiveCliScenario<'_>) {
-    ensure_pgstattuple(scenario.database_url, scenario.schema);
     prepare_repository_and_verify_read_only(scenario);
     index_and_verify_storage(scenario);
     let symbols = verify_native_retrieval(scenario);
@@ -633,195 +208,92 @@ fn run_live_cli_scenario(scenario: &LiveCliScenario<'_>) {
 }
 
 fn prepare_repository_and_verify_read_only(scenario: &LiveCliScenario<'_>) {
-    let project = scenario.project;
-    let database_url = scenario.database_url;
-    let read_only_schema = scenario.read_only_schema;
-    let project_path = scenario.project_path;
-    write_project_fixture(project.path());
-    git(project.path(), &["init", "--initial-branch=main"]);
+    let root = scenario.project.path();
+    write_project_fixture(root);
+    git(root, &["init", "--initial-branch=main"]);
     git(
-        project.path(),
+        root,
         &["config", "user.email", "cli-surface@example.invalid"],
     );
+    git(root, &["config", "user.name", "CLI Surface Fixture"]);
+    git(root, &["add", "."]);
     git(
-        project.path(),
-        &["config", "user.name", "CLI Surface Fixture"],
-    );
-    git(project.path(), &["add", "."]);
-    git(
-        project.path(),
+        root,
         &["commit", "-m", "CG-99 establish public CLI surface"],
     );
-
-    failure(
-        project.path(),
-        database_url,
-        read_only_schema,
+    let before = std::fs::read_dir(root.join(".cartograph"))
+        .unwrap_or_else(|error| panic!("state directory: {error}"))
+        .count();
+    let report = json_success(
+        root,
         &[
             "db",
             "usage",
             "--project-path",
-            project_path,
+            scenario.project_path,
             "--format",
             "json",
         ],
     );
-    failure(
-        project.path(),
-        database_url,
-        read_only_schema,
-        &[
-            "db",
-            "compact",
-            "--heap",
-            "--project-path",
-            project_path,
-            "--format",
-            "json",
-        ],
-    );
-    failure(
-        project.path(),
-        database_url,
-        read_only_schema,
-        &[
-            "db",
-            "compact",
-            "--project-path",
-            project_path,
-            "--format",
-            "json",
-        ],
-    );
-    assert!(
-        !schema_exists(database_url, read_only_schema),
-        "read-only database usage created its missing schema"
+    assert_eq!(report["storage"], "rocksdb");
+    assert_eq!(
+        std::fs::read_dir(root.join(".cartograph"))
+            .unwrap_or_else(|error| panic!("state directory: {error}"))
+            .count(),
+        before,
+        "read-only storage telemetry created state"
     );
 }
 
 fn index_and_verify_storage(scenario: &LiveCliScenario<'_>) {
-    let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
-    let project_path = scenario.project_path;
-    success(
-        project.path(),
-        database_url,
-        schema,
-        &["index", project_path, "--workers", "2", "--format", "json"],
-    );
-    let status = json_success(
-        project.path(),
-        database_url,
-        schema,
-        &["status", project_path, "--json", "--verbose"],
-    );
-    let database_storage = &status["databaseStorage"];
-    assert_eq!(database_storage["state"], "ready");
+    let root = scenario.project.path();
+    let path = scenario.project_path;
+    success(root, &["index", path, "--workers", "2", "--format", "json"]);
+    let status = json_success(root, &["status", path, "--json", "--verbose"]);
+    assert_eq!(status["databaseStorage"]["state"], "ready");
+    assert_eq!(status["storage"], "rocksdb");
     assert!(
-        database_storage["databaseBytes"]
+        status["databaseStorage"]["native"]["fileBytes"]
             .as_u64()
             .is_some_and(|bytes| bytes > 0)
     );
     assert!(
-        database_storage["schemaBytes"]
+        status["databaseStorage"]["humanReadable"]["files"]
+            .as_str()
+            .is_some_and(|text| text.ends_with('B'))
+    );
+    let usage = json_success(
+        root,
+        &["db", "usage", "--project-path", path, "--format", "json"],
+    );
+    assert_eq!(usage["storage"], "rocksdb");
+    assert!(
+        usage["native"]["fileBytes"]
             .as_u64()
             .is_some_and(|bytes| bytes > 0)
     );
-    for field in ["database", "schema", "heap", "index", "btreeIndex", "toast"] {
-        assert!(
-            database_storage["humanReadable"][field]
-                .as_str()
-                .is_some_and(|display| display.ends_with('B')),
-            "status omitted the human-readable {field} allocation"
-        );
-    }
     success(
-        project.path(),
-        database_url,
-        schema,
+        root,
         &[
             "db",
-            "usage",
+            "prune",
             "--project-path",
-            project_path,
-            "--limit",
-            "16",
-            "--format",
-            "json",
-        ],
-    );
-    verify_compaction_surfaces(scenario);
-}
-
-fn verify_compaction_surfaces(scenario: &LiveCliScenario<'_>) {
-    let commands = [
-        vec![
-            "db",
-            "compact",
-            "--project-path",
-            scenario.project_path,
-            "--maximum-indexes",
-            "2",
-            "--minimum-index-bytes",
-            "1048576",
-            "--timeout-seconds",
-            "60",
-            "--format",
-            "json",
-        ],
-        vec![
-            "db",
-            "compact",
-            "--heap",
-            "--project-path",
-            scenario.project_path,
-            "--maximum-relations",
-            "2",
-            "--minimum-reclaimable-bytes",
-            "1",
-            "--timeout-seconds",
-            "60",
-            "--format",
-            "json",
-        ],
-        vec![
-            "db",
-            "compact",
-            "--project-path",
-            scenario.project_path,
-            "--apply",
+            path,
+            "--maximum-cascade-rows",
+            "100",
             "--confirm",
-            "compact-online-indexes",
-            "--maximum-indexes",
-            "2",
-            "--minimum-index-bytes",
-            "1048576",
-            "--timeout-seconds",
-            "60",
-            "--available-headroom-bytes",
-            "1073741824",
+            "prune-old-generations",
             "--format",
             "json",
         ],
-    ];
-    all_succeed(
-        scenario.project.path(),
-        scenario.database_url,
-        scenario.schema,
-        &commands,
     );
 }
 
 fn verify_native_retrieval(scenario: &LiveCliScenario<'_>) -> NativeSymbols {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     let root = json_success(
         project.path(),
-        database_url,
-        schema,
         &[
             "find-native",
             "root",
@@ -835,8 +307,6 @@ fn verify_native_retrieval(scenario: &LiveCliScenario<'_>) -> NativeSymbols {
     );
     let leaf = json_success(
         project.path(),
-        database_url,
-        schema,
         &[
             "find-native",
             "leaf",
@@ -862,8 +332,6 @@ fn verify_native_retrieval(scenario: &LiveCliScenario<'_>) -> NativeSymbols {
     ] {
         success(
             project.path(),
-            database_url,
-            schema,
             &[
                 "find-native",
                 query_text,
@@ -883,8 +351,6 @@ fn verify_native_retrieval(scenario: &LiveCliScenario<'_>) -> NativeSymbols {
     ] {
         success(
             project.path(),
-            database_url,
-            schema,
             &[
                 "context-native",
                 "change root order behavior",
@@ -904,13 +370,9 @@ fn verify_native_retrieval(scenario: &LiveCliScenario<'_>) -> NativeSymbols {
 
 fn verify_native_file_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "files-native",
             "--dir",
@@ -925,8 +387,6 @@ fn verify_native_file_surfaces(scenario: &LiveCliScenario<'_>) {
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "entry-points-native",
             "--bucket",
@@ -939,8 +399,6 @@ fn verify_native_file_surfaces(scenario: &LiveCliScenario<'_>) {
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "at-range-native",
             "src/lib.rs",
@@ -956,16 +414,12 @@ fn verify_native_file_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_native_graph_surfaces(scenario: &LiveCliScenario<'_>, symbols: &NativeSymbols) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     let root_id = &symbols.root_id;
     let leaf_id = &symbols.leaf_id;
     for direction in ["callers", "callees", "both", "impact"] {
         success(
             project.path(),
-            database_url,
-            schema,
             &[
                 "graph-native",
                 root_id,
@@ -980,8 +434,6 @@ fn verify_native_graph_surfaces(scenario: &LiveCliScenario<'_>, symbols: &Native
     }
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "graph-native",
             root_id,
@@ -997,8 +449,6 @@ fn verify_native_graph_surfaces(scenario: &LiveCliScenario<'_>, symbols: &Native
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "show",
             root_id,
@@ -1010,8 +460,6 @@ fn verify_native_graph_surfaces(scenario: &LiveCliScenario<'_>, symbols: &Native
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "affected-native",
             root_id,
@@ -1023,8 +471,6 @@ fn verify_native_graph_surfaces(scenario: &LiveCliScenario<'_>, symbols: &Native
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "review-native",
             "--ref",
@@ -1037,21 +483,15 @@ fn verify_native_graph_surfaces(scenario: &LiveCliScenario<'_>, symbols: &Native
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &["export", project_path, "--format", "json", "--limit", "100"],
     );
 }
 
 fn verify_agent_compatibility_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     let find_text = success(
         project.path(),
-        database_url,
-        schema,
         &[
             "find",
             "root",
@@ -1068,8 +508,6 @@ fn verify_agent_compatibility_surfaces(scenario: &LiveCliScenario<'_>) {
     assert!(find_text.contains("root [function]"));
     let find_env_text = success(
         project.path(),
-        database_url,
-        schema,
         &[
             "find",
             "CARTOGRAPH_TOKEN",
@@ -1086,8 +524,6 @@ fn verify_agent_compatibility_surfaces(scenario: &LiveCliScenario<'_>) {
     assert!(!find_env_text.contains("- match"));
     let find_json = json_success(
         project.path(),
-        database_url,
-        schema,
         &[
             "find",
             "root",
@@ -1103,8 +539,6 @@ fn verify_agent_compatibility_surfaces(scenario: &LiveCliScenario<'_>) {
     assert_eq!(find_json["freshness"], "current");
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "find",
@@ -1146,13 +580,9 @@ fn verify_agent_compatibility_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_operational_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec!["sync-if-dirty", project_path, "--quiet"],
             vec!["install-hooks", project_path, "--dry-run"],
@@ -1163,11 +593,9 @@ fn verify_operational_surfaces(scenario: &LiveCliScenario<'_>) {
             vec!["doctor", project_path, "--json"],
             vec![
                 "db",
-                "status",
+                "usage",
                 "--project-path",
                 project_path,
-                "--port",
-                "55432",
                 "--format",
                 "json",
             ],
@@ -1213,13 +641,9 @@ fn verify_operational_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_analysis_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "biomarkers",
@@ -1257,7 +681,6 @@ fn verify_analysis_surfaces(scenario: &LiveCliScenario<'_>) {
             ],
             vec!["history", "--mode", "files", "--project-path", project_path],
             vec!["imports", "--source", "all", "--project-path", project_path],
-            vec!["sql", "--schema", "--project-path", project_path],
             vec![
                 "verify",
                 "--ref",
@@ -1274,13 +697,9 @@ fn verify_analysis_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_contextual_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "compare-to-ref",
@@ -1317,13 +736,9 @@ fn verify_contextual_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_collaboration_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "note",
@@ -1401,13 +816,9 @@ fn verify_collaboration_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_install_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "install",
@@ -1434,27 +845,15 @@ fn verify_install_surfaces(scenario: &LiveCliScenario<'_>) {
                 "--format",
                 "json",
             ],
-            vec![
-                "db",
-                "stop",
-                "--project-path",
-                project_path,
-                "--port",
-                "55432",
-            ],
         ],
     );
 }
 
 fn verify_invalid_agent_inputs(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_fail(
         project.path(),
-        database_url,
-        schema,
         &[
             vec!["admin", "status", "--project-path", project_path, "--json"],
             vec![
@@ -1482,8 +881,6 @@ fn verify_invalid_agent_inputs(scenario: &LiveCliScenario<'_>) {
 
 fn verify_invalid_database_inputs(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     let missing_backup = project
         .path()
@@ -1492,8 +889,6 @@ fn verify_invalid_database_inputs(scenario: &LiveCliScenario<'_>) {
         .into_owned();
     all_fail(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "db",
@@ -1572,14 +967,10 @@ fn verify_invalid_database_inputs(scenario: &LiveCliScenario<'_>) {
 
 fn verify_llm_configuration_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     let missing_model = scenario.missing_model;
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "llm",
             "setup",
@@ -1598,15 +989,11 @@ fn verify_llm_configuration_surfaces(scenario: &LiveCliScenario<'_>) {
     );
     success(
         project.path(),
-        database_url,
-        schema,
         &["llm", "migrate-credentials", project_path, "--json"],
     );
     seed_inline_llm_credential(project.path());
     all_fail(
         project.path(),
-        database_url,
-        schema,
         &[
             vec![
                 "llm",
@@ -1637,13 +1024,9 @@ fn verify_llm_configuration_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_backend_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     all_succeed(
         project.path(),
-        database_url,
-        schema,
         &[
             vec!["backend", "status", project_path, "--json"],
             vec!["backend", "stop", project_path, "--json"],
@@ -1684,8 +1067,6 @@ fn verify_backend_surfaces(scenario: &LiveCliScenario<'_>) {
     );
     all_fail(
         project.path(),
-        database_url,
-        schema,
         &[
             vec!["backend", "start", project_path, "--dry-run", "--json"],
             vec!["backend", "restart", project_path, "--dry-run", "--json"],
@@ -1703,13 +1084,9 @@ fn verify_backend_surfaces(scenario: &LiveCliScenario<'_>) {
 
 fn verify_llm_runtime_surfaces(scenario: &LiveCliScenario<'_>) {
     let project = scenario.project;
-    let database_url = scenario.database_url;
-    let schema = scenario.schema;
     let project_path = scenario.project_path;
     success(
         project.path(),
-        database_url,
-        schema,
         &[
             "llm",
             "install",
@@ -1721,8 +1098,6 @@ fn verify_llm_runtime_surfaces(scenario: &LiveCliScenario<'_>) {
     );
     failure(
         project.path(),
-        database_url,
-        schema,
         &[
             "llm",
             "smoke",
@@ -1811,20 +1186,20 @@ fn seed_inline_llm_credential(root: &Path) {
         .unwrap_or_else(|error| panic!("LLM fixture config write failed: {error}"));
 }
 
-fn all_succeed(root: &Path, database_url: &str, schema: &str, commands: &[Vec<&str>]) {
+fn all_succeed(root: &Path, commands: &[Vec<&str>]) {
     for arguments in commands {
-        success(root, database_url, schema, arguments);
+        success(root, arguments);
     }
 }
 
-fn all_fail(root: &Path, database_url: &str, schema: &str, commands: &[Vec<&str>]) {
+fn all_fail(root: &Path, commands: &[Vec<&str>]) {
     for arguments in commands {
-        failure(root, database_url, schema, arguments);
+        failure(root, arguments);
     }
 }
 
-fn success(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) -> Output {
-    let output = invoke(root, database_url, schema, arguments);
+fn success(root: &Path, arguments: &[&str]) -> Output {
+    let output = invoke(root, arguments);
     assert!(
         output.status.success(),
         "cartograph {arguments:?} failed with status {:?}: {}",
@@ -1834,21 +1209,18 @@ fn success(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) ->
     output
 }
 
-fn failure(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) -> Output {
-    let output = invoke(root, database_url, schema, arguments);
+fn failure(root: &Path, arguments: &[&str]) -> Output {
+    let output = invoke(root, arguments);
     assert!(
         !output.status.success(),
         "cartograph {arguments:?} unexpectedly succeeded"
     );
-    assert!(
-        !String::from_utf8_lossy(&output.stderr).contains(database_url),
-        "a failing CLI command exposed the database URL"
-    );
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("invalid-retired-database"));
     output
 }
 
-fn json_success(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) -> Value {
-    let output = success(root, database_url, schema, arguments);
+fn json_success(root: &Path, arguments: &[&str]) -> Value {
+    let output = success(root, arguments);
     serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
         panic!(
             "cartograph {arguments:?} returned invalid JSON: {error}: {}",
@@ -1857,76 +1229,18 @@ fn json_success(root: &Path, database_url: &str, schema: &str, arguments: &[&str
     })
 }
 
-fn invoke(root: &Path, database_url: &str, schema: &str, arguments: &[&str]) -> Output {
+fn invoke(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_cartograph"))
         .arg("--no-color")
         .args(arguments)
         .current_dir(root)
-        .env("CARTOGRAPH_DATABASE_URL", database_url)
-        .env("CARTOGRAPH_DATABASE_SCHEMA", schema)
-        .env("CARTOGRAPH_DATABASE_MAX_CONNECTIONS", "8")
-        .env("CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS", "10000")
+        .env("CARTOGRAPH_DATABASE_URL", "invalid-retired-database")
+        .env("DOCKER_HOST", "unix:///no-native-test-docker.sock")
         .env_remove("CARTOGRAPH_LIVE_CLI_MISSING_KEY")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .unwrap_or_else(|error| panic!("cartograph process failed to start: {error}"))
-}
-
-fn prepare_schema_one_version_behind(database_url: &str, schema: &str) {
-    const FRAMEWORK_PARITY_SCHEMA_VERSION: i64 = 50;
-    let settings =
-        cartograph_config::DatabaseSettings::parse(database_url, Some("2"), Some("10000"))
-            .and_then(|settings| settings.with_schema(schema))
-            .unwrap_or_else(|error| panic!("schema-behind settings failed: {error}"));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|error| panic!("schema-behind runtime failed: {error}"));
-    runtime.block_on(async {
-        assert_eq!(
-            cartograph_db::latest_schema_version(),
-            FRAMEWORK_PARITY_SCHEMA_VERSION,
-            "schema-behind fixture must track the current migration"
-        );
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("schema-behind connection failed: {error}"));
-        let database = CartographDatabase::new(pool.clone(), settings.schema().clone());
-        database
-            .migrate()
-            .await
-            .unwrap_or_else(|error| panic!("schema-behind migration failed: {error}"));
-        query(AssertSqlSafe(format!(
-            r#"ALTER TABLE "{schema}"."index_generations"
-                DROP CONSTRAINT index_generations_digest_version_check,
-                ADD CONSTRAINT index_generations_digest_version_check
-                    CHECK (content_digest_version IS NULL OR content_digest_version IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22))"#
-        )))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("schema-behind rollback failed: {error}"));
-        query(AssertSqlSafe(format!(
-            r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#
-        )))
-        .bind(FRAMEWORK_PARITY_SCHEMA_VERSION)
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("schema-behind ledger rollback failed: {error}"));
-        database.close().await;
-    });
-}
-
-fn doctor_check<'report>(report: &'report Value, id: &str) -> &'report Value {
-    doctor_check_optional(report, id)
-        .unwrap_or_else(|| panic!("doctor report omitted the {id} check: {report}"))
-}
-
-fn doctor_check_optional<'report>(report: &'report Value, id: &str) -> Option<&'report Value> {
-    report["checks"]
-        .as_array()?
-        .iter()
-        .find(|check| check["id"] == id)
 }
 
 fn symbol_id(value: &Value, expected_name: &str) -> Option<String> {
@@ -1970,73 +1284,4 @@ fn git(root: &Path, arguments: &[&str]) {
         status.success(),
         "git fixture command failed: {arguments:?}"
     );
-}
-
-fn cleanup_schema(database_url: &str, schema: &str) {
-    let settings =
-        cartograph_config::DatabaseSettings::parse(database_url, Some("2"), Some("10000"))
-            .and_then(|settings| settings.with_schema(schema))
-            .unwrap_or_else(|error| panic!("cleanup settings failed: {error}"));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|error| panic!("cleanup runtime failed: {error}"));
-    runtime.block_on(async {
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("cleanup failed: {error}"));
-        pool.close().await;
-    });
-}
-
-fn ensure_pgstattuple(database_url: &str, schema: &str) {
-    let settings =
-        cartograph_config::DatabaseSettings::parse(database_url, Some("2"), Some("10000"))
-            .and_then(|settings| settings.with_schema(schema))
-            .unwrap_or_else(|error| panic!("pgstattuple settings failed: {error}"));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|error| panic!("pgstattuple runtime failed: {error}"));
-    runtime.block_on(async {
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("pgstattuple connection failed: {error}"));
-        query("CREATE EXTENSION IF NOT EXISTS pgstattuple")
-            .execute(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("pgstattuple installation failed: {error}"));
-        pool.close().await;
-    });
-}
-
-fn schema_exists(database_url: &str, schema: &str) -> bool {
-    let settings =
-        cartograph_config::DatabaseSettings::parse(database_url, Some("2"), Some("10000"))
-            .and_then(|settings| settings.with_schema(schema))
-            .unwrap_or_else(|error| panic!("schema inspection settings failed: {error}"));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|error| panic!("schema inspection runtime failed: {error}"));
-    runtime.block_on(async {
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("schema inspection connection failed: {error}"));
-        let exists =
-            query("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1)")
-                .bind(schema)
-                .fetch_one(&pool)
-                .await
-                .and_then(|row| row.try_get::<bool, _>(0))
-                .unwrap_or_else(|error| panic!("schema inspection failed: {error}"));
-        pool.close().await;
-        exists
-    })
 }

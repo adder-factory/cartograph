@@ -290,6 +290,7 @@ impl ProjectRuntime {
             .scan_source_batch(
                 paths,
                 current.source_admission.run_excludes(),
+                current.source_admission.maximum_file_bytes(),
                 cancellation.clone(),
             )
             .await?;

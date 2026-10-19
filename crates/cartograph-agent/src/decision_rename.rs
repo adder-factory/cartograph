@@ -57,6 +57,8 @@ pub struct RenameTriageEvidence {
     judged: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     provider_error: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    requests: Vec<cartograph_domain::DecisionRequestMetrics>,
 }
 
 impl RenameTriageEvidence {
@@ -66,7 +68,13 @@ impl RenameTriageEvidence {
             state,
             judged,
             provider_error,
+            requests: Vec::new(),
         }
+    }
+
+    fn with_requests(mut self, requests: Vec<cartograph_domain::DecisionRequestMetrics>) -> Self {
+        self.requests = requests;
+        self
     }
 
     /// Triage outcome.
@@ -125,25 +133,25 @@ pub(crate) async fn triage_with(
         () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
         outcomes = decide_batches(provider, mentions) => outcomes,
     };
+    let requests = outcomes.requests;
     let mut probabilities = Vec::with_capacity(plan.textual_mentions.len());
     for (_, judged) in outcomes.batches {
         match judged {
             Ok(judged) => probabilities.extend(judged),
-            Err(error) => return Ok(with_unavailable(plan, &error)),
+            Err(error) => return Ok(with_unavailable_requests(plan, &error, requests)),
         }
     }
     if let Some(error) = outcomes.stopped {
-        return Ok(with_unavailable(plan, &error));
+        return Ok(with_unavailable_requests(plan, &error, requests));
     }
     for (mention, probability) in plan.textual_mentions.iter_mut().zip(&probabilities) {
         mention.decision_probability = Some(*probability);
         mention.triage = Some(triage(*probability));
     }
-    plan.decision_triage = Some(RenameTriageEvidence::new(
-        RenameTriageState::Applied,
-        probabilities.len(),
-        None,
-    ));
+    plan.decision_triage = Some(
+        RenameTriageEvidence::new(RenameTriageState::Applied, probabilities.len(), None)
+            .with_requests(requests),
+    );
     Ok(plan)
 }
 
@@ -164,6 +172,18 @@ fn with_unavailable(mut plan: RenamePlan, error: &JevError) -> RenamePlan {
         0,
         code,
     ));
+    plan
+}
+
+fn with_unavailable_requests(
+    plan: RenamePlan,
+    error: &JevError,
+    requests: Vec<cartograph_domain::DecisionRequestMetrics>,
+) -> RenamePlan {
+    let mut plan = with_unavailable(plan, error);
+    if let Some(evidence) = &mut plan.decision_triage {
+        evidence.requests = requests;
+    }
     plan
 }
 
@@ -232,11 +252,8 @@ fn question_key(index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use std::assert_matches;
-    use std::time::SystemTime;
 
-    use cartograph_config::DatabaseSettings;
     use cartograph_db::{CurrentGenerationLookup, CurrentSymbolSetLookup, ExactTextLookup};
-    use cartograph_test_support::TestSchemaGuard;
 
     use super::*;
     use crate::{RenamePlanOptions, RenamePlanRequest};
@@ -270,6 +287,8 @@ mod tests {
                 })
                 .collect();
             std::future::ready(Ok(JevDecision {
+                usage: None,
+                metrics: Some(crate::decision_batch::fixture_request_metrics()),
                 model: JEV_MODEL.to_owned(),
                 answers,
             }))
@@ -289,7 +308,6 @@ mod tests {
     }
 
     struct PlannedRename {
-        guard: TestSchemaGuard,
         runtime: ProjectRuntime,
         plan: RenamePlan,
         _root: tempfile::TempDir,
@@ -298,17 +316,6 @@ mod tests {
     /// Indexes a fixture where `settle_ledger` has an exact caller and
     /// comment mentions, and plans its rename.
     async fn settle_ledger_plan() -> PlannedRename {
-        let url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("test database not configured"));
-        let stamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_rename_triage_{}_{}", std::process::id(), stamp);
-        let guard = TestSchemaGuard::new(&url, &schema).unwrap_or_else(|e| panic!("guard: {e}"));
-        let settings = DatabaseSettings::parse(&url, Some("4"), Some("10000"))
-            .and_then(|s| s.with_schema(&schema))
-            .unwrap_or_else(|e| panic!("settings: {e}"));
         let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
         std::fs::write(
             root.path().join("lib.rs"),
@@ -323,7 +330,7 @@ mod tests {
         });
         std::fs::write(root.path().join("notes.rs"), notes + "pub fn audit() {}\n")
             .unwrap_or_else(|e| panic!("notes: {e}"));
-        let runtime = ProjectRuntime::connect(root.path(), &settings)
+        let runtime = ProjectRuntime::open(root.path())
             .await
             .unwrap_or_else(|e| panic!("runtime: {e}"));
         let indexed = runtime
@@ -362,7 +369,6 @@ mod tests {
             .await
             .unwrap_or_else(|e| panic!("plan: {e}"));
         PlannedRename {
-            guard,
             runtime,
             plan,
             _root: root,
@@ -370,10 +376,8 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector; provider decisions are scripted"]
     async fn live_rename_triage_labels_mentions_and_leaves_the_plan_on_failure() {
         let PlannedRename {
-            guard,
             runtime,
             plan,
             _root,
@@ -403,6 +407,13 @@ mod tests {
             .unwrap_or_else(|| panic!("triage evidence"));
         assert_eq!(evidence.state(), RenameTriageState::Applied);
         assert_eq!(evidence.judged, mentions);
+        assert_eq!(evidence.requests.len(), mentions.div_ceil(MENTION_BATCH));
+        assert!(
+            evidence
+                .requests
+                .iter()
+                .all(|metrics| metrics.input_tokens == Some(120))
+        );
         let labels = triaged
             .textual_mentions
             .iter()
@@ -464,10 +475,9 @@ mod tests {
                         && mention.decision_probability.is_none())
             );
         }
-        runtime.close().await;
-        guard
-            .cleanup()
+        runtime
+            .close()
             .await
-            .unwrap_or_else(|e| panic!("cleanup: {e}"));
+            .unwrap_or_else(|e| panic!("shutdown: {e}"));
     }
 }

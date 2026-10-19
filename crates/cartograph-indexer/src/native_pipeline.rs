@@ -26,11 +26,13 @@ mod javascript_modules;
 mod javascript_packages;
 mod jvm_nested_resolution;
 mod jvm_resolution;
+mod local_edit;
 mod module_call_resolution;
 mod namespace_types;
 mod native_bridge_details;
 mod native_event_calls;
 mod nominal_scope_resolution;
+mod observed_source;
 mod ocaml_module_resolution;
 mod pascal_resolution;
 mod php_resolution;
@@ -61,38 +63,22 @@ mod rust_scoped_modules;
 mod rust_uniform_paths;
 mod rust_use_bindings;
 mod salesforce_resolution;
-mod scip_spill;
 mod script_modules;
 mod shell_resolution;
+
+pub use local_edit::{NativeLocalEditRequest, try_native_local_edit};
+pub use observed_source::{NativeObservedFile, NativeObservedManifest};
 
 use intrinsic_names::BuiltinVocabulary::{PythonExceptions, PythonValues};
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
-    iter::Peekable,
     mem::{size_of, take},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
-use cartograph_db::{
-    CachedRowPayload, CanonicalGenerationFacts, CartographDatabase, EdgeInput, FactBatchInput,
-    FileInput, GenerationFacts, GenerationMemoryModelError, GenerationValidationError,
-    GenerationValidationLimits, GenerationValidationReport, MAX_NATIVE_PARSE_CACHE_PAYLOAD_BYTES,
-    NativeGenerationExtractedCursor, NativeGenerationExtractedPage, NativeGenerationSpill,
-    NativeGenerationSpillCachedRow, NativeGenerationSpillCentralityScore,
-    NativeGenerationSpillDigestReport, NativeGenerationSpillExtractedBatch,
-    NativeGenerationSpillExtractedRow, NativeGenerationSpillFactBatch,
-    NativeGenerationSpillFactCounts, NativeGenerationSpillReport, NativeGenerationSpillRow,
-    NativeGenerationSpillState, NativeParseCacheEntry, NativeParseCacheKey,
-    NativeParseCacheKeyInput, NativeParseCacheRecord, NativeParseCacheWrite, NumericalSiteInput,
-    ReferenceInput, ReferenceSpanPrecision, SearchDocumentInput, StorageError, SymbolInput,
-    apply_page_rank, apply_sampled_betweenness, validate_generation_facts,
-};
 use cartograph_domain::{
     ContentDigest, DocumentId, DocumentKind, EdgeKind, FileId, NormalizedPath, ProjectId,
     ReferenceKind, SourceLanguage, SourceSpan, SymbolExecutionFlags, SymbolExportFlags, SymbolId,
@@ -114,14 +100,14 @@ use cartograph_extract::{
     substitute_module_alias,
 };
 use cartograph_scip::{
-    ScipOverlayPlan, ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
+    ScipOverlayReport, ScipOverlayRequest, apply_scip_overlay_with_cancellation,
 };
 use globset::GlobBuilder;
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
-    task::{JoinSet, block_in_place},
+    task::block_in_place,
     time::Instant,
 };
 
@@ -223,22 +209,11 @@ const MAXIMUM_TYPESCRIPT_ALIAS_CONFIGS: usize = 256;
 const MAXIMUM_TYPESCRIPT_PATH_MAPPINGS: usize = 256;
 const MAXIMUM_TYPESCRIPT_PATH_SUBSTITUTIONS: usize = 32;
 const MAXIMUM_TYPESCRIPT_PATH_TEXT_BYTES: usize = 4_096;
-const SPILLED_EXTRACTION_PAGE_BYTES: u64 = 32 * 1024 * 1024;
-const SPILLED_PARSE_BATCH_FILES: usize = 64;
-const SPILLED_PARSE_BATCH_BYTES: u64 = 64 * 1024 * 1024;
-const SPILLED_PARSE_BATCH_RESERVATION_BYTES: u64 = 64 * 1024 * 1024;
-const SPILLED_PARSE_CACHE_WRITE_BYTES: usize = 64 * 1024 * 1024;
-const SPILLED_RESOLVE_TRANSACTION_BATCHES: usize = 256;
-const SPILLED_RESOLVE_TRANSACTION_BYTES: u64 = 64 * 1024 * 1024;
-const SPILLED_RESOLVE_TRANSACTION_ROWS: u64 = 200_000;
-const SPILLED_RESOLVE_TRANSACTION_RETAINED_BYTES: u64 = 512 * 1024 * 1024;
-const SPILLED_REDUCTION_RESERVATION_BYTES: u64 = 64 * 1024 * 1024;
-const SPILLED_CENTRALITY_UPDATE_ROWS: usize = 100_000;
 const MAXIMUM_PROJECT_NON_VISIBLE_LANGUAGES: usize = 12;
 /// PostgreSQL-backed path/content cache policy for one complete native build.
 #[derive(Clone)]
 pub struct NativeParseCache {
-    database: CartographDatabase,
+    database: cartograph_db::NativeDatabase,
     project_id: ProjectId,
     extractor_contract_digest: ContentDigest,
     read_enabled: bool,
@@ -262,6 +237,17 @@ impl NativeParseCache {
         Self {
             database,
             project_id,
+            extractor_contract_digest: native_extractor_contract_digest(),
+            read_enabled: true,
+        }
+    }
+
+    /// Share the existing project's native storage owner for exact extraction reuse.
+    #[must_use]
+    pub fn from_native(database: cartograph_db::NativeDatabase) -> Self {
+        Self {
+            project_id: database.project_id().clone(),
+            database,
             extractor_contract_digest: native_extractor_contract_digest(),
             read_enabled: true,
         }
@@ -694,7 +680,6 @@ pub struct NativePipelineReport {
     overlay_high_water_bytes: u64,
     parse_cache: NativeParseCacheReport,
     storage: NativeGenerationStorage,
-    spill: Option<NativeGenerationSpillReport>,
 }
 
 /// One source file retained as partial after a recoverable extraction boundary.
@@ -724,12 +709,11 @@ pub enum NativeGenerationStorage {
     /// Retain and canonically reduce one complete native generation in Rust memory.
     #[default]
     Memory,
-    /// Spill file-local and resolved facts behind the exact staging fence in PostgreSQL.
-    PostgreSql,
 }
 
 /// Exact per-file incremental parsing evidence for one complete graph build.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeParseCacheReport {
     hits: u64,
     misses: u64,
@@ -919,12 +903,6 @@ impl NativePipelineReport {
     pub const fn storage(&self) -> NativeGenerationStorage {
         self.storage
     }
-
-    /// Fixed-size PostgreSQL spill accounting, absent for the memory path.
-    #[must_use]
-    pub const fn spill(&self) -> Option<NativeGenerationSpillReport> {
-        self.spill
-    }
 }
 
 /// Canonical database facts plus fixed-size build accounting.
@@ -968,37 +946,6 @@ impl NativeGeneration {
     }
 }
 
-/// PostgreSQL-canonicalized native generation plus fixed-size build accounting.
-pub struct NativeSpilledGeneration {
-    digest: NativeGenerationSpillDigestReport,
-    report: NativePipelineReport,
-}
-
-impl fmt::Debug for NativeSpilledGeneration {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("NativeSpilledGeneration")
-            .field("report", &self.report)
-            .field("digest", self.digest.digest())
-            .field("counts", &self.digest.counts())
-            .finish()
-    }
-}
-
-impl NativeSpilledGeneration {
-    /// Fixed-size discovery, extraction, resolution, and spill accounting.
-    #[must_use]
-    pub fn report(&self) -> NativePipelineReport {
-        self.report.clone()
-    }
-
-    /// Split the exact streamed digest capability from its public build report.
-    #[must_use]
-    pub fn into_parts(self) -> (NativeGenerationSpillDigestReport, NativePipelineReport) {
-        (self.digest, self.report)
-    }
-}
-
 /// Native project ingestion failed without embedding paths, source, or credentials.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum NativePipelineError {
@@ -1030,12 +977,6 @@ pub enum NativePipelineError {
         /// Stable actionable reason, when the failure matched an allowlisted boundary.
         reason: Option<PipelineFailureReason>,
     },
-    /// Generation-fenced PostgreSQL spill failed without retaining driver details.
-    #[error("native pipeline database spill failed during {stage}")]
-    Spill {
-        /// Exact native stage whose bounded spill operation failed.
-        stage: PipelineStage,
-    },
     /// A supposedly single-output stage violated its internal contract.
     #[error("native pipeline {stage} stage output was incomplete")]
     Incomplete {
@@ -1053,7 +994,6 @@ impl NativePipelineError {
             Self::Stage(error) => error.stage(),
             Self::StageWithReason { stage, .. }
             | Self::StageWithFileFailure { stage, .. }
-            | Self::Spill { stage }
             | Self::Incomplete { stage } => *stage,
             Self::Validation { .. } => PipelineStage::Reduce,
         }
@@ -1073,7 +1013,7 @@ impl NativePipelineError {
                     ..
                 },
             ) => Some(PipelineFailureReason::DeadlineExceeded),
-            Self::Runtime | Self::Stage(_) | Self::Spill { .. } | Self::Incomplete { .. } => None,
+            Self::Runtime | Self::Stage(_) | Self::Incomplete { .. } => None,
         }
     }
 
@@ -1086,7 +1026,6 @@ impl NativePipelineError {
             | Self::Stage(_)
             | Self::StageWithReason { .. }
             | Self::Validation { .. }
-            | Self::Spill { .. }
             | Self::Incomplete { .. } => None,
         }
     }
@@ -1098,9 +1037,14 @@ pub struct NativeGenerationBuild {
     config: NativePipelineConfig,
     scip_overlay: Option<ScipOverlayInput>,
     parse_cache: Option<NativeParseCache>,
+    observed_source: Option<NativeObservedManifest>,
 }
 
 impl NativeGenerationBuild {
+    pub(crate) fn maximum_stage_reservation_bytes(&self) -> Result<u64, NativePipelineConfigError> {
+        self.config.maximum_stage_reservation_bytes()
+    }
+
     /// Start a complete native build without optional SCIP or cache inputs.
     #[must_use]
     pub const fn new(source_root: SourceRoot, config: NativePipelineConfig) -> Self {
@@ -1109,6 +1053,7 @@ impl NativeGenerationBuild {
             config,
             scip_overlay: None,
             parse_cache: None,
+            observed_source: None,
         }
     }
 
@@ -1123,6 +1068,14 @@ impl NativeGenerationBuild {
     #[must_use]
     pub fn with_parse_cache(mut self, cache: NativeParseCache) -> Self {
         self.parse_cache = Some(cache);
+        self
+    }
+
+    /// Reuse the owning source scan's bounded, byte-hashed file observations.
+    /// The caller must still compare parsed facts and revalidate source before publication.
+    #[must_use]
+    pub fn with_observed_source(mut self, source: NativeObservedManifest) -> Self {
+        self.observed_source = Some(source);
         self
     }
 }
@@ -1179,6 +1132,7 @@ pub async fn build_native_generation_with_scip_and_cache(
         config,
         scip_overlay,
         parse_cache,
+        observed_source,
     } = request;
     let parse_cache =
         parse_cache.map(|cache| cache.with_maximum_ast_depth(config.maximum_ast_depth()));
@@ -1188,8 +1142,13 @@ pub async fn build_native_generation_with_scip_and_cache(
         source_root,
         config,
     };
-    let (discovered, exclusions) = run_discovery_stage(&stages).await?;
-    let (manifest, skipped_oversized_files) = run_read_stage(&stages, discovered).await?;
+    let (manifest, exclusions, skipped_oversized_files) = if let Some(source) = observed_source {
+        observed_source::run(&stages, source).await?
+    } else {
+        let (discovered, exclusions) = run_discovery_stage(&stages).await?;
+        let (manifest, skipped) = run_read_stage(&stages, discovered).await?;
+        (manifest, exclusions, skipped)
+    };
     let report_seed = NativePipelineReport {
         discovered_files: usize_to_u64(manifest.entries.len()),
         excluded_paths: exclusions.excluded_paths(),
@@ -1236,84 +1195,6 @@ pub async fn build_native_generation_with_scip_and_cache(
             ..report_seed
         },
         facts,
-    })
-}
-
-/// Build a native generation through generation-fenced PostgreSQL spill and reduction.
-///
-/// File-local extraction payloads and resolved relation batches are durable and retry-safe.
-/// PostgreSQL performs the generation-wide canonical reduction in deterministic partitions,
-/// after which the exact logical digest is streamed from canonical rows. The staging generation
-/// remains invisible and this capability cannot publish it.
-/// # Errors
-///
-/// Returns an error if the runtime, source, parser, resolver, spill quota/fence, canonical
-/// reduction, source-verified overlay, or digest contract fails.
-pub async fn build_native_generation_spilled(
-    runner: &StageRunner,
-    request: NativeGenerationBuild,
-    spill: NativeGenerationSpill,
-) -> Result<NativeSpilledGeneration, NativePipelineError> {
-    let NativeGenerationBuild {
-        source_root,
-        config,
-        scip_overlay,
-        parse_cache,
-    } = request;
-    let parse_cache =
-        parse_cache.map(|cache| cache.with_maximum_ast_depth(config.maximum_ast_depth()));
-    require_multithread_runtime()?;
-    let stages = NativeStageContext {
-        runner,
-        source_root,
-        config,
-    };
-    let (discovered, exclusions) = run_discovery_stage(&stages).await?;
-    let (manifest, skipped_oversized_files) = run_read_stage(&stages, discovered).await?;
-    let report_seed = NativePipelineReport {
-        discovered_files: usize_to_u64(manifest.entries.len()),
-        excluded_paths: exclusions.excluded_paths(),
-        excluded_trees: exclusions.excluded_trees(),
-        skipped_oversized_files,
-        source_bytes: manifest.source_bytes,
-        storage: NativeGenerationStorage::PostgreSql,
-        ..NativePipelineReport::default()
-    };
-    let (extracted, parse_cache) = run_spilled_parse_stage(
-        &stages,
-        SpilledParseStageInputs {
-            manifest: manifest.entries,
-            parse_cache,
-            spill,
-        },
-    )
-    .await?;
-    let resolved = run_spilled_resolve_stage(&stages, extracted, scip_overlay).await?;
-    let spill = resolved.spill;
-    let digest = run_spilled_reduce_stage(&stages, spill.clone()).await?;
-    let spill_report = spill
-        .report()
-        .await
-        .map_err(|error| spill_pipeline_error(PipelineStage::Reduce, &error))?;
-    let counts = digest.counts();
-    Ok(NativeSpilledGeneration {
-        report: NativePipelineReport {
-            symbols: counts.symbols,
-            numerical_sites: counts.numerical_sites,
-            resolved_references: resolved.report.resolved,
-            unresolved_references: resolved.report.unresolved,
-            diagnostics: resolved.report.diagnostics,
-            degraded_files: resolved.degraded_files,
-            degraded_files_truncated: resolved.degraded_files_truncated,
-            resolve_high_water_bytes: resolved.report.charged_high_water_bytes,
-            validation_high_water_bytes: SPILLED_REDUCTION_RESERVATION_BYTES,
-            parse_cache,
-            scip_overlay: resolved.scip_overlay,
-            overlay_high_water_bytes: resolved.overlay_high_water_bytes,
-            spill: Some(spill_report),
-            ..report_seed
-        },
-        digest,
     })
 }
 
@@ -1540,11 +1421,6 @@ fn classify_parse_stage_failure(
     error: StageRunError,
     failure: Option<ParseManifestFailure>,
 ) -> NativePipelineError {
-    if failure.as_ref().is_some_and(ParseManifestFailure::is_spill) {
-        return NativePipelineError::Spill {
-            stage: PipelineStage::Parse,
-        };
-    }
     if let Some(file_failure) = failure
         .as_ref()
         .and_then(ParseManifestFailure::file_failure)
@@ -1561,954 +1437,6 @@ fn classify_parse_stage_failure(
         },
         None => NativePipelineError::Stage(error),
     }
-}
-
-#[derive(Clone)]
-struct SpilledNativeFacts {
-    spill: NativeGenerationSpill,
-    state: NativeGenerationSpillState,
-    files: u64,
-    diagnostics: u64,
-    degraded_files: Vec<NativeDegradedFile>,
-    degraded_files_truncated: u64,
-}
-
-struct SpilledParseStageAccumulator {
-    files: u64,
-    diagnostics: u64,
-    degraded_files: Vec<NativeDegradedFile>,
-    degraded_files_truncated: u64,
-    cache: NativeParseCacheReport,
-}
-
-impl SpilledParseStageAccumulator {
-    const fn new() -> Self {
-        Self {
-            files: 0,
-            diagnostics: 0,
-            degraded_files: Vec::new(),
-            degraded_files_truncated: 0,
-            cache: NativeParseCacheReport {
-                hits: 0,
-                misses: 0,
-                bypassed: 0,
-                parsed_files: 0,
-                writes: 0,
-                corruptions: 0,
-                read_errors: 0,
-                write_errors: 0,
-            },
-        }
-    }
-
-    fn push(&mut self, mut parsed: SpilledParsedManifestBatch) -> Result<(), StageItemFailure> {
-        self.files = self
-            .files
-            .checked_add(parsed.files)
-            .ok_or(StageItemFailure)?;
-        self.diagnostics = self
-            .diagnostics
-            .checked_add(parsed.diagnostics)
-            .ok_or(StageItemFailure)?;
-        self.degraded_files_truncated = self
-            .degraded_files_truncated
-            .checked_add(parsed.degraded_files_truncated)
-            .ok_or(StageItemFailure)?;
-        append_degraded_files(
-            &mut self.degraded_files,
-            &mut self.degraded_files_truncated,
-            &mut parsed.degraded_files,
-        )?;
-        self.cache.add(parsed.cache);
-        Ok(())
-    }
-}
-
-struct SpilledParseManifestEntry {
-    sequence: u64,
-    manifest: SourceManifestEntry,
-}
-
-struct SpilledParseManifestBatch {
-    entries: Vec<SpilledParseManifestEntry>,
-}
-
-struct SpilledParsedManifestBatch {
-    files: u64,
-    diagnostics: u64,
-    degraded_files: Vec<NativeDegradedFile>,
-    degraded_files_truncated: u64,
-    cache: NativeParseCacheReport,
-}
-
-struct SpilledParseEnvelopeIterator {
-    entries: Peekable<std::vec::IntoIter<SourceManifestEntry>>,
-    file_sequence: u64,
-    batch_sequence: u64,
-    item_timeout: Duration,
-    stage_deadline: Instant,
-    failed: Arc<AtomicBool>,
-}
-
-impl SpilledParseEnvelopeIterator {
-    fn fail(&self) {
-        self.failed.store(true, Ordering::Release);
-    }
-}
-
-impl Iterator for SpilledParseEnvelopeIterator {
-    type Item = StageEnvelope<u64, SpilledParseManifestBatch>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.entries.peek()?;
-        let mut batch = Vec::new();
-        if batch.try_reserve_exact(SPILLED_PARSE_BATCH_FILES).is_err() {
-            self.fail();
-            return None;
-        }
-        let mut maximum_reservation = 0_u64;
-        let mut source_bytes = 0_u64;
-        while batch.len() < SPILLED_PARSE_BATCH_FILES {
-            let Some(next) = self.entries.peek() else {
-                break;
-            };
-            let Some(next_source_bytes) = source_bytes.checked_add(next.byte_size) else {
-                self.fail();
-                return None;
-            };
-            if !batch.is_empty() && next_source_bytes > SPILLED_PARSE_BATCH_BYTES {
-                break;
-            }
-            let Some(reservation) = native_extraction_reservation(next.byte_size) else {
-                self.fail();
-                return None;
-            };
-            let Some(manifest) = self.entries.next() else {
-                self.fail();
-                return None;
-            };
-            let sequence = self.file_sequence;
-            let Some(next_file_sequence) = self.file_sequence.checked_add(1) else {
-                self.fail();
-                return None;
-            };
-            self.file_sequence = next_file_sequence;
-            maximum_reservation = maximum_reservation.max(reservation);
-            source_bytes = next_source_bytes;
-            batch.push(SpilledParseManifestEntry { sequence, manifest });
-            if source_bytes > SPILLED_PARSE_BATCH_BYTES {
-                break;
-            }
-        }
-        let Some(first) = batch.first() else {
-            self.fail();
-            return None;
-        };
-        let Some(reserved_bytes) =
-            maximum_reservation.checked_add(SPILLED_PARSE_BATCH_RESERVATION_BYTES)
-        else {
-            self.fail();
-            return None;
-        };
-        let sequence = self.batch_sequence;
-        let Some(next_batch_sequence) = self.batch_sequence.checked_add(1) else {
-            self.fail();
-            return None;
-        };
-        self.batch_sequence = next_batch_sequence;
-        let item_deadline = planned_item_deadline(self.item_timeout, self.stage_deadline);
-        Some(StageEnvelope::new(
-            StageItemMeta::new(
-                StageSequence::new(sequence),
-                first.sequence,
-                StageItemBudget::new(reserved_bytes, source_bytes, item_deadline),
-            ),
-            SpilledParseManifestBatch { entries: batch },
-        ))
-    }
-}
-
-fn spilled_parse_envelopes(
-    manifest: Vec<SourceManifestEntry>,
-    config: NativePipelineConfig,
-    stage_deadline: Instant,
-) -> (SpilledParseEnvelopeIterator, Arc<AtomicBool>) {
-    let failed = Arc::new(AtomicBool::new(false));
-    (
-        SpilledParseEnvelopeIterator {
-            entries: manifest.into_iter().peekable(),
-            file_sequence: 0,
-            batch_sequence: 0,
-            item_timeout: config.deadlines.item_timeout,
-            stage_deadline,
-            failed: Arc::clone(&failed),
-        },
-        failed,
-    )
-}
-
-/// Manifest, optional parse cache, and spill authority for one parse stage.
-struct SpilledParseStageInputs {
-    manifest: Vec<SourceManifestEntry>,
-    parse_cache: Option<NativeParseCache>,
-    spill: NativeGenerationSpill,
-}
-
-async fn run_spilled_parse_stage(
-    stages: &NativeStageContext<'_>,
-    inputs: SpilledParseStageInputs,
-) -> Result<(SpilledNativeFacts, NativeParseCacheReport), NativePipelineError> {
-    let SpilledParseStageInputs {
-        manifest,
-        parse_cache,
-        spill,
-    } = inputs;
-    let expected_files = usize_to_u64(manifest.len());
-    let initial = spill
-        .initialize()
-        .await
-        .map_err(|error| spill_pipeline_error(PipelineStage::Parse, &error))?;
-    let config = stages.config;
-    let deadline = config.stage_deadlines();
-    let (envelopes, envelope_failure) =
-        spilled_parse_envelopes(manifest, config, deadline.deadline());
-    let source_root = stages.source_root.clone();
-    let worker_cache = parse_cache;
-    let worker_spill = spill.clone();
-    let maximum_ast_depth = config.maximum_ast_depth();
-    let failures = Arc::new(Mutex::new(BTreeMap::new()));
-    let worker_failures = Arc::clone(&failures);
-    let execution = StageExecution::new(
-        StageRunConfig::new(
-            PipelineStage::Parse,
-            config.parallelism.parse_capacity,
-            deadline,
-        ),
-        StageWorkload::new(
-            envelopes,
-            move |item: StageWorkItem<u64, SpilledParseManifestBatch>| {
-                let source_root = source_root.clone();
-                let parse_cache = worker_cache.clone();
-                let spill = worker_spill.clone();
-                let failures = Arc::clone(&worker_failures);
-                async move {
-                    run_spilled_parse_item(
-                        SpilledParseInputs {
-                            spill: &spill,
-                            source_root: &source_root,
-                            parse_cache: parse_cache.as_ref(),
-                            maximum_ast_depth,
-                        },
-                        item,
-                        &failures,
-                    )
-                    .await
-                }
-            },
-        ),
-        StageFold::new(
-            SpilledParseStageAccumulator::new(),
-            |state: &mut SpilledParseStageAccumulator,
-             output: StageOutput<u64, SpilledParsedManifestBatch>| {
-                let (_, parsed) = output.into_parts();
-                state.push(parsed)
-            },
-        ),
-    );
-    let result = stages.runner.execute(execution).await;
-    if envelope_failure.load(Ordering::Acquire) {
-        return Err(NativePipelineError::StageWithReason {
-            stage: PipelineStage::Parse,
-            reason: PipelineFailureReason::GenerationCapacityExceeded,
-        });
-    }
-    let state = result.map_err(|error| classify_spilled_parse_stage_error(error, &failures))?;
-    finish_spilled_parse_stage(
-        spill,
-        SpilledParseCompletion {
-            initial_state: initial.state,
-            expected_files,
-            state,
-        },
-    )
-    .await
-}
-
-/// Retain a parse item's detailed failure before returning the runner's worker error.
-async fn run_spilled_parse_item(
-    inputs: SpilledParseInputs<'_>,
-    item: StageWorkItem<u64, SpilledParseManifestBatch>,
-    failures: &Mutex<BTreeMap<StageSequence, ParseManifestFailure>>,
-) -> Result<SpilledParsedManifestBatch, StageItemFailure> {
-    let cancellation = item.cancellation();
-    let (sequence, _, batch) = item.into_parts();
-    match stream_spilled_parse_batch(inputs, batch, cancellation).await {
-        Ok(parsed) => Ok(parsed),
-        Err(failure) => {
-            if let Ok(mut retained) = failures.lock() {
-                retained.insert(sequence, failure);
-            }
-            Err(StageItemFailure)
-        }
-    }
-}
-
-struct SpilledParseCompletion {
-    initial_state: NativeGenerationSpillState,
-    expected_files: u64,
-    state: SpilledParseStageAccumulator,
-}
-
-async fn finish_spilled_parse_stage(
-    spill: NativeGenerationSpill,
-    completion: SpilledParseCompletion,
-) -> Result<(SpilledNativeFacts, NativeParseCacheReport), NativePipelineError> {
-    let SpilledParseCompletion {
-        initial_state,
-        expected_files,
-        state,
-    } = completion;
-    if state.files != expected_files {
-        return Err(NativePipelineError::Incomplete {
-            stage: PipelineStage::Parse,
-        });
-    }
-    spill
-        .finish_parsing(expected_files)
-        .await
-        .map_err(|error| spill_pipeline_error(PipelineStage::Parse, &error))?;
-    let spill_state = match initial_state {
-        NativeGenerationSpillState::Parsing => NativeGenerationSpillState::Resolving,
-        state => state,
-    };
-    Ok((
-        SpilledNativeFacts {
-            spill,
-            state: spill_state,
-            files: state.files,
-            diagnostics: state.diagnostics,
-            degraded_files: state.degraded_files,
-            degraded_files_truncated: state.degraded_files_truncated,
-        },
-        state.cache,
-    ))
-}
-
-fn classify_spilled_parse_stage_error(
-    error: StageRunError,
-    failures: &Mutex<BTreeMap<StageSequence, ParseManifestFailure>>,
-) -> NativePipelineError {
-    let failure = match &error {
-        StageRunError::Item {
-            stage: PipelineStage::Parse,
-            sequence,
-            kind: StageFailureKind::Worker,
-        } => failures
-            .lock()
-            .ok()
-            .and_then(|retained| retained.get(sequence).cloned()),
-        _ => None,
-    };
-    classify_parse_stage_failure(error, failure)
-}
-
-struct SpilledParseTransaction<'spill> {
-    spill: &'spill NativeGenerationSpill,
-    start_sequence: Option<u64>,
-    rows: Vec<NativeGenerationSpillExtractedRow>,
-    logical_bytes: u64,
-}
-
-impl<'spill> SpilledParseTransaction<'spill> {
-    fn new(spill: &'spill NativeGenerationSpill) -> Result<Self, ParseManifestFailure> {
-        let mut rows = Vec::new();
-        rows.try_reserve_exact(SPILLED_PARSE_BATCH_FILES)
-            .map_err(|_| ParseManifestFailure::unclassified())?;
-        Ok(Self {
-            spill,
-            start_sequence: None,
-            rows,
-            logical_bytes: 0,
-        })
-    }
-
-    async fn push_inline(
-        &mut self,
-        sequence: u64,
-        file_id: &FileId,
-        payload: Vec<u8>,
-    ) -> Result<(), ParseManifestFailure> {
-        let sort_key = file_id.as_str().as_bytes().to_vec();
-        let row_bytes = usize_to_u64(sort_key.len()).saturating_add(usize_to_u64(payload.len()));
-        self.prepare_push(sequence, row_bytes).await?;
-        self.rows.push(
-            NativeGenerationSpillRow::new(sort_key, payload)
-                .map_err(|error| ParseManifestFailure::from_spill(&error))?
-                .into(),
-        );
-        self.finish_push(row_bytes).await
-    }
-
-    async fn push_cached(
-        &mut self,
-        sequence: u64,
-        file_id: &FileId,
-        payload: CachedParsePayload,
-    ) -> Result<(), ParseManifestFailure> {
-        let CachedParsePayload {
-            key,
-            payload_digest,
-            payload_bytes,
-        } = payload;
-        let sort_key = file_id.as_str().as_bytes().to_vec();
-        let row_bytes = usize_to_u64(sort_key.len()).saturating_add(payload_bytes);
-        self.prepare_push(sequence, row_bytes).await?;
-        self.rows.push(
-            NativeGenerationSpillCachedRow::new(
-                sort_key,
-                CachedRowPayload {
-                    key,
-                    payload_digest,
-                    payload_bytes,
-                },
-            )
-            .map_err(|error| ParseManifestFailure::from_spill(&error))?
-            .into(),
-        );
-        self.finish_push(row_bytes).await
-    }
-
-    async fn prepare_push(
-        &mut self,
-        sequence: u64,
-        row_bytes: u64,
-    ) -> Result<(), ParseManifestFailure> {
-        if self.pending_rows() > 0
-            && (self.pending_rows() == SPILLED_PARSE_BATCH_FILES
-                || self.logical_bytes.saturating_add(row_bytes) > SPILLED_PARSE_BATCH_BYTES)
-        {
-            self.flush().await?;
-        }
-        let start = self.start_sequence.get_or_insert(sequence);
-        if start.saturating_add(usize_to_u64(self.pending_rows())) != sequence {
-            return Err(ParseManifestFailure::unclassified());
-        }
-        Ok(())
-    }
-
-    async fn finish_push(&mut self, row_bytes: u64) -> Result<(), ParseManifestFailure> {
-        self.logical_bytes = self.logical_bytes.saturating_add(row_bytes);
-        if self.pending_rows() == SPILLED_PARSE_BATCH_FILES
-            || self.logical_bytes >= SPILLED_PARSE_BATCH_BYTES
-        {
-            self.flush().await?;
-        }
-        Ok(())
-    }
-
-    fn pending_rows(&self) -> usize {
-        self.rows.len()
-    }
-
-    async fn finish(mut self) -> Result<(), ParseManifestFailure> {
-        self.flush().await
-    }
-
-    async fn flush(&mut self) -> Result<(), ParseManifestFailure> {
-        if self.rows.is_empty() {
-            return Ok(());
-        }
-        let sequence = self
-            .start_sequence
-            .take()
-            .ok_or_else(ParseManifestFailure::unclassified)?;
-        self.logical_bytes = 0;
-        let rows = take(&mut self.rows);
-        self.rows
-            .try_reserve_exact(SPILLED_PARSE_BATCH_FILES)
-            .map_err(|_| ParseManifestFailure::unclassified())?;
-        let batch = NativeGenerationSpillExtractedBatch::new(sequence, rows)
-            .map_err(|error| ParseManifestFailure::from_spill(&error))?;
-        self.spill
-            .append_extracted_batch(batch)
-            .await
-            .map_err(|error| ParseManifestFailure::from_spill(&error))?;
-        Ok(())
-    }
-}
-
-struct PendingSpilledParseCacheWrite {
-    sequence: u64,
-    file_id: FileId,
-    key: NativeParseCacheKey,
-    payload: Vec<u8>,
-    payload_digest: ContentDigest,
-}
-
-impl PendingSpilledParseCacheWrite {
-    fn new(write: ParsedFilePayload, key: NativeParseCacheKey) -> Self {
-        let ParsedFilePayload {
-            sequence,
-            file_id,
-            payload,
-        } = write;
-        let payload_digest = ContentDigest::from_bytes(*blake3::hash(&payload).as_bytes());
-        Self {
-            sequence,
-            file_id,
-            key,
-            payload,
-            payload_digest,
-        }
-    }
-}
-
-struct SpilledParseBatchContext<'input, 'spill> {
-    source_root: &'input SourceRoot,
-    parse_cache: Option<&'input NativeParseCache>,
-    cancellation: &'input StageCancellation,
-    extractors: SpilledExtractorPool,
-    transaction: SpilledParseTransaction<'spill>,
-    output: SpilledParsedManifestBatch,
-    cache_writes: Vec<PendingSpilledParseCacheWrite>,
-    cache_write_bytes: usize,
-}
-
-impl<'input, 'spill> SpilledParseBatchContext<'input, 'spill> {
-    fn new(
-        spill: &'spill NativeGenerationSpill,
-        batch: SpilledParseBatchInputs<'input>,
-        capacity: usize,
-    ) -> Result<Self, ParseManifestFailure> {
-        let SpilledParseBatchInputs {
-            inputs,
-            cancellation,
-        } = batch;
-        let SpilledParseInputs {
-            source_root,
-            parse_cache,
-            maximum_ast_depth,
-            ..
-        } = inputs;
-        let mut cache_writes = Vec::new();
-        cache_writes
-            .try_reserve_exact(capacity)
-            .map_err(|_| ParseManifestFailure::unclassified())?;
-        Ok(Self {
-            source_root,
-            parse_cache,
-            cancellation,
-            extractors: SpilledExtractorPool::new(maximum_ast_depth),
-            transaction: SpilledParseTransaction::new(spill)?,
-            output: SpilledParsedManifestBatch {
-                files: 0,
-                diagnostics: 0,
-                degraded_files: Vec::new(),
-                degraded_files_truncated: 0,
-                cache: NativeParseCacheReport::default(),
-            },
-            cache_writes,
-            cache_write_bytes: 0,
-        })
-    }
-
-    async fn process(
-        &mut self,
-        entry: SpilledParseManifestEntry,
-        lookup: CachedParseLookup<'_>,
-    ) -> Result<(), ParseManifestFailure> {
-        let CachedParseLookup {
-            key,
-            cached,
-            cache_read_failed,
-        } = lookup;
-        let mut metrics = NativeParseCacheReport::default();
-        if let Some((file, payload_digest, payload_bytes)) = self
-            .cached_file(
-                &entry.manifest,
-                CachedParseLookup {
-                    key,
-                    cached,
-                    cache_read_failed,
-                },
-                &mut metrics,
-            )
-            .await?
-        {
-            record_spilled_parse_output(&mut self.output, &file, metrics)?;
-            self.flush_cache_writes().await?;
-            let Some(key) = key else {
-                return Err(ParseManifestFailure::unclassified());
-            };
-            self.transaction
-                .push_cached(
-                    entry.sequence,
-                    &file.file_id,
-                    CachedParsePayload {
-                        key: key.clone(),
-                        payload_digest,
-                        payload_bytes,
-                    },
-                )
-                .await?;
-            return Ok(());
-        }
-        if self.cancellation.is_cancelled() {
-            return Err(ParseManifestFailure::unclassified());
-        }
-        metrics.parsed_files = 1;
-        let parse_cancellation = self.cancellation.clone();
-        let source_root = self.source_root;
-        let manifest = entry.manifest;
-        let extractors = &mut self.extractors;
-        let file = block_in_place(move || {
-            extractors.extract(source_root, &manifest, || parse_cancellation.is_cancelled())
-        })?;
-        if self.cancellation.is_cancelled() {
-            return Err(ParseManifestFailure::unclassified());
-        }
-        let payload =
-            serde_json::to_vec(&file).map_err(|_| ParseManifestFailure::unclassified())?;
-        let cacheable = self.parse_cache.is_some()
-            && key.is_some()
-            && payload.len() <= MAX_NATIVE_PARSE_CACHE_PAYLOAD_BYTES;
-        if self.parse_cache.is_some() && !cacheable {
-            metrics.write_errors = 1;
-        }
-        record_spilled_parse_output(&mut self.output, &file, metrics)?;
-        if cacheable {
-            return self
-                .queue_cache_write(
-                    ParsedFilePayload {
-                        sequence: entry.sequence,
-                        file_id: file.file_id,
-                        payload,
-                    },
-                    key,
-                )
-                .await;
-        }
-        self.flush_cache_writes().await?;
-        self.transaction
-            .push_inline(entry.sequence, &file.file_id, payload)
-            .await
-    }
-
-    async fn cached_file(
-        &self,
-        manifest: &SourceManifestEntry,
-        lookup: CachedParseLookup<'_>,
-        metrics: &mut NativeParseCacheReport,
-    ) -> Result<Option<(ExtractedFile, ContentDigest, u64)>, ParseManifestFailure> {
-        let CachedParseLookup {
-            key,
-            cached,
-            cache_read_failed,
-        } = lookup;
-        let (Some(cache), Some(key)) = (self.parse_cache, key) else {
-            return Ok(None);
-        };
-        if !cache.read_enabled {
-            metrics.bypassed = 1;
-        } else if cache_read_failed {
-            metrics.misses = 1;
-            metrics.read_errors = 1;
-        } else if let Some(record) = cached {
-            if let Some(file) = decode_cached_file(manifest, &record) {
-                revalidate_manifest(self.source_root, manifest, || {
-                    self.cancellation.is_cancelled()
-                })?;
-                metrics.hits = 1;
-                return Ok(Some((
-                    file,
-                    record.payload_digest().clone(),
-                    usize_to_u64(record.payload().len()),
-                )));
-            }
-            metrics.misses = 1;
-            metrics.corruptions = 1;
-            let _ = cache.database.evict_native_parse_cache(key).await;
-        } else {
-            metrics.misses = 1;
-        }
-        Ok(None)
-    }
-
-    async fn queue_cache_write(
-        &mut self,
-        write: ParsedFilePayload,
-        key: Option<&NativeParseCacheKey>,
-    ) -> Result<(), ParseManifestFailure> {
-        let ParsedFilePayload {
-            sequence,
-            file_id,
-            payload,
-        } = write;
-        let Some(key) = key else {
-            return Err(ParseManifestFailure::unclassified());
-        };
-        if !self.cache_writes.is_empty()
-            && self.cache_write_bytes.saturating_add(payload.len())
-                > SPILLED_PARSE_CACHE_WRITE_BYTES
-        {
-            self.flush_cache_writes().await?;
-        }
-        self.cache_write_bytes = self.cache_write_bytes.saturating_add(payload.len());
-        self.cache_writes.push(PendingSpilledParseCacheWrite::new(
-            ParsedFilePayload {
-                sequence,
-                file_id,
-                payload,
-            },
-            key.clone(),
-        ));
-        if self.cache_write_bytes >= SPILLED_PARSE_CACHE_WRITE_BYTES {
-            self.flush_cache_writes().await?;
-        }
-        Ok(())
-    }
-
-    async fn flush_cache_writes(&mut self) -> Result<(), ParseManifestFailure> {
-        if self.cache_writes.is_empty() {
-            return Ok(());
-        }
-        let Some(cache) = self.parse_cache else {
-            return Err(ParseManifestFailure::unclassified());
-        };
-        flush_spilled_parse_cache_writes(
-            cache,
-            &mut PendingCacheWrites {
-                writes: &mut self.cache_writes,
-                logical_bytes: &mut self.cache_write_bytes,
-                report: &mut self.output.cache,
-            },
-            &mut self.transaction,
-        )
-        .await
-    }
-
-    async fn finish(mut self) -> Result<SpilledParsedManifestBatch, ParseManifestFailure> {
-        self.flush_cache_writes().await?;
-        self.transaction.finish().await?;
-        Ok(self.output)
-    }
-}
-
-/// Spill authority, source root, and optional parse cache for one batch.
-#[derive(Clone, Copy)]
-struct SpilledParseInputs<'inputs> {
-    spill: &'inputs NativeGenerationSpill,
-    source_root: &'inputs SourceRoot,
-    parse_cache: Option<&'inputs NativeParseCache>,
-    maximum_ast_depth: usize,
-}
-
-async fn stream_spilled_parse_batch(
-    inputs: SpilledParseInputs<'_>,
-    batch: SpilledParseManifestBatch,
-    cancellation: StageCancellation,
-) -> Result<SpilledParsedManifestBatch, ParseManifestFailure> {
-    let SpilledParseInputs {
-        spill,
-        source_root,
-        parse_cache,
-        maximum_ast_depth,
-    } = inputs;
-    let entries = batch.entries;
-    let (cache_keys, cached, cache_read_failed) =
-        load_spilled_parse_cache(parse_cache, &entries).await;
-    let mut context = SpilledParseBatchContext::new(
-        spill,
-        SpilledParseBatchInputs {
-            inputs: SpilledParseInputs {
-                spill,
-                source_root,
-                parse_cache,
-                maximum_ast_depth,
-            },
-            cancellation: &cancellation,
-        },
-        entries.len(),
-    )?;
-    for (index, (entry, cached)) in entries.into_iter().zip(cached).enumerate() {
-        let path = entry.manifest.path.clone();
-        let key = cache_keys.as_ref().and_then(|keys| keys.get(index));
-        context
-            .process(
-                entry,
-                CachedParseLookup {
-                    key,
-                    cached,
-                    cache_read_failed,
-                },
-            )
-            .await
-            .map_err(|failure| failure.with_path(path))?;
-    }
-    context.finish().await
-}
-
-async fn load_spilled_parse_cache(
-    cache: Option<&NativeParseCache>,
-    entries: &[SpilledParseManifestEntry],
-) -> (
-    Option<Vec<NativeParseCacheKey>>,
-    Vec<Option<NativeParseCacheRecord>>,
-    bool,
-) {
-    let keys = cache.map(|cache| {
-        entries
-            .iter()
-            .map(|entry| cache.key(&entry.manifest))
-            .collect::<Vec<_>>()
-    });
-    match (cache, keys.as_ref()) {
-        (Some(cache), Some(keys)) if cache.read_enabled => {
-            match cache.database.load_native_parse_cache_batch(keys).await {
-                Ok(records) => (Some(keys.clone()), records, false),
-                Err(_) => (
-                    Some(keys.clone()),
-                    (0..entries.len()).map(|_| None).collect(),
-                    true,
-                ),
-            }
-        }
-        _ => (keys, (0..entries.len()).map(|_| None).collect(), false),
-    }
-}
-
-fn record_spilled_parse_output(
-    output: &mut SpilledParsedManifestBatch,
-    file: &ExtractedFile,
-    metrics: NativeParseCacheReport,
-) -> Result<(), ParseManifestFailure> {
-    output.files = output
-        .files
-        .checked_add(1)
-        .ok_or_else(ParseManifestFailure::unclassified)?;
-    output.diagnostics = output
-        .diagnostics
-        .checked_add(usize_to_u64(file.diagnostics.len()))
-        .ok_or_else(ParseManifestFailure::unclassified)?;
-    record_degraded_file(
-        &mut output.degraded_files,
-        &mut output.degraded_files_truncated,
-        file,
-    )
-    .map_err(|_| ParseManifestFailure::unclassified())?;
-    output.cache.add(metrics);
-    Ok(())
-}
-
-/// Pending cache writes and the accounting they advance.
-struct PendingCacheWrites<'writes> {
-    writes: &'writes mut Vec<PendingSpilledParseCacheWrite>,
-    logical_bytes: &'writes mut usize,
-    report: &'writes mut NativeParseCacheReport,
-}
-
-async fn flush_spilled_parse_cache_writes(
-    cache: &NativeParseCache,
-    pending: &mut PendingCacheWrites<'_>,
-    transaction: &mut SpilledParseTransaction<'_>,
-) -> Result<(), ParseManifestFailure> {
-    let PendingCacheWrites {
-        writes,
-        logical_bytes,
-        report,
-    } = pending;
-    if writes.is_empty() {
-        return Ok(());
-    }
-    let pending = take(*writes);
-    let pending_rows = usize_to_u64(pending.len());
-    **logical_bytes = 0;
-    let cache_entries = pending
-        .iter()
-        .map(|write| NativeParseCacheEntry::new(write.key.clone(), write.payload.clone()))
-        .collect();
-    if let Ok(written) = cache
-        .database
-        .store_native_parse_cache_batch(cache_entries)
-        .await
-    {
-        report.writes = report.writes.saturating_add(written.inserted);
-        for write in pending {
-            transaction
-                .push_cached(
-                    write.sequence,
-                    &write.file_id,
-                    CachedParsePayload {
-                        key: write.key,
-                        payload_digest: write.payload_digest,
-                        payload_bytes: usize_to_u64(write.payload.len()),
-                    },
-                )
-                .await?;
-        }
-    } else {
-        report.write_errors = report.write_errors.saturating_add(pending_rows);
-        for write in pending {
-            transaction
-                .push_inline(write.sequence, &write.file_id, write.payload)
-                .await?;
-        }
-    }
-    Ok(())
-}
-
-async fn visit_spilled_native_files<State, Visit>(
-    walk: SpilledFileWalk<'_>,
-    state: &mut State,
-    mut visit: Visit,
-) -> Result<(), StageItemFailure>
-where
-    Visit: FnMut(&mut State, NativeFileFacts) -> Result<(), StageItemFailure>,
-{
-    let SpilledFileWalk {
-        source,
-        observation:
-            SpilledVisitObservation {
-                cancellation,
-                progress,
-            },
-    } = walk;
-    let mut cursor = NativeGenerationExtractedCursor::default();
-    let mut expected_sequence = 0_u64;
-    loop {
-        if cancellation.is_cancelled() {
-            return Err(StageItemFailure);
-        }
-        let page = source
-            .spill
-            .load_extracted_page(cursor, SPILLED_EXTRACTION_PAGE_BYTES)
-            .await
-            .map_err(|_| StageItemFailure)?;
-        if page.is_empty() {
-            break;
-        }
-        let completed_items = usize_to_u64(page.rows().len());
-        let completed_bytes = page.rows().iter().try_fold(0_u64, |total, (_, row)| {
-            total.checked_add(usize_to_u64(row.payload().len()))
-        });
-        let completed_bytes = completed_bytes.ok_or(StageItemFailure)?;
-        for (sequence, row) in page.rows() {
-            if *sequence != expected_sequence || cancellation.is_cancelled() {
-                return Err(StageItemFailure);
-            }
-            let extracted = serde_json::from_slice::<ExtractedFile>(row.payload())
-                .map_err(|_| StageItemFailure)?;
-            let file = NativeFileFacts::from_extracted(extracted)?;
-            visit(state, file)?;
-            expected_sequence = expected_sequence.checked_add(1).ok_or(StageItemFailure)?;
-        }
-        progress
-            .advance_progress(completed_items, completed_bytes)
-            .await
-            .map_err(|_| StageItemFailure)?;
-        cursor = page.next();
-    }
-    (expected_sequence == source.files).ok_or(StageItemFailure)
 }
 
 struct ParseStageAccumulator {
@@ -2550,14 +1478,6 @@ struct ParseManifestRequest<'input> {
 struct ParseManifestFailure {
     reason: Option<PipelineFailureReason>,
     path: Option<NormalizedPath>,
-    scope: ParseManifestFailureScope,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ParseManifestFailureScope {
-    File,
-    Stage,
-    Spill,
 }
 
 impl ParseManifestFailure {
@@ -2565,7 +1485,6 @@ impl ParseManifestFailure {
         Self {
             reason: None,
             path: None,
-            scope: ParseManifestFailureScope::File,
         }
     }
 
@@ -2591,11 +1510,7 @@ impl ParseManifestFailure {
             }
             ExtractError::OutputLimit => Some(PipelineFailureReason::ExtractionOutputLimitExceeded),
         };
-        Self {
-            reason,
-            path: None,
-            scope: ParseManifestFailureScope::File,
-        }
+        Self { reason, path: None }
     }
 
     const fn from_source_read(error: SourceReadError) -> Self {
@@ -2614,23 +1529,6 @@ impl ParseManifestFailure {
         Self {
             reason: Some(reason),
             path: None,
-            scope: ParseManifestFailureScope::File,
-        }
-    }
-
-    fn from_spill(error: &cartograph_db::StorageError) -> Self {
-        if spill_capacity_error(error) {
-            Self {
-                reason: Some(PipelineFailureReason::GenerationCapacityExceeded),
-                path: None,
-                scope: ParseManifestFailureScope::Stage,
-            }
-        } else {
-            Self {
-                reason: None,
-                path: None,
-                scope: ParseManifestFailureScope::Spill,
-            }
         }
     }
 
@@ -2638,16 +1536,13 @@ impl ParseManifestFailure {
         Self {
             reason: Some(PipelineFailureReason::SourceChangedDuringParse),
             path: None,
-            scope: ParseManifestFailureScope::File,
         }
     }
 
     fn with_path(mut self, path: NormalizedPath) -> Self {
-        if self.scope == ParseManifestFailureScope::File {
-            self.path = Some(path);
-            if self.reason.is_none() {
-                self.reason = Some(PipelineFailureReason::FileProcessingFailed);
-            }
+        self.path = Some(path);
+        if self.reason.is_none() {
+            self.reason = Some(PipelineFailureReason::FileProcessingFailed);
         }
         self
     }
@@ -2657,51 +1552,7 @@ impl ParseManifestFailure {
     }
 
     fn file_failure(&self) -> Option<PipelineFileFailure> {
-        if self.scope != ParseManifestFailureScope::File {
-            return None;
-        }
         Some(PipelineFileFailure::new(self.path.clone()?, self.reason?))
-    }
-
-    const fn is_spill(&self) -> bool {
-        matches!(self.scope, ParseManifestFailureScope::Spill)
-    }
-}
-
-fn spill_pipeline_error(
-    stage: PipelineStage,
-    error: &cartograph_db::StorageError,
-) -> NativePipelineError {
-    match spill_failure_reason(error) {
-        Some(reason) => NativePipelineError::StageWithReason { stage, reason },
-        None => NativePipelineError::Spill { stage },
-    }
-}
-
-/// Actionable reason for a spill failure. A spill statement that outlives its
-/// bounded statement timeout is that stage's deadline, not an opaque failure.
-fn spill_failure_reason(error: &cartograph_db::StorageError) -> Option<PipelineFailureReason> {
-    if spill_capacity_error(error) {
-        Some(PipelineFailureReason::GenerationCapacityExceeded)
-    } else if matches!(error, cartograph_db::StorageError::StatementTimeout { .. }) {
-        Some(PipelineFailureReason::DeadlineExceeded)
-    } else {
-        None
-    }
-}
-
-fn spill_capacity_error(error: &cartograph_db::StorageError) -> bool {
-    match error {
-        cartograph_db::StorageError::GenerationSpillLimitReached { .. } => true,
-        cartograph_db::StorageError::InvalidInput { field } => matches!(
-            *field,
-            "spill_payload"
-                | "spill_batch_rows"
-                | "spill_batch_bytes"
-                | "spill_fact_batch_rows"
-                | "spill_fact_batch_bytes"
-        ),
-        _ => false,
     }
 }
 
@@ -2965,344 +1816,6 @@ async fn run_resolve_stage(
     }
 }
 
-struct SpilledResolutionOutput {
-    scip_overlay: Option<ScipOverlayReport>,
-    overlay_high_water_bytes: u64,
-    spill: NativeGenerationSpill,
-    report: ResolutionReport,
-    degraded_files: Vec<NativeDegradedFile>,
-    degraded_files_truncated: u64,
-}
-
-struct SpilledResolutionState {
-    overlay: Option<ScipOverlayPlan>,
-    clone_evidence: CloneEvidenceMap,
-    index: Arc<ResolutionIndex>,
-    report: ResolutionReport,
-    counts: NativeGenerationSpillFactCounts,
-    high_water: u64,
-    centrality_enabled: bool,
-    centrality: GenerationFacts,
-    centrality_budget: ResolveBudget,
-    event_handlers: native_event_calls::HandlerIndex,
-    validation_limits: GenerationValidationLimits,
-}
-
-struct ResolvedFileFacts {
-    sequence: u64,
-    facts: GenerationFacts,
-    report: ResolutionReport,
-    high_water: u64,
-    event_handlers: native_event_calls::HandlerIndex,
-}
-
-struct SpilledFactTransaction<'spill> {
-    spill: &'spill NativeGenerationSpill,
-    progress: &'spill StageRunner,
-    batches: Vec<NativeGenerationSpillFactBatch>,
-    logical_bytes: u64,
-    row_count: u64,
-    retained_bytes: u64,
-}
-
-impl<'spill> SpilledFactTransaction<'spill> {
-    fn new(spill: &'spill NativeGenerationSpill, progress: &'spill StageRunner) -> Self {
-        Self {
-            spill,
-            progress,
-            batches: Vec::new(),
-            logical_bytes: 0,
-            row_count: 0,
-            retained_bytes: 0,
-        }
-    }
-
-    async fn push(
-        &mut self,
-        batch: NativeGenerationSpillFactBatch,
-    ) -> Result<(), ResolveGenerationFailure> {
-        let next_bytes = self
-            .logical_bytes
-            .checked_add(batch.logical_bytes())
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        let next_rows = self
-            .row_count
-            .checked_add(batch.row_count())
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        let next_retained = self
-            .retained_bytes
-            .checked_add(batch.retained_bytes())
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        if !self.batches.is_empty()
-            && (self.batches.len() >= SPILLED_RESOLVE_TRANSACTION_BATCHES
-                || next_bytes > SPILLED_RESOLVE_TRANSACTION_BYTES
-                || next_rows > SPILLED_RESOLVE_TRANSACTION_ROWS
-                || next_retained > SPILLED_RESOLVE_TRANSACTION_RETAINED_BYTES)
-        {
-            self.flush().await?;
-        }
-        self.logical_bytes = self
-            .logical_bytes
-            .checked_add(batch.logical_bytes())
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        self.row_count = self
-            .row_count
-            .checked_add(batch.row_count())
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        self.retained_bytes = self
-            .retained_bytes
-            .checked_add(batch.retained_bytes())
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        self.batches
-            .try_reserve(1)
-            .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-        self.batches.push(batch);
-        if self.batches.len() >= SPILLED_RESOLVE_TRANSACTION_BATCHES {
-            self.flush().await?;
-        }
-        Ok(())
-    }
-
-    async fn flush(&mut self) -> Result<(), ResolveGenerationFailure> {
-        if self.batches.is_empty() {
-            return Ok(());
-        }
-        let batches = take(&mut self.batches);
-        let expected = batches.len();
-        let completed_items = usize_to_u64(expected);
-        let completed_bytes = self.logical_bytes;
-        self.logical_bytes = 0;
-        self.row_count = 0;
-        self.retained_bytes = 0;
-        let writes = self
-            .spill
-            .append_fact_batches(batches)
-            .await
-            .map_err(|error| classify_spill_resolve_error(&error))?;
-        if writes.len() != expected {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        self.progress
-            .advance_progress(completed_items, completed_bytes)
-            .await
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        Ok(())
-    }
-}
-
-struct SpilledResolutionFold<'context> {
-    state: &'context mut SpilledResolutionState,
-    transaction: SpilledFactTransaction<'context>,
-    completed: BTreeMap<u64, ResolvedFileFacts>,
-    next_sequence: u64,
-    cancellation: &'context StageCancellation,
-}
-
-impl<'context> SpilledResolutionFold<'context> {
-    fn new(
-        spill: &'context NativeGenerationSpill,
-        state: &'context mut SpilledResolutionState,
-        observation: SpilledVisitObservation<'context>,
-    ) -> Self {
-        let SpilledVisitObservation {
-            cancellation,
-            progress,
-        } = observation;
-        Self {
-            state,
-            transaction: SpilledFactTransaction::new(spill, progress),
-            completed: BTreeMap::new(),
-            next_sequence: 0,
-            cancellation,
-        }
-    }
-
-    async fn collect_next(
-        &mut self,
-        tasks: &mut JoinSet<Result<ResolvedFileFacts, ResolveGenerationFailure>>,
-    ) -> Result<(), ResolveGenerationFailure> {
-        let resolved = tasks
-            .join_next()
-            .await
-            .ok_or_else(ResolveGenerationFailure::unclassified)?
-            .map_err(|_| ResolveGenerationFailure::unclassified())??;
-        if self.completed.insert(resolved.sequence, resolved).is_some() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        while let Some(resolved) = self.completed.remove(&self.next_sequence) {
-            self.commit_resolved(resolved).await?;
-        }
-        Ok(())
-    }
-
-    async fn commit_resolved(
-        &mut self,
-        mut resolved: ResolvedFileFacts,
-    ) -> Result<(), ResolveGenerationFailure> {
-        if resolved.sequence != self.next_sequence || self.cancellation.is_cancelled() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        self.state.report.resolved = self
-            .state
-            .report
-            .resolved
-            .checked_add(resolved.report.resolved)
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        self.state.report.unresolved = self
-            .state
-            .report
-            .unresolved
-            .checked_add(resolved.report.unresolved)
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        self.state.high_water = self.state.high_water.max(resolved.high_water);
-        self.state
-            .event_handlers
-            .merge(
-                (resolved.event_handlers, &mut self.state.centrality_budget),
-                &mut || self.cancellation.is_cancelled(),
-            )
-            .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-        self.state.high_water = self
-            .state
-            .high_water
-            .max(self.state.centrality_budget.charged_bytes);
-        scip_spill::filter_native(
-            self.state.overlay.as_ref(),
-            &mut resolved.facts,
-            self.cancellation,
-        )?;
-        if self.state.centrality_enabled {
-            append_spilled_centrality_facts(
-                &mut self.state.centrality,
-                &resolved.facts,
-                &mut self.state.centrality_budget,
-            )
-            .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-        }
-        let batch = NativeGenerationSpillFactBatch::new(
-            FactBatchInput {
-                sequence: resolved.sequence,
-                facts: resolved.facts,
-                limits: self.state.validation_limits,
-            },
-            || self.cancellation.is_cancelled(),
-        )
-        .map_err(classify_spill_validation_error)?;
-        add_spill_fact_counts(&mut self.state.counts, batch.counts())?;
-        self.transaction.push(batch).await?;
-        self.next_sequence = self
-            .next_sequence
-            .checked_add(1)
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        Ok(())
-    }
-
-    async fn finish(mut self) -> Result<u64, ResolveGenerationFailure> {
-        if !self.completed.is_empty() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        self.transaction.flush().await?;
-        Ok(self.next_sequence)
-    }
-}
-
-async fn run_spilled_resolve_stage(
-    stages: &NativeStageContext<'_>,
-    source: SpilledNativeFacts,
-    overlay: Option<ScipOverlayInput>,
-) -> Result<SpilledResolutionOutput, NativePipelineError> {
-    let config = stages.config;
-    let deadline = config.stage_deadlines();
-    let item_deadline = deadline.deadline();
-    let inputs = [StageEnvelope::new(
-        StageItemMeta::new(
-            StageSequence::new(0),
-            0_u8,
-            StageItemBudget::new(
-                resolve_reservation(config.limits.retained.max_generation_bytes)?,
-                source.files,
-                item_deadline,
-            ),
-        ),
-        (source, overlay),
-    )];
-    let source_root = stages.source_root.clone();
-    let progress = stages.runner.clone();
-    let failure_reason = Arc::new(Mutex::new(None));
-    let worker_failure_reason = Arc::clone(&failure_reason);
-    let execution = StageExecution::new(
-        StageRunConfig::new(PipelineStage::Resolve, StageCapacity::new(1, 0), deadline),
-        StageWorkload::new(
-            inputs,
-            move |item: StageWorkItem<u8, (SpilledNativeFacts, Option<ScipOverlayInput>)>| {
-                let source_root = source_root.clone();
-                let progress = progress.clone();
-                let failure_reason = Arc::clone(&worker_failure_reason);
-                async move {
-                    let cancellation = item.cancellation();
-                    let (_, _, (source, overlay)) = item.into_parts();
-                    match resolve_spilled_generation(
-                        SpilledGenerationSource {
-                            facts: source,
-                            root: source_root,
-                            overlay,
-                        },
-                        SpilledStageContext {
-                            config,
-                            cancellation: &cancellation,
-                            progress: &progress,
-                        },
-                    )
-                    .await
-                    {
-                        Ok(output) => Ok(output),
-                        Err(failure) => {
-                            if let Some(reason) = failure.reason()
-                                && let Ok(mut retained) = failure_reason.lock()
-                            {
-                                *retained = Some(reason);
-                            }
-                            Err(StageItemFailure)
-                        }
-                    }
-                }
-            },
-        ),
-        StageFold::new(
-            None,
-            |resolved: &mut Option<SpilledResolutionOutput>,
-             output: StageOutput<u8, SpilledResolutionOutput>| {
-                let (_, output) = output.into_parts();
-                *resolved = Some(output);
-                Ok(())
-            },
-        ),
-    );
-    match stages.runner.execute(execution).await {
-        Ok(output) => output.ok_or(NativePipelineError::Incomplete {
-            stage: PipelineStage::Resolve,
-        }),
-        Err(error @ StageRunError::Item { .. }) => {
-            let reason = failure_reason.lock().ok().and_then(|retained| *retained);
-            match reason {
-                Some(reason) => Err(NativePipelineError::StageWithReason {
-                    stage: PipelineStage::Resolve,
-                    reason,
-                }),
-                None => Err(NativePipelineError::Stage(error)),
-            }
-        }
-        Err(error) => Err(NativePipelineError::Stage(error)),
-    }
-}
-
-/// Observation channel for one spilled file walk.
-#[derive(Clone, Copy)]
-struct SpilledVisitObservation<'observation> {
-    cancellation: &'observation StageCancellation,
-    progress: &'observation StageRunner,
-}
-
 /// Language visibility for one resolution-candidate reservation.
 #[derive(Clone, Copy)]
 struct CandidateLanguageVisibility<'visibility> {
@@ -3311,38 +1824,10 @@ struct CandidateLanguageVisibility<'visibility> {
     new_language_bucket: bool,
 }
 
-/// The spilled facts one file walk reads, with its observation channel.
-#[derive(Clone, Copy)]
-struct SpilledFileWalk<'walk> {
-    source: &'walk SpilledNativeFacts,
-    observation: SpilledVisitObservation<'walk>,
-}
-
-/// Batch inputs paired with the cancellation they are observed under.
-#[derive(Clone, Copy)]
-struct SpilledParseBatchInputs<'inputs> {
-    inputs: SpilledParseInputs<'inputs>,
-    cancellation: &'inputs StageCancellation,
-}
-
 /// Resolution index and the budget its growth is charged against.
 struct ResolutionIndexTarget<'target> {
     index: &'target mut ResolutionIndex,
     budget: &'target mut ResolveBudget,
-}
-
-/// One parsed file's sequence, identity, and encoded payload.
-struct ParsedFilePayload {
-    sequence: u64,
-    file_id: FileId,
-    payload: Vec<u8>,
-}
-
-/// Working bound and cancellation for one derived-fact pass.
-#[derive(Clone, Copy)]
-struct DerivedFactBound<'bound> {
-    cancellation: &'bound StageCancellation,
-    maximum_bytes: u64,
 }
 
 /// One clone-prefilter histogram with its total token count.
@@ -3350,739 +1835,6 @@ struct DerivedFactBound<'bound> {
 struct ClonePrefilter<'prefilter> {
     buckets: &'prefilter [u32; CLONE_PREFILTER_BUCKETS],
     total: u32,
-}
-
-/// Cache key and payload accounting for one cached parse result.
-struct CachedParsePayload {
-    key: NativeParseCacheKey,
-    payload_digest: ContentDigest,
-    payload_bytes: u64,
-}
-
-/// Cache lookup outcome for one manifest entry.
-struct CachedParseLookup<'lookup> {
-    key: Option<&'lookup NativeParseCacheKey>,
-    cached: Option<NativeParseCacheRecord>,
-    cache_read_failed: bool,
-}
-
-/// Resolution index, configuration, and cancellation for one file.
-#[derive(Clone, Copy)]
-struct SpilledFileResolution<'resolution> {
-    index: &'resolution ResolutionIndex,
-    config: NativePipelineConfig,
-    cancellation: &'resolution StageCancellation,
-}
-
-/// Clone policy, working bound, and observation channel for one preparation.
-#[derive(Clone, Copy)]
-struct ResolutionPreparationRequest<'request> {
-    policy: NativeClonePolicy,
-    maximum_bytes: u64,
-    cancellation: &'request StageCancellation,
-    progress: &'request StageRunner,
-}
-
-/// Fixed configuration, cancellation, and progress reporting for one spilled stage.
-#[derive(Clone, Copy)]
-struct SpilledStageContext<'context> {
-    config: NativePipelineConfig,
-    cancellation: &'context StageCancellation,
-    progress: &'context StageRunner,
-}
-
-struct SpilledGenerationSource {
-    facts: SpilledNativeFacts,
-    root: SourceRoot,
-    overlay: Option<ScipOverlayInput>,
-}
-
-async fn resolve_spilled_generation(
-    input: SpilledGenerationSource,
-    context: SpilledStageContext<'_>,
-) -> Result<SpilledResolutionOutput, ResolveGenerationFailure> {
-    let SpilledGenerationSource {
-        facts: source,
-        root: source_root,
-        overlay,
-    } = input;
-    let SpilledStageContext {
-        config: _,
-        cancellation,
-        progress,
-    } = context;
-    if cancellation.is_cancelled() {
-        return Err(ResolveGenerationFailure::unclassified());
-    }
-    let (overlay, overlay_high_water_bytes, config) = context
-        .prepare_overlay(&source, &source_root, overlay)
-        .await?;
-    let context = SpilledStageContext { config, ..context };
-    let overlay_report = overlay.as_ref().map(ScipOverlayPlan::report);
-    let mut state = initialize_spilled_resolution(&source, &source_root, context).await?;
-    state.overlay = overlay;
-    spill_resolved_files(&source, &mut state, context).await?;
-    let next_sequence = spill_derived_generation_facts(&source, &mut state, context).await?;
-    state
-        .append_imported(&source, next_sequence, context)
-        .await?;
-    if state.centrality_enabled {
-        apply_spilled_centrality(
-            &source.spill,
-            &mut state.centrality,
-            SpilledCentralityRequest {
-                policy: config.evidence_policy().centrality,
-                cancellation,
-                progress,
-            },
-        )
-        .await?;
-        state.high_water = state.high_water.max(state.centrality_budget.charged_bytes);
-    }
-    source
-        .spill
-        .seal_resolution(state.counts)
-        .await
-        .map_err(|error| classify_spill_resolve_error(&error))?;
-    state.report.retained_bytes = state.high_water;
-    state.report.charged_high_water_bytes = state.high_water;
-    Ok(SpilledResolutionOutput {
-        scip_overlay: overlay_report,
-        overlay_high_water_bytes,
-        spill: source.spill,
-        report: state.report,
-        degraded_files: source.degraded_files,
-        degraded_files_truncated: source.degraded_files_truncated,
-    })
-}
-
-async fn initialize_spilled_resolution(
-    source: &SpilledNativeFacts,
-    source_root: &SourceRoot,
-    context: SpilledStageContext<'_>,
-) -> Result<SpilledResolutionState, ResolveGenerationFailure> {
-    let SpilledStageContext {
-        config,
-        cancellation,
-        progress,
-    } = context;
-    let maximum_bytes = config.limits.retained.max_generation_bytes;
-    let (clone_evidence, index, preparation_high_water) = build_spilled_resolution_preparation(
-        source,
-        source_root,
-        ResolutionPreparationRequest {
-            policy: config.clone_policy(),
-            maximum_bytes,
-            cancellation,
-            progress,
-        },
-    )
-    .await
-    .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    let evidence = config.evidence_policy();
-    let centrality_enabled = source.state == NativeGenerationSpillState::Resolving
-        && (evidence.centrality.page_rank || evidence.centrality.betweenness);
-    let centrality_limit = maximum_bytes
-        .checked_mul(RESOLVE_WORKING_MULTIPLIER)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    let centrality_budget = ResolveBudget::new(0, centrality_limit)
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    let validation_limits = generation_validation_limits(maximum_bytes, PipelineStage::Resolve)
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    Ok(SpilledResolutionState {
-        overlay: None,
-        clone_evidence,
-        index: Arc::new(index),
-        report: ResolutionReport {
-            diagnostics: source.diagnostics,
-            ..ResolutionReport::default()
-        },
-        counts: NativeGenerationSpillFactCounts::default(),
-        high_water: preparation_high_water,
-        centrality_enabled,
-        centrality: GenerationFacts::default(),
-        centrality_budget,
-        event_handlers: native_event_calls::HandlerIndex::default(),
-        validation_limits,
-    })
-}
-
-async fn spill_resolved_files(
-    source: &SpilledNativeFacts,
-    state: &mut SpilledResolutionState,
-    context: SpilledStageContext<'_>,
-) -> Result<(), ResolveGenerationFailure> {
-    let SpilledStageContext {
-        config,
-        cancellation,
-        progress,
-    } = context;
-    let mut cursor = NativeGenerationExtractedCursor::default();
-    let mut input_sequence = 0_u64;
-    let worker_count = config.parallelism.parse_capacity.workers();
-    let mut tasks = JoinSet::new();
-    let mut fold = SpilledResolutionFold::new(
-        &source.spill,
-        state,
-        SpilledVisitObservation {
-            cancellation,
-            progress,
-        },
-    );
-    loop {
-        if cancellation.is_cancelled() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        let page = source
-            .spill
-            .load_extracted_page(cursor, SPILLED_EXTRACTION_PAGE_BYTES)
-            .await
-            .map_err(|error| classify_spill_resolve_error(&error))?;
-        if page.is_empty() {
-            break;
-        }
-        schedule_spilled_resolution_page(
-            &page,
-            SpilledResolutionSchedule {
-                worker_count,
-                config,
-                cancellation,
-            },
-            &mut SpilledResolutionProgress {
-                input_sequence: &mut input_sequence,
-                tasks: &mut tasks,
-                fold: &mut fold,
-            },
-        )
-        .await?;
-        cursor = page.next();
-    }
-    while !tasks.is_empty() {
-        fold.collect_next(&mut tasks).await?;
-    }
-    if input_sequence != source.files || !fold.state.clone_evidence.is_empty() {
-        return Err(ResolveGenerationFailure::unclassified());
-    }
-    let resolved_files = fold.finish().await?;
-    (resolved_files == source.files).ok_or(ResolveGenerationFailure::unclassified())
-}
-
-/// Fixed per-run scheduling policy for one spilled resolution pass.
-#[derive(Clone, Copy)]
-struct SpilledResolutionSchedule<'schedule> {
-    worker_count: usize,
-    config: NativePipelineConfig,
-    cancellation: &'schedule StageCancellation,
-}
-
-/// Mutable scheduling state advanced across every loaded page.
-struct SpilledResolutionProgress<'progress, 'fold> {
-    input_sequence: &'progress mut u64,
-    tasks: &'progress mut JoinSet<Result<ResolvedFileFacts, ResolveGenerationFailure>>,
-    fold: &'progress mut SpilledResolutionFold<'fold>,
-}
-
-async fn schedule_spilled_resolution_page(
-    page: &NativeGenerationExtractedPage,
-    schedule: SpilledResolutionSchedule<'_>,
-    progress: &mut SpilledResolutionProgress<'_, '_>,
-) -> Result<(), ResolveGenerationFailure> {
-    let SpilledResolutionSchedule {
-        worker_count,
-        config,
-        cancellation,
-    } = schedule;
-    let SpilledResolutionProgress {
-        input_sequence,
-        tasks,
-        fold,
-    } = progress;
-    for (sequence, row) in page.rows() {
-        require_spilled_resolution_sequence(*sequence, **input_sequence, cancellation)?;
-        let extracted = serde_json::from_slice::<ExtractedFile>(row.payload())
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        let mut file = NativeFileFacts::from_extracted(extracted)
-            .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-        apply_clone_evidence(&mut file, &mut fold.state.clone_evidence)
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        let index = Arc::clone(&fold.state.index);
-        let worker_cancellation = cancellation.clone();
-        let sequence = *sequence;
-        tasks.spawn_blocking(move || {
-            resolve_file_facts(
-                sequence,
-                file,
-                SpilledFileResolution {
-                    index: index.as_ref(),
-                    config,
-                    cancellation: &worker_cancellation,
-                },
-            )
-        });
-        **input_sequence = input_sequence
-            .checked_add(1)
-            .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        if tasks.len() >= worker_count {
-            fold.collect_next(tasks).await?;
-        }
-    }
-    Ok(())
-}
-
-fn require_spilled_resolution_sequence(
-    actual: u64,
-    expected: u64,
-    cancellation: &StageCancellation,
-) -> Result<(), ResolveGenerationFailure> {
-    if actual != expected || cancellation.is_cancelled() {
-        Err(ResolveGenerationFailure::unclassified())
-    } else {
-        Ok(())
-    }
-}
-
-fn resolve_file_facts(
-    sequence: u64,
-    file: NativeFileFacts,
-    resolution: SpilledFileResolution<'_>,
-) -> Result<ResolvedFileFacts, ResolveGenerationFailure> {
-    let SpilledFileResolution {
-        index,
-        config,
-        cancellation,
-    } = resolution;
-    let maximum_bytes = config.limits.retained.max_generation_bytes;
-    let mut facts = GenerationFacts::default();
-    let mut report = ResolutionReport::default();
-    let mut event_handlers = native_event_calls::HandlerIndex::default();
-    let working_limit = maximum_bytes
-        .checked_mul(RESOLVE_WORKING_MULTIPLIER)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    let mut budget = ResolveBudget::new(0, working_limit)
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    {
-        let mut output = ResolutionOutput {
-            index,
-            facts: &mut facts,
-            report: &mut report,
-            budget: &mut budget,
-            event_handlers: &mut event_handlers,
-        };
-        output
-            .append_file(file, &mut || cancellation.is_cancelled())
-            .map_err(|_| classify_resolve_failure(output.budget))?;
-    }
-    if !config.evidence_policy().retention.call_sites {
-        facts.references.clear();
-    }
-    Ok(ResolvedFileFacts {
-        sequence,
-        facts,
-        report,
-        high_water: budget.charged_bytes,
-        event_handlers,
-    })
-}
-
-async fn spill_derived_generation_facts(
-    source: &SpilledNativeFacts,
-    state: &mut SpilledResolutionState,
-    context: SpilledStageContext<'_>,
-) -> Result<u64, ResolveGenerationFailure> {
-    let SpilledStageContext {
-        config,
-        cancellation,
-        progress,
-    } = context;
-    let maximum_bytes = config.limits.retained.max_generation_bytes;
-    let mut derived_sequence = source.files;
-    for kind in SpilledDerivedFactKind::ALL {
-        // Deriving one kind walks the whole resolution index and validates the
-        // batch synchronously; keep that work off the async worker core so it
-        // cannot hold tasks scheduled on this worker for the whole walk.
-        let batch = block_in_place(|| {
-            derive_spilled_fact_batch(
-                state,
-                DerivedFactBatchRequest {
-                    kind,
-                    sequence: derived_sequence,
-                    bound: DerivedFactBound {
-                        cancellation,
-                        maximum_bytes,
-                    },
-                },
-            )
-        })?;
-        if let Some(batch) = batch {
-            source
-                .spill
-                .append_fact_batch(batch)
-                .await
-                .map_err(|error| classify_spill_resolve_error(&error))?;
-            derived_sequence = derived_sequence
-                .checked_add(1)
-                .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-        }
-        progress
-            .advance_progress(1, 0)
-            .await
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-    }
-    Ok(derived_sequence)
-}
-
-/// One derived fact kind and the batch sequence it would occupy.
-#[derive(Clone, Copy)]
-struct DerivedFactBatchRequest<'request> {
-    kind: SpilledDerivedFactKind,
-    sequence: u64,
-    bound: DerivedFactBound<'request>,
-}
-
-/// Derive, overlay-filter, and validate one derived fact kind.
-///
-/// Returns `None` when the kind produced no facts. Counts and centrality input
-/// are recorded before the batch is returned for durable append.
-fn derive_spilled_fact_batch(
-    state: &mut SpilledResolutionState,
-    request: DerivedFactBatchRequest<'_>,
-) -> Result<Option<NativeGenerationSpillFactBatch>, ResolveGenerationFailure> {
-    let DerivedFactBatchRequest {
-        kind,
-        sequence,
-        bound,
-    } = request;
-    let cancellation = bound.cancellation;
-    let (mut facts, charged) = derive_spilled_facts(
-        &state.index,
-        bound,
-        SpilledDerivedEvidence {
-            kind,
-            event_handlers: &state.event_handlers,
-        },
-    )
-    .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    state.high_water = state.high_water.max(charged);
-    scip_spill::filter_native(state.overlay.as_ref(), &mut facts, cancellation)?;
-    if generation_facts_are_empty(&facts) {
-        return Ok(None);
-    }
-    if state.centrality_enabled {
-        append_spilled_centrality_facts(
-            &mut state.centrality,
-            &facts,
-            &mut state.centrality_budget,
-        )
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    }
-    let batch = NativeGenerationSpillFactBatch::new(
-        FactBatchInput {
-            sequence,
-            facts,
-            limits: state.validation_limits,
-        },
-        || cancellation.is_cancelled(),
-    )
-    .map_err(classify_spill_validation_error)?;
-    add_spill_fact_counts(&mut state.counts, batch.counts())?;
-    Ok(Some(batch))
-}
-
-fn append_spilled_centrality_facts(
-    centrality: &mut GenerationFacts,
-    facts: &GenerationFacts,
-    budget: &mut ResolveBudget,
-) -> Result<(), StageItemFailure> {
-    centrality
-        .symbols
-        .try_reserve(facts.symbols.len())
-        .map_err(|_| StageItemFailure)?;
-    for symbol in &facts.symbols {
-        budget.charge(
-            usize_to_u64(size_of::<SymbolInput>())
-                .saturating_add(usize_to_u64(symbol.symbol_id.as_str().len()))
-                .saturating_add(usize_to_u64(symbol.file_id.as_str().len())),
-        )?;
-        centrality.symbols.push(SymbolInput {
-            symbol_id: symbol.symbol_id.clone(),
-            file_id: symbol.file_id.clone(),
-            symbol_kind: String::new(),
-            qualified_name: String::new(),
-            signature: String::new(),
-            start_byte: 0,
-            end_byte: 0,
-            start_line: 1,
-            end_line: 1,
-            structural_digest: symbol.structural_digest.clone(),
-            visibility: None,
-            export: SymbolExportFlags::default(),
-            execution: SymbolExecutionFlags::default(),
-            declaration_only: false,
-            betweenness_ppb: None,
-            pagerank_ppb: None,
-        });
-    }
-    let admitted_edges = facts
-        .edges
-        .iter()
-        .filter(|edge| matches!(edge.kind, EdgeKind::Calls | EdgeKind::References))
-        .count();
-    centrality
-        .edges
-        .try_reserve(admitted_edges)
-        .map_err(|_| StageItemFailure)?;
-    for edge in facts
-        .edges
-        .iter()
-        .filter(|edge| matches!(edge.kind, EdgeKind::Calls | EdgeKind::References))
-    {
-        budget.charge(
-            usize_to_u64(size_of::<EdgeInput>())
-                .saturating_add(usize_to_u64(edge.source_symbol_id.as_str().len()))
-                .saturating_add(usize_to_u64(edge.target_symbol_id.as_str().len())),
-        )?;
-        centrality.edges.push(EdgeInput {
-            source_symbol_id: edge.source_symbol_id.clone(),
-            target_symbol_id: edge.target_symbol_id.clone(),
-            kind: edge.kind,
-            confidence: 0.0,
-            provenance: String::new(),
-            site_count: 1,
-        });
-    }
-    Ok(())
-}
-
-/// Centrality policy plus the observation channel for one spilled pass.
-#[derive(Clone, Copy)]
-struct SpilledCentralityRequest<'request> {
-    policy: NativeCentralityPolicy,
-    cancellation: &'request StageCancellation,
-    progress: &'request StageRunner,
-}
-
-async fn apply_spilled_centrality(
-    spill: &NativeGenerationSpill,
-    facts: &mut GenerationFacts,
-    request: SpilledCentralityRequest<'_>,
-) -> Result<(), ResolveGenerationFailure> {
-    let SpilledCentralityRequest {
-        policy,
-        cancellation,
-        progress,
-    } = request;
-    // PageRank, sampled betweenness, and score ordering are whole-graph CPU
-    // work; run them off the async worker core.
-    if policy.page_rank {
-        let report = block_in_place(|| apply_page_rank(facts, || cancellation.is_cancelled()))
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        if report.iterations > 0 {
-            progress
-                .advance_progress(usize_to_u64(report.iterations), 0)
-                .await
-                .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        }
-    }
-    if policy.betweenness {
-        let report =
-            block_in_place(|| apply_sampled_betweenness(facts, || cancellation.is_cancelled()))
-                .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        let completed = report.sample_count.max(report.nodes_scored);
-        if completed > 0 {
-            progress
-                .advance_progress(usize_to_u64(completed), 0)
-                .await
-                .map_err(|_| ResolveGenerationFailure::unclassified())?;
-        }
-    }
-    let scores = block_in_place(|| ordered_centrality_scores(facts))?;
-    for batch in scores.chunks(SPILLED_CENTRALITY_UPDATE_ROWS) {
-        if cancellation.is_cancelled() {
-            return Err(ResolveGenerationFailure::unclassified());
-        }
-        spill
-            .apply_centrality_scores(batch)
-            .await
-            .map_err(|error| classify_spill_resolve_error(&error))?;
-        progress
-            .advance_progress(usize_to_u64(batch.len()), 0)
-            .await
-            .map_err(|_| ResolveGenerationFailure::unclassified())?;
-    }
-    Ok(())
-}
-
-/// Centrality scores for every symbol, ordered by symbol identifier.
-fn ordered_centrality_scores(
-    facts: &GenerationFacts,
-) -> Result<Vec<NativeGenerationSpillCentralityScore>, ResolveGenerationFailure> {
-    let mut scores = Vec::new();
-    scores
-        .try_reserve(facts.symbols.len())
-        .map_err(|_| ResolveGenerationFailure::generation_capacity_exceeded())?;
-    for symbol in &facts.symbols {
-        scores.push(
-            NativeGenerationSpillCentralityScore::new(
-                symbol.symbol_id.clone(),
-                symbol.betweenness_ppb,
-                symbol.pagerank_ppb,
-            )
-            .map_err(|_| ResolveGenerationFailure::unclassified())?,
-        );
-    }
-    scores
-        .sort_unstable_by(|left, right| left.symbol_id().as_str().cmp(right.symbol_id().as_str()));
-    Ok(scores)
-}
-
-#[derive(Clone, Copy)]
-enum SpilledDerivedFactKind {
-    Framework,
-    Go,
-    Reexport,
-    Test,
-}
-
-impl SpilledDerivedFactKind {
-    /// Derived fact kinds in the exact order the resolution stage appends them.
-    const ALL: [Self; 4] = [Self::Framework, Self::Go, Self::Reexport, Self::Test];
-}
-
-#[derive(Clone, Copy)]
-struct SpilledDerivedEvidence<'evidence> {
-    kind: SpilledDerivedFactKind,
-    event_handlers: &'evidence native_event_calls::HandlerIndex,
-}
-
-fn derive_spilled_facts(
-    index: &ResolutionIndex,
-    bound: DerivedFactBound<'_>,
-    evidence: SpilledDerivedEvidence<'_>,
-) -> Result<(GenerationFacts, u64), StageItemFailure> {
-    let DerivedFactBound {
-        cancellation,
-        maximum_bytes,
-    } = bound;
-    let working_limit = maximum_bytes
-        .checked_mul(RESOLVE_WORKING_MULTIPLIER)
-        .ok_or(StageItemFailure)?;
-    let mut facts = GenerationFacts::default();
-    let mut budget = ResolveBudget::new(0, working_limit)?;
-    let mut cancelled = || cancellation.is_cancelled();
-    match evidence.kind {
-        SpilledDerivedFactKind::Framework => {
-            append_framework_bridge_edges(ResolutionMutation {
-                index,
-                facts: &mut facts,
-                budget: &mut budget,
-                cancelled: &mut cancelled,
-            })?;
-            native_event_calls::append(
-                ResolutionMutation {
-                    index,
-                    facts: &mut facts,
-                    budget: &mut budget,
-                    cancelled: &mut cancelled,
-                },
-                evidence.event_handlers,
-            )?;
-        }
-        SpilledDerivedFactKind::Go => {
-            append_go_structural_edges(GoStructuralEdges {
-                index,
-                facts: &mut facts,
-                budget: &mut budget,
-                cancelled: &mut cancelled,
-            })?;
-        }
-        SpilledDerivedFactKind::Reexport => {
-            append_module_reexport_edges(ResolutionMutation {
-                index,
-                facts: &mut facts,
-                budget: &mut budget,
-                cancelled: &mut cancelled,
-            })?;
-        }
-        SpilledDerivedFactKind::Test => {
-            append_test_subject_edges(ResolutionMutation {
-                index,
-                facts: &mut facts,
-                budget: &mut budget,
-                cancelled: &mut cancelled,
-            })?;
-        }
-    }
-    Ok((facts, budget.charged_bytes))
-}
-
-fn generation_facts_are_empty(facts: &GenerationFacts) -> bool {
-    facts.files.is_empty()
-        && facts.symbols.is_empty()
-        && facts.edges.is_empty()
-        && facts.references.is_empty()
-        && facts.numerical_sites.is_empty()
-        && facts.documents.is_empty()
-}
-
-fn add_spill_fact_counts(
-    total: &mut NativeGenerationSpillFactCounts,
-    addition: NativeGenerationSpillFactCounts,
-) -> Result<(), ResolveGenerationFailure> {
-    total.files = total
-        .files
-        .checked_add(addition.files)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    total.symbols = total
-        .symbols
-        .checked_add(addition.symbols)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    total.edges = total
-        .edges
-        .checked_add(addition.edges)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    total.references = total
-        .references
-        .checked_add(addition.references)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    total.numerical_sites = total
-        .numerical_sites
-        .checked_add(addition.numerical_sites)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    total.documents = total
-        .documents
-        .checked_add(addition.documents)
-        .ok_or_else(ResolveGenerationFailure::generation_capacity_exceeded)?;
-    Ok(())
-}
-
-fn classify_spill_resolve_error(error: &cartograph_db::StorageError) -> ResolveGenerationFailure {
-    if spill_capacity_error(error) {
-        ResolveGenerationFailure::generation_capacity_exceeded()
-    } else {
-        ResolveGenerationFailure::unclassified()
-    }
-}
-
-fn classify_spill_validation_error(error: GenerationValidationError) -> ResolveGenerationFailure {
-    match error {
-        GenerationValidationError::RetainedLimit => {
-            ResolveGenerationFailure::generation_capacity_exceeded()
-        }
-        GenerationValidationError::Storage(error) if spill_capacity_error(&error) => {
-            ResolveGenerationFailure::generation_capacity_exceeded()
-        }
-        GenerationValidationError::ReferenceNameTooLong => ResolveGenerationFailure {
-            reason: Some(PipelineFailureReason::ReferenceNameTooLong),
-        },
-        GenerationValidationError::Storage(StorageError::InvalidInput { field }) => {
-            ResolveGenerationFailure {
-                reason: Some(PipelineFailureReason::CanonicalFieldRejected(field)),
-            }
-        }
-        GenerationValidationError::Storage(_) | GenerationValidationError::Cancelled => {
-            ResolveGenerationFailure::unclassified()
-        }
-    }
 }
 
 struct ScipOverlayWork {
@@ -4297,117 +2049,6 @@ async fn run_reduce_stage(
     result.map_err(|error| NativePipelineError::Validation {
         reason: generation_validation_failure_reason(&error),
     })
-}
-
-async fn run_spilled_reduce_stage(
-    stages: &NativeStageContext<'_>,
-    spill: NativeGenerationSpill,
-) -> Result<NativeGenerationSpillDigestReport, NativePipelineError> {
-    let config = stages.config;
-    let deadline = config.stage_deadlines();
-    let item_deadline = deadline.deadline();
-    let inputs = [StageEnvelope::new(
-        StageItemMeta::new(
-            StageSequence::new(0),
-            0_u8,
-            StageItemBudget::new(SPILLED_REDUCTION_RESERVATION_BYTES, 0, item_deadline),
-        ),
-        spill,
-    )];
-    let progress = stages.runner.clone();
-    let failure = SpilledReduceFailure::default();
-    let worker_failure = failure.clone();
-    let execution = StageExecution::new(
-        StageRunConfig::new(PipelineStage::Reduce, StageCapacity::new(1, 0), deadline),
-        StageWorkload::new(
-            inputs,
-            move |item: StageWorkItem<u8, NativeGenerationSpill>| {
-                let progress = progress.clone();
-                let failure = worker_failure.clone();
-                async move {
-                    let cancellation = item.cancellation();
-                    let (_, _, spill) = item.into_parts();
-                    loop {
-                        if cancellation.is_cancelled() {
-                            return Err(StageItemFailure);
-                        }
-                        let partition = spill
-                            .canonicalize_next()
-                            .await
-                            .map_err(|error| failure.record(error))?;
-                        progress
-                            .advance_progress(1, 0)
-                            .await
-                            .map_err(|_| StageItemFailure)?;
-                        if partition.complete {
-                            break;
-                        }
-                    }
-                    let digest_progress = progress.clone();
-                    spill
-                        .compute_digest(|| cancellation.is_cancelled(), move |rows| {
-                            let digest_progress = digest_progress.clone();
-                            async move {
-                                digest_progress.advance_progress(rows, 0).await.is_ok()
-                            }
-                        })
-                        .await
-                        .map_err(|error| failure.record(error))
-                }
-            },
-        ),
-        StageFold::new(
-            None,
-            |digest: &mut Option<NativeGenerationSpillDigestReport>,
-             output: StageOutput<u8, NativeGenerationSpillDigestReport>| {
-                let (_, output) = output.into_parts();
-                *digest = Some(output);
-                Ok(())
-            },
-        ),
-    );
-    stages
-        .runner
-        .execute(execution)
-        .await
-        .map_err(|error| failure.classify(error))?
-        .ok_or(NativePipelineError::Incomplete {
-            stage: PipelineStage::Reduce,
-        })
-}
-
-/// The storage failure that ended the spilled reduce item.
-///
-/// The stage runner only learns that the item failed; retaining the storage
-/// error lets the stage report a statement timeout or capacity rejection as
-/// its actionable reason instead of an opaque item failure.
-#[derive(Clone, Default)]
-struct SpilledReduceFailure(Arc<Mutex<Option<StorageError>>>);
-
-impl SpilledReduceFailure {
-    fn record(&self, error: StorageError) -> StageItemFailure {
-        if let Ok(mut retained) = self.0.lock() {
-            retained.get_or_insert(error);
-        }
-        StageItemFailure
-    }
-
-    fn classify(&self, error: StageRunError) -> NativePipelineError {
-        let worker_failed = matches!(
-            error,
-            StageRunError::Item {
-                stage: PipelineStage::Reduce,
-                kind: StageFailureKind::Worker,
-                ..
-            }
-        );
-        let retained = worker_failed
-            .then(|| self.0.lock().ok().and_then(|mut retained| retained.take()))
-            .flatten();
-        retained.map_or(NativePipelineError::Stage(error), |storage| {
-            spill_pipeline_error(PipelineStage::Reduce, &storage)
-        })
-    }
 }
 
 fn generation_validation_failure_reason(
@@ -4640,66 +2281,6 @@ where
     Ok(snapshot)
 }
 
-struct SpilledExtractorPool {
-    extractors: HashMap<SourceLanguage, NativeExtractor>,
-    maximum_ast_depth: usize,
-    #[cfg(test)]
-    initializations: usize,
-}
-
-impl Default for SpilledExtractorPool {
-    fn default() -> Self {
-        Self::new(DEFAULT_MAXIMUM_AST_DEPTH)
-    }
-}
-
-impl SpilledExtractorPool {
-    fn new(maximum_ast_depth: usize) -> Self {
-        Self {
-            extractors: HashMap::new(),
-            maximum_ast_depth,
-            #[cfg(test)]
-            initializations: 0,
-        }
-    }
-
-    fn extract<Cancel>(
-        &mut self,
-        source_root: &SourceRoot,
-        manifest: &SourceManifestEntry,
-        mut cancelled: Cancel,
-    ) -> Result<ExtractedFile, ParseManifestFailure>
-    where
-        Cancel: FnMut() -> bool,
-    {
-        let snapshot = read_manifest_snapshot(source_root, manifest, &mut cancelled)?;
-        let path = snapshot.path().clone();
-        let language = snapshot.language();
-        if !self.extractors.contains_key(&language) {
-            self.extractors
-                .try_reserve(1)
-                .map_err(|_| ParseManifestFailure::unclassified().with_path(path.clone()))?;
-            let extractor = NativeExtractor::new(language)
-                .and_then(|extractor| extractor.with_maximum_ast_depth(self.maximum_ast_depth))
-                .map_err(|error| {
-                    ParseManifestFailure::from_extract(error).with_path(path.clone())
-                })?;
-            if self.extractors.insert(language, extractor).is_some() {
-                return Err(ParseManifestFailure::unclassified().with_path(path));
-            }
-            #[cfg(test)]
-            {
-                self.initializations = self.initializations.saturating_add(1);
-            }
-        }
-        self.extractors
-            .get_mut(&language)
-            .ok_or_else(|| ParseManifestFailure::unclassified().with_path(path.clone()))?
-            .extract_with_cancellation(&snapshot, cancelled)
-            .map_err(|error| ParseManifestFailure::from_extract(error).with_path(path))
-    }
-}
-
 fn exact_source_limits(
     observed_bytes: u64,
     global_limits: SourceLimits,
@@ -4757,15 +2338,6 @@ impl NativeFactAccumulator {
         diagnostics: u64,
     ) -> Result<(), StageItemFailure> {
         let file_bytes = file.modeled_retained_bytes();
-        self.push_native_measured(file, diagnostics, file_bytes)
-    }
-
-    fn push_compact_clone(
-        &mut self,
-        file: NativeFileFacts,
-        diagnostics: u64,
-    ) -> Result<(), StageItemFailure> {
-        let file_bytes = file.modeled_owned_bytes();
         self.push_native_measured(file, diagnostics, file_bytes)
     }
 
@@ -4843,43 +2415,6 @@ const fn degraded_file_reason(diagnostic: DiagnosticCode) -> Option<&'static str
         | DiagnosticCode::CanonicalNameTruncated
         | DiagnosticCode::OptionalFactsOmitted => None,
     }
-}
-
-fn append_degraded_files(
-    reported: &mut Vec<NativeDegradedFile>,
-    truncated: &mut u64,
-    incoming: &mut Vec<NativeDegradedFile>,
-) -> Result<(), StageItemFailure> {
-    let available = MAX_REPORTED_DEGRADED_FILES.saturating_sub(reported.len());
-    let admitted = available.min(incoming.len());
-    reported
-        .try_reserve_exact(admitted)
-        .map_err(|_| StageItemFailure)?;
-    reported.extend(incoming.drain(..admitted));
-    *truncated = truncated
-        .checked_add(usize_to_u64(incoming.len()))
-        .ok_or(StageItemFailure)?;
-    incoming.clear();
-    Ok(())
-}
-
-fn compact_clone_file(mut file: NativeFileFacts) -> NativeFileFacts {
-    file.containments = Vec::new();
-    file.references = Vec::new();
-    file.call_scope_sites = Vec::new();
-    file.receiver_evidence = None;
-    file.numerical_sites = Vec::new();
-    file.import_bindings = Vec::new();
-    file.test_search_text = String::new();
-    for symbol in &mut file.symbols {
-        symbol.name = String::new();
-        symbol.input.symbol_kind = String::new();
-        symbol.input.qualified_name = String::new();
-        symbol.input.signature = String::new();
-        symbol.docstring = None;
-        symbol.body_search_text = String::new();
-    }
-    file
 }
 
 struct NativeFileFacts {
@@ -7764,203 +5299,6 @@ where
         budget,
         cancelled,
     })
-}
-
-struct CloneEvidencePatch {
-    duplicate_detection_enabled: bool,
-    near_clone_compatibility: NearCloneCompatibility,
-    partial_clone: Option<PartialCloneEvidence>,
-}
-
-type CloneEvidenceMap = BTreeMap<SymbolId, CloneEvidencePatch>;
-
-struct SpilledResolutionPreparation {
-    compact: NativeFactAccumulator,
-    index: ResolutionIndex,
-    budget: ResolveBudget,
-}
-
-async fn build_spilled_resolution_preparation(
-    source: &SpilledNativeFacts,
-    source_root: &SourceRoot,
-    request: ResolutionPreparationRequest<'_>,
-) -> Result<(CloneEvidenceMap, ResolutionIndex, u64), StageItemFailure> {
-    let ResolutionPreparationRequest {
-        maximum_bytes,
-        cancellation,
-        progress,
-        ..
-    } = request;
-    let working_limit = maximum_bytes
-        .checked_mul(RESOLVE_WORKING_MULTIPLIER)
-        .ok_or(StageItemFailure)?;
-    let mut preparation = SpilledResolutionPreparation {
-        compact: NativeFactAccumulator::new(maximum_bytes),
-        index: ResolutionIndex::default(),
-        budget: ResolveBudget::new(0, working_limit)?,
-    };
-    visit_spilled_native_files(
-        SpilledFileWalk {
-            source,
-            observation: SpilledVisitObservation {
-                cancellation,
-                progress,
-            },
-        },
-        &mut preparation,
-        |state, file| {
-            let mut cancelled = || cancellation.is_cancelled();
-            index_resolution_file_metadata(ResolutionIndexFileInput {
-                index: &mut state.index,
-                file: &file,
-                budget: &mut state.budget,
-                cancelled: &mut cancelled,
-            })?;
-            let mut context = ResolutionIndexContext {
-                source_root,
-                budget: &mut state.budget,
-                cancelled: &mut cancelled,
-            };
-            block_in_place(|| {
-                qualtype_resolution::index_syntax(&mut state.index, &file, &mut context)
-            })?;
-            index_typescript_alias_file(&mut state.index.modules, &file, &mut context)?;
-            let before = state.compact.retained_bytes;
-            let diagnostics = state.compact.diagnostics;
-            state
-                .compact
-                .push_compact_clone(compact_clone_file(file), diagnostics)?;
-            state
-                .budget
-                .charge(state.compact.retained_bytes.saturating_sub(before))
-        },
-    )
-    .await?;
-    visit_spilled_native_files(
-        SpilledFileWalk {
-            source,
-            observation: SpilledVisitObservation {
-                cancellation,
-                progress,
-            },
-        },
-        &mut preparation,
-        |state, file| {
-            let mut cancelled = || cancellation.is_cancelled();
-            index_rust_workspace_package_file(
-                &mut ResolutionIndexTarget {
-                    index: &mut state.index,
-                    budget: &mut state.budget,
-                },
-                &file,
-                &mut cancelled,
-            )?;
-            index_resolution_file_symbols(ResolutionIndexFileInput {
-                index: &mut state.index,
-                file: &file,
-                budget: &mut state.budget,
-                cancelled: &mut cancelled,
-            })
-        },
-    )
-    .await?;
-    // Candidate ordering and partial-clone analysis walk every retained symbol
-    // and reread sources; keep that synchronous work off the async worker core.
-    block_in_place(move || finish_spilled_resolution_preparation(preparation, source_root, request))
-}
-
-/// Order resolution candidates, analyze partial clones, and collect clone
-/// evidence for a fully indexed spilled generation.
-fn finish_spilled_resolution_preparation(
-    mut preparation: SpilledResolutionPreparation,
-    source_root: &SourceRoot,
-    request: ResolutionPreparationRequest<'_>,
-) -> Result<(CloneEvidenceMap, ResolutionIndex, u64), StageItemFailure> {
-    let ResolutionPreparationRequest {
-        policy,
-        cancellation,
-        ..
-    } = request;
-    let mut cancelled = || cancellation.is_cancelled();
-    javascript_config::finish(
-        &mut preparation.index.modules,
-        &mut ResolutionIndexContext {
-            source_root,
-            budget: &mut preparation.budget,
-            cancelled: &mut cancelled,
-        },
-    )?;
-    finalize_resolution_candidate_order(
-        &mut preparation.index,
-        &mut preparation.budget,
-        &mut cancelled,
-    )?;
-    analyze_partial_clones(
-        CloneAnalysisInput {
-            extracted: &mut preparation.compact,
-            source_root,
-            policy,
-            budget: &mut preparation.budget,
-        },
-        &mut cancelled,
-    )?;
-    let evidence =
-        finish_spilled_clone_evidence(preparation.compact, &mut preparation.budget, cancellation)?;
-    Ok((
-        evidence,
-        preparation.index,
-        preparation.budget.charged_bytes,
-    ))
-}
-
-fn finish_spilled_clone_evidence(
-    compact: NativeFactAccumulator,
-    budget: &mut ResolveBudget,
-    cancellation: &StageCancellation,
-) -> Result<CloneEvidenceMap, StageItemFailure> {
-    let mut evidence = CloneEvidenceMap::new();
-    for file in compact.files {
-        for mut symbol in file.symbols {
-            if cancellation.is_cancelled() {
-                return Err(StageItemFailure);
-            }
-            let patch_bytes = RESOLUTION_MAP_NODE_ALLOWANCE
-                .saturating_add(usize_to_u64(size_of::<CloneEvidencePatch>()))
-                .saturating_add(usize_to_u64(symbol.input.symbol_id.as_str().len()));
-            budget.charge(patch_bytes)?;
-            let symbol_id = symbol.input.symbol_id.clone();
-            if evidence
-                .insert(
-                    symbol_id,
-                    CloneEvidencePatch {
-                        duplicate_detection_enabled: symbol.duplicate_detection_enabled,
-                        near_clone_compatibility: symbol.near_clone_compatibility,
-                        partial_clone: symbol.partial_clone.take(),
-                    },
-                )
-                .is_some()
-            {
-                return Err(StageItemFailure);
-            }
-        }
-    }
-    Ok(evidence)
-}
-
-fn apply_clone_evidence(
-    file: &mut NativeFileFacts,
-    evidence: &mut CloneEvidenceMap,
-) -> Result<(), StageItemFailure> {
-    for symbol in &mut file.symbols {
-        let patch = evidence
-            .remove(&symbol.input.symbol_id)
-            .ok_or(StageItemFailure)?;
-        symbol.duplicate_detection_enabled = patch.duplicate_detection_enabled;
-        symbol.near_clone_compatibility = patch.near_clone_compatibility;
-        symbol.partial_clone = patch.partial_clone;
-        symbol.clone_token_profile = None;
-    }
-    Ok(())
 }
 
 fn collect_clone_candidates<Cancel>(
@@ -17273,6 +14611,15 @@ fn usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
+use cartograph_db::{
+    CanonicalGenerationFacts, CartographDatabase, EdgeInput, FileInput, GenerationFacts,
+    GenerationMemoryModelError, GenerationValidationError, GenerationValidationLimits,
+    GenerationValidationReport, MAX_NATIVE_PARSE_CACHE_PAYLOAD_BYTES, NativeParseCacheKey,
+    NativeParseCacheKeyInput, NativeParseCacheWrite, NumericalSiteInput, ReferenceInput,
+    ReferenceSpanPrecision, SearchDocumentInput, StorageError, SymbolInput, apply_page_rank,
+    apply_sampled_betweenness, validate_generation_facts,
+};
+
 #[cfg(test)]
 mod tests {
     mod bridge_details;
@@ -18274,109 +15621,6 @@ mod tests {
         NativePipelineConfig::new(limits, parallelism, deadlines)
     }
 
-    fn spilled_manifest_entry(index: u64, byte_size: u64) -> SourceManifestEntry {
-        let path = NormalizedPath::parse(&format!("src/spilled_{index}.ts"))
-            .unwrap_or_else(|error| panic!("spilled manifest path failed: {error}"));
-        let mut file_bytes = [0_u8; DOCUMENT_UUID_BYTES];
-        file_bytes[DOCUMENT_UUID_BYTES - size_of::<u64>()..].copy_from_slice(&index.to_be_bytes());
-        let mut digest_bytes = [0_u8; 32];
-        digest_bytes[32 - size_of::<u64>()..].copy_from_slice(&index.to_be_bytes());
-        SourceManifestEntry {
-            path,
-            language: SourceLanguage::TypeScript,
-            file_id: FileId::from_uuid_v8(file_bytes),
-            content_hash: ContentDigest::from_bytes(digest_bytes),
-            byte_size,
-        }
-    }
-
-    fn spilled_parse_test_config() -> NativePipelineConfig {
-        let mut config = config(SERIAL_WORKERS);
-        config.deadlines =
-            NativePipelineDeadlines::new(Duration::from_millis(500), TEST_TIMEOUT, CLEANUP_GRACE)
-                .unwrap_or_else(|error| panic!("spilled parse deadlines failed: {error}"));
-        config
-    }
-
-    #[test]
-    fn spilled_parse_envelopes_are_lazy_and_cap_each_batch_by_file_count() {
-        let manifest = (0..65)
-            .map(|index| spilled_manifest_entry(index, 1))
-            .collect::<Vec<_>>();
-        let stage_deadline = Instant::now() + TEST_TIMEOUT;
-        let (mut envelopes, failed) =
-            spilled_parse_envelopes(manifest, spilled_parse_test_config(), stage_deadline);
-        let first = envelopes
-            .next()
-            .unwrap_or_else(|| panic!("first spilled parse envelope was missing"));
-        assert_eq!(first.test_payload().entries.len(), 64);
-        assert_eq!(first.test_meta().budget().progress_bytes(), 64);
-        let first_deadline = first.test_meta().budget().deadline();
-
-        std::thread::sleep(Duration::from_millis(20));
-        let second = envelopes
-            .next()
-            .unwrap_or_else(|| panic!("second spilled parse envelope was missing"));
-        assert_eq!(second.test_payload().entries.len(), 1);
-        assert_eq!(second.test_meta().budget().progress_bytes(), 1);
-        assert!(second.test_meta().budget().deadline() > first_deadline);
-        assert!(envelopes.next().is_none());
-        assert!(!failed.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn spilled_parse_envelopes_cap_combined_source_bytes() {
-        let mebibyte = 1024_u64 * 1024;
-        let manifest = [40 * mebibyte, 30 * mebibyte, mebibyte]
-            .into_iter()
-            .enumerate()
-            .map(|(index, bytes)| spilled_manifest_entry(usize_to_u64(index), bytes))
-            .collect::<Vec<_>>();
-        let stage_deadline = Instant::now() + TEST_TIMEOUT;
-        let (mut envelopes, failed) =
-            spilled_parse_envelopes(manifest, spilled_parse_test_config(), stage_deadline);
-        let first = envelopes
-            .next()
-            .unwrap_or_else(|| panic!("first byte-bounded envelope was missing"));
-        assert_eq!(first.test_payload().entries.len(), 1);
-        assert_eq!(first.test_meta().budget().progress_bytes(), 40 * mebibyte);
-        let second = envelopes
-            .next()
-            .unwrap_or_else(|| panic!("second byte-bounded envelope was missing"));
-        assert_eq!(second.test_payload().entries.len(), 2);
-        assert_eq!(second.test_meta().budget().progress_bytes(), 31 * mebibyte);
-        assert!(envelopes.next().is_none());
-        assert!(!failed.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn spilled_parse_envelopes_keep_one_oversized_file_indivisible() {
-        let mebibyte = 1024_u64 * 1024;
-        let manifest = [70 * mebibyte, mebibyte]
-            .into_iter()
-            .enumerate()
-            .map(|(index, bytes)| spilled_manifest_entry(usize_to_u64(index), bytes))
-            .collect::<Vec<_>>();
-        let stage_deadline = Instant::now() + TEST_TIMEOUT;
-        let (mut envelopes, failed) =
-            spilled_parse_envelopes(manifest, spilled_parse_test_config(), stage_deadline);
-        let oversized = envelopes
-            .next()
-            .unwrap_or_else(|| panic!("oversized envelope was missing"));
-        assert_eq!(oversized.test_payload().entries.len(), 1);
-        assert_eq!(
-            oversized.test_meta().budget().progress_bytes(),
-            70 * mebibyte
-        );
-        let following = envelopes
-            .next()
-            .unwrap_or_else(|| panic!("post-oversized envelope was missing"));
-        assert_eq!(following.test_payload().entries.len(), 1);
-        assert_eq!(following.test_meta().budget().progress_bytes(), mebibyte);
-        assert!(envelopes.next().is_none());
-        assert!(!failed.load(Ordering::Acquire));
-    }
-
     async fn parse_project_through_native_stages(
         stages: &NativeStageContext<'_>,
     ) -> NativeFactAccumulator {
@@ -18514,7 +15758,7 @@ mod tests {
         };
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
@@ -18682,7 +15926,7 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
         .unwrap_or_else(|error| panic!("SCIP pipeline failed: {error}"));
         drop(cancellation);
         let task_report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(task_report.all_joined);
         assert!(!task_report.worker_failed);
@@ -22765,43 +20009,6 @@ export function secondClone(value: number) {
     }
 
     #[test]
-    fn spilled_parse_batch_reuses_one_extractor_for_each_language() {
-        let directory = tempdir()
-            .unwrap_or_else(|error| panic!("could not create parser reuse fixture: {error}"));
-        for (path, source) in [
-            ("src/first.ts", "export function first() { return 1; }\n"),
-            ("src/second.ts", "export function second() { return 2; }\n"),
-        ] {
-            let target = directory.path().join(path);
-            fs::create_dir_all(
-                target
-                    .parent()
-                    .unwrap_or_else(|| panic!("parser reuse fixture had no parent: {path}")),
-            )
-            .unwrap_or_else(|error| panic!("could not create parser reuse parent: {error}"));
-            fs::write(target, source)
-                .unwrap_or_else(|error| panic!("could not write parser reuse fixture: {error}"));
-        }
-        let source_root = SourceRoot::open(directory.path())
-            .unwrap_or_else(|error| panic!("could not open parser reuse fixture: {error}"));
-        let mut pool = SpilledExtractorPool::default();
-        for path in ["src/first.ts", "src/second.ts"] {
-            let manifest = read_manifest_entry(
-                read_manifest_input(&source_root, directory.path(), path),
-                || false,
-            )
-            .unwrap_or_else(|_| panic!("could not read parser reuse manifest: {path}"))
-            .unwrap_or_else(|| panic!("parser reuse manifest was skipped: {path}"));
-            let extracted = pool
-                .extract(&source_root, &manifest, || false)
-                .unwrap_or_else(|_| panic!("could not extract parser reuse fixture: {path}"));
-            assert_eq!(extracted.language, SourceLanguage::TypeScript);
-        }
-        assert_eq!(pool.extractors.len(), 1);
-        assert_eq!(pool.initializations, 1);
-    }
-
-    #[test]
     fn manifest_skip_does_not_mask_invalid_utf8_or_read_failure() {
         let directory = tempdir()
             .unwrap_or_else(|error| panic!("could not create manifest failure fixture: {error}"));
@@ -23997,42 +21204,6 @@ export function secondClone(value: number) {
     }
 
     #[test]
-    fn compact_clone_accounting_excludes_unmaterialized_canonical_output() {
-        let build_compact = || {
-            let limits = SourceLimits::new(TEST_SOURCE_BYTES)
-                .unwrap_or_else(|error| panic!("source limits were invalid: {error}"));
-            let snapshot = cartograph_extract::SourceSnapshot::from_bytes(
-                "compact.ts",
-                b"export function alpha(): void { beta(); }\nexport function beta(): void {}\n",
-                limits,
-            )
-            .unwrap_or_else(|error| panic!("compact snapshot was rejected: {error}"));
-            let mut extractor = NativeExtractor::new(snapshot.language())
-                .unwrap_or_else(|error| panic!("native extractor was unavailable: {error}"));
-            let extracted = extractor
-                .extract(&snapshot)
-                .unwrap_or_else(|error| panic!("compact extraction failed: {error}"));
-            let file = NativeFileFacts::from_extracted(extracted)
-                .unwrap_or_else(|_| panic!("compact facts could not be normalized"));
-            compact_clone_file(file)
-        };
-        let compact = build_compact();
-        let owned = compact.modeled_owned_bytes();
-        assert!(compact.modeled_retained_bytes() > owned);
-        let maximum = owned.saturating_add(usize_to_u64(size_of::<NativeFileFacts>()));
-        let mut clone_accumulator = NativeFactAccumulator::new(maximum);
-        clone_accumulator
-            .push_compact_clone(compact, 0)
-            .unwrap_or_else(|_| panic!("retained compact clone bytes were overcharged"));
-        let mut canonical_accumulator = NativeFactAccumulator::new(maximum);
-        assert!(
-            canonical_accumulator
-                .push_native(build_compact(), 0)
-                .is_err()
-        );
-    }
-
-    #[test]
     fn long_paths_and_many_symbols_stay_inside_resolve_and_validation_charges() {
         let component = "p".repeat(LONG_PATH_COMPONENT_BYTES);
         let directory = std::iter::repeat_n(component.as_str(), LONG_PATH_COMPONENT_COUNT)
@@ -24372,7 +21543,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
@@ -24398,7 +21569,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
@@ -24437,7 +21608,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
@@ -24499,117 +21670,15 @@ export function secondClone(value: number) {
         assert!(!rendered.contains(&directory.path().to_string_lossy().into_owned()));
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
     }
 
-    #[test]
-    fn spilled_parse_item_deadline_does_not_reuse_retained_file_failure() {
-        let sequence = StageSequence::new(7);
-        let path = NormalizedPath::parse("src/innocent.rs")
-            .unwrap_or_else(|error| panic!("deadline fixture path was invalid: {error}"));
-        let failures = Mutex::new(BTreeMap::from([(
-            sequence,
-            ParseManifestFailure::from_extract(ExtractError::Cancelled).with_path(path),
-        )]));
-
-        let error = classify_spilled_parse_stage_error(
-            StageRunError::Item {
-                stage: PipelineStage::Parse,
-                sequence,
-                kind: StageFailureKind::Deadline,
-            },
-            &failures,
-        );
-
-        assert_eq!(
-            error.reason(),
-            Some(PipelineFailureReason::DeadlineExceeded)
-        );
-        assert!(error.file_failure().is_none());
-        assert_matches!(
-            error,
-            NativePipelineError::Stage(StageRunError::Item {
-                stage: PipelineStage::Parse,
-                kind: StageFailureKind::Deadline,
-                ..
-            })
-        );
-    }
-
-    #[test]
-    fn spilled_parse_storage_failure_stays_stage_scoped() {
-        let path = NormalizedPath::parse("src/not-at-fault.rs")
-            .unwrap_or_else(|error| panic!("spill fixture path was invalid: {error}"));
-        let failure = ParseManifestFailure::from_spill(&StorageError::DatabaseOperation {
-            operation: "spill-test",
-        })
-        .with_path(path);
-
-        let error = classify_parse_stage_failure(
-            StageRunError::Item {
-                stage: PipelineStage::Parse,
-                sequence: StageSequence::new(0),
-                kind: StageFailureKind::Worker,
-            },
-            Some(failure),
-        );
-
-        assert_matches!(
-            error,
-            NativePipelineError::Spill {
-                stage: PipelineStage::Parse
-            }
-        );
-        assert!(error.file_failure().is_none());
-        assert_eq!(error.reason(), None);
-    }
-
     /// The spilled reduce runs as one stage item, so the runner only learns
     /// that the item failed. A spill statement that outlived its timeout used
     /// to surface as a reason-less `reduce_failed`; it is the reduce deadline.
-    #[test]
-    fn spilled_reduce_statement_timeout_reports_the_reduce_deadline() {
-        let worker_failure = || StageRunError::Item {
-            stage: PipelineStage::Reduce,
-            sequence: StageSequence::new(0),
-            kind: StageFailureKind::Worker,
-        };
-        let timed_out = SpilledReduceFailure::default();
-        let _ = timed_out.record(StorageError::StatementTimeout {
-            operation: "spill-detect-canonical-conflict",
-        });
-        assert_matches!(
-            timed_out.classify(worker_failure()),
-            NativePipelineError::StageWithReason {
-                stage: PipelineStage::Reduce,
-                reason: PipelineFailureReason::DeadlineExceeded,
-            }
-        );
-
-        let failed = SpilledReduceFailure::default();
-        let _ = failed.record(StorageError::GenerationSpillConflict);
-        let error = failed.classify(worker_failure());
-        assert_matches!(
-            error,
-            NativePipelineError::Spill {
-                stage: PipelineStage::Reduce
-            }
-        );
-        assert_eq!(error.reason(), None);
-
-        let unrecorded = SpilledReduceFailure::default().classify(worker_failure());
-        assert_matches!(
-            unrecorded,
-            NativePipelineError::Stage(StageRunError::Item {
-                stage: PipelineStage::Reduce,
-                kind: StageFailureKind::Worker,
-                ..
-            })
-        );
-    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cache_hit_revalidation_preserves_typed_file_reasons() {
@@ -24788,7 +21857,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let task_report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(task_report.all_joined);
         assert!(!task_report.worker_failed);
@@ -24818,7 +21887,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let task_report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(task_report.all_joined);
         assert!(!task_report.worker_failed);
@@ -24853,7 +21922,7 @@ export function secondClone(value: number) {
         assert!(!rendered.contains(&directory.path().to_string_lossy().to_string()));
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -24889,7 +21958,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -24928,7 +21997,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -24962,7 +22031,7 @@ export function secondClone(value: number) {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);

@@ -5,11 +5,11 @@ use cartograph_domain::{
     GenerationDigestVersion, NumericalSiteId, SymbolExecutionFlags, SymbolExportFlags, SymbolId,
     Visibility,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// One source-file fact staged into an immutable generation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileInput {
     /// Stable identity derived independently of worker scheduling.
     pub file_id: FileId,
@@ -26,7 +26,7 @@ pub struct FileInput {
 }
 
 /// One code-symbol fact tied to a staged file.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolInput {
     /// Stable structural symbol identity.
     pub symbol_id: SymbolId,
@@ -86,7 +86,7 @@ pub struct EdgeInput {
 }
 
 /// Whether a persisted reference span is an exact token or a bounded legacy anchor.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReferenceSpanPrecision {
     /// Start/end identify the exact retained source token.
@@ -107,19 +107,10 @@ impl ReferenceSpanPrecision {
             Self::CoarseOwner => "coarse_owner",
         }
     }
-
-    pub(crate) fn parse(value: &str) -> Result<Self, ()> {
-        match value {
-            "exact" => Ok(Self::Exact),
-            "coarse_point" => Ok(Self::CoarsePoint),
-            "coarse_owner" => Ok(Self::CoarseOwner),
-            _ => Err(()),
-        }
-    }
 }
 
 /// One source span that refers to an optional resolved symbol.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReferenceInput {
     /// File containing the reference.
     pub file_id: FileId,
@@ -146,7 +137,7 @@ pub struct ReferenceInput {
 }
 
 /// One immutable, privacy-safe static numerical evidence site.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NumericalSiteInput {
     /// Stable site identity derived independently of worker scheduling.
     pub site_id: NumericalSiteId,
@@ -275,7 +266,7 @@ pub enum GenerationMemoryModelError {
 }
 
 /// Validated, canonical search document ready for deterministic persistence.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CanonicalSearchDocument {
     pub(crate) document_id: DocumentId,
     pub(crate) file_id: Option<FileId>,
@@ -306,22 +297,10 @@ pub struct CanonicalGenerationFacts {
     pub(super) tables: ValidatedFactTables,
     pub(crate) digest: ContentDigest,
     pub(crate) digest_version: GenerationDigestVersion,
+    pub(super) retained_measurement: Option<GenerationMemoryMeasurement>,
 }
 
 impl CanonicalGenerationFacts {
-    /// Exact canonical row counts persisted with the ready generation.
-    pub(crate) fn fact_counts(&self) -> crate::NativeGenerationSpillFactCounts {
-        let count = |rows: usize| u64::try_from(rows).unwrap_or(u64::MAX);
-        crate::NativeGenerationSpillFactCounts {
-            files: count(self.tables.files.len()),
-            symbols: count(self.tables.symbols.len()),
-            edges: count(self.tables.edges.len()),
-            references: count(self.tables.references.len()),
-            numerical_sites: count(self.tables.numerical_sites.len()),
-            documents: count(self.tables.documents.len()),
-        }
-    }
-
     /// Canonical logical digest covering every persisted field.
     #[must_use]
     pub const fn digest(&self) -> &ContentDigest {
@@ -334,7 +313,7 @@ impl CanonicalGenerationFacts {
         self.digest_version
     }
 
-    pub(super) fn measure_retained_bytes<Cancel>(
+    pub(crate) fn measure_retained_bytes<Cancel>(
         &self,
         maximum_retained_bytes: u64,
         cancelled: Cancel,
@@ -343,6 +322,28 @@ impl CanonicalGenerationFacts {
         Cancel: FnMut() -> bool,
     {
         model_canonical_facts(self, maximum_retained_bytes, cancelled)
+    }
+
+    /// Reuse a complete retained-size proof only while this capability is immutable.
+    /// Mutation is private to ingestion and invalidates this proof first.
+    pub(crate) fn admission_measurement<Cancel>(
+        &self,
+        maximum_retained_bytes: u64,
+        mut cancelled: Cancel,
+    ) -> Result<GenerationMemoryMeasurement, GenerationMemoryModelError>
+    where
+        Cancel: FnMut() -> bool,
+    {
+        if cancelled() {
+            return Err(GenerationMemoryModelError::Cancelled);
+        }
+        let Some(measured) = self.retained_measurement else {
+            return self.measure_retained_bytes(maximum_retained_bytes, cancelled);
+        };
+        if measured.retained_bytes > maximum_retained_bytes {
+            return Err(GenerationMemoryModelError::RetainedLimit);
+        }
+        Ok(measured)
     }
 
     /// Canonically ordered file rows.
@@ -394,6 +395,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let mut model = MemoryModel::new(maximum_retained_bytes, cancelled);
+    model.poll()?;
     model.add_retained(usize_to_u64(size_of::<GenerationFacts>()))?;
     model.add_vector(&facts.files)?;
     model.add_vector(&facts.symbols)?;
@@ -423,6 +425,7 @@ where
         )?;
         model_json(&document.metadata, &mut model)?;
     }
+    model.poll()?;
     Ok(model.finish())
 }
 
@@ -435,6 +438,7 @@ where
     Cancel: FnMut() -> bool,
 {
     let mut model = MemoryModel::new(maximum_retained_bytes, cancelled);
+    model.poll()?;
     model.add_retained(usize_to_u64(size_of::<CanonicalGenerationFacts>()))?;
     model.add_id(facts.digest.as_str())?;
     model.add_vector(&facts.tables.files)?;
@@ -465,6 +469,7 @@ where
         )?;
         model.add_string(&document.metadata_json)?;
     }
+    model.poll()?;
     Ok(model.finish())
 }
 
@@ -713,7 +718,9 @@ where
     }
 
     fn add_retained(&mut self, bytes: u64) -> Result<(), GenerationMemoryModelError> {
-        self.poll()?;
+        // Every row and metadata traversal step polls before counting its
+        // fixed set of fields. Keep exact checked accounting here without
+        // repeating the same cancellation/deadline check for each field.
         self.retained_bytes = self
             .retained_bytes
             .checked_add(bytes)

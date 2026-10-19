@@ -3,9 +3,7 @@
 use std::time::Duration;
 
 use cartograph_domain::DocumentId;
-use cartograph_indexer::{
-    StageEnvelope, StageItemBudget, StageItemMeta, StageSequence, SupervisorConfig,
-};
+use cartograph_indexer::{StageEnvelope, StageItemBudget, StageItemMeta, StageSequence};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -265,18 +263,7 @@ pub(crate) const fn committed_row_counts() -> RowCounts {
     }
 }
 
-impl BenchmarkConfig {
-    pub(crate) fn supervisor_config(&self, max_tasks: usize, max_bytes: u64) -> SupervisorConfig {
-        SupervisorConfig::new(self.deadlines.operation)
-            .with_heartbeat_interval(self.deadlines.heartbeat_interval)
-            .with_heartbeat_timeout(self.deadlines.heartbeat_timeout)
-            .with_progress_timeout(self.deadlines.progress)
-            .with_cancellation_grace(self.deadlines.cleanup_grace)
-            .with_copy_timeout(self.deadlines.copy)
-            .with_max_worker_tasks(max_tasks)
-            .with_max_worker_bytes(max_bytes)
-    }
-}
+impl BenchmarkConfig {}
 
 pub(crate) fn fixture_fingerprint(
     config: &BenchmarkConfig,
@@ -342,6 +329,6 @@ pub(crate) fn qualified_name(index: usize) -> String {
     }
 }
 
-fn normalized_path(index: usize) -> String {
+pub(crate) fn normalized_path(index: usize) -> String {
     format!("src/fixture_{index:04}.ts")
 }

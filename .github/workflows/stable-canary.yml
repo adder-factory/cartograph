@@ -27,6 +27,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install Linux native binding prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Resolve Windows native binding library
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nativeClang = Join-Path $env:ProgramFiles 'LLVM/bin'
+          if (!(Test-Path (Join-Path $nativeClang 'libclang.dll'))) {
+            throw 'RocksDB bindings require the runner LLVM libclang.dll'
+          }
+          "LIBCLANG_PATH=$nativeClang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Install the newest stable compiler and strict components
         run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
 

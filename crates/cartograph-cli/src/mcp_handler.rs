@@ -4,7 +4,6 @@ use std::{
     future::Future,
     io::Read as _,
     path::{Path, PathBuf},
-    process,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering as AtomicOrdering},
@@ -45,28 +44,23 @@ use cartograph_db::{
     FileDependencyQuery, FileHistoryQuery, FileSurfaceQuery, FileTestImpactQuery,
     FileTestImpactResult, GroupedPathInput, GroupedSymbolQuery, NumericalSiteQuery,
     QualifiedCentralityComparator, QualifiedSymbolHit, QualifiedSymbolPage, QualifiedSymbolQuery,
-    QualifiedSymbolSort, ReadOnlySqlError, ReadOnlySqlRequest, SearchComponent, SearchHit,
-    SimilarSymbolsResult, SimilarityMaterializationPolicy, StructuralFinding,
-    StructuralFindingGroupQuery, StructuralFindingQuery, StructuralFindingSeverity,
-    StructuralFindingStats, StructuralHotspotCategory, StructuralHotspotQuery,
-    StructuralHotspotSort, SymbolCoverageQuery, VectorSearchHit, read_only_sql_schema,
+    QualifiedSymbolSort, SearchComponent, SearchHit, SimilarSymbolsResult,
+    SimilarityMaterializationPolicy, StructuralFinding, StructuralFindingGroupQuery,
+    StructuralFindingQuery, StructuralFindingSeverity, StructuralFindingStats,
+    StructuralHotspotCategory, StructuralHotspotQuery, StructuralHotspotSort, SymbolCoverageQuery,
+    VectorSearchHit,
 };
 use cartograph_db::{
-    DerivedStorePrunePolicy, DerivedStorePruneRequest, GenerationRetentionPolicy,
-    GenerationRetentionRequest, GenerationValidationLimits, IssueAttributionKind,
-    IssueCommitSymbolPeerQuery, SymbolIssuePeerQuery, SymbolIssueQuery, V1PostgresImportExecution,
-    V1PostgresImportLimits, V1PostgresImportRequest, V1PostgresSource, V1PostgresSourceRevision,
+    IssueAttributionKind, IssueCommitSymbolPeerQuery, SymbolIssuePeerQuery, SymbolIssueQuery,
 };
 use cartograph_db::{
-    LeaseOwner, LeaseRequest, LeaseTarget, ManagedDatabase, ManagedDestructiveOperation,
     McpMacroStep, McpSessionCallsQuery, McpSessionLookup, McpSessionRecord, McpToolCallData,
     McpToolCallInput, McpToolCallRecord, McpToolCallWrite, McpTraceUsage, NewMcpMacro,
-    NewMcpSession, ProjectPurgeError, ProjectPurgeRequest, SemanticStorageError, StorageError,
-    StorageTotalsReport,
+    NewMcpSession, SemanticStorageError, StorageError,
 };
 use cartograph_domain::{
-    ContentDigest, EdgeKind, GenerationId, ModelId, NormalizedPath, ProjectId, ProjectOperation,
-    SourceLanguage, SymbolId,
+    ContentDigest, EdgeKind, GenerationId, ModelId, NormalizedPath, ProjectId, SourceLanguage,
+    SymbolId,
 };
 use cartograph_llm::{
     ChatError, ChatMessageRequest, ChatSettings, CliBridgeConfig, CliBridgeConfigInput,
@@ -93,6 +87,7 @@ use cartograph_search::{
     SourceRangeResult, TaskIntent, TraversalBudget, TraversalRequest, TraversalResult,
     is_test_path, parse_qualified_query,
 };
+use futures_util::FutureExt as _;
 use num_traits::ToPrimitive as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -100,6 +95,10 @@ use tokio::sync::Mutex;
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::auto_sync::{AutoSyncError, AutoSyncStatus, ProjectAutoSync};
+mod decision_accounting;
+mod native_maintenance;
+mod native_reads;
+mod rocks;
 use crate::byte_format::format_binary_bytes;
 use crate::error_codes::{SecondaryFailure, index_stage_failure_code};
 use crate::host::{
@@ -109,6 +108,7 @@ use crate::host::{
 use crate::supervised_index::{
     CancellableIndex, IndexSupervision, run_cancellable_index, with_cleanup_proof,
 };
+pub(super) use rocks::RocksHandler;
 
 #[cfg(test)]
 use cartograph_db::{AgentArtifactRecord, AgentArtifactState};
@@ -140,7 +140,6 @@ const PROPOSE_RENAME_TOOL: &str = "cartograph_propose_rename";
 const ROLE_TOOL: &str = "cartograph_role";
 const SESSION_TOOL: &str = "cartograph_session";
 const SUMMARIES_TOOL: &str = "cartograph_summaries";
-const SQL_TOOL: &str = "cartograph_sql";
 const TESTS_FOR_TOOL: &str = "cartograph_tests_for";
 const TRACE_TO_CULPRITS_TOOL: &str = "cartograph_trace_to_culprits";
 const VERIFY_TOOL: &str = "cartograph_verify";
@@ -200,7 +199,6 @@ const INTENT_PRIORITY_MAXIMUM_CANDIDATES: u16 = 20;
 const MAX_CACHED_PROJECT_RUNTIMES: usize = 16;
 const MAX_PROJECT_PATH_BYTES: usize = 4_096;
 const MAX_PROJECT_PARENT_STEPS: usize = 64;
-const DATABASE_MILLISECONDS_PER_SECOND: u64 = 1_000;
 const ALLOWED_PROJECTS_ENV: &str = "CARTOGRAPH_ALLOWED_PROJECTS";
 const RESULT_MAXIMUM_LIMIT: u16 = 100;
 const ASK_DEFAULT_RETRIEVE_K: u16 = 12;
@@ -242,21 +240,11 @@ const TESTS_FOR_DESCRIPTION_MATCHES: usize = 10;
 const REVIEW_DEFAULT_FILES: u16 = 200;
 const REVIEW_MAXIMUM_FILES: u16 = 512;
 const ADMIN_MAXIMUM_WORKERS: u16 = 16;
-const ADMIN_DATABASE_OPTION_MAXIMUM_BYTES: usize = 16;
-const ADMIN_DATABASE_URL_MAXIMUM_BYTES: usize = 8_192;
-const ADMIN_DATABASE_SCHEMA_MAXIMUM_BYTES: usize = 63;
 const ADMIN_LANGUAGE_ID_MAXIMUM_BYTES: usize = 64;
-const ADMIN_DATABASE_MAXIMUM_CONNECTIONS: u16 = 64;
 const ADMIN_QUERY_TIMEOUT_MAXIMUM_MS: u64 = 600_000;
 pub(super) const ADMIN_BIOMARKER_REFRESH_DEFAULT_TIMEOUT_MS: u64 = 240_000;
-pub(super) const ADMIN_BIOMARKER_REFRESH_MAXIMUM_TIMEOUT_MS: u64 = 30 * 60 * 1_000;
-const ADMIN_CONNECTION_TIMEOUT_MAXIMUM_SECONDS: u64 = 120;
+pub(super) const ADMIN_BIOMARKER_REFRESH_MAXIMUM_TIMEOUT_MS: u64 = 300_000;
 const ADMIN_MAX_FILE_SIZE_TEXT_BYTES: usize = 32;
-const ADMIN_RETENTION_MAXIMUM_COUNT: u32 = 10_000;
-const ADMIN_RETENTION_MAXIMUM_CASCADE_ROWS: u64 = 100_000_000;
-const ADMIN_RETENTION_DEFAULT_KEEP: u32 = 2;
-const ADMIN_RETENTION_DEFAULT_DELETIONS: u32 = 100;
-const ADMIN_UNINIT_DEFAULT_GENERATIONS: u16 = 256;
 const ADMIN_SIMILARITY_MAXIMUM_K: u16 = 50;
 const ADMIN_SIMILARITY_DEFAULT_K: u16 = 20;
 const ADMIN_RESULT_MAXIMUM_LIMIT: u16 = 500;
@@ -269,13 +257,10 @@ const ADMIN_LLM_CLI_ARGUMENT_TOTAL_BYTES_MAXIMUM: usize = 32 * 1_024;
 /// A credential command's argv: its program plus the CLI bridge argument bound.
 const ADMIN_LLM_CREDENTIAL_ARGV_MAXIMUM: usize = ADMIN_LLM_CLI_ARGUMENTS_MAXIMUM + 1;
 const ADMIN_LLM_CLI_PROMPT_TEMPLATE_MAXIMUM_BYTES: usize = 64 * 1_024;
-const ADMIN_MAINTENANCE_LEASE: Duration = Duration::from_mins(5);
 const ADMIN_MAINTENANCE_TIMEOUT: Duration = Duration::from_mins(4);
 const ADMIN_DEFAULT_IMPORT_ROWS: u64 = 10_000_000;
 const ADMIN_MAXIMUM_IMPORT_ROWS: u64 = 100_000_000;
 const ADMIN_DEFAULT_IMPORT_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
-const ADMIN_IMPORT_OUTPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-const ADMIN_IMPORT_WORKING_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const ADMIN_SCIP_MAXIMUM_BYTES: u64 = 256 * 1024 * 1024;
 const ADMIN_SCIP_EXPORT_MAXIMUM_ROWS: u64 = 5_000_000;
 const ADMIN_SCIP_IMPORT_MAXIMUM_ROWS: u64 = 10_000_000;
@@ -303,14 +288,6 @@ const RANGE_DEFAULT_LIMIT: u16 = 20;
 const RANGE_MAXIMUM_LIMIT: u16 = 200;
 const RANGE_MAXIMUM_LINE: u32 = 10_000_000;
 const RANGE_MAXIMUM_INPUTS: usize = 100;
-const SQL_MAXIMUM_TABLES: usize = 64;
-const SQL_TABLE_NAME_MAXIMUM_BYTES: usize = 128;
-const SQL_QUERY_MAXIMUM_BYTES: usize = 64 * 1_024;
-const SQL_DEFAULT_LIMIT: u16 = 100;
-const SQL_MAXIMUM_LIMIT: u16 = 1_000;
-const SQL_MINIMUM_TIMEOUT_MS: u64 = 100;
-const SQL_DEFAULT_TIMEOUT_MS: u64 = 10_000;
-const SQL_MAXIMUM_TIMEOUT_MS: u64 = 60_000;
 const INSIGHT_DEFAULT_LIMIT: u16 = 50;
 const INSIGHT_MAXIMUM_LIMIT: u16 = 500;
 const BIOMARKER_DEFAULT_LIMIT: u16 = 30;
@@ -460,9 +437,6 @@ const DIGEST_SECTION_LIMIT: u16 = 5;
 const HOTSPOT_DEFAULT_LIMIT: u16 = 15;
 const HOTSPOT_MAXIMUM_LIMIT: u16 = 100;
 const HOTSPOT_DEFAULT_MINIMUM_COMMITS: u64 = 3;
-const DERIVED_STORE_DEFAULT_MAXIMUM_AGE_DAYS: f64 = 30.0;
-const DERIVED_STORE_SECONDS_PER_DAY: f64 = 86_400.0;
-const DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS: u32 = 10_000;
 const MACRO_TOOL_NAME_MAXIMUM_BYTES: usize = 128;
 const CODE_HEALTH_MAXIMUM_SCORE: f64 = 10.0;
 const CODE_HEALTH_ERROR_PENALTY: f64 = 2.0;
@@ -506,7 +480,7 @@ const CURSOR_CACHE_TTL: Duration = Duration::from_mins(15);
 
 pub(crate) const AGENT_PLAYBOOK: &str = r"# Cartograph coding-agent playbook
 
-Cartograph is generation-scoped evidence over PostgreSQL, ParadeDB BM25, pgvector, and a typed code graph. It helps you navigate and verify code; it does not replace reading current source, compiling, or testing.
+Cartograph is generation-scoped evidence over per-project RocksDB, code-aware BM25, model-scoped vectors, and a typed code graph. It helps you navigate and verify code; it does not replace reading current source, compiling, or testing.
 
 ## Reliable default loop
 
@@ -975,6 +949,7 @@ struct RoleClassificationSweepStats {
     jev_abstained: u64,
     jev_rejected: u64,
     jev_error: Option<String>,
+    jev_usage: decision_accounting::DecisionAccounting,
 }
 
 struct RoleClassificationPage<'context> {
@@ -2139,8 +2114,10 @@ enum AdminDispatchGroup {
 }
 
 struct AdminDispatch<'input> {
+    context: &'input ToolCallContext,
     action: AdminAction,
     arguments: &'input Map<String, Value>,
+    cancellation: &'input ProjectCancellation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2194,6 +2171,7 @@ struct ProjectRuntimeCacheState {
     order: VecDeque<PathBuf>,
     auto_sync_enabled: bool,
     startup_reconciliation_enabled: bool,
+    closed: bool,
 }
 
 struct CachedProjectRuntime {
@@ -2203,10 +2181,9 @@ struct CachedProjectRuntime {
 
 struct ProjectRuntimeCache {
     state: Mutex<ProjectRuntimeCacheState>,
+    opening: Mutex<()>,
     default_root: PathBuf,
-    default_runtime: Arc<ProjectRuntime>,
     allowed_roots: Option<Vec<PathBuf>>,
-    shared_database: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2219,7 +2196,7 @@ enum ProjectRouteError {
 }
 
 impl ProjectRuntimeCache {
-    fn new(default_runtime: Arc<ProjectRuntime>) -> Self {
+    fn new(default_runtime: &Arc<ProjectRuntime>) -> Self {
         let default_root = default_runtime
             .project_root_for_host_operations()
             .to_path_buf();
@@ -2240,72 +2217,107 @@ impl ProjectRuntimeCache {
             order: VecDeque::from([default_root.clone()]),
             auto_sync_enabled: false,
             startup_reconciliation_enabled: false,
+            closed: false,
         };
         Self {
             state: Mutex::new(state),
+            opening: Mutex::new(()),
             default_root,
-            default_runtime,
             allowed_roots,
-            shared_database: std::env::var_os(cartograph_config::DATABASE_URL_ENV).is_some(),
         }
     }
 
-    async fn runtime_for(&self, input: &str) -> Result<Arc<ProjectRuntime>, ProjectRouteError> {
+    async fn runtime_for_bounded(
+        &self,
+        input: &str,
+        context: &ToolCallContext,
+    ) -> Result<Arc<ProjectRuntime>, ProjectRouteError> {
         let root = self.resolve_project_root(input)?;
         {
             let mut state = self.state.lock().await;
+            if state.closed || context.should_stop() {
+                return Err(ProjectRouteError::RuntimeUnavailable);
+            }
             if let Some(runtime) = state.runtimes.get(&root).map(|entry| entry.runtime.clone()) {
                 touch_project_runtime(&mut state, &root);
                 return Ok(runtime);
             }
         }
-
-        let shared_runtime =
-            ProjectRuntime::with_database(&root, self.default_runtime.database().clone())
-                .map_err(|_| ProjectRouteError::RuntimeUnavailable)?;
-        let shared_project_exists = shared_runtime
-            .database()
-            .project_snapshot_by_root(shared_runtime.root_identity())
-            .await
-            .map_err(|_| ProjectRouteError::DatabaseUnavailable)?
-            .is_some();
-        let runtime = if self.shared_database || shared_project_exists {
-            shared_runtime
-        } else {
-            match crate::resolve_database_settings(&root).await {
-                Ok(settings) => ProjectRuntime::connect(&root, &settings)
-                    .await
-                    .map_err(|_| ProjectRouteError::RuntimeUnavailable)?,
-                Err(_) => shared_runtime,
+        // Cold admission is serialized separately from short cache lookups.
+        let _opening = tokio::select! {
+            () = context.cancellation().cancelled() => return Err(ProjectRouteError::RuntimeUnavailable),
+            () = tokio::time::sleep_until(context.deadline()) => return Err(ProjectRouteError::RuntimeUnavailable),
+            guard = self.opening.lock() => guard,
+        };
+        let (evicted, auto_sync_enabled, startup_reconciliation_enabled) = {
+            let mut state = self.state.lock().await;
+            if state.closed || context.should_stop() {
+                return Err(ProjectRouteError::RuntimeUnavailable);
             }
-        };
-        let runtime = Arc::new(runtime);
-        let auto_sync = {
-            let state = self.state.lock().await;
-            state
-                .auto_sync_enabled
-                .then(|| {
-                    ProjectAutoSync::start(runtime.clone(), state.startup_reconciliation_enabled)
-                })
-                .transpose()
-                .map_err(|_| ProjectRouteError::RuntimeUnavailable)?
-        };
-        let mut state = self.state.lock().await;
-        if let Some(existing) = state.runtimes.get(&root).map(|entry| entry.runtime.clone()) {
-            touch_project_runtime(&mut state, &root);
-            return Ok(existing);
-        }
-        while state.runtimes.len() >= MAX_CACHED_PROJECT_RUNTIMES {
-            let Some(candidate) = state.order.pop_front() else {
-                break;
+            if let Some(runtime) = state.runtimes.get(&root).map(|entry| entry.runtime.clone()) {
+                touch_project_runtime(&mut state, &root);
+                return Ok(runtime);
+            }
+            let evicted = if state.runtimes.len() >= MAX_CACHED_PROJECT_RUNTIMES {
+                let candidate = state
+                    .order
+                    .iter()
+                    .find(|candidate| {
+                        **candidate != self.default_root
+                            && state
+                                .runtimes
+                                .get(*candidate)
+                                .is_some_and(|entry| Arc::strong_count(&entry.runtime) == 1)
+                    })
+                    .cloned()
+                    .ok_or(ProjectRouteError::RuntimeUnavailable)?;
+                state.order.retain(|path| *path != candidate);
+                state
+                    .runtimes
+                    .remove(&candidate)
+                    .map(|entry| (candidate, entry))
+            } else {
+                None
             };
-            if candidate == self.default_root {
-                state.order.push_back(candidate);
-                continue;
-            }
-            state.runtimes.remove(&candidate);
-            break;
+            (
+                evicted,
+                state.auto_sync_enabled,
+                state.startup_reconciliation_enabled,
+            )
+        };
+        self.close_evicted(evicted).await?;
+        if context.should_stop() {
+            return Err(ProjectRouteError::RuntimeUnavailable);
         }
+        // Never drop a native open future. Reconcile its actual result before
+        // handling a stop, then close it rather than inserting a late owner.
+        let request = cartograph_db::rocks::StorageRequest::new(
+            context
+                .deadline()
+                .saturating_duration_since(tokio::time::Instant::now())
+                .min(Duration::from_secs(30)),
+        )
+        .map_err(|_| ProjectRouteError::RuntimeUnavailable)?;
+        let opening = ProjectRuntime::open_with_request(&root, &request);
+        tokio::pin!(opening);
+        let opened = tokio::select! {
+            biased;
+            () = context.cancellation().cancelled() => { request.cancel(); opening.await },
+            () = tokio::time::sleep_until(context.deadline()) => { request.cancel(); opening.await },
+            result = &mut opening => result,
+        };
+        let runtime = Arc::new(opened.map_err(|_| ProjectRouteError::DatabaseUnavailable)?);
+        if context.should_stop() {
+            runtime
+                .shutdown()
+                .await
+                .map_err(|_| ProjectRouteError::RuntimeUnavailable)?;
+            return Err(ProjectRouteError::RuntimeUnavailable);
+        }
+        let auto_sync =
+            start_cached_watcher(&runtime, auto_sync_enabled, startup_reconciliation_enabled)
+                .await?;
+        let mut state = self.state.lock().await;
         state.runtimes.insert(
             root.clone(),
             CachedProjectRuntime {
@@ -2315,6 +2327,59 @@ impl ProjectRuntimeCache {
         );
         touch_project_runtime(&mut state, &root);
         Ok(runtime)
+    }
+
+    async fn close_evicted(
+        &self,
+        evicted: Option<(PathBuf, CachedProjectRuntime)>,
+    ) -> Result<(), ProjectRouteError> {
+        if let Some((path, mut entry)) = evicted {
+            if let Some(sync) = entry.auto_sync.take() {
+                sync.shutdown().await;
+            }
+            if entry.runtime.shutdown().await.is_err() {
+                let mut state = self.state.lock().await;
+                state.order.push_back(path.clone());
+                state.runtimes.insert(path, entry);
+                return Err(ProjectRouteError::RuntimeUnavailable);
+            }
+        }
+        Ok(())
+    }
+
+    async fn stop_watchers(&self) {
+        let watchers = {
+            let mut state = self.state.lock().await;
+            state
+                .runtimes
+                .values_mut()
+                .filter_map(|entry| entry.auto_sync.take())
+                .collect::<Vec<_>>()
+        };
+        for watcher in watchers {
+            watcher.shutdown().await;
+        }
+    }
+
+    async fn shutdown(&self) -> Result<(), ProjectError> {
+        let _opening = self.opening.lock().await;
+        let runtimes = {
+            let mut state = self.state.lock().await;
+            state.closed = true;
+            state
+                .runtimes
+                .values()
+                .map(|entry| entry.runtime.clone())
+                .collect::<Vec<_>>()
+        };
+        self.stop_watchers().await;
+        let mut failure = None;
+        for runtime in runtimes {
+            if let Err(error) = runtime.shutdown().await {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 
     async fn enable_auto_sync(
@@ -2411,6 +2476,27 @@ fn has_project_marker(candidate: &Path) -> Result<bool, ProjectRouteError> {
         return Err(ProjectRouteError::InvalidPath);
     }
     Ok(metadata.is_dir())
+}
+
+async fn start_cached_watcher(
+    runtime: &Arc<ProjectRuntime>,
+    auto_sync_enabled: bool,
+    startup_reconciliation_enabled: bool,
+) -> Result<Option<ProjectAutoSync>, ProjectRouteError> {
+    let auto_sync = if auto_sync_enabled {
+        if let Ok(sync) = ProjectAutoSync::start(runtime.clone(), startup_reconciliation_enabled) {
+            Some(sync)
+        } else {
+            runtime
+                .shutdown()
+                .await
+                .map_err(|_| ProjectRouteError::RuntimeUnavailable)?;
+            return Err(ProjectRouteError::RuntimeUnavailable);
+        }
+    } else {
+        None
+    };
+    Ok(auto_sync)
 }
 
 fn touch_project_runtime(state: &mut ProjectRuntimeCacheState, root: &PathBuf) {
@@ -2573,16 +2659,14 @@ impl Drop for RequestCancellation {
 #[serde(rename_all = "snake_case")]
 enum AdminAction {
     Init,
-    Uninit,
-    Unlock,
+
     Index,
     Sync,
     BiomarkersRefresh,
     EmbedOnly,
-    Migrate,
-    StorageMigrate,
+
     BuildSimilarityEdges,
-    PruneStore,
+
     PruneGenerations,
     EmbeddingAudit,
     EmbeddingCleanup,
@@ -2597,6 +2681,7 @@ enum AdminAction {
     LlmApply,
     LlmTune,
     EmbeddingStatus,
+    GraphExport,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2663,18 +2748,13 @@ fn parse_biomarker_refresh_options(
     })
 }
 
-const ADMIN_ACTIONS: [(&str, AdminAction); 25] = [
+const ADMIN_ACTIONS: [(&str, AdminAction); 21] = [
     ("init", AdminAction::Init),
-    ("uninit", AdminAction::Uninit),
-    ("unlock", AdminAction::Unlock),
     ("index", AdminAction::Index),
     ("sync", AdminAction::Sync),
     ("biomarkers-refresh", AdminAction::BiomarkersRefresh),
     ("embed-only", AdminAction::EmbedOnly),
-    ("migrate", AdminAction::Migrate),
-    ("storage-migrate", AdminAction::StorageMigrate),
     ("build-similarity-edges", AdminAction::BuildSimilarityEdges),
-    ("prune-store", AdminAction::PruneStore),
     ("prune-generations", AdminAction::PruneGenerations),
     ("embedding-audit", AdminAction::EmbeddingAudit),
     ("embedding-cleanup", AdminAction::EmbeddingCleanup),
@@ -2689,6 +2769,7 @@ const ADMIN_ACTIONS: [(&str, AdminAction); 25] = [
     ("llm-apply", AdminAction::LlmApply),
     ("llm-tune", AdminAction::LlmTune),
     ("embedding-status", AdminAction::EmbeddingStatus),
+    ("graph-export", AdminAction::GraphExport),
 ];
 
 impl AdminAction {
@@ -2775,8 +2856,8 @@ struct AdminJobView {
     /// Bounded cleanup of the job's own staging generation also failed. It
     /// accompanies the primary `failure`, or a cancellation, without
     /// replacing it, exactly as direct `index --format json` reports it: index
-    /// jobs run the CLI's direct cancellable index, so PostgreSQL settles a
-    /// cancelled job's cleanup the same way.
+    /// jobs drain the CLI's native cancellable index before releasing its
+    /// publication guard.
     #[serde(skip_serializing_if = "Option::is_none")]
     cleanup_failure: Option<SecondaryFailure>,
     /// A `scip-import` job's forced index failed or was cancelled, and
@@ -2788,6 +2869,8 @@ struct AdminJobView {
     overlay_rollback_failure: Option<SecondaryFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     progress: Option<SupervisorStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shutdown_deadline_exceeded: Option<bool>,
 }
 
 impl AdminJobView {
@@ -2804,6 +2887,7 @@ impl AdminJobView {
             cleanup_failure: None,
             overlay_rollback_failure: None,
             progress: None,
+            shutdown_deadline_exceeded: None,
         }
     }
 
@@ -2814,6 +2898,20 @@ impl AdminJobView {
         let running = Self::running(job_id, action);
         let failure = match result {
             Ok(report) => {
+                // Terminal reports also live in the bounded recent-job cache.
+                if !serde_json::to_vec(&report).is_ok_and(|bytes| bytes.len() <= 1_048_576) {
+                    return Self {
+                        status: AdminJobStatus::Failed,
+                        failure: Some(AdminJobFailure::OperationFailed),
+                        failure_detail: Some(AdminJobFailureDetail {
+                            reason: "job_report_limit",
+                            limit: "1 MiB",
+                            scope: "terminal_report",
+                            next_action: "Request a smaller bounded operation",
+                        }),
+                        ..running
+                    };
+                }
                 return Self {
                     status: AdminJobStatus::Succeeded,
                     report: Some(report),
@@ -2864,13 +2962,13 @@ struct AdminJobFailureDetail {
 struct ActiveAdminJob {
     view: AdminJobView,
     cancellation: ProjectCancellation,
-    handle: Option<JoinHandle<()>>,
+    _handle: JoinHandle<()>,
 }
 
 struct AdminJobState {
     next_id: u64,
     active: Option<ActiveAdminJob>,
-    latest: Option<AdminJobView>,
+    recent: VecDeque<AdminJobView>,
 }
 
 struct AdminJobShared {
@@ -2891,11 +2989,31 @@ struct TraceCallRecord<'context> {
     duration: Duration,
 }
 
+#[cfg(test)]
+struct TracePause {
+    stage: &'static str,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+impl SessionTrace {
+    async fn pause_at(&self, stage: &str) {
+        let pause = self.pause.lock().await.clone();
+        if let Some(pause) = pause.filter(|pause| pause.stage == stage) {
+            pause.entered.notify_one();
+            pause.release.notified().await;
+        }
+    }
+}
+
 struct SessionTraceState {
     active_by_project: BTreeMap<String, ActiveTraceSession>,
 }
 
 struct SessionTrace {
+    #[cfg(test)]
+    pause: Mutex<Option<Arc<TracePause>>>,
     state: Mutex<SessionTraceState>,
 }
 
@@ -2917,7 +3035,7 @@ impl AdminJobs {
                 state: Mutex::new(AdminJobState {
                     next_id: 1,
                     active: None,
-                    latest: None,
+                    recent: VecDeque::new(),
                 }),
             }),
         }
@@ -2926,7 +3044,22 @@ impl AdminJobs {
     /// Start one background job. An operation fails with a [`ProjectError`],
     /// or with an [`IndexFailure`] when it also reports whether the bounded
     /// cleanup of its own staging generation failed.
-    async fn start<Operation, Failure>(
+    fn start<Operation, Failure>(
+        &self,
+        input: AdminJobRequest<Operation>,
+    ) -> impl Future<Output = Result<AdminJobView, ToolError>> + Send + '_
+    where
+        Operation: Future<Output = Result<Value, Failure>> + Send + 'static,
+        Failure: Into<IndexFailure> + Send + 'static,
+    {
+        self.start_boxed(AdminJobRequest {
+            action: input.action,
+            cancellation: input.cancellation,
+            operation: Box::pin(input.operation),
+        })
+    }
+
+    async fn start_boxed<Operation, Failure>(
         &self,
         input: AdminJobRequest<Operation>,
     ) -> Result<AdminJobView, ToolError>
@@ -2953,8 +3086,20 @@ impl AdminJobs {
             .checked_add(1)
             .ok_or_else(ToolError::internal)?;
         let view = AdminJobView::running(job_id, action);
+        let native_control = cartograph_db::rocks::StorageRequest::new(Duration::from_secs(300))
+            .map_err(|_| ToolError::internal())?;
+        let job_cancellation = cancellation.clone();
         let handle = tokio::spawn(async move {
-            let result = operation.await.map_err(Into::into);
+            let operation = cartograph_db::NativeDatabase::with_request(
+                native_control.clone(),
+                std::panic::AssertUnwindSafe(operation).catch_unwind(),
+            );
+            tokio::pin!(operation);
+            let result = tokio::select! {
+                result = &mut operation => result,
+                () = job_cancellation.cancelled() => { native_control.cancel(); operation.await },
+                () = tokio::time::sleep(Duration::from_secs(300)) => { job_cancellation.cancel(); native_control.cancel(); operation.await },
+            }.map_err(|_| IndexFailure::from(ProjectError::IndexFailed)).and_then(|result| result.map_err(Into::into));
             let mut state = shared.state.lock().await;
             let Some(active) = state.active.take() else {
                 return;
@@ -2963,13 +3108,18 @@ impl AdminJobs {
                 state.active = Some(active);
                 return;
             }
-            state.latest = Some(AdminJobView::finished(job_id, active.view.action, result));
+            state
+                .recent
+                .push_back(AdminJobView::finished(job_id, active.view.action, result));
+            while state.recent.len() > 8 {
+                state.recent.pop_front();
+            }
             drop(state);
         });
         state.active = Some(ActiveAdminJob {
             view: view.clone(),
             cancellation,
-            handle: Some(handle),
+            _handle: handle,
         });
         drop(state);
         Ok(view)
@@ -2977,25 +3127,31 @@ impl AdminJobs {
 
     async fn status(&self, job_id: Option<u64>) -> Result<AdminJobView, ToolError> {
         let state = self.shared.state.lock().await;
-        let (mut view, cancellation) = if let Some(active) = state.active.as_ref() {
+        let active = state
+            .active
+            .as_ref()
+            .filter(|active| job_id.is_none_or(|id| id == active.view.job_id));
+        let (mut view, cancellation) = if let Some(active) = active {
             (active.view.clone(), Some(active.cancellation.clone()))
         } else {
-            (
-                state.latest.clone().ok_or_else(|| {
+            let view = state
+                .recent
+                .iter()
+                .rev()
+                .find(|view| job_id.is_none_or(|id| id == view.job_id))
+                .cloned()
+                .ok_or_else(|| {
                     safe_error(
-                        ToolErrorCode::NotReady,
-                        "No Cartograph admin job is available",
+                        if job_id.is_some() {
+                            ToolErrorCode::NotFound
+                        } else {
+                            ToolErrorCode::NotReady
+                        },
+                        "Cartograph admin job was not found",
                     )
-                })?,
-                None,
-            )
+                })?;
+            (view, None)
         };
-        if job_id.is_some_and(|expected| expected != view.job_id) {
-            return Err(safe_error(
-                ToolErrorCode::NotFound,
-                "Cartograph admin job was not found",
-            ));
-        }
         drop(state);
         if let Some(cancellation) = cancellation {
             view.progress = cancellation.index_progress_status().await;
@@ -3005,30 +3161,31 @@ impl AdminJobs {
 
     async fn cancel(&self, job_id: Option<u64>) -> Result<AdminJobView, ToolError> {
         let mut state = self.shared.state.lock().await;
-        if let Some(active) = state.active.as_mut() {
-            if job_id.is_some_and(|expected| expected != active.view.job_id) {
-                return Err(safe_error(
-                    ToolErrorCode::NotFound,
-                    "Cartograph admin job was not found",
-                ));
-            }
+        if let Some(active) = state
+            .active
+            .as_mut()
+            .filter(|active| job_id.is_none_or(|id| id == active.view.job_id))
+        {
             active.cancellation.cancel();
             active.view.status = AdminJobStatus::Cancelling;
             return Ok(active.view.clone());
         }
-        let view = state.latest.as_ref().ok_or_else(|| {
-            safe_error(
-                ToolErrorCode::NotReady,
-                "No Cartograph admin job is available",
-            )
-        })?;
-        if job_id.is_some_and(|expected| expected != view.job_id) {
-            return Err(safe_error(
-                ToolErrorCode::NotFound,
-                "Cartograph admin job was not found",
-            ));
-        }
-        Ok(view.clone())
+        state
+            .recent
+            .iter()
+            .rev()
+            .find(|view| job_id.is_none_or(|id| id == view.job_id))
+            .cloned()
+            .ok_or_else(|| {
+                safe_error(
+                    if job_id.is_some() {
+                        ToolErrorCode::NotFound
+                    } else {
+                        ToolErrorCode::NotReady
+                    },
+                    "Cartograph admin job was not found",
+                )
+            })
     }
 
     async fn shutdown(&self) {
@@ -3066,27 +3223,15 @@ impl AdminJobs {
         if tokio::time::timeout(shutdown_timeout, wait).await.is_ok() {
             return;
         }
-        let forced = {
-            let mut state = self.shared.state.lock().await;
-            if state
-                .active
-                .as_ref()
-                .is_none_or(|active| active.view.job_id != active_id)
-            {
-                return;
-            }
-            let Some(active) = state.active.take() else {
-                return;
-            };
-            state.latest = Some(AdminJobView {
-                status: AdminJobStatus::Cancelled,
-                ..AdminJobView::running(active.view.job_id, active.view.action)
-            });
-            active.handle
-        };
-        if let Some(handle) = forced {
-            handle.abort();
-            let _forced_reaped = handle.await;
+        // Cancellation is a request, not proof that native work has drained.
+        // Keep the actual job and its handle owned until the operation returns.
+        let mut state = self.shared.state.lock().await;
+        if let Some(active) = state
+            .active
+            .as_mut()
+            .filter(|active| active.view.job_id == active_id)
+        {
+            active.view.shutdown_deadline_exceeded = Some(true);
         }
     }
 }
@@ -3356,18 +3501,6 @@ const fn admin_job_progress_stalled_failure(stage: PipelineStage) -> AdminJobFai
 
 const fn admin_job_stage_failure(stage: PipelineStage) -> AdminJobFailure {
     admin_job_stage_entry(stage).0
-}
-
-const fn project_purge_error(error: &ProjectPurgeError) -> ProjectError {
-    match error {
-        ProjectPurgeError::InvalidBounds
-        | ProjectPurgeError::GenerationBoundExceeded
-        | ProjectPurgeError::RowBoundExceeded => ProjectError::InvalidOptions,
-        ProjectPurgeError::ProjectNotFound => ProjectError::StatusFailed,
-        ProjectPurgeError::LiveLeases { .. }
-        | ProjectPurgeError::CorruptStoredValue { .. }
-        | ProjectPurgeError::DatabaseOperation { .. } => ProjectError::IndexFailed,
-    }
 }
 
 fn project_llm_overview(project_root: &std::path::Path) -> Result<Vec<Value>, ToolError> {
@@ -3878,7 +4011,7 @@ fn bridge_llm_presets() -> Vec<Value> {
         json!({
             "id": "hybrid-claude-bridge",
             "summary": "Use Claude Code authentication for chat and local llama.cpp embeddings",
-            "description": "Runs bounded headless Claude subprocesses while keeping semantic vectors local and PostgreSQL-backed.",
+            "description": "Runs bounded headless Claude subprocesses while keeping semantic vectors in the per-project native store.",
             "requiresInstall": true,
             "nextSteps": ["install and authenticate Claude Code", "start the configured embedding llama-server", "run llm smoke"]
         }),
@@ -3892,7 +4025,7 @@ fn bridge_llm_presets() -> Vec<Value> {
         json!({
             "id": "skip",
             "summary": "Keep deterministic BM25 and graph retrieval without model calls",
-            "description": "All structural, graph, ParadeDB, review, and test-selection capabilities remain available.",
+            "description": "All structural, graph, native BM25, review, and test-selection capabilities remain available.",
             "requiresInstall": false,
             "nextSteps": []
         }),
@@ -4110,69 +4243,6 @@ fn prepare_admin_project_root(
     })
 }
 
-fn resolve_existing_admin_project_root(
-    requested: Option<&str>,
-    current_root: &Path,
-) -> Result<(PathBuf, bool), ToolError> {
-    let requested_path = requested.map_or_else(|| current_root.to_path_buf(), PathBuf::from);
-    if !requested_path.is_absolute() {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "admin init/uninit path must be absolute",
-        ));
-    }
-    let metadata = std::fs::symlink_metadata(&requested_path).map_err(|_| {
-        safe_error(
-            ToolErrorCode::NotFound,
-            "admin project directory was not found",
-        )
-    })?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "admin project path must be a real directory, not a symlink",
-        ));
-    }
-    let root = std::fs::canonicalize(requested_path).map_err(|_| {
-        safe_error(
-            ToolErrorCode::Unavailable,
-            "admin project directory could not be canonicalized",
-        )
-    })?;
-    let state = root.join(".cartograph");
-    let state_exists = match std::fs::symlink_metadata(&state) {
-        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-            return Err(safe_error(
-                ToolErrorCode::InvalidArguments,
-                "the .cartograph state entry must be a real directory, not a symlink",
-            ));
-        }
-        Ok(_) => true,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(_) => {
-            return Err(safe_error(
-                ToolErrorCode::Unavailable,
-                "the .cartograph state directory could not be inspected",
-            ));
-        }
-    };
-    Ok((root, state_exists))
-}
-
-fn remove_admin_state_directory(root: &Path) -> Result<bool, ProjectError> {
-    let state = root.join(".cartograph");
-    let metadata = match std::fs::symlink_metadata(&state) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(_) => return Err(ProjectError::IndexFailed),
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(ProjectError::InvalidOptions);
-    }
-    std::fs::remove_dir_all(state).map_err(|_| ProjectError::IndexFailed)?;
-    Ok(true)
-}
-
 #[cfg(unix)]
 fn set_private_state_directory_permissions(path: &Path) -> Result<(), ToolError> {
     use std::os::unix::fs::PermissionsExt;
@@ -4183,111 +4253,6 @@ fn set_private_state_directory_permissions(path: &Path) -> Result<(), ToolError>
             "the .cartograph state directory could not be made private",
         )
     })
-}
-
-fn parse_admin_database_settings(
-    arguments: &Map<String, Value>,
-) -> Result<Option<cartograph_config::DatabaseSettings>, ToolError> {
-    let provider = optional_bounded_text(
-        arguments,
-        "databaseProvider",
-        ADMIN_DATABASE_OPTION_MAXIMUM_BYTES,
-    )?
-    .unwrap_or("postgres");
-    match provider {
-        "postgres" | "postgresql" => {}
-        "sqlite" => {
-            return Err(safe_error(
-                ToolErrorCode::InvalidArguments,
-                "SQLite was intentionally removed in Cartograph v2; use PostgreSQL 18 with ParadeDB and pgvector",
-            ));
-        }
-        _ => return Err(invalid_arguments()),
-    }
-    match optional_bounded_text(
-        arguments,
-        "databasePgvector",
-        ADMIN_DATABASE_OPTION_MAXIMUM_BYTES,
-    )? {
-        None | Some("auto" | "require") => {}
-        Some("off") => {
-            return Err(safe_error(
-                ToolErrorCode::InvalidArguments,
-                "pgvector cannot be disabled in Cartograph v2",
-            ));
-        }
-        Some(_) => return Err(invalid_arguments()),
-    }
-    let url = optional_bounded_text(arguments, "databaseUrl", ADMIN_DATABASE_URL_MAXIMUM_BYTES)?;
-    let has_connection_options = [
-        "databaseSchema",
-        "databaseMaxConnections",
-        "databaseQueryTimeoutMs",
-        "databaseConnectionTimeoutSeconds",
-        "databaseSsl",
-    ]
-    .iter()
-    .any(|field| arguments.contains_key(*field));
-    let Some(url) = url else {
-        if has_connection_options {
-            return Err(safe_error(
-                ToolErrorCode::InvalidArguments,
-                "databaseUrl is required when init supplies PostgreSQL connection overrides",
-            ));
-        }
-        return Ok(None);
-    };
-    let max_connections = optional_bounded_admin_u64(
-        arguments,
-        "databaseMaxConnections",
-        u64::from(ADMIN_DATABASE_MAXIMUM_CONNECTIONS),
-    )?;
-    let query_timeout = optional_bounded_admin_u64(
-        arguments,
-        "databaseQueryTimeoutMs",
-        ADMIN_QUERY_TIMEOUT_MAXIMUM_MS,
-    )?;
-    let connection_timeout_seconds = optional_bounded_admin_u64(
-        arguments,
-        "databaseConnectionTimeoutSeconds",
-        ADMIN_CONNECTION_TIMEOUT_MAXIMUM_SECONDS,
-    )?;
-    let acquire_timeout = connection_timeout_seconds
-        .map(|seconds| {
-            seconds
-                .checked_mul(DATABASE_MILLISECONDS_PER_SECOND)
-                .ok_or_else(invalid_arguments)
-        })
-        .transpose()?;
-    let max_connections = max_connections.map(|value| value.to_string());
-    let acquire_timeout = acquire_timeout.map(|value| value.to_string());
-    let query_timeout = query_timeout.map(|value| value.to_string());
-    let mut settings = cartograph_config::DatabaseSettings::parse(
-        url,
-        max_connections.as_deref(),
-        acquire_timeout.as_deref(),
-    )
-    .and_then(|settings| settings.with_query_timeout_ms(query_timeout.as_deref()))
-    .map_err(|_| {
-        safe_error(
-            ToolErrorCode::InvalidArguments,
-            "PostgreSQL initialization settings are invalid",
-        )
-    })?;
-    if let Some(schema) = optional_bounded_text(
-        arguments,
-        "databaseSchema",
-        ADMIN_DATABASE_SCHEMA_MAXIMUM_BYTES,
-    )? {
-        settings = settings.with_schema(schema).map_err(|_| {
-            safe_error(
-                ToolErrorCode::InvalidArguments,
-                "PostgreSQL initialization schema is invalid",
-            )
-        })?;
-    }
-    let require_ssl = optional_bool(arguments, "databaseSsl")?.unwrap_or(false);
-    Ok(Some(settings.with_require_ssl(require_ssl)))
 }
 
 fn project_llm_error(error: ProjectLlmConfigError) -> ToolError {
@@ -4390,7 +4355,6 @@ pub struct CartographMcpHandler {
     session_trace: Arc<SessionTrace>,
     cursor_cache: Arc<CursorCache>,
     project_cache: Arc<ProjectRuntimeCache>,
-    managed_database_port: u16,
     defaults: HandlerDefaults,
 }
 
@@ -4417,20 +4381,21 @@ pub struct HandlerExecutionDefaults {
 impl CartographMcpHandler {
     pub fn new(runtime: Arc<ProjectRuntime>) -> Result<Self, ToolContractError> {
         let retrieval = DeterministicRetriever::new(runtime.database().clone());
-        let project_cache = Arc::new(ProjectRuntimeCache::new(runtime.clone()));
+        let project_cache = Arc::new(ProjectRuntimeCache::new(&runtime));
         Ok(Self {
             runtime,
             retrieval,
             definitions: tool_definitions()?,
             admin_jobs: AdminJobs::new(),
             session_trace: Arc::new(SessionTrace {
+                #[cfg(test)]
+                pause: Mutex::new(None),
                 state: Mutex::new(SessionTraceState {
                     active_by_project: BTreeMap::new(),
                 }),
             }),
             cursor_cache: Arc::new(CursorCache::new()),
             project_cache,
-            managed_database_port: cartograph_db::DEFAULT_MANAGED_DATABASE_PORT,
             defaults: HandlerDefaults {
                 execution: HandlerExecutionDefaults {
                     trace_calls: true,
@@ -4442,13 +4407,8 @@ impl CartographMcpHandler {
     }
 
     #[must_use]
-    pub const fn configured(
-        mut self,
-        defaults: HandlerDefaults,
-        managed_database_port: u16,
-    ) -> Self {
+    pub const fn configured(mut self, defaults: HandlerDefaults) -> Self {
         self.defaults = defaults;
-        self.managed_database_port = managed_database_port;
         self
     }
 }
@@ -4480,7 +4440,6 @@ impl CoreTools<'_> {
             session_trace: self.session_trace.clone(),
             cursor_cache: self.cursor_cache.clone(),
             project_cache: self.project_cache.clone(),
-            managed_database_port: self.managed_database_port,
             defaults: self.defaults,
         }
     }
@@ -4496,10 +4455,18 @@ impl CoreTools<'_> {
 
     async fn execute_with_macro_stack(
         &self,
-        mut call: ToolCall,
+        call: ToolCall,
         context: ToolCallContext,
         macro_stack: Vec<String>,
     ) -> Result<ToolResult, ToolError> {
+        if !context.allows_tool(&call.name)
+            || !self.definitions.iter().any(|tool| tool.name() == call.name)
+        {
+            return Err(safe_error(
+                ToolErrorCode::Unavailable,
+                "tool is outside this host's authorization ceiling",
+            ));
+        }
         if context.should_stop() {
             return Err(safe_error(
                 ToolErrorCode::Unavailable,
@@ -4512,12 +4479,55 @@ impl CoreTools<'_> {
                 "This mutating tool branch is disabled by the MCP server read-only write gate",
             ));
         }
+        let cancellation = RequestCancellation::new();
+        let storage_request = cartograph_db::NativeDatabase::request_control(
+            context
+                .deadline()
+                .saturating_duration_since(tokio::time::Instant::now())
+                .min(Duration::from_secs(300)),
+        )
+        .map_err(|_| {
+            safe_error(
+                ToolErrorCode::Timeout,
+                "Cartograph request deadline expired",
+            )
+        })?;
+        let operation = cartograph_db::NativeDatabase::with_request(
+            storage_request.clone(),
+            self.execute_routed(call, context.clone(), macro_stack, cancellation.signal()),
+        );
+        tokio::pin!(operation);
+        tokio::select! {
+            biased;
+            () = context.cancellation().cancelled() => {
+                cancellation.signal.cancel();
+                storage_request.cancel();
+                operation.await
+            },
+            () = tokio::time::sleep_until(context.deadline()) => {
+                cancellation.signal.cancel();
+                storage_request.cancel();
+                let result = operation.await;
+                // Keep a business result that actually completed before tracing drained.
+                result.map_err(|_| safe_error(ToolErrorCode::Timeout, "Cartograph request deadline expired"))
+            },
+            result = &mut operation => result,
+        }
+    }
+
+    async fn execute_routed(
+        &self,
+        mut call: ToolCall,
+        context: ToolCallContext,
+        macro_stack: Vec<String>,
+        cancellation: ProjectCancellation,
+    ) -> Result<ToolResult, ToolError> {
         self.apply_connection_defaults(&mut call);
         if let Some(project_path) = call.arguments.remove("projectPath") {
             let project_path = project_path.as_str().ok_or_else(invalid_arguments)?;
             let runtime = self
                 .project_cache
-                .runtime_for(project_path)
+                .runtime_for_bounded(project_path, &context)
                 .await
                 .map_err(project_route_error)?;
             let scoped = self.scoped_to(runtime);
@@ -4528,19 +4538,31 @@ impl CoreTools<'_> {
             ))
             .await;
         }
-        let trace = if self.defaults.execution.trace_calls {
+        let control = call.name == ADMIN_TOOL
+            && matches!(
+                call.arguments.get("action").and_then(Value::as_str),
+                Some("status" | "cancel")
+            );
+        let trace = if self.defaults.execution.trace_calls && !control {
             TraceQueryTools(self.0).ensure_trace_session().await
         } else {
             None
         };
+        if context.should_stop() {
+            return Err(safe_error(
+                ToolErrorCode::Unavailable,
+                "Cartograph request was cancelled before execution",
+            ));
+        }
         let trace_name = call.name.clone();
         let trace_arguments = sanitize_trace_arguments(&call.arguments);
         let started = Instant::now();
         // `dispatch` contains every MCP branch and therefore compiles into a large
         // future. Keep that state machine on the heap so a bounded macro replay
         // does not recursively consume a Tokio worker's native stack.
-        let result = Box::pin(self.dispatch(call, context, macro_stack)).await;
-        if let Some(trace) = trace {
+        let result =
+            Box::pin(self.dispatch(call, context.clone(), macro_stack, cancellation)).await;
+        if let Some(trace) = trace.filter(|_| !context.should_stop()) {
             TraceQueryTools(self.0)
                 .record_trace_call(TraceCallRecord {
                     trace: &trace,
@@ -4587,12 +4609,12 @@ impl CoreTools<'_> {
         call: ToolCall,
         context: ToolCallContext,
         macro_stack: Vec<String>,
+        cancellation: ProjectCancellation,
     ) -> Result<ToolResult, ToolError> {
-        let cancellation = RequestCancellation::new();
         let group = dispatch_group(&call.name)?;
         let request = DispatchRequest {
             call,
-            cancellation: cancellation.signal(),
+            cancellation,
             context,
             macro_stack,
         };
@@ -4636,7 +4658,6 @@ const DISPATCH_GROUP_TOOLS: &[(&str, DispatchGroup)] = &[
     (ROLE_TOOL, DispatchGroup::Workflow),
     (SESSION_TOOL, DispatchGroup::Workflow),
     (SUMMARIES_TOOL, DispatchGroup::Workflow),
-    (SQL_TOOL, DispatchGroup::Workflow),
     (TESTS_FOR_TOOL, DispatchGroup::Workflow),
     (TRACE_TO_CULPRITS_TOOL, DispatchGroup::Operations),
     (VERIFY_TOOL, DispatchGroup::Operations),
@@ -4744,7 +4765,7 @@ async fn dispatch_workflow_tools(
         SUMMARIES_TOOL => {
             Box::pin(SummaryReviewTools(handler).summaries(call.arguments, cancellation)).await
         }
-        SQL_TOOL => Box::pin(SummaryReviewTools(handler).sql(call.arguments, cancellation)).await,
+
         TESTS_FOR_TOOL => {
             Box::pin(SummaryReviewTools(handler).tests_for(call.arguments, cancellation)).await
         }
@@ -4757,7 +4778,10 @@ async fn dispatch_operation_tools(
     request: DispatchRequest,
 ) -> Result<ToolResult, ToolError> {
     let DispatchRequest {
-        call, cancellation, ..
+        call,
+        cancellation,
+        context,
+        ..
     } = request;
     match call.name.as_str() {
         TRACE_TO_CULPRITS_TOOL => {
@@ -4768,7 +4792,9 @@ async fn dispatch_operation_tools(
             Box::pin(SummaryReviewTools(handler).review(call.arguments, cancellation)).await
         }
         PLAYBOOK_TOOL => playbook_tool(&call.arguments),
-        ADMIN_TOOL => Box::pin(AdminCoreTools(handler).admin(call.arguments)).await,
+        ADMIN_TOOL => {
+            Box::pin(AdminCoreTools(handler).admin(call.arguments, cancellation, &context)).await
+        }
         _ => Err(ToolError::internal()),
     }
 }
@@ -4789,14 +4815,10 @@ const fn admin_is_lifecycle(action: AdminAction) -> bool {
     matches!(
         action,
         AdminAction::Init
-            | AdminAction::Unlock
             | AdminAction::Index
             | AdminAction::Sync
             | AdminAction::BiomarkersRefresh
             | AdminAction::EmbedOnly
-            | AdminAction::Migrate
-            | AdminAction::StorageMigrate
-            | AdminAction::PruneStore
             | AdminAction::PruneGenerations
     )
 }
@@ -4804,14 +4826,14 @@ const fn admin_is_lifecycle(action: AdminAction) -> bool {
 const fn admin_is_analysis(action: AdminAction) -> bool {
     matches!(
         action,
-        AdminAction::EmbeddingAudit
+        AdminAction::GraphExport
+            | AdminAction::EmbeddingAudit
             | AdminAction::EmbeddingCleanup
             | AdminAction::Doctor
             | AdminAction::Embed
             | AdminAction::EmbeddingStatus
             | AdminAction::Classify
             | AdminAction::Summarize
-            | AdminAction::Uninit
             | AdminAction::BuildSimilarityEdges
     )
 }
@@ -4834,11 +4856,14 @@ async fn admin_dispatch_lifecycle(
 ) -> Result<ToolResult, ToolError> {
     match dispatch.action {
         AdminAction::Init => {
-            Box::pin(AdminCoreTools(handler).admin_init(dispatch.action, dispatch.arguments)).await
+            Box::pin(AdminCoreTools(handler).admin_init(
+                dispatch.action,
+                dispatch.arguments,
+                dispatch.context,
+            ))
+            .await
         }
-        AdminAction::Unlock => {
-            Box::pin(AdminCoreTools(handler).admin_unlock(dispatch.arguments)).await
-        }
+
         AdminAction::Index | AdminAction::Sync => {
             Box::pin(
                 AdminLifecycleTools(handler).start_index_job(dispatch.action, dispatch.arguments),
@@ -4855,23 +4880,7 @@ async fn admin_dispatch_lifecycle(
             )
             .await
         }
-        AdminAction::Migrate => {
-            Box::pin(AdminCoreTools(handler).admin_migrate(dispatch.arguments)).await
-        }
-        AdminAction::StorageMigrate => {
-            Box::pin(
-                AdminLifecycleTools(handler)
-                    .start_storage_migrate_job(dispatch.action, dispatch.arguments),
-            )
-            .await
-        }
-        AdminAction::PruneStore => {
-            Box::pin(
-                AdminLifecycleTools(handler)
-                    .start_store_prune_job(dispatch.action, dispatch.arguments),
-            )
-            .await
-        }
+
         AdminAction::PruneGenerations => {
             Box::pin(
                 AdminLifecycleTools(handler)
@@ -4888,6 +4897,41 @@ async fn admin_dispatch_analysis(
     dispatch: AdminDispatch<'_>,
 ) -> Result<ToolResult, ToolError> {
     match dispatch.action {
+        AdminAction::GraphExport => {
+            let arguments = dispatch.arguments;
+            reject_admin_extras(
+                arguments,
+                &[
+                    "exportFormat",
+                    "limit",
+                    "kinds",
+                    "edgeKinds",
+                    "languages",
+                    "filePrefix",
+                ],
+            )?;
+            let limit = optional_integer(arguments, "limit", NumericBounds::new(1, 1000, 50000))?;
+            let (project_id, freshness) =
+                current_project(handler, dispatch.cancellation.clone()).await?;
+            if freshness != IndexFreshness::Current {
+                return Err(stale_index_error());
+            }
+            let format = match optional_text(arguments, "exportFormat")?.unwrap_or("json") {
+                "json" => crate::graph_export::GraphExportFormat::Json,
+                "dot" => crate::graph_export::GraphExportFormat::Dot,
+                "mermaid" => crate::graph_export::GraphExportFormat::Mermaid,
+                "cytoscape" => crate::graph_export::GraphExportFormat::Cytoscape,
+                _ => return Err(invalid_arguments()),
+            };
+            let artifact = crate::graph_export::run_graph_export(handler.runtime.database(), crate::graph_export::GraphExportRequest {
+                project_id, format, context: dispatch.context.clone(), limit,
+                kinds: optional_text(arguments, "kinds")?.map(str::to_owned),
+                edge_kinds: optional_text(arguments, "edgeKinds")?.map(str::to_owned),
+                languages: optional_text(arguments, "languages")?.map(str::to_owned),
+                file_prefix: optional_text(arguments, "filePrefix")?.map(str::to_owned),
+            }).await.map_err(|_| safe_error(ToolErrorCode::Unavailable, "Native graph export exceeded its bounds or is unavailable; reduce the export limit"))?;
+            json_result(&json!({"artifact":artifact}))
+        }
         AdminAction::EmbeddingAudit => {
             AdminCoreTools(handler)
                 .admin_embedding_audit(dispatch.arguments)
@@ -4924,11 +4968,7 @@ async fn admin_dispatch_analysis(
                 .start_summarize_job(dispatch.action, dispatch.arguments)
                 .await
         }
-        AdminAction::Uninit => {
-            AdminAnalysisTools(handler)
-                .start_uninit_job(dispatch.action, dispatch.arguments)
-                .await
-        }
+
         AdminAction::BuildSimilarityEdges => {
             AdminAnalysisTools(handler)
                 .start_similarity_materialization_job(dispatch.action, dispatch.arguments)
@@ -4969,7 +5009,7 @@ async fn admin_dispatch_models(
     }
 }
 
-fn read_only_call_allowed(definitions: &[ToolDefinition], call: &ToolCall) -> bool {
+pub(crate) fn read_only_call_allowed(definitions: &[ToolDefinition], call: &ToolCall) -> bool {
     if definitions
         .iter()
         .find(|definition| definition.name() == call.name)
@@ -5004,7 +5044,9 @@ fn read_only_call_allowed(definitions: &[ToolDefinition], call: &ToolCall) -> bo
         ADMIN_TOOL => {
             matches!(
                 text("action"),
-                Some("llm-plan" | "embedding-audit" | "embedding-status" | "status")
+                Some(
+                    "llm-plan" | "embedding-audit" | "embedding-status" | "graph-export" | "status"
+                )
             ) || (text("action") == Some("doctor")
                 && call.arguments.get("fix").and_then(Value::as_bool) != Some(true))
         }
@@ -5326,6 +5368,8 @@ impl TraceQueryTools<'_> {
         {
             return Some(active);
         }
+        #[cfg(test)]
+        self.session_trace.pause_at("initialize").await;
         let project_id = self.runtime.register_agent_state_project().await.ok()?;
         let session = self
             .runtime
@@ -5370,6 +5414,8 @@ impl TraceQueryTools<'_> {
     }
 
     async fn record_trace_call(&self, record: TraceCallRecord<'_>) {
+        #[cfg(test)]
+        self.session_trace.pause_at("record").await;
         let (success, summary) = trace_result_summary(record.result);
         let duration_ms = u64::try_from(record.duration.as_millis()).unwrap_or(u64::MAX);
         let Ok(input) = McpToolCallInput::new(McpToolCallData {
@@ -5862,7 +5908,7 @@ async fn discover_host_projects(
         "mode": "discover",
         "discovery": report,
         "activeProjectStatus": active_status,
-        "storage": "postgresql_paradedb_pgvector",
+        "storage": "rocksdb",
         "siblingDatabaseConnectionsOpened": false,
     }))
 }
@@ -5920,7 +5966,7 @@ async fn host_diagnostics(
         "installTargetsIncluded": include_targets,
         "diagnosticLocation": location_name,
         "lowTokensRequested": low_tokens,
-        "storage": "postgresql_paradedb_pgvector",
+        "storage": "rocksdb",
         "visualGraphUi": false
     }))
 }
@@ -6165,8 +6211,12 @@ impl ContextTools<'_> {
 
     async fn context_response(
         &self,
-        response: ContextResponse<'_, '_>,
+        mut response: ContextResponse<'_, '_>,
     ) -> Result<ToolResult, ToolError> {
+        if response.source_windows.iter().any(|source| !source.fresh()) {
+            response.freshness = IndexFreshness::Stale;
+            response.packet = response.packet.with_stale_source();
+        }
         let local_usage = if response.parsed.local_learning {
             self.runtime
                 .database()
@@ -6747,11 +6797,11 @@ impl FindNameTools<'_> {
             cancellation: &cancellation,
             parsed: &parsed,
         };
-        let evidence = match mode {
+        let (evidence, freshness) = match mode {
             FindNameMode::Exact => self.find_name_exact(branch).await?,
-            FindNameMode::Fuzzy => self.find_name_fuzzy(branch).await?,
-            FindNameMode::Intent => self.find_name_intent(branch).await?,
-            FindNameMode::Semantic => self.find_name_semantic(branch).await?,
+            FindNameMode::Fuzzy => (self.find_name_fuzzy(branch).await?, freshness),
+            FindNameMode::Intent => (self.find_name_intent(branch).await?, freshness),
+            FindNameMode::Semantic => (self.find_name_semantic(branch).await?, freshness),
         };
         if mode == FindNameMode::Exact {
             return fresh_cursor_json_result(
@@ -6805,7 +6855,10 @@ impl FindNameTools<'_> {
         }))
     }
 
-    async fn find_name_exact(&self, branch: FindNameBranch<'_, '_>) -> Result<Value, ToolError> {
+    async fn find_name_exact(
+        &self,
+        branch: FindNameBranch<'_, '_>,
+    ) -> Result<(Value, IndexFreshness), ToolError> {
         reject_present(branch.arguments, &["sameLanguage", "differentLanguage"])?;
         if branch.parsed.symbol.is_some() {
             return Err(invalid_arguments());
@@ -6814,38 +6867,63 @@ impl FindNameTools<'_> {
         let parsed = parse_qualified_query(raw_query);
         let filters = &branch.parsed.filters;
         let qualifiers = qualified_find_qualifiers(&parsed, filters);
-        let generation = self
-            .runtime
-            .database()
-            .current_generation_record(branch.project_id)
-            .await
-            .map_err(internal_error)?
-            .ok_or_else(|| {
-                safe_error(
-                    ToolErrorCode::NotReady,
-                    "Cartograph has no published project generation",
-                )
-            })?;
-        let request = qualified_find_query(QualifiedFindQueryInput {
-            project_id: branch.project_id,
-            generation_id: generation.generation_id(),
-            parsed: &parsed,
-            filters,
-            qualifiers: &qualifiers,
-        });
-        let page = self
-            .runtime
-            .database()
-            .qualified_current_symbols(request)
-            .await
-            .map_err(internal_error)?;
-        Ok(qualified_find_evidence(QualifiedFindEvidence {
-            page: &page,
-            parsed: &parsed,
-            filters,
-            kinds: &qualifiers.kinds,
-            languages: &qualifiers.languages,
-        }))
+        let database = self.runtime.database();
+        let allow_stale = optional_bool(branch.arguments, "allowStale")?.unwrap_or(false);
+        let (page, freshness) = native_reads::retry_generation_read(|| async {
+            let generation = database
+                .current_generation_record(branch.project_id)
+                .await?
+                .ok_or(StorageError::GenerationNotFound)?;
+            #[cfg(test)]
+            self.session_trace.pause_at("find-name-lookup").await;
+            let request = qualified_find_query(QualifiedFindQueryInput {
+                project_id: branch.project_id,
+                generation_id: generation.generation_id(),
+                parsed: &parsed,
+                filters,
+                qualifiers: &qualifiers,
+            });
+            let page = database.qualified_current_symbols(request).await?;
+            #[cfg(test)]
+            self.session_trace.pause_at("find-name-complete").await;
+            // Retry the complete evidence read when publication races its
+            // source scan. Product errors (including stale source) are terminal;
+            // only the typed generation fence admits another bounded attempt.
+            let (_, current, freshness) =
+                match current_project_generation(self, branch.cancellation.clone()).await {
+                    Ok(current) => current,
+                    Err(error) => return Ok(Err(error)),
+                };
+            if current != *generation.generation_id() {
+                return Err(StorageError::CurrentGenerationChanged);
+            }
+            if freshness != IndexFreshness::Current && !allow_stale {
+                return Ok(Err(stale_index_error()));
+            }
+            Ok(Ok((page, freshness)))
+        })
+        .await
+        .map_err(|error| match error {
+            StorageError::GenerationNotFound => safe_error(
+                ToolErrorCode::NotReady,
+                "Cartograph has no published project generation",
+            ),
+            StorageError::CurrentGenerationChanged => safe_error(
+                ToolErrorCode::Conflict,
+                "Cartograph generation changed repeatedly during name lookup; retry the read",
+            ),
+            error => internal_error(error),
+        })??;
+        Ok((
+            qualified_find_evidence(QualifiedFindEvidence {
+                page: &page,
+                parsed: &parsed,
+                filters,
+                kinds: &qualifiers.kinds,
+                languages: &qualifiers.languages,
+            }),
+            freshness,
+        ))
     }
 
     async fn find_name_intent(&self, branch: FindNameBranch<'_, '_>) -> Result<Value, ToolError> {
@@ -9193,7 +9271,7 @@ impl InsightTools<'_> {
         let candidates = self
             .runtime
             .database()
-            .query_current_dead_code(&project_id, &query)
+            .query_current_dead_code(&project_id, query)
             .await
             .map_err(dead_code_storage_error)?;
         if input.via == "rule" {
@@ -10987,58 +11065,36 @@ fn configure_missing_doctor_tiers(
 async fn prepare_admin_init(
     handler: &CartographMcpHandler,
     arguments: &Map<String, Value>,
+    context: &ToolCallContext,
 ) -> Result<PreparedAdminInit, ToolError> {
     let target_root = prepare_admin_project_root(
         optional_bounded_text(arguments, "path", MAX_PROJECT_PATH_BYTES)?,
         handler.runtime.project_root_for_host_operations(),
     )?;
-    let database_settings = parse_admin_database_settings(arguments)?;
     let maximum_source_bytes = parse_admin_max_file_size(arguments)?;
-    if let Some(maximum_source_bytes) = maximum_source_bytes {
-        run_mcp_config_io(|| write_project_max_file_size(&target_root.root, maximum_source_bytes))
+    if let Some(bytes) = maximum_source_bytes {
+        run_mcp_config_io(|| write_project_max_file_size(&target_root.root, bytes))
             .map_err(project_llm_error)?;
     }
     let index_requested = optional_bool(arguments, "index")?.unwrap_or(false);
     let verbose = optional_bool(arguments, "verbose")?.unwrap_or(false);
-    let runtime = Arc::new(match &database_settings {
-        Some(settings) => ProjectRuntime::connect(&target_root.root, settings)
-            .await
-            .map_err(|error| project_error(&error))?,
-        None => {
-            ProjectRuntime::with_database(&target_root.root, handler.runtime.database().clone())
-                .map_err(|error| project_error(&error))?
-        }
-    });
+    let path = target_root.root.to_str().ok_or_else(invalid_arguments)?;
+    let runtime = handler
+        .project_cache
+        .runtime_for_bounded(path, context)
+        .await
+        .map_err(|_| {
+            safe_error(
+                ToolErrorCode::Unavailable,
+                "project native runtime is unavailable",
+            )
+        })?;
     let project_id = runtime
         .register_agent_state_project()
         .await
         .map_err(|error| project_error(&error))?;
-    let capabilities = runtime
-        .database()
-        .capability_report()
-        .await
-        .map_err(internal_error)?;
-    let initialization = json!({
-        "projectId": project_id,
-        "rootIdentity": runtime.root_identity(),
-        "stateDirectoryCreated": target_root.state_directory_created,
-        "storage": "postgresql_only",
-        "sqliteSupported": false,
-        "paradeDbRequired": true,
-        "pgvectorRequired": true,
-        "databaseSettingsApplied": database_settings.is_some(),
-        "databaseUrlPersisted": false,
-        "restartConfiguration": if database_settings.is_some() {
-            "Set CARTOGRAPH_DATABASE_URL and the matching non-secret pool/schema settings before restarting this MCP server"
-        } else {
-            "Current MCP PostgreSQL data plane reused"
-        },
-        "capabilities": capabilities,
-        "maxFileSize": maximum_source_bytes,
-        "indexRequested": index_requested,
-        "verbose": verbose,
-        "next": if index_requested { "ready" } else { "index" },
-    });
+    let initialization = json!({"projectId":project_id,"rootIdentity":runtime.root_identity(),"stateDirectoryCreated":target_root.state_directory_created,
+        "storage":"rocksdb","capabilities":native_capabilities(),"maxFileSize":maximum_source_bytes,"indexRequested":index_requested,"verbose":verbose,"next":if index_requested {"indexed_after_job_completion"} else {"index"}});
     Ok(PreparedAdminInit {
         runtime,
         initialization,
@@ -11417,60 +11473,6 @@ impl SummaryReviewTools<'_> {
             "save" => save_summaries(self, &arguments, &execution).await,
             _ => Err(invalid_arguments()),
         }
-    }
-
-    async fn sql(
-        &self,
-        arguments: Map<String, Value>,
-        cancellation: ProjectCancellation,
-    ) -> Result<ToolResult, ToolError> {
-        reject_unknown(
-            &arguments,
-            &[
-                "query",
-                "schema",
-                "tables",
-                "compact",
-                "limit",
-                "timeoutMs",
-                "allowStale",
-            ],
-        )?;
-        let schema = optional_bool(&arguments, "schema")?.unwrap_or(false);
-        if schema {
-            return sql_schema_result(&arguments);
-        }
-        let compact = sql_query_compaction(&arguments)?;
-        let query = required_bounded_text(&arguments, "query", SQL_QUERY_MAXIMUM_BYTES)?;
-        let limit = optional_integer(
-            &arguments,
-            "limit",
-            NumericBounds::new(1, SQL_DEFAULT_LIMIT, SQL_MAXIMUM_LIMIT),
-        )?;
-        let timeout_ms = optional_integer(
-            &arguments,
-            "timeoutMs",
-            NumericBounds::new(
-                SQL_MINIMUM_TIMEOUT_MS,
-                SQL_DEFAULT_TIMEOUT_MS,
-                SQL_MAXIMUM_TIMEOUT_MS,
-            ),
-        )?;
-        let request = ReadOnlySqlRequest::new(query, limit, Duration::from_millis(timeout_ms))
-            .map_err(sql_error)?;
-        let allow_stale = optional_bool(&arguments, "allowStale")?.unwrap_or(false);
-        let (project_id, freshness) =
-            current_project_for_evidence(self, cancellation, allow_stale).await?;
-        fresh_json_result_with_compaction(
-            freshness,
-            &self
-                .runtime
-                .database()
-                .execute_read_only_sql(&project_id, &request)
-                .await
-                .map_err(sql_error)?,
-            compact,
-        )
     }
 
     async fn propose_rename(
@@ -12068,12 +12070,7 @@ impl SummaryReviewTools<'_> {
             .status_with_cancellation(cancellation.clone())
             .await
             .map_err(|error| project_error(&error))?;
-        let capabilities = self
-            .runtime
-            .database()
-            .capability_report()
-            .await
-            .map_err(internal_error)?;
+        let capabilities = native_capabilities();
         let embedding = embedding_trust(self, cancellation).await?;
         let chat = chat_trust(self, deep, timeout_ms).await?;
         json_result(&json!({
@@ -12102,66 +12099,25 @@ fn parse_context_review_controls(
 }
 
 impl AdminCoreTools<'_> {
-    async fn admin(&self, arguments: Map<String, Value>) -> Result<ToolResult, ToolError> {
-        reject_unknown(
-            &arguments,
-            &[
-                "action",
-                "force",
-                "workers",
-                "jobId",
-                "confirm",
-                "sourceSchema",
-                "dryRun",
-                "maximumRows",
-                "maximumSourceBytes",
-                "keepSuperseded",
-                "maximumDeletions",
-                "maximumCascadeRows",
-                "maximumSearchRelationBytes",
-                "k",
-                "minScore",
-                "maxAgeDays",
-                "concurrency",
-                "limit",
-                "out",
-                "in",
-                "preset",
-                "tier",
-                "endpoint",
-                "model",
-                "command",
-                "args",
-                "input",
-                "promptTemplate",
-                "responseFormat",
-                "responsePath",
-                "apiKeyEnv",
-                "apiKeyCommand",
-                "timeoutMs",
-                "minimal",
-                "dir",
-                "writeConfig",
-                "fix",
-                "summarizeLimit",
-                "skipProjectChecks",
-                "path",
-                "databaseProvider",
-                "databaseUrl",
-                "databaseSchema",
-                "databasePgvector",
-                "databaseMaxConnections",
-                "databaseQueryTimeoutMs",
-                "databaseConnectionTimeoutSeconds",
-                "databaseSsl",
-                "clearParseCache",
-                "clearParseCacheLanguage",
-                "index",
-                "maxFileSize",
-                "profile",
-                "verbose",
-            ],
-        )?;
+    async fn admin(
+        &self,
+        arguments: Map<String, Value>,
+        cancellation: ProjectCancellation,
+        context: &ToolCallContext,
+    ) -> Result<ToolResult, ToolError> {
+        let definition = self
+            .definitions
+            .iter()
+            .find(|definition| definition.name() == ADMIN_TOOL)
+            .ok_or_else(ToolError::internal)?;
+        let properties = definition
+            .input_schema()
+            .get("properties")
+            .and_then(Value::as_object)
+            .ok_or_else(ToolError::internal)?;
+        if arguments.keys().any(|key| !properties.contains_key(key)) {
+            return Err(invalid_arguments());
+        }
         let action = required_text(&arguments, "action")?;
         let job_id = optional_job_id(&arguments)?;
         match action {
@@ -12179,8 +12135,10 @@ impl AdminCoreTools<'_> {
         let action = AdminAction::parse(action).ok_or_else(invalid_arguments)?;
         let group = admin_dispatch_group(action);
         let dispatch = AdminDispatch {
+            context,
             action,
             arguments: &arguments,
+            cancellation: &cancellation,
         };
         match group {
             AdminDispatchGroup::Lifecycle => {
@@ -12195,25 +12153,10 @@ impl AdminCoreTools<'_> {
         &self,
         action: AdminAction,
         arguments: &Map<String, Value>,
+        context: &ToolCallContext,
     ) -> Result<ToolResult, ToolError> {
-        reject_admin_extras(
-            arguments,
-            &[
-                "path",
-                "databaseProvider",
-                "databaseUrl",
-                "databaseSchema",
-                "databasePgvector",
-                "databaseMaxConnections",
-                "databaseQueryTimeoutMs",
-                "databaseConnectionTimeoutSeconds",
-                "databaseSsl",
-                "index",
-                "maxFileSize",
-                "verbose",
-            ],
-        )?;
-        let prepared = prepare_admin_init(self, arguments).await?;
+        reject_admin_extras(arguments, &["path", "index", "maxFileSize", "verbose"])?;
+        let prepared = prepare_admin_init(self, arguments, context).await?;
         if !prepared.index_requested {
             return json_result(&prepared.initialization);
         }
@@ -12261,68 +12204,6 @@ impl AdminCoreTools<'_> {
         }))
         .await?;
         json_result(&job)
-    }
-
-    async fn admin_migrate(&self, arguments: &Map<String, Value>) -> Result<ToolResult, ToolError> {
-        reject_admin_extras(arguments, &[])?;
-        let report = self
-            .runtime
-            .database()
-            .migrate()
-            .await
-            .map_err(|error| match error {
-                cartograph_db::MigrationError::SchemaBusy { .. } => {
-                    project_error(&ProjectError::SchemaBusy)
-                }
-                other => internal_error(other),
-            })?;
-        json_result(&json!({
-            "report": report,
-            "storage": "postgresql_only",
-        }))
-    }
-
-    async fn admin_unlock(&self, arguments: &Map<String, Value>) -> Result<ToolResult, ToolError> {
-        reject_admin_extras(arguments, &[])?;
-        let project_id = self
-            .runtime
-            .register_agent_state_project()
-            .await
-            .map_err(|error| project_error(&error))?;
-        let mut before = Vec::new();
-        for operation in [
-            ProjectOperation::Index,
-            ProjectOperation::Sync,
-            ProjectOperation::Hook,
-            ProjectOperation::Migration,
-            ProjectOperation::Rebuild,
-        ] {
-            if let Some(status) = self
-                .runtime
-                .database()
-                .lease_status(&LeaseTarget::new(project_id.clone(), operation, None))
-                .await
-                .map_err(internal_error)?
-            {
-                before.push(status);
-            }
-        }
-        let removed = self
-            .runtime
-            .database()
-            .remove_expired_leases(&project_id)
-            .await
-            .map_err(internal_error)?;
-        let live = before.iter().filter(|status| !status.expired()).count();
-        json_result(&json!({
-            "expiredRemoved": removed,
-            "liveLeasesPreserved": live,
-            "observed": before,
-            "policy": "database_clock_expired_only",
-            "retentionDeferredReportsAreHistorical": true,
-            "projectBusyClearedByUnlock": false,
-            "projectBusyNextAction": "retry index or bounded prune after the active writer completes",
-        }))
     }
 
     async fn admin_biomarkers_refresh(
@@ -12484,17 +12365,12 @@ impl AdminCoreTools<'_> {
             "fixApplied": remediation.applied,
             "remediations": remediation.actions,
             "afterFix": after_fix,
-            "fixNote": "PostgreSQL schema migrations are applied during runtime open; project state, recommended model files, and LLM configuration are auto-fixable; endpoint processes remain operator-owned",
+            "fixNote": "Native storage format and project ownership are checked during open; project state, model files and LLM configuration are auto-fixable; endpoint processes remain operator-owned",
         }))
     }
 
     async fn doctor_observation(&self, skip_project_checks: bool) -> Result<Value, ToolError> {
-        let capabilities = self
-            .runtime
-            .database()
-            .capability_report()
-            .await
-            .map_err(internal_error)?;
+        let capabilities = native_capabilities();
         let (project, embedding, chat) = if skip_project_checks {
             (
                 json!({"state": "skipped"}),
@@ -12636,103 +12512,6 @@ impl AdminCoreTools<'_> {
     }
 }
 
-struct StorageMigrationPlan {
-    request: V1PostgresImportRequest,
-    dry_run: bool,
-}
-
-/// Validated `storage-migrate` arguments, before the source project is inspected.
-struct StorageMigrationInput {
-    source_schema: cartograph_config::DatabaseSchema,
-    dry_run: bool,
-    maximum_rows: u64,
-    maximum_source_bytes: u64,
-}
-
-fn parse_storage_migration_input(
-    arguments: &Map<String, Value>,
-) -> Result<StorageMigrationInput, ToolError> {
-    reject_admin_extras(
-        arguments,
-        &[
-            "sourceSchema",
-            "dryRun",
-            "confirm",
-            "maximumRows",
-            "maximumSourceBytes",
-        ],
-    )?;
-    let source_schema = cartograph_config::DatabaseSchema::parse(required_bounded_text(
-        arguments,
-        "sourceSchema",
-        63,
-    )?)
-    .map_err(|_| invalid_arguments())?;
-    let dry_run = optional_bool(arguments, "dryRun")?.unwrap_or(true);
-    if !dry_run && !optional_bool(arguments, "confirm")?.unwrap_or(false) {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "storage-migrate requires confirm true when dryRun is false",
-        ));
-    }
-    let maximum_rows = optional_integer(
-        arguments,
-        "maximumRows",
-        NumericBounds::new(1, ADMIN_DEFAULT_IMPORT_ROWS, ADMIN_MAXIMUM_IMPORT_ROWS),
-    )?;
-    let maximum_source_bytes = optional_integer(
-        arguments,
-        "maximumSourceBytes",
-        NumericBounds::new(
-            1,
-            ADMIN_DEFAULT_IMPORT_SOURCE_BYTES,
-            ADMIN_DEFAULT_IMPORT_SOURCE_BYTES,
-        ),
-    )?;
-    Ok(StorageMigrationInput {
-        source_schema,
-        dry_run,
-        maximum_rows,
-        maximum_source_bytes,
-    })
-}
-
-fn prepare_storage_migration(
-    handler: &CartographMcpHandler,
-    arguments: &Map<String, Value>,
-) -> Result<StorageMigrationPlan, ToolError> {
-    let StorageMigrationInput {
-        source_schema,
-        dry_run,
-        maximum_rows,
-        maximum_source_bytes,
-    } = parse_storage_migration_input(arguments)?;
-    let identity =
-        ProjectRuntime::inspect_source_identity(handler.runtime.project_root_for_host_operations())
-            .map_err(|error| project_error(&error))?;
-    let validation =
-        GenerationValidationLimits::new(ADMIN_IMPORT_OUTPUT_BYTES, ADMIN_IMPORT_WORKING_BYTES)
-            .map_err(internal_error)?;
-    let limits = V1PostgresImportLimits::new(maximum_rows, maximum_source_bytes, validation)
-        .map_err(internal_error)?;
-    let execution = V1PostgresImportExecution::new(
-        admin_lease_owner(),
-        ADMIN_MAINTENANCE_LEASE,
-        ADMIN_MAINTENANCE_TIMEOUT,
-    );
-    let revision =
-        V1PostgresSourceRevision::new(identity.repository_fingerprint, identity.v1_source_manifest);
-    let source = V1PostgresSource::new(
-        source_schema,
-        handler.runtime.project_root_for_host_operations(),
-        revision,
-    );
-    Ok(StorageMigrationPlan {
-        request: V1PostgresImportRequest::new(source, execution, limits),
-        dry_run,
-    })
-}
-
 struct PreparedSummarizeJob {
     limit: SummarySweepLimit,
     summary_policy: SummaryCandidatePolicy,
@@ -12807,31 +12586,6 @@ fn prepare_summarize_job(
     })
 }
 
-/// Age and deletion bounds of one cold derived-store prune.
-fn parse_store_prune_policy(
-    arguments: &Map<String, Value>,
-) -> Result<DerivedStorePrunePolicy, ToolError> {
-    reject_admin_extras(arguments, &["maxAgeDays", "maximumDeletions"])?;
-    let maximum_age_days = optional_finite_number(arguments, "maxAgeDays")?
-        .unwrap_or(DERIVED_STORE_DEFAULT_MAXIMUM_AGE_DAYS);
-    if maximum_age_days < 0.0 {
-        return Err(invalid_arguments());
-    }
-    let maximum_age_seconds = maximum_age_days * DERIVED_STORE_SECONDS_PER_DAY;
-    let maximum_age =
-        Duration::try_from_secs_f64(maximum_age_seconds).map_err(|_| invalid_arguments())?;
-    let maximum_deletions = optional_integer(
-        arguments,
-        "maximumDeletions",
-        NumericBounds::new(
-            1,
-            DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS,
-            DERIVED_STORE_DEFAULT_MAXIMUM_DELETIONS,
-        ),
-    )?;
-    DerivedStorePrunePolicy::new(maximum_age, maximum_deletions).map_err(internal_error)
-}
-
 /// Validated `index`/`sync` admin arguments and the index options they produce.
 struct AdminIndexRequest {
     options: IndexOptions,
@@ -12857,6 +12611,12 @@ fn parse_admin_index_request(
             "maxFileSize",
             "profile",
             "verbose",
+            "exclude",
+            "preserveCurrentExcludes",
+            "singlePublication",
+            "refreshHistory",
+            "enrich",
+            "baseOnly",
         ],
     )?;
     let force = optional_bool(arguments, "force")?.unwrap_or(false);
@@ -12878,7 +12638,9 @@ fn parse_admin_index_request(
     let maximum_source_bytes = parse_admin_max_file_size(arguments)?;
     let profile = optional_bool(arguments, "profile")?.unwrap_or(false);
     let verbose = optional_bool(arguments, "verbose")?.unwrap_or(false);
-    let mut options = if action == AdminAction::Sync {
+    let mut options = if action == AdminAction::Sync
+        || optional_bool(arguments, "preserveCurrentExcludes")?.unwrap_or(false)
+    {
         IndexOptions::reconciliation()
     } else {
         IndexOptions::default()
@@ -12887,6 +12649,26 @@ fn parse_admin_index_request(
     .with_profile(profile)
     .with_max_workers(workers)
     .map_err(|_| invalid_arguments())?;
+    let excludes = match arguments.get("exclude") {
+        None => Vec::new(),
+        Some(Value::Array(patterns)) if patterns.len() <= 4096 => patterns
+            .iter()
+            .map(|pattern| {
+                pattern
+                    .as_str()
+                    .filter(|pattern| {
+                        !pattern.is_empty() && pattern.len() <= 4096 && !pattern.contains('\0')
+                    })
+                    .map(str::to_owned)
+                    .ok_or_else(invalid_arguments)
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => return Err(invalid_arguments()),
+    };
+    options = options
+        .with_additional_excludes(excludes)
+        .with_single_publication(optional_bool(arguments, "singlePublication")?.unwrap_or(false))
+        .with_history_refresh(optional_bool(arguments, "refreshHistory")?.unwrap_or(true));
     if let Some(maximum_source_bytes) = maximum_source_bytes {
         options = options
             .with_max_source_bytes(maximum_source_bytes)
@@ -12918,11 +12700,17 @@ impl AdminLifecycleTools<'_> {
             maximum_source_bytes,
             verbose,
         } = parse_admin_index_request(action, arguments)?;
-        let enrichment = build_post_index_enrichment_plan(
-            self.runtime.project_root_for_host_operations(),
-            action == AdminAction::Index,
-            workers,
-        )?;
+        let base_only = optional_bool(arguments, "baseOnly")?.unwrap_or(false);
+        let model_enrichment = optional_bool(arguments, "enrich")?.unwrap_or(true);
+        let enrichment = if base_only {
+            None
+        } else {
+            Some(build_post_index_enrichment_plan(
+                self.runtime.project_root_for_host_operations(),
+                action == AdminAction::Index && model_enrichment,
+                workers,
+            )?)
+        };
         let cancellation = ProjectCancellation::new();
         let operation_cancellation = cancellation.clone();
         let runtime = self.runtime.clone();
@@ -12940,19 +12728,17 @@ impl AdminLifecycleTools<'_> {
                         interrupts: None,
                     })
                     .await?;
-                    let enrichment = Box::pin(run_post_index_enrichment(
-                        runtime,
-                        enrichment,
-                        operation_cancellation,
-                    ))
-                    .await?;
+                    let enrichment = match enrichment {
+                        None => json!({"state":"not_requested", "reason":"base_only", "optionalPhaseFailures":false}),
+                        Some(plan) => Box::pin(run_post_index_enrichment(runtime, plan, operation_cancellation)).await?,
+                    };
                     Ok::<Value, IndexFailure>(json!({
                         "report": report,
                         "enrichment": enrichment,
                         "forceRequested": force,
                         "parseCacheInvalidationRequested": reparse_requested,
                         "parseCacheLanguage": clear_parse_cache_language,
-                        "parseCachePolicy": "v2 retains no mutable parse cache; invalidation forces a complete immutable-generation reparse",
+                        "parseCachePolicy": "immutable extraction payloads are reused by exact source and policy; invalidation bypasses cache reads for a complete reparse",
                         "effectiveForce": force || reparse_requested,
                         "maximumSourceBytes": maximum_source_bytes,
                         "verbose": verbose,
@@ -13134,95 +12920,6 @@ impl AdminLifecycleTools<'_> {
         json_result(&job)
     }
 
-    async fn start_storage_migrate_job(
-        &self,
-        action: AdminAction,
-        arguments: &Map<String, Value>,
-    ) -> Result<ToolResult, ToolError> {
-        let plan = prepare_storage_migration(self, arguments)?;
-        let cancellation = ProjectCancellation::new();
-        let operation_cancellation = cancellation.clone();
-        let runtime = self.runtime.clone();
-        let job = self
-            .admin_jobs
-            .start(AdminJobRequest {
-                action,
-                cancellation,
-                operation: async move {
-                    let value = if plan.dry_run {
-                        serde_json::to_value(
-                            runtime
-                                .database()
-                                .dry_run_v1_postgres_import(&plan.request)
-                                .await
-                                .map_err(|_| ProjectError::IndexFailed)?,
-                        )
-                    } else {
-                        serde_json::to_value(
-                            runtime
-                                .database()
-                                .import_v1_postgres_with_observer(plan.request, |_| {
-                                    operation_cancellation.is_cancelled()
-                                })
-                                .await
-                                .map_err(|_| ProjectError::IndexFailed)?,
-                        )
-                    };
-                    value.map_err(|_| ProjectError::IndexFailed)
-                },
-            })
-            .await?;
-        json_result(&job)
-    }
-
-    async fn start_store_prune_job(
-        &self,
-        action: AdminAction,
-        arguments: &Map<String, Value>,
-    ) -> Result<ToolResult, ToolError> {
-        let policy = parse_store_prune_policy(arguments)?;
-        let cancellation = ProjectCancellation::new();
-        let operation_cancellation = cancellation.clone();
-        let runtime = self.runtime.clone();
-        let job = self
-            .admin_jobs
-            .start(AdminJobRequest {
-                action,
-                cancellation,
-                operation: async move {
-                    let project_id = runtime.register_agent_state_project().await?;
-                    let lease = runtime
-                        .database()
-                        .acquire_lease(LeaseRequest::new(
-                            LeaseTarget::new(project_id, ProjectOperation::Migration, None),
-                            admin_lease_owner(),
-                            ADMIN_MAINTENANCE_LEASE,
-                        ))
-                        .await
-                        .map_err(|_| ProjectError::IndexFailed)?;
-                    let fence = lease.fence();
-                    let cleanup = tokio::select! {
-                        () = operation_cancellation.cancelled() => {
-                            Err(ProjectError::RequestCancelled)
-                        }
-                        result = runtime.database().prune_cold_derived_store(
-                            DerivedStorePruneRequest::new(
-                                policy,
-                                &fence,
-                                ADMIN_MAINTENANCE_TIMEOUT,
-                            ),
-                        ) => result.map_err(|_| ProjectError::IndexFailed),
-                    };
-                    let release = runtime.database().release_lease(&lease).await;
-                    let report = cleanup?;
-                    release.map_err(|_| ProjectError::IndexFailed)?;
-                    serde_json::to_value(report).map_err(|_| ProjectError::IndexFailed)
-                },
-            })
-            .await?;
-        json_result(&job)
-    }
-
     async fn start_generation_prune_job(
         &self,
         action: AdminAction,
@@ -13234,7 +12931,6 @@ impl AdminLifecycleTools<'_> {
                 "keepSuperseded",
                 "maximumDeletions",
                 "maximumCascadeRows",
-                "maximumSearchRelationBytes",
                 "confirm",
             ],
         )?;
@@ -13244,50 +12940,33 @@ impl AdminLifecycleTools<'_> {
                 "prune-generations requires confirm true",
             ));
         }
-        let keep = optional_integer(
-            arguments,
-            "keepSuperseded",
-            NumericBounds::new(
-                0,
-                ADMIN_RETENTION_DEFAULT_KEEP,
-                ADMIN_RETENTION_MAXIMUM_COUNT,
-            ),
-        )?;
-        let maximum = optional_integer(
+        let keep = optional_integer(arguments, "keepSuperseded", NumericBounds::new(0_u8, 2, 32))?;
+        let generations = optional_integer(
             arguments,
             "maximumDeletions",
-            NumericBounds::new(
-                1,
-                ADMIN_RETENTION_DEFAULT_DELETIONS,
-                ADMIN_RETENTION_MAXIMUM_COUNT,
-            ),
+            NumericBounds::new(1_u16, 4, 100),
         )?;
-        let mut policy = GenerationRetentionPolicy::new(keep, maximum).map_err(internal_error)?;
-        if let Some(maximum_cascade_rows) = optional_bounded_admin_u64(
+        let versions = optional_integer(
             arguments,
             "maximumCascadeRows",
-            ADMIN_RETENTION_MAXIMUM_CASCADE_ROWS,
-        )? {
-            policy = policy
-                .with_maximum_cascade_rows(maximum_cascade_rows)
-                .map_err(internal_error)?;
-        }
-        if let Some(bytes) =
-            optional_bounded_admin_u64(arguments, "maximumSearchRelationBytes", 68_719_476_736)?
-        {
-            policy = policy
-                .with_maximum_search_relation_bytes(bytes)
-                .map_err(internal_error)?;
-        }
+            NumericBounds::new(1_u32, 10_000, 10_000),
+        )?;
         let cancellation = ProjectCancellation::new();
         let operation_cancellation = cancellation.clone();
         let runtime = self.runtime.clone();
-        let job = Box::pin(self.admin_jobs.start(AdminJobRequest {
-            action,
-            cancellation,
-            operation: run_generation_prune_operation(runtime, operation_cancellation, policy),
-        }))
-        .await?;
+        let job = self
+            .admin_jobs
+            .start(AdminJobRequest {
+                action,
+                cancellation,
+                operation: async move {
+                    let report = runtime
+                        .prune_generations(keep, generations, versions, operation_cancellation)
+                        .await?;
+                    serde_json::to_value(report).map_err(|_| ProjectError::IndexFailed)
+                },
+            })
+            .await?;
         json_result(&job)
     }
 
@@ -13397,104 +13076,6 @@ impl AdminLifecycleTools<'_> {
     }
 }
 
-struct UninitJobPlan {
-    target_root: PathBuf,
-    database: cartograph_db::CartographDatabase,
-    project_id: ProjectId,
-    maximum_rows: u64,
-    maximum_generations: u16,
-    managed_credentials: bool,
-    managed_port: u16,
-}
-
-enum PreparedUninit {
-    Already(Value),
-    Job(UninitJobPlan),
-}
-
-/// Confirmed `uninit` deletion bounds.
-struct UninitBounds {
-    maximum_rows: u64,
-    maximum_generations: u16,
-}
-
-fn parse_uninit_bounds(arguments: &Map<String, Value>) -> Result<UninitBounds, ToolError> {
-    reject_admin_extras(
-        arguments,
-        &["path", "confirm", "maximumRows", "maximumDeletions"],
-    )?;
-    if !optional_bool(arguments, "confirm")?.unwrap_or(false) {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "uninit requires confirm true",
-        ));
-    }
-    let maximum_rows = optional_integer(
-        arguments,
-        "maximumRows",
-        NumericBounds::new(1, ADMIN_DEFAULT_IMPORT_ROWS, ADMIN_MAXIMUM_IMPORT_ROWS),
-    )?;
-    let maximum_generations = optional_integer(
-        arguments,
-        "maximumDeletions",
-        NumericBounds::new(
-            1,
-            ADMIN_UNINIT_DEFAULT_GENERATIONS,
-            u16::try_from(ADMIN_RETENTION_MAXIMUM_COUNT).map_err(|_| invalid_arguments())?,
-        ),
-    )?;
-    Ok(UninitBounds {
-        maximum_rows,
-        maximum_generations,
-    })
-}
-
-async fn prepare_uninit(
-    handler: &CartographMcpHandler,
-    arguments: &Map<String, Value>,
-) -> Result<PreparedUninit, ToolError> {
-    let UninitBounds {
-        maximum_rows,
-        maximum_generations,
-    } = parse_uninit_bounds(arguments)?;
-    let (target_root, state_exists) = resolve_existing_admin_project_root(
-        optional_bounded_text(arguments, "path", MAX_PROJECT_PATH_BYTES)?,
-        handler.runtime.project_root_for_host_operations(),
-    )?;
-    let target_runtime =
-        ProjectRuntime::with_database(&target_root, handler.runtime.database().clone())
-            .map_err(|error| project_error(&error))?;
-    let snapshot = target_runtime
-        .database()
-        .project_snapshot_by_root(target_runtime.root_identity())
-        .await
-        .map_err(internal_error)?;
-    let Some(snapshot) = snapshot else {
-        let removed = if state_exists {
-            remove_admin_state_directory(&target_root).map_err(|error| project_error(&error))?
-        } else {
-            false
-        };
-        return Ok(PreparedUninit::Already(json!({
-            "alreadyUninitialized": true,
-            "stateDirectoryRemoved": removed,
-            "databaseProjectFound": false,
-            "sourceFilesPreserved": true,
-        })));
-    };
-    Ok(PreparedUninit::Job(UninitJobPlan {
-        project_id: snapshot.project_id,
-        database: target_runtime.database().clone(),
-        managed_credentials: target_root
-            .join(".cartograph/v2/postgres.password")
-            .is_file(),
-        target_root,
-        maximum_rows,
-        maximum_generations,
-        managed_port: handler.managed_database_port,
-    }))
-}
-
 impl AdminAnalysisTools<'_> {
     async fn start_install_models_job(
         &self,
@@ -13600,83 +13181,14 @@ impl AdminAnalysisTools<'_> {
                         ADMIN_MAINTENANCE_TIMEOUT,
                     )
                     .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
-                    tokio::select! {
-                        () = operation_cancellation.cancelled() => {
-                            Err(ProjectError::RequestCancelled)
-                        }
-                        result = database.rebuild_current_similarity_edges(
-                            &project_id,
-                            policy,
-                        ) => {
-                            serde_json::to_value(
-                                result.map_err(|_| ProjectError::EmbeddingOperationFailed)?
-                            ).map_err(|_| ProjectError::EmbeddingOperationFailed)
-                        }
-                    }
-                },
-            })
-            .await?;
-        json_result(&job)
-    }
-
-    async fn start_uninit_job(
-        &self,
-        action: AdminAction,
-        arguments: &Map<String, Value>,
-    ) -> Result<ToolResult, ToolError> {
-        let plan = match prepare_uninit(self, arguments).await? {
-            PreparedUninit::Already(result) => return json_result(&result),
-            PreparedUninit::Job(plan) => plan,
-        };
-        let cancellation = ProjectCancellation::new();
-        let operation_cancellation = cancellation.clone();
-        let job = self
-            .admin_jobs
-            .start(AdminJobRequest {
-                action,
-                cancellation,
-                operation: async move {
-                    tokio::select! {
-                        () = operation_cancellation.cancelled() => {
-                            Err(ProjectError::RequestCancelled)
-                        }
-                        result = plan.database.purge_project(ProjectPurgeRequest {
-                            project_id: &plan.project_id,
-                            maximum_generations: plan.maximum_generations,
-                            maximum_cascade_rows: plan.maximum_rows,
-                            statement_timeout: ADMIN_MAINTENANCE_TIMEOUT,
-                        }) => {
-                            let report = result.map_err(|error| project_purge_error(&error))?;
-                            let managed = if plan.managed_credentials {
-                                let managed_database = ManagedDatabase::new(&plan.target_root, plan.managed_port)
-                                    .map_err(|_| ProjectError::IndexFailed)?;
-                                let confirmation = managed_database
-                                    .confirm_destructive_operation(
-                                        ManagedDestructiveOperation::Remove,
-                                        ManagedDestructiveOperation::Remove.confirmation_phrase(),
-                                    )
-                                    .map_err(|_| ProjectError::IndexFailed)?;
-                                Some(
-                                    managed_database
-                                        .maintenance()
-                                        .remove(confirmation)
-                                        .await
-                                        .map_err(|_| ProjectError::IndexFailed)?
-                                )
-                            } else {
-                                None
-                            };
-                            let state_directory_removed = remove_admin_state_directory(&plan.target_root)?;
-                            Ok(json!({
-                                "report": report,
-                                "managedDatabase": managed,
-                                "storage": "postgresql_only",
-                                "stateDirectoryRemoved": state_directory_removed,
-                                "projectConfigPreserved": false,
-                                "sourceFilesPreserved": true,
-                            }))
-                        }
-                    }
+                    let report = native_maintenance::run(&operation_cancellation, async {
+                        database
+                            .rebuild_current_similarity_edges(&project_id, policy)
+                            .await
+                            .map_err(|_| ProjectError::EmbeddingOperationFailed)
+                    })
+                    .await?;
+                    serde_json::to_value(report).map_err(|_| ProjectError::EmbeddingOperationFailed)
                 },
             })
             .await?;
@@ -13729,58 +13241,15 @@ impl AdminAnalysisTools<'_> {
                 action,
                 cancellation,
                 operation: async move {
-                    let report = runtime
-                        .embedding_status_with_cancellation(operation_cancellation)
-                        .await?;
-                    serde_json::to_value(report).map_err(|_| ProjectError::EmbeddingOperationFailed)
+                    match runtime.embedding_status_with_cancellation(operation_cancellation).await {
+                        Ok(report) => serde_json::to_value(report).map_err(|_| ProjectError::EmbeddingOperationFailed),
+                        Err(ProjectError::EmbeddingConfigurationUnavailable) => Ok(json!({"state":"not_configured","reason":"embedding_configuration_unavailable"})),
+                        Err(error) => Err(error),
+                    }
                 },
             })
             .await?;
         json_result(&job)
-    }
-}
-
-async fn run_generation_prune_operation(
-    runtime: Arc<ProjectRuntime>,
-    cancellation: ProjectCancellation,
-    policy: GenerationRetentionPolicy,
-) -> Result<Value, ProjectError> {
-    let project_id = runtime.register_agent_state_project().await?;
-    let lease = runtime
-        .database()
-        .acquire_lease(LeaseRequest::new(
-            LeaseTarget::new(project_id, ProjectOperation::Migration, None),
-            admin_lease_owner(),
-            ADMIN_MAINTENANCE_LEASE,
-        ))
-        .await
-        .map_err(|_| ProjectError::IndexFailed)?;
-    let fence = lease.fence();
-    let cleanup = run_cancellable_admin_maintenance(
-        &cancellation,
-        runtime
-            .database()
-            .cleanup_generations(GenerationRetentionRequest::new(
-                policy,
-                &fence,
-                ADMIN_MAINTENANCE_TIMEOUT,
-            )),
-    )
-    .await;
-    let release = runtime.database().release_lease(&lease).await;
-    let report = cleanup?;
-    release.map_err(|_| ProjectError::IndexFailed)?;
-    serde_json::to_value(report).map_err(|_| ProjectError::IndexFailed)
-}
-
-async fn run_cancellable_admin_maintenance<Output, Error>(
-    cancellation: &ProjectCancellation,
-    operation: impl Future<Output = Result<Output, Error>>,
-) -> Result<Output, ProjectError> {
-    tokio::select! {
-        biased;
-        () = cancellation.cancelled() => Err(ProjectError::RequestCancelled),
-        result = operation => result.map_err(|_| ProjectError::IndexFailed),
     }
 }
 
@@ -13916,13 +13385,30 @@ async fn run_structural_rollups(
         stats.candidates = stats.candidates.saturating_add(
             u64::try_from(pending.len()).map_err(|_| ProjectError::InvalidOptions)?,
         );
-        for pending in pending {
-            if pending.generation_id() != context.expected_generation {
-                stats.source_changed = true;
-                break;
-            }
-            let summary = pending.summary()?;
-            match save_structural_rollup(context, pending, &summary).await? {
+        save_structural_rollup_page(context, kind, &pending, &mut stats).await?;
+        if stats.source_changed {
+            break;
+        }
+    }
+    Ok(stats)
+}
+
+async fn save_structural_rollup_page(
+    context: &StructuralRollupContext,
+    kind: StructuralRollupKind,
+    pending: &[PendingStructuralRollup],
+    stats: &mut RollupSummarySweepStats,
+) -> Result<(), ProjectError> {
+    for batch in pending.chunks(16) {
+        if batch
+            .iter()
+            .any(|pending| pending.generation_id() != context.expected_generation)
+        {
+            stats.source_changed = true;
+            break;
+        }
+        for outcome in save_structural_rollup_batch(context, kind, batch).await? {
+            match outcome {
                 StructuralRollupSaveOutcome::Saved => {
                     stats.saved = stats.saved.saturating_add(1);
                 }
@@ -13941,7 +13427,7 @@ async fn run_structural_rollups(
             break;
         }
     }
-    Ok(stats)
+    Ok(())
 }
 
 async fn load_structural_rollup_page(
@@ -13985,65 +13471,92 @@ async fn load_structural_rollup_page(
     .map_err(|_| ProjectError::EnrichmentReadFailed)
 }
 
-async fn save_structural_rollup(
-    context: &StructuralRollupContext,
-    pending: PendingStructuralRollup,
-    summary: &str,
-) -> Result<StructuralRollupSaveOutcome, ProjectError> {
-    match pending {
-        PendingStructuralRollup::File(pending) => {
-            let path = NormalizedPath::parse(pending.path())
-                .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-            let expected_digest = ContentDigest::parse(pending.content_hash())
-                .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-            let request = FileSummarySaveRequest::new(
-                &path,
-                SummarySaveInput::new(&expected_digest, &context.anchor.digest, summary)
-                    .with_model(STRUCTURAL_SUMMARY_MODEL)
-                    .with_item_limit(FILE_SUMMARY_ROLLUP_ITEMS),
-            )
-            .and_then(|request| request.with_generation_mode("structural_rule"))
-            .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-            structural_rollup_save_outcome(
-                &context
-                    .runtime
-                    .database()
-                    .save_file_summary(&context.project_id, request)
-                    .await,
-            )
-        }
-        PendingStructuralRollup::Module(pending) => {
-            let directory = NormalizedPath::parse(pending.directory())
-                .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-            let expected_digest = ContentDigest::parse(pending.content_hash())
-                .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-            let request = ModuleSummarySaveRequest::new(
-                &directory,
-                SummarySaveInput::new(&expected_digest, &context.anchor.digest, summary)
-                    .with_model(STRUCTURAL_SUMMARY_MODEL)
-                    .with_item_limit(MODULE_SUMMARY_ROLLUP_ITEMS),
-            )
-            .and_then(|request| request.with_generation_mode("structural_rule"))
-            .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
-            structural_rollup_save_outcome(
-                &context
-                    .runtime
-                    .database()
-                    .save_module_summary(&context.project_id, request)
-                    .await,
-            )
-        }
+struct PreparedStructuralRollup {
+    scope: NormalizedPath,
+    expected: ContentDigest,
+    summary: String,
+}
+
+impl PreparedStructuralRollup {
+    fn new(pending: &PendingStructuralRollup) -> Result<Self, ProjectError> {
+        let digest = match pending {
+            PendingStructuralRollup::File(pending) => pending.content_hash(),
+            PendingStructuralRollup::Module(pending) => pending.content_hash(),
+        };
+        Ok(Self {
+            scope: NormalizedPath::parse(pending.cursor())
+                .map_err(|_| ProjectError::EnrichmentDataInvalid)?,
+            expected: ContentDigest::parse(digest)
+                .map_err(|_| ProjectError::EnrichmentDataInvalid)?,
+            summary: pending.summary()?,
+        })
+    }
+
+    fn input<'a>(
+        &'a self,
+        context: &'a StructuralRollupContext,
+        kind: StructuralRollupKind,
+    ) -> SummarySaveInput<'a> {
+        SummarySaveInput::new(&self.expected, &context.anchor.digest, &self.summary)
+            .with_model(STRUCTURAL_SUMMARY_MODEL)
+            .with_item_limit(kind.item_limit())
     }
 }
 
-fn structural_rollup_save_outcome<Artifact>(
-    result: &Result<Option<Artifact>, StorageError>,
-) -> Result<StructuralRollupSaveOutcome, ProjectError> {
+async fn save_structural_rollup_batch(
+    context: &StructuralRollupContext,
+    kind: StructuralRollupKind,
+    pending: &[PendingStructuralRollup],
+) -> Result<Vec<StructuralRollupSaveOutcome>, ProjectError> {
+    let prepared = pending
+        .iter()
+        .map(PreparedStructuralRollup::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    let result = match kind {
+        StructuralRollupKind::File => {
+            let requests = prepared
+                .iter()
+                .map(|item| {
+                    FileSummarySaveRequest::new(&item.scope, item.input(context, kind))
+                        .and_then(|request| request.with_generation_mode("structural_rule"))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
+            context
+                .runtime
+                .database()
+                .save_file_summaries(&context.project_id, &requests)
+                .await
+        }
+        StructuralRollupKind::Module => {
+            let requests = prepared
+                .iter()
+                .map(|item| {
+                    ModuleSummarySaveRequest::new(&item.scope, item.input(context, kind))
+                        .and_then(|request| request.with_generation_mode("structural_rule"))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
+            context
+                .runtime
+                .database()
+                .save_module_summaries(&context.project_id, &requests)
+                .await
+        }
+    };
     match result {
-        Ok(Some(_)) => Ok(StructuralRollupSaveOutcome::Saved),
-        Ok(None) => Ok(StructuralRollupSaveOutcome::PreservedHigherQuality),
+        Ok(records) => Ok(records
+            .into_iter()
+            .map(|record| {
+                if record.is_some() {
+                    StructuralRollupSaveOutcome::Saved
+                } else {
+                    StructuralRollupSaveOutcome::PreservedHigherQuality
+                }
+            })
+            .collect()),
         Err(StorageError::CurrentGenerationChanged) => {
-            Ok(StructuralRollupSaveOutcome::SourceChanged)
+            Ok(vec![StructuralRollupSaveOutcome::SourceChanged])
         }
         Err(_) => Err(ProjectError::EnrichmentWriteFailed),
     }
@@ -14218,8 +13731,19 @@ async fn lookup_neighbor_page(
             .map_err(|_| ProjectError::EnrichmentDataInvalid)?;
             let retriever = context.retriever.clone();
             let candidate = candidate.clone();
+            let control = cartograph_db::NativeDatabase::request_control(Duration::from_secs(300))
+                .map_err(|_| ProjectError::RequestCancelled)?;
+            let cancellation = context.cancellation.clone();
             tasks.spawn(async move {
-                let result = retriever.similar(&request).await;
+                let operation = cartograph_db::NativeDatabase::with_request(
+                    control.clone(),
+                    retriever.similar(&request),
+                );
+                tokio::pin!(operation);
+                let result = tokio::select! {
+                    result = &mut operation => result,
+                    () = cancellation.cancelled() => { control.cancel(); operation.await },
+                };
                 (candidate, result)
             });
         }
@@ -14249,7 +13773,6 @@ async fn collect_neighbor_lookups(
         let next = tokio::select! {
             biased;
             () = context.cancellation.cancelled() => {
-                tasks.abort_all();
                 while tasks.join_next().await.is_some() {}
                 return Err(ProjectError::RequestCancelled);
             }
@@ -14851,6 +14374,9 @@ async fn run_role_classification_sweep(
     {
         return Err(ProjectError::InvalidOptions);
     }
+    if matches!(context.classifier, RoleClassifier::Structural) {
+        return run_metadata_role_sweep(context).await;
+    }
     let status = context
         .runtime
         .status_with_cancellation(context.cancellation.clone())
@@ -14876,7 +14402,7 @@ async fn run_role_classification_sweep(
             project_id: &snapshot.project_id,
             pending,
         };
-        let model_pending = persist_structural_role_page(page, &mut progress).await?;
+        let model_pending = persist_structural_role_page(page, &mut progress, None).await?;
         let page = LlmRoleClassificationPage {
             context: &context,
             project_id: &snapshot.project_id,
@@ -14894,7 +14420,131 @@ async fn run_role_classification_sweep(
             break;
         }
     }
-    finish_role_classification_sweep(&context, &snapshot.project_id, progress).await
+    finish_role_classification_sweep(&context, &snapshot.project_id, &progress).await
+}
+
+async fn run_metadata_role_sweep(
+    context: RoleClassificationSweepRequest,
+) -> Result<Value, ProjectError> {
+    let project_id = current_project_id(&context.runtime).await?;
+    let mut progress = RoleClassificationSweepStats::default();
+    let mut cursor = None;
+    while progress.attempted < context.limit {
+        if context.cancellation.is_cancelled() {
+            return Err(ProjectError::RequestCancelled);
+        }
+        let limit = u16::try_from(
+            context
+                .limit
+                .saturating_sub(progress.attempted)
+                .min(ROLE_CLASSIFICATION_MAXIMUM_PAGE_SIZE),
+        )
+        .map_err(|_| ProjectError::InvalidOptions)?;
+        let page = context
+            .runtime
+            .database()
+            .pending_structural_roles(&project_id, &context.model, cursor.as_ref(), limit)
+            .await
+            .map_err(|_| ProjectError::IndexFailed)?;
+        progress.attempted = progress.attempted.saturating_add(
+            u64::try_from(page.symbols.len()).map_err(|_| ProjectError::InvalidOptions)?,
+        );
+        let classified = RoleClassificationPage {
+            context: &context,
+            project_id: &project_id,
+            pending: page.symbols,
+        };
+        persist_metadata_role_page(classified, &mut progress, &page.generation_id).await?;
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    let remaining = structural_roles_remaining(&context, &project_id, cursor).await?;
+    Ok(role_classification_sweep_report(
+        &context, &progress, remaining,
+    ))
+}
+
+struct StructuralRoleWrite {
+    id: SymbolId,
+    role: &'static str,
+    reason: &'static str,
+    structural: bool,
+}
+
+async fn persist_metadata_role_page(
+    page: RoleClassificationPage<'_>,
+    stats: &mut RoleClassificationSweepStats,
+    generation: &GenerationId,
+) -> Result<(), ProjectError> {
+    for batch in page.pending.chunks(16) {
+        if page.context.cancellation.is_cancelled() {
+            return Err(ProjectError::RequestCancelled);
+        }
+        let roles = batch
+            .iter()
+            .map(|symbol| {
+                let classification = classify_pending_role_structurally(symbol);
+                let (role, reason) =
+                    classification.unwrap_or_else(|| pending_heuristic_role(symbol));
+                Ok(StructuralRoleWrite {
+                    id: SymbolId::parse(symbol.symbol_id())
+                        .map_err(|_| ProjectError::IndexFailed)?,
+                    role,
+                    reason,
+                    structural: classification.is_some(),
+                })
+            })
+            .collect::<Result<Vec<_>, ProjectError>>()?;
+        let inputs = roles.iter().map(|role| {
+            SymbolRoleSaveInput::new(page.project_id, &role.id, role.role).with_metadata(json!({
+                "via":if role.structural { "structural_rule" } else { "structural_fallback" },
+                "reason":role.reason, "model":STRUCTURAL_ROLE_MODEL,
+            }))
+        });
+        page.context
+            .runtime
+            .database()
+            .save_symbol_roles(generation, inputs)
+            .await
+            .map_err(|_| ProjectError::IndexFailed)?;
+        let structural = u64::try_from(roles.iter().filter(|role| role.structural).count())
+            .map_err(|_| ProjectError::InvalidOptions)?;
+        let total = u64::try_from(roles.len()).map_err(|_| ProjectError::InvalidOptions)?;
+        stats.structural = stats.structural.saturating_add(structural);
+        stats.structural_fallback = stats.structural_fallback.saturating_add(total - structural);
+    }
+    Ok(())
+}
+
+async fn structural_roles_remaining(
+    context: &RoleClassificationSweepRequest,
+    project_id: &ProjectId,
+    mut cursor: Option<cartograph_db::StructuralRoleCursor>,
+) -> Result<bool, ProjectError> {
+    while let Some(after) = cursor {
+        if context.cancellation.is_cancelled() {
+            return Err(ProjectError::RequestCancelled);
+        }
+        let page = context
+            .runtime
+            .database()
+            .pending_structural_roles(
+                project_id,
+                &context.model,
+                Some(&after),
+                u16::try_from(ROLE_CLASSIFICATION_MAXIMUM_PAGE_SIZE)
+                    .map_err(|_| ProjectError::InvalidOptions)?,
+            )
+            .await
+            .map_err(|_| ProjectError::IndexFailed)?;
+        if !page.symbols.is_empty() {
+            return Ok(true);
+        }
+        cursor = page.next;
+    }
+    Ok(false)
 }
 
 async fn load_role_classification_page(
@@ -14924,6 +14574,7 @@ async fn load_role_classification_page(
 async fn persist_structural_role_page(
     page: RoleClassificationPage<'_>,
     stats: &mut RoleClassificationSweepStats,
+    generation: Option<&GenerationId>,
 ) -> Result<Vec<PendingRoleSymbol>, ProjectError> {
     let mut llm_pending = Vec::new();
     for symbol in page.pending {
@@ -14936,6 +14587,7 @@ async fn persist_structural_role_page(
                 reason,
                 via: "structural_rule",
                 model: STRUCTURAL_ROLE_MODEL,
+                generation,
             })
             .await?;
             stats.structural = stats.structural.saturating_add(1);
@@ -14949,6 +14601,7 @@ async fn persist_structural_role_page(
                 reason,
                 via: "structural_fallback",
                 model: STRUCTURAL_ROLE_MODEL,
+                generation,
             })
             .await?;
             stats.structural_fallback = stats.structural_fallback.saturating_add(1);
@@ -14985,6 +14638,7 @@ async fn persist_jev_role_page(
         .runtime
         .decision_judge_roles(&candidates, &page.context.cancellation)
         .await?;
+    stats.jev_usage.extend(judgement.requests);
     // Only the judged prefix is persisted; an outage leaves the rest pending.
     for (symbol, verdict) in page.pending.iter().zip(&judgement.verdicts) {
         let (role, reason) = jev_role_outcome(symbol, verdict);
@@ -15001,6 +14655,7 @@ async fn persist_jev_role_page(
             reason: &reason,
             via: "jev",
             model: JEV_ROLE_MODEL,
+            generation: None,
         })
         .await?;
     }
@@ -15067,6 +14722,7 @@ async fn persist_llm_role_page(
                 reason: &role.reason,
                 via: role.via,
                 model: &page.context.model,
+                generation: None,
             })
             .await?;
             stats.llm = stats.llm.saturating_add(1);
@@ -15077,7 +14733,7 @@ async fn persist_llm_role_page(
 async fn finish_role_classification_sweep(
     context: &RoleClassificationSweepRequest,
     project_id: &ProjectId,
-    stats: RoleClassificationSweepStats,
+    stats: &RoleClassificationSweepStats,
 ) -> Result<Value, ProjectError> {
     let remaining = !context
         .runtime
@@ -15086,7 +14742,15 @@ async fn finish_role_classification_sweep(
         .await
         .map_err(|_| ProjectError::IndexFailed)?
         .is_empty();
-    Ok(json!({
+    Ok(role_classification_sweep_report(context, stats, remaining))
+}
+
+fn role_classification_sweep_report(
+    context: &RoleClassificationSweepRequest,
+    stats: &RoleClassificationSweepStats,
+    remaining: bool,
+) -> Value {
+    json!({
         "candidates": stats.attempted,
         "classified": stats
             .structural
@@ -15102,6 +14766,7 @@ async fn finish_role_classification_sweep(
         "jevAbstained": stats.jev_abstained,
         "jevRejected": stats.jev_rejected,
         "jevError": stats.jev_error,
+        "jevUsage": stats.jev_usage,
         "backendRequests": stats.backend_requests,
         "errors": u64::from(stats.jev_error.is_some()),
         "limit": context.limit,
@@ -15111,7 +14776,7 @@ async fn finish_role_classification_sweep(
         "llmConfigured": matches!(context.classifier, RoleClassifier::Chat(_)),
         "concurrency": context.concurrency,
         "cachePolicy": "current structural digest plus exact model; high-confidence structural roles survive model changes",
-    }))
+    })
 }
 
 async fn run_summary_sweep(request: SummarySweepRequest) -> Result<Value, ProjectError> {
@@ -16070,7 +15735,7 @@ fn parse_status_options(arguments: &Map<String, Value>) -> Result<StatusOptions,
 fn status_not_indexed_result(request: UnindexedStatusRequest<'_>) -> Result<ToolResult, ToolError> {
     json_result(&json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "storage": "postgresql_paradedb_pgvector",
+        "storage": "rocksdb",
         "databaseStorage": request.database_storage,
         "autoSync": request.auto_sync,
         "project": request.status,
@@ -16106,6 +15771,11 @@ async fn indexed_status_result(
     request: IndexedStatusRequest,
 ) -> Result<ToolResult, ToolError> {
     let features = Box::pin(load_status_features(handler, &request)).await?;
+    #[cfg(test)]
+    handler
+        .session_trace
+        .pause_at("status-features-loaded")
+        .await;
     let rollups = load_status_rollups(StatusRollupRequest {
         handler,
         options: request.options,
@@ -16120,9 +15790,10 @@ async fn indexed_status_result(
             "Cartograph status request was cancelled",
         ));
     }
+    verify_status_generation(handler, &request).await?;
     json_result(&json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "storage": "postgresql_paradedb_pgvector",
+        "storage": "rocksdb",
         "databaseStorage": request.database_storage,
         "autoSync": request.auto_sync,
         "project": request.status,
@@ -16135,6 +15806,32 @@ async fn indexed_status_result(
             "visualBrowserUi": "removed_by_v2_contract"
         }
     }))
+}
+
+async fn verify_status_generation(
+    handler: &CartographMcpHandler,
+    request: &IndexedStatusRequest,
+) -> Result<(), ToolError> {
+    let expected = status_generation_id(request)?;
+    let started = std::time::Instant::now();
+    let current = handler
+        .runtime
+        .database()
+        .current_generation_record(&request.project_id)
+        .await
+        .map_err(|error| status_phase_error("generation_fence", started, &error))?;
+    if current
+        .as_ref()
+        .map(cartograph_db::CurrentGenerationRecord::generation_id)
+        != Some(&expected)
+    {
+        return Err(status_phase_error(
+            "generation_fence",
+            started,
+            &StorageError::CurrentGenerationChanged,
+        ));
+    }
+    Ok(())
 }
 
 fn status_generation_id(request: &IndexedStatusRequest) -> Result<GenerationId, ToolError> {
@@ -16230,20 +15927,14 @@ async fn load_status_inventory(
     handler: &CartographMcpHandler,
     request: &IndexedStatusRequest,
 ) -> Result<StatusInventoryEvidence, ToolError> {
-    let inventory_query = FileSurfaceQuery::new(1).map_err(internal_error)?;
     let database = handler.runtime.database();
-    let (inventory, aggregates) = tokio::join!(
-        database.current_file_surface(&request.project_id, &inventory_query),
-        database.current_file_aggregates(&request.project_id, &inventory_query, 1),
-    );
-    let inventory =
-        serde_json::to_value(inventory.map_err(internal_error)?).map_err(internal_error)?;
-    let languages = serde_json::to_value(
-        aggregates
-            .map_err(|error| status_storage_error(&error))?
-            .languages(),
-    )
-    .map_err(internal_error)?;
+    let started = std::time::Instant::now();
+    let (inventory, languages) = database
+        .current_status_inventory(&request.project_id, &status_generation_id(request)?)
+        .await
+        .map_err(|error| status_phase_error("inventory", started, &error))?;
+    let inventory = serde_json::to_value(inventory).map_err(internal_error)?;
+    let languages = serde_json::to_value(languages).map_err(internal_error)?;
     Ok(StatusInventoryEvidence {
         inventory,
         languages,
@@ -16255,15 +15946,16 @@ async fn load_status_agent_readiness(
     request: &IndexedStatusRequest,
 ) -> Result<StatusAgentReadinessEvidence, ToolError> {
     let database = handler.runtime.database();
-    let (summaries, roles, coverage, summary_priority) = tokio::join!(
-        database
-            .current_summary_coverage_with_policy(&request.project_id, &request.summary_policy,),
-        database.agent_role_distribution(&request.project_id),
+    let started = std::time::Instant::now();
+    let generation = status_generation_id(request)?;
+    let (readiness, coverage, summary_priority) = tokio::join!(
+        database.current_agent_readiness(&request.project_id, &generation, &request.summary_policy),
         database.current_coverage_stats(&request.project_id, None),
         database.summary_priority_queue_stats(&request.project_id),
     );
-    let mut summary_coverage =
-        serde_json::to_value(summaries.map_err(internal_error)?).map_err(internal_error)?;
+    let (summaries, roles) =
+        readiness.map_err(|error| status_phase_error("summary_and_roles", started, &error))?;
+    let mut summary_coverage = serde_json::to_value(summaries).map_err(internal_error)?;
     if !request.options.summary_breakdown {
         summary_coverage
             .as_object_mut()
@@ -16272,11 +15964,16 @@ async fn load_status_agent_readiness(
     }
     Ok(StatusAgentReadinessEvidence {
         summary_coverage,
-        summary_priority: serde_json::to_value(summary_priority.map_err(internal_error)?)
-            .map_err(internal_error)?,
-        coverage: serde_json::to_value(coverage.map_err(internal_error)?)
-            .map_err(internal_error)?,
-        roles: serde_json::to_value(roles.map_err(internal_error)?).map_err(internal_error)?,
+        summary_priority: serde_json::to_value(
+            summary_priority
+                .map_err(|error| status_phase_error("summary_priority", started, &error))?,
+        )
+        .map_err(internal_error)?,
+        coverage: serde_json::to_value(
+            coverage.map_err(|error| status_phase_error("coverage", started, &error))?,
+        )
+        .map_err(internal_error)?,
+        roles: serde_json::to_value(roles).map_err(internal_error)?,
     })
 }
 
@@ -16287,6 +15984,7 @@ async fn load_status_structural_readiness(
     let generation_id = status_generation_id(request)?;
     let biomarkers_enabled = request.source_settings.enable_biomarkers();
     let database = handler.runtime.database();
+    let started = std::time::Instant::now();
     // The readiness probe only ever reads the stored relation. Evaluating every
     // detector over a whole generation cannot fit a status budget, so an
     // uncomputed relation is reported as an explicit pending state instead.
@@ -16319,7 +16017,7 @@ async fn load_status_structural_readiness(
         Ok(None) => json!({"state": "disabled_by_project_config"}),
         Err(error) => status_biomarker_stats_unavailable(&error),
     };
-    let numerical = numerical.map_err(internal_error)?;
+    let numerical = numerical.map_err(|error| status_phase_error("numerical", started, &error))?;
     let numerical_freshness = if request.status.fresh {
         IndexFreshness::Current
     } else {
@@ -16342,20 +16040,15 @@ async fn status_database_storage(handler: &CartographMcpHandler) -> Value {
     match handler
         .runtime
         .database()
-        .storage_totals(STATUS_STORAGE_TIMEOUT)
+        .storage_usage(STATUS_STORAGE_TIMEOUT)
         .await
     {
-        Ok(totals) => ready_database_storage(totals),
-        Err(StorageError::StatementTimeout { .. }) => json!({
-            "state": "unavailable",
-            "reason": "timeout",
-            "detailCommand": "cartograph db usage --project-path <path>"
-        }),
-        Err(_) => json!({
-            "state": "unavailable",
-            "reason": "database_error",
-            "detailCommand": "cartograph db usage --project-path <path>"
-        }),
+        Ok(report) => {
+            json!({"state":"ready","storage":"rocksdb","native":report,"humanReadable":{"files":format_binary_bytes(report.file_bytes)},"detailCommand":"cartograph db usage --project-path <path>"})
+        }
+        Err(error) => {
+            json!({"state":"unavailable","reason":if matches!(error,StorageError::StatementTimeout {..}) {"timeout"} else {"storage_error"}})
+        }
     }
 }
 
@@ -16382,29 +16075,6 @@ fn status_biomarker_stats_unavailable(error: &StorageError) -> Value {
         },
         "detailTool": BIOMARKERS_TOOL,
         "currentGenerationFenced": true
-    })
-}
-
-fn ready_database_storage(totals: StorageTotalsReport) -> Value {
-    json!({
-        "state": "ready",
-        "databaseBytes": totals.database_bytes,
-        "databaseCatalogBytes": totals.database_catalog_bytes,
-        "unattributedDatabaseBytes": totals.unattributed_database_bytes,
-        "schemaBytes": totals.schema_bytes,
-        "heapBytes": totals.heap_bytes,
-        "indexBytes": totals.index_bytes,
-        "btreeIndexBytes": totals.btree_index_bytes,
-        "toastBytes": totals.toast_bytes,
-        "humanReadable": {
-            "database": format_binary_bytes(totals.database_bytes),
-            "schema": format_binary_bytes(totals.schema_bytes),
-            "heap": format_binary_bytes(totals.heap_bytes),
-            "index": format_binary_bytes(totals.index_bytes),
-            "btreeIndex": format_binary_bytes(totals.btree_index_bytes),
-            "toast": format_binary_bytes(totals.toast_bytes)
-        },
-        "detailCommand": "cartograph db usage --project-path <path>"
     })
 }
 
@@ -18919,6 +18589,10 @@ async fn current_project_for_evidence(
 }
 
 impl ToolHandler for CartographMcpHandler {
+    fn drain_cancelled_calls(&self) -> bool {
+        true
+    }
+
     fn tools(&self) -> Vec<ToolDefinition> {
         self.definitions.clone()
     }
@@ -18991,7 +18665,6 @@ fn workflow_tool_definitions() -> Result<Vec<ToolDefinition>, ToolContractError>
         role_definition()?,
         session_definition()?,
         summaries_definition()?,
-        sql_definition(read_only)?,
         trace_to_culprits_definition(read_only)?,
         verify_definition(read_only)?,
         review_definition(read_only)?,
@@ -19047,7 +18720,7 @@ fn read_definition(input: ReadDefinition) -> Result<ToolDefinition, ToolContract
 fn status_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, ToolContractError> {
     read_definition(ReadDefinition {
         name: STATUS_TOOL,
-        description: "Report current-generation PostgreSQL/ParadeDB health, exact inventory and feature-readiness counts, with optional bounded hotspot and biomarker rollups.",
+        description: "Report current-generation native storage health, exact inventory and feature-readiness counts, with optional bounded hotspot and biomarker rollups.",
         schema: json!({
             "topHotspots": {
                 "type": "number",
@@ -19271,7 +18944,7 @@ fn find_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, ToolC
     });
     read_definition(ReadDefinition {
         name: FIND_TOOL,
-        description: "Find symbols by exact/fuzzy/semantic/intent evidence, search source with safe regex and enclosing-symbol attribution, or locate environment-variable, SQL-relation, and module build-context references. ParadeDB BM25/fuzzy and pgvector provenance remain explicit; delta cursors are bounded and query-scoped.",
+        description: "Find symbols by exact/fuzzy/semantic/intent evidence, search source with safe regex and enclosing-symbol attribution, or locate environment-variable, SQL-relation, and module build-context references. Native BM25/fuzzy and model-scoped vector provenance remain explicit; delta cursors are bounded and query-scoped.",
         schema,
         required: &["by"],
         annotations,
@@ -19624,7 +19297,7 @@ fn files_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, Tool
     });
     read_definition(ReadDefinition {
         name: FILES_TOOL,
-        description: "Indexed file and directory intelligence: tree, flat, grouped, and directory summaries; one-file symbol outlines; cross-file dependencies/dependents; structural module summaries; and bounded fresh source reads. Directory/language/glob filters execute in PostgreSQL before the row cap, and every sampled aggregation is labeled.",
+        description: "Indexed file and directory intelligence: tree, flat, grouped, and directory summaries; one-file symbol outlines; cross-file dependencies/dependents; structural module summaries; and bounded fresh source reads. Directory/language/glob filters execute in the native traversal before the row cap, and every sampled aggregation is labeled.",
         schema,
         required: &[],
         annotations,
@@ -19760,7 +19433,7 @@ fn test_tool_definition(
         ),
         TestToolDefinitionKind::TestsFor => (
             TESTS_FOR_TOOL,
-            "Find tests for exactly one symbol or a non-empty changed-file set. Symbol mode resolves an unambiguous exact name and walks reverse structural impact. Files mode uses a PostgreSQL recursive traversal rooted at every symbol in every matched file, returns complete dependent/test counts, language-aware test classification or a safe glob override, and explicit unmatched-path, barrel-fanout, and truncation evidence.",
+            "Find tests for exactly one symbol or a non-empty changed-file set. Symbol mode resolves an unambiguous exact name and walks reverse structural impact. Files mode uses a bounded native graph traversal rooted at every symbol in every matched file, returns complete dependent/test counts, language-aware test classification or a safe glob override, and explicit unmatched-path, barrel-fanout, and truncation evidence.",
             json!({
                 "symbol": {"type": "string", "minLength": 1, "maxLength": CONTEXT_ANCHOR_MAXIMUM_BYTES},
                 "files": {
@@ -20018,7 +19691,7 @@ fn note_definition() -> Result<ToolDefinition, ToolContractError> {
     });
     ToolDefinition::new(ToolDefinitionInput::new(
         NOTE_TOOL,
-        "Create, list, or delete durable project/symbol notes and bookmarks in PostgreSQL. Symbol names must resolve unambiguously; subtype and author remain structured metadata.",
+        "Create, list, or delete durable project/symbol notes and bookmarks in the native project store. Symbol names must resolve unambiguously; subtype and author remain structured metadata.",
         object_schema(schema, &["action"]),
     ))
     .map(|definition| definition.with_annotations(write_annotations()))
@@ -20103,7 +19776,7 @@ fn session_definition() -> Result<ToolDefinition, ToolContractError> {
     });
     ToolDefinition::new(ToolDefinitionInput::new(
         SESSION_TOOL,
-        "Create and resume active durable investigation sessions; inspect ordered privacy-redacted call history, navigation audits, and aggregate latency/error usage; save, replay, list, or delete bounded tool macros with recursive positional substitution. Session state lives in PostgreSQL and survives MCP/client restarts.",
+        "Create and resume active durable investigation sessions; inspect ordered privacy-redacted call history, navigation audits, and aggregate latency/error usage; save, replay, list, or delete bounded tool macros with recursive positional substitution. Session state lives in the native project store and survives MCP/client restarts.",
         object_schema(schema, &["action"]),
     ))
     .map(|definition| definition.with_annotations(write_annotations()))
@@ -20140,58 +19813,6 @@ fn summaries_definition() -> Result<ToolDefinition, ToolContractError> {
     ))
     .map(|definition| definition.with_annotations(write_annotations()))
     .map(ToolDefinition::with_read_only_carve_out)
-}
-
-fn sql_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, ToolContractError> {
-    let schema = json!({
-        "query": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": SQL_QUERY_MAXIMUM_BYTES,
-            "description": "Query mode: one project-scoped read-only SELECT, WITH, or simple EXPLAIN. Omit when schema is true."
-        },
-        "schema": {
-            "type": "boolean",
-            "description": "Schema mode: set true to list the stable logical relations. Do not also pass query."
-        },
-        "tables": {
-            "type": "array",
-            "maxItems": SQL_MAXIMUM_TABLES,
-            "items": {"type": "string", "minLength": 1, "maxLength": SQL_TABLE_NAME_MAXIMUM_BYTES},
-            "description": "Schema mode only: optional case-insensitive logical relation names. Unknown names are reported with the available names."
-        },
-        "compact": {
-            "type": "boolean",
-            "default": false,
-            "description": "Both modes: minify the text response while preserving identical structured content."
-        },
-        "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": SQL_MAXIMUM_LIMIT,
-            "default": SQL_DEFAULT_LIMIT,
-            "description": "Maximum returned rows in query mode or logical relations in schema mode."
-        },
-        "timeoutMs": {
-            "type": "integer",
-            "minimum": SQL_MINIMUM_TIMEOUT_MS,
-            "maximum": SQL_MAXIMUM_TIMEOUT_MS,
-            "default": SQL_DEFAULT_TIMEOUT_MS,
-            "description": "Query-mode statement deadline. Accepted but explicitly ignored in schema mode."
-        },
-        "allowStale": {
-            "type": "boolean",
-            "default": false,
-            "description": "Query mode: permit the current indexed generation when source is stale. Accepted but explicitly ignored in schema mode."
-        }
-    });
-    read_definition(ReadDefinition {
-        name: SQL_TOOL,
-        description: "Project-scoped read-only PostgreSQL escape hatch with two explicit modes: pass schema:true without query to list logical current-generation relations, or pass query without schema:true to execute one SELECT/WITH or simple EXPLAIN. compact works in both modes and limit caps relations or rows. Queries run under a read-only transaction, statement timeout, relation allowlist, row clipping, and output cap. Physical/cross-project tables are not exposed.",
-        schema,
-        required: &[],
-        annotations,
-    })
 }
 
 fn trace_to_culprits_definition(
@@ -20257,7 +19878,7 @@ fn review_definition(annotations: ToolAnnotations) -> Result<ToolDefinition, Too
     });
     read_definition(ReadDefinition {
         name: REVIEW_TOOL,
-        description: "Six-mode review and triage surface: Git/unified-diff context with graph impact and tests; semantic sister implementations; project-wide risk lenses; all 16 agent-prone detectors; generation-scoped numerical hazards; or live PostgreSQL, ParadeDB, pgvector, embedding, and LLM trust checks.",
+        description: "Six-mode review and triage surface: Git/unified-diff context with graph impact and tests; semantic sister implementations; project-wide risk lenses; all 16 agent-prone detectors; generation-scoped numerical hazards; or live native storage, embedding, and LLM trust checks.",
         schema,
         required: &[],
         annotations,
@@ -20741,40 +20362,46 @@ fn playbook_tool(arguments: &Map<String, Value>) -> Result<ToolResult, ToolError
 fn admin_definition() -> Result<ToolDefinition, ToolContractError> {
     let schema = json!({
         "action": {"type": "string", "enum": [
-            "init", "uninit", "unlock", "sync", "biomarkers-refresh", "index",
-            "embed-only", "migrate", "storage-migrate", "build-similarity-edges",
-            "prune-store", "embedding-audit", "embedding-cleanup", "scip-export",
+            "init", "sync", "biomarkers-refresh", "index",
+            "embed-only", "build-similarity-edges",
+            "embedding-audit", "embedding-cleanup", "scip-export",
             "scip-import", "summarize", "embed", "classify", "install-models",
             "doctor", "llm-plan", "llm-apply", "llm-tune", "embedding-status",
-            "prune-generations", "status", "cancel"
+            "prune-generations", "graph-export", "status", "cancel"
         ]},
-        "path": {"type": "string", "minLength": 1, "maxLength": MAX_PROJECT_PATH_BYTES, "description": "Init/uninit target. Must be an absolute project directory; init creates it and a non-symlink .cartograph marker when absent."},
-        "databaseProvider": {"type": "string", "enum": ["postgres", "postgresql"], "description": "Init only. Cartograph v2 is PostgreSQL-only; SQLite is intentionally unsupported."},
-        "databaseUrl": {"type": "string", "minLength": 1, "maxLength": ADMIN_DATABASE_URL_MAXIMUM_BYTES, "description": "Init only. Secret-bearing PostgreSQL URL used for this initialization; never returned or traced."},
-        "databaseSchema": {"type": "string", "minLength": 1, "maxLength": ADMIN_DATABASE_SCHEMA_MAXIMUM_BYTES},
-        "databasePgvector": {"type": "string", "enum": ["auto", "require"], "description": "Init only. Both modes require pgvector in v2; off is intentionally unsupported."},
-        "databaseMaxConnections": {"type": "integer", "minimum": 1, "maximum": ADMIN_DATABASE_MAXIMUM_CONNECTIONS},
-        "databaseQueryTimeoutMs": {"type": "integer", "minimum": 1, "maximum": ADMIN_BIOMARKER_REFRESH_MAXIMUM_TIMEOUT_MS, "description": "Init database query timeout (bounded to 600000 there) or biomarkers-refresh inner PostgreSQL statement timeout (bounded to 1800000)."},
-        "databaseConnectionTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": ADMIN_CONNECTION_TIMEOUT_MAXIMUM_SECONDS},
-        "databaseSsl": {"type": "boolean", "description": "Init only. true forces TLS at the PostgreSQL driver boundary; false preserves URL sslmode behavior."},
+        "path": {"type": "string", "minLength": 1, "maxLength": MAX_PROJECT_PATH_BYTES, "description": "Init target. Must be an absolute project directory; init creates it and a non-symlink .cartograph marker when absent."},
+
+        "databaseQueryTimeoutMs": {"type": "integer", "minimum": 1, "maximum": ADMIN_BIOMARKER_REFRESH_MAXIMUM_TIMEOUT_MS, "description": "biomarkers-refresh native operation deadline, bounded to 300000 milliseconds."},
+
+        "exportFormat": {"type":"string","enum":["json","dot","mermaid","cytoscape"]},
+        "kinds": {"type":"string","maxLength":4096},
+        "edgeKinds": {"type":"string","maxLength":4096},
+        "languages": {"type":"string","maxLength":4096},
+        "filePrefix": {"type":"string","maxLength":4096},
         "index": {"type": "boolean", "description": "Init only. Build and publish the initial immutable generation before the command completes."},
         "force": {"type": "boolean"},
-        "clearParseCache": {"type": "boolean", "description": "Index only. v2 has no mutable parse cache, so this forces a complete immutable-generation reparse."},
+        "clearParseCache": {"type": "boolean", "description": "Index only. Bypass the exact source-and-policy extraction cache and reparse a complete generation."},
         "clearParseCacheLanguage": {"type": "string", "minLength": 1, "maxLength": ADMIN_LANGUAGE_ID_MAXIMUM_BYTES, "description": "Index only. Validates one of the 132 native language ids and forces a complete generation reparse; the response discloses deliberate over-invalidation."},
         "workers": {"type": "integer", "minimum": 1, "maximum": ADMIN_MAXIMUM_WORKERS},
         "maxFileSize": {"type": "string", "minLength": 1, "maxLength": ADMIN_MAX_FILE_SIZE_TEXT_BYTES, "description": "Init/index/sync/embed-only source-file ceiling. Accepts bytes or kb/mb suffixes through 10mb; oversized supported files are skipped and counted rather than failing the generation."},
         "profile": {"type": "boolean", "description": "Index/sync only. Include native bounded phase timing evidence."},
+        "exclude": {"type":"array","items":{"type":"string","minLength":1,"maxLength":4096},"maxItems":4096,"description":"Index/sync run-scoped exclusion globs, layered over project defaults."},
+        "preserveCurrentExcludes":{"type":"boolean","description":"Inherit current run exclusions when no replacements are provided."},
+        "singlePublication":{"type":"boolean","description":"Report source edits after a successful publication without another rebuild."},
+        "refreshHistory":{"type":"boolean","description":"Refresh independent Git and issue history after indexing."},
+        "enrich":{"type":"boolean","description":"Run configured model enrichment after structural publication."},
+        "baseOnly":{"type":"boolean","default":false,"description":"Index/sync only. Publish the base graph and requested history without structural summaries, classification, or model enrichment; used by the direct CLI for consistent owner routing."},
         "verbose": {"type": "boolean", "description": "Init/index/embed-only only. Retain the complete native worker and generation metrics in operator output."},
         "jobId": {"type": "integer", "minimum": 1},
         "confirm": {"type": "boolean", "description": "Required with biomarkers-refresh when dryRun is false and for other explicitly guarded admin mutations."},
-        "sourceSchema": {"type": "string"},
-        "dryRun": {"type": "boolean", "default": true, "description": "biomarkers-refresh and storage-migrate plan without mutation by default; set false only with confirm true."},
+
+        "dryRun": {"type": "boolean", "default": true, "description": "biomarkers-refresh plans without mutation by default; set false only with confirm true."},
         "maximumRows": {"type": "integer", "minimum": 1, "maximum": ADMIN_MAXIMUM_IMPORT_ROWS},
         "maximumSourceBytes": {"type": "integer", "minimum": 1, "maximum": ADMIN_DEFAULT_IMPORT_SOURCE_BYTES},
-        "keepSuperseded": {"type": "integer", "minimum": 0, "maximum": ADMIN_RETENTION_MAXIMUM_COUNT},
-        "maximumDeletions": {"type": "integer", "minimum": 1, "maximum": ADMIN_RETENTION_MAXIMUM_COUNT},
-        "maximumCascadeRows": {"type": "integer", "minimum": 1, "maximum": ADMIN_RETENTION_MAXIMUM_CASCADE_ROWS, "description": "prune-generations only. Override the default 5,000,000 canonical-row invocation cap within the hard 100,000,000-row bound."},
-        "maximumSearchRelationBytes": {"type": "integer", "minimum": 1, "maximum": 68_719_476_736_u64, "description": "prune-generations only. Audited physical search-relation byte budget; default 8 GiB, hard maximum 64 GiB."},
+        "keepSuperseded": {"type": "integer", "minimum": 0, "maximum": 32},
+        "maximumDeletions": {"type": "integer", "minimum": 1, "maximum": 100},
+        "maximumCascadeRows": {"type":"integer","minimum":1,"maximum":10000,"description":"Maximum physical graph versions visited by one resumable native retention batch."},
+
         "k": {"type": "integer", "minimum": 1, "maximum": ADMIN_SIMILARITY_MAXIMUM_K},
         "minScore": {"type": "number", "minimum": 0, "maximum": 1},
         "maxAgeDays": {"type": "number", "minimum": 0},
@@ -20800,12 +20427,12 @@ fn admin_definition() -> Result<ToolDefinition, ToolContractError> {
         "dir": {"type": "string"},
         "writeConfig": {"type": "boolean"},
         "fix": {"type": "boolean"},
-        "skipProjectChecks": {"type": "boolean", "description": "Doctor only: verify the Rust runtime and PostgreSQL/ParadeDB/pgvector plane without requiring initialized project, index, embedding, or chat state."}
+        "skipProjectChecks": {"type": "boolean", "description": "Doctor only: verify the Rust runtime and native storage capability plane without requiring an index, embeddings, or chat configuration."}
     });
     ToolDefinition::new(
         ToolDefinitionInput::new(
             ADMIN_TOOL,
-            "PostgreSQL-only lifecycle, indexing, semantic maintenance, LLM pipeline, and SCIP interoperability. prune-store retains v1 cold-orphan summary/vector semantics; prune-generations is the additive bounded immutable-generation collector. Long actions return a durable in-process job; poll status until terminal.",
+            "Per-project RocksDB indexing, bounded graph and derived-state retention, model pipelines, and SCIP interoperability. Long actions return an owned in-process job; poll status until terminal. Graph publication, enrichment, and maintenance outcomes remain separate.",
             object_schema(schema, &["action"]),
         )
         .with_profiles(ToolProfiles::FULL.union(ToolProfiles::CORE)),
@@ -20982,108 +20609,6 @@ async fn fresh_cursor_json_result(
             "cursor": cursor,
         }),
         arguments.get("lowTokens") == Some(&Value::Bool(true)),
-    )
-}
-
-fn sql_query_compaction(arguments: &Map<String, Value>) -> Result<bool, ToolError> {
-    if arguments.contains_key("tables") {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "SQL table filters require schema:true; omit tables when executing a query",
-        ));
-    }
-    let compact = optional_bool(arguments, "compact")?.unwrap_or(false);
-    if !arguments.contains_key("query") {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "Provide one read-only SQL query or set schema:true to inspect logical relations",
-        ));
-    }
-    Ok(compact)
-}
-
-fn sql_schema_result(arguments: &Map<String, Value>) -> Result<ToolResult, ToolError> {
-    if arguments.contains_key("query") {
-        return Err(safe_error(
-            ToolErrorCode::InvalidArguments,
-            "Use either schema:true or query, not both in the same SQL call",
-        ));
-    }
-    let tables = optional_string_array(
-        arguments,
-        "tables",
-        StringArrayBounds::new(SQL_MAXIMUM_TABLES, SQL_TABLE_NAME_MAXIMUM_BYTES),
-    )?;
-    let compact = optional_bool(arguments, "compact")?.unwrap_or(false);
-    let relation_limit = optional_integer(
-        arguments,
-        "limit",
-        NumericBounds::new(1, SQL_DEFAULT_LIMIT, SQL_MAXIMUM_LIMIT),
-    )?;
-    let _timeout_ms = optional_integer(
-        arguments,
-        "timeoutMs",
-        NumericBounds::new(
-            SQL_MINIMUM_TIMEOUT_MS,
-            SQL_DEFAULT_TIMEOUT_MS,
-            SQL_MAXIMUM_TIMEOUT_MS,
-        ),
-    )?;
-    let _allow_stale = optional_bool(arguments, "allowStale")?;
-    let ignored_arguments = ["timeoutMs", "allowStale"]
-        .into_iter()
-        .filter(|key| arguments.contains_key(*key))
-        .collect::<Vec<_>>();
-
-    let mut relations =
-        serde_json::to_value(read_only_sql_schema()).map_err(|_| ToolError::internal())?;
-    let available_tables = relations
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|row| row.get("name").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    let available = available_tables
-        .iter()
-        .map(|table| table.to_ascii_lowercase())
-        .collect::<BTreeSet<_>>();
-    let requested = tables
-        .iter()
-        .map(|table| table.to_ascii_lowercase())
-        .collect::<BTreeSet<_>>();
-    let unknown_tables = tables
-        .iter()
-        .filter(|table| !available.contains(&table.to_ascii_lowercase()))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let mut truncated = false;
-    if let Some(rows) = relations.as_array_mut() {
-        if !requested.is_empty() {
-            rows.retain(|row| {
-                row.get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| requested.contains(&name.to_ascii_lowercase()))
-            });
-        }
-        truncated = rows.len() > usize::from(relation_limit);
-        rows.truncate(usize::from(relation_limit));
-    }
-    json_result_with_compaction(
-        &json!({
-            "relations": relations,
-            "requestedTables": tables,
-            "unknownTables": unknown_tables,
-            "availableTables": available_tables,
-            "relationLimit": relation_limit,
-            "truncated": truncated,
-            "ignoredArguments": ignored_arguments,
-            "compact": compact,
-            "physicalTablesExposed": false,
-            "projectScoped": true,
-            "contract": "stable_generation_fenced_virtual_schema"
-        }),
-        compact,
     )
 }
 
@@ -22361,73 +21886,15 @@ fn reject_present(arguments: &Map<String, Value>, rejected: &[&str]) -> Result<(
     }
 }
 
-const ADMIN_ARGUMENT_FIELDS: &[&str] = &[
-    "path",
-    "databaseProvider",
-    "databaseUrl",
-    "databaseSchema",
-    "databasePgvector",
-    "databaseMaxConnections",
-    "databaseQueryTimeoutMs",
-    "databaseConnectionTimeoutSeconds",
-    "databaseSsl",
-    "force",
-    "clearParseCache",
-    "clearParseCacheLanguage",
-    "workers",
-    "jobId",
-    "confirm",
-    "sourceSchema",
-    "dryRun",
-    "maximumRows",
-    "maximumSourceBytes",
-    "keepSuperseded",
-    "maximumDeletions",
-    "maximumCascadeRows",
-    "maximumSearchRelationBytes",
-    "k",
-    "minScore",
-    "maxAgeDays",
-    "concurrency",
-    "limit",
-    "out",
-    "in",
-    "preset",
-    "tier",
-    "endpoint",
-    "model",
-    "command",
-    "args",
-    "input",
-    "promptTemplate",
-    "responseFormat",
-    "responsePath",
-    "apiKeyEnv",
-    "apiKeyCommand",
-    "timeoutMs",
-    "minimal",
-    "dir",
-    "writeConfig",
-    "fix",
-    "summarizeLimit",
-    "skipProjectChecks",
-];
-
 fn reject_admin_extras(arguments: &Map<String, Value>, allowed: &[&str]) -> Result<(), ToolError> {
-    let rejected = ADMIN_ARGUMENT_FIELDS
-        .iter()
-        .copied()
-        .filter(|field| !allowed.contains(field))
-        .collect::<Vec<_>>();
-    reject_present(arguments, &rejected)
-}
-
-fn admin_lease_owner() -> LeaseOwner {
-    let started = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_nanos();
-    LeaseOwner::new(process::id(), format!("cartograph-admin:{started}"))
+    if arguments
+        .keys()
+        .any(|key| key != "action" && !allowed.contains(&key.as_str()))
+    {
+        Err(invalid_arguments())
+    } else {
+        Ok(())
+    }
 }
 
 fn optional_job_id(arguments: &Map<String, Value>) -> Result<Option<u64>, ToolError> {
@@ -25131,6 +24598,7 @@ struct PendingRolePersistence<'input> {
     reason: &'input str,
     via: &'input str,
     model: &'input str,
+    generation: Option<&'input GenerationId>,
 }
 
 async fn persist_pending_role(input: PendingRolePersistence<'_>) -> Result<(), ProjectError> {
@@ -25142,17 +24610,20 @@ async fn persist_pending_role(input: PendingRolePersistence<'_>) -> Result<(), P
         reason,
         via,
         model,
+        generation,
     } = input;
     let symbol_id = SymbolId::parse(symbol.symbol_id()).map_err(|_| ProjectError::IndexFailed)?;
+    let input = SymbolRoleSaveInput::new(project_id, &symbol_id, role).with_metadata(json!({
+        "via": via, "model": model, "reason": reason,
+    }));
+    let input = if let Some(generation) = generation {
+        input.in_generation(generation)
+    } else {
+        input
+    };
     runtime
         .database()
-        .save_symbol_role(
-            SymbolRoleSaveInput::new(project_id, &symbol_id, role).with_metadata(json!({
-                "via": via,
-                "model": model,
-                "reason": reason,
-            })),
-        )
+        .save_symbol_role(input)
         .await
         .map(|_| ())
         .map_err(|_| ProjectError::IndexFailed)
@@ -25248,14 +24719,26 @@ fn internal_error<T>(_error: T) -> ToolError {
     ToolError::internal()
 }
 
-fn status_storage_error(error: &StorageError) -> ToolError {
-    match error {
-        StorageError::StatementTimeout { .. } => safe_error(
-            ToolErrorCode::Timeout,
-            "Cartograph status database aggregates exceeded their bounded statement timeout; run `cartograph db usage --project-path <path>` and inspect the online compaction plan before retrying",
+fn status_phase_error(
+    phase: &'static str,
+    started: std::time::Instant,
+    error: &StorageError,
+) -> ToolError {
+    let (code, reason) = match error {
+        StorageError::StatementTimeout { .. } => (ToolErrorCode::Timeout, "deadline"),
+        StorageError::CurrentGenerationChanged => (ToolErrorCode::Conflict, "generation_changed"),
+        StorageError::CorruptStoredValue { .. } => {
+            (ToolErrorCode::Unavailable, "invalid_stored_value")
+        }
+        _ => (ToolErrorCode::Unavailable, "storage_unavailable"),
+    };
+    safe_error(
+        code,
+        format!(
+            "Cartograph status phase {phase} failed with {reason} after {} ms",
+            started.elapsed().as_millis()
         ),
-        _ => ToolError::internal(),
-    }
+    )
 }
 
 fn chat_error(error: ChatError) -> ToolError {
@@ -25397,6 +24880,10 @@ fn history_index_error(error: HistoryIndexError) -> ToolError {
 
 fn issue_history_index_error(error: IssueHistoryIndexError) -> ToolError {
     match error {
+        IssueHistoryIndexError::DisabledByProjectConfig => safe_error(
+            ToolErrorCode::NotReady,
+            "Issue history is disabled by project configuration",
+        ),
         IssueHistoryIndexError::InvalidOptions => invalid_arguments(),
         IssueHistoryIndexError::NotGitRepository => safe_error(
             ToolErrorCode::NotReady,
@@ -25454,19 +24941,6 @@ fn rename_plan_error(error: RenamePlanError) -> ToolError {
         RenamePlanError::StorageUnavailable | RenamePlanError::SourceUnavailable => {
             ToolError::internal()
         }
-    }
-}
-
-fn sql_error(error: ReadOnlySqlError) -> ToolError {
-    match error {
-        ReadOnlySqlError::InvalidInput | ReadOnlySqlError::Forbidden => safe_error(
-            ToolErrorCode::InvalidArguments,
-            "SQL must be one bounded project-scoped read-only SELECT, WITH, or simple EXPLAIN",
-        ),
-        ReadOnlySqlError::Database | ReadOnlySqlError::InvalidRow => safe_error(
-            ToolErrorCode::Unavailable,
-            "Project-scoped read-only SQL could not complete within its safety bounds",
-        ),
     }
 }
 
@@ -25750,7 +25224,7 @@ fn project_route_error(error: ProjectRouteError) -> ToolError {
         ),
         ProjectRouteError::DatabaseUnavailable => safe_error(
             ToolErrorCode::NotReady,
-            "The selected project's PostgreSQL data plane is not running or configured",
+            "The selected project's native storage could not be opened or read",
         ),
         ProjectRouteError::RuntimeUnavailable => safe_error(
             ToolErrorCode::Unavailable,
@@ -25810,18 +25284,30 @@ fn safe_error(code: ToolErrorCode, message: impl Into<String>) -> ToolError {
     }
 }
 
+fn native_capabilities() -> Value {
+    json!({"storage":"rocksdb","engineVersion":cartograph_db::rocks::ENGINE_VERSION,"hardChecksPassed":true,
+        "graphSnapshots":true,"atomicPublication":true,"perProjectOwnership":true,
+        "lexicalAlgorithm":"native_bm25","lexicalIndex":"generation_field_postings_v1",
+        "lexicalFallback":"bounded_document_scan_v1","semanticAlgorithm":"exact_cosine"})
+}
+impl CartographMcpHandler {
+    pub(crate) async fn close_native(&self) -> Result<(), ProjectError> {
+        self.admin_jobs.shutdown().await;
+        self.project_cache.shutdown().await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::assert_matches;
     use std::{
-        env,
         fmt::Write as _,
         io::{Read, Write},
         net::TcpListener,
         process,
         sync::atomic::{AtomicBool, AtomicU64, Ordering},
         thread,
-        time::{Duration, SystemTime},
+        time::Duration,
     };
 
     use cartograph_agent::{EmbeddingClientRequest, PipelineFileFailure};
@@ -25831,7 +25317,6 @@ mod tests {
         DEFAULT_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, ProtocolServer, ServerConfig,
         ServerLimits, ServerMetadata, ToolProfile,
     };
-    use sqlx_core::{query::query, sql_str::AssertSqlSafe};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
 
     use cartograph_search::{
@@ -25840,9 +25325,40 @@ mod tests {
     };
 
     use super::*;
-    use crate::tests::index_cleanup_fixture::{
-        HeldProjectRow, HeldSchemaMaintenance, reject_staging_failure,
-    };
+
+    #[test]
+    fn retired_database_actions_and_settings_are_rejected() {
+        for action in [
+            "uninit",
+            "unlock",
+            "migrate",
+            "storage-migrate",
+            "prune-store",
+            "sql",
+        ] {
+            assert!(AdminAction::parse(action).is_none());
+        }
+        let definition = admin_definition().unwrap_or_else(|error| panic!("admin schema: {error}"));
+        for field in [
+            "databaseProvider",
+            "databaseUrl",
+            "databaseSchema",
+            "databasePgvector",
+            "maximumSearchRelationBytes",
+        ] {
+            assert!(definition.input_schema()["properties"].get(field).is_none());
+        }
+        assert!(
+            reject_admin_extras(
+                &Map::from_iter([
+                    ("action".to_owned(), json!("status")),
+                    ("exclude".to_owned(), json!(["secret"]))
+                ]),
+                &["jobId"]
+            )
+            .is_err()
+        );
+    }
 
     const TEST_DEFAULT_LIMIT: u16 = 10;
     const TEST_VALID_LIMIT: u16 = 20;
@@ -25919,37 +25435,6 @@ mod tests {
             let call = policy_call(ROLE_TOOL, arguments);
             assert!(parse_role_selection(&call.arguments).is_err());
         }
-    }
-
-    #[test]
-    fn destructive_admin_parsing_preserves_confirmation_precedence_and_dry_run() {
-        let call = policy_call(ADMIN_TOOL, json!({"maximumRows": 0}));
-        let error = parse_uninit_bounds(&call.arguments)
-            .err()
-            .unwrap_or_else(|| panic!("unconfirmed uninit was accepted"));
-        assert_eq!(error.code(), ToolErrorCode::InvalidArguments);
-        assert_eq!(error.wire_message(), "uninit requires confirm true");
-
-        let call = policy_call(
-            ADMIN_TOOL,
-            json!({"sourceSchema": "cartograph_v1", "dryRun": false, "maximumRows": 0}),
-        );
-        let error = parse_storage_migration_input(&call.arguments)
-            .err()
-            .unwrap_or_else(|| panic!("unconfirmed storage migration was accepted"));
-        assert_eq!(error.code(), ToolErrorCode::InvalidArguments);
-        assert_eq!(
-            error.wire_message(),
-            "storage-migrate requires confirm true when dryRun is false"
-        );
-
-        let call = policy_call(
-            ADMIN_TOOL,
-            json!({"sourceSchema": "cartograph_v1", "confirm": "unused during dry run"}),
-        );
-        let input = parse_storage_migration_input(&call.arguments)
-            .unwrap_or_else(|error| panic!("default migration dry run failed: {error}"));
-        assert!(input.dry_run);
     }
 
     #[test]
@@ -26030,29 +25515,34 @@ mod tests {
         assert_eq!(report["baseGraphRemainsQueryable"], true);
     }
 
-    #[test]
-    fn database_storage_status_is_human_readable_without_replacing_exact_bytes() {
-        let storage = ready_database_storage(StorageTotalsReport {
-            database_bytes: 2_175_776_447,
-            database_catalog_bytes: 2_100_000_000,
-            unattributed_database_bytes: 75_776_447,
-            schema_bytes: 2_028_986_368,
-            heap_bytes: 951_353_344,
-            index_bytes: 993_681_408,
-            btree_index_bytes: 875_233_280,
-            toast_bytes: 83_951_616,
-        });
-
-        assert_eq!(storage["databaseBytes"], 2_175_776_447_u64);
-        assert_eq!(storage["databaseCatalogBytes"], 2_100_000_000_u64);
-        assert_eq!(storage["unattributedDatabaseBytes"], 75_776_447_u64);
-        assert_eq!(storage["schemaBytes"], 2_028_986_368_u64);
-        assert_eq!(storage["humanReadable"]["database"], "2.03 GiB");
-        assert_eq!(storage["humanReadable"]["schema"], "1.89 GiB");
-        assert_eq!(storage["humanReadable"]["heap"], "907.28 MiB");
-        assert_eq!(storage["humanReadable"]["index"], "947.65 MiB");
-        assert_eq!(storage["humanReadable"]["btreeIndex"], "834.69 MiB");
-        assert_eq!(storage["humanReadable"]["toast"], "80.06 MiB");
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn database_storage_status_is_human_readable_without_replacing_exact_bytes() {
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("root: {error}"));
+        let runtime = Arc::new(
+            ProjectRuntime::open(root.path())
+                .await
+                .unwrap_or_else(|error| panic!("runtime: {error}")),
+        );
+        let handler = CartographMcpHandler::new(runtime.clone())
+            .unwrap_or_else(|error| panic!("handler: {error}"));
+        let report = status_database_storage(&handler).await;
+        assert_eq!(report["state"], "ready");
+        assert_eq!(report["storage"], "rocksdb");
+        assert!(
+            report["native"]["fileBytes"]
+                .as_u64()
+                .is_some_and(|bytes| bytes > 0)
+        );
+        assert!(
+            report["humanReadable"]["files"]
+                .as_str()
+                .is_some_and(|text| text.ends_with('B'))
+        );
+        handler.shutdown().await;
+        runtime
+            .shutdown()
+            .await
+            .unwrap_or_else(|error| panic!("runtime close: {error}"));
     }
 
     #[test]
@@ -26120,12 +25610,12 @@ mod tests {
 
         let explicit_inner_timeout = parse_biomarker_refresh_options(&Map::from_iter([
             ("action".to_owned(), json!("biomarkers-refresh")),
-            ("databaseQueryTimeoutMs".to_owned(), json!(900_000)),
+            ("databaseQueryTimeoutMs".to_owned(), json!(240_000)),
         ]))
         .unwrap_or_else(|error| panic!("explicit biomarker query timeout failed: {error:?}"));
         assert_eq!(
             explicit_inner_timeout.statement_timeout,
-            Duration::from_mins(15)
+            Duration::from_mins(4)
         );
         assert_eq!(
             explicit_inner_timeout.timeout_source,
@@ -26180,14 +25670,6 @@ mod tests {
         assert_eq!(section.status["state"], "timeout");
         assert_eq!(section.status["errorCode"], "dead_code_query_timeout");
         assert!(!section.is_ready());
-    }
-
-    struct DropFlag(Arc<AtomicBool>);
-
-    impl Drop for DropFlag {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
     }
 
     const CONFIG_WRITE_FIXTURE_TOOL: &str = "cartograph_config_write_fixture";
@@ -26467,7 +25949,7 @@ mod tests {
     }
 
     #[test]
-    fn admin_contract_restores_postgres_bootstrap_and_v1_control_fields() {
+    fn admin_contract_preserves_native_index_and_model_controls() {
         let definition =
             admin_definition().unwrap_or_else(|error| panic!("admin definition failed: {error}"));
         let definition = serde_json::to_value(definition)
@@ -26475,14 +25957,7 @@ mod tests {
         let properties = &definition["inputSchema"]["properties"];
         for field in [
             "path",
-            "databaseProvider",
-            "databaseUrl",
-            "databaseSchema",
-            "databasePgvector",
-            "databaseMaxConnections",
             "databaseQueryTimeoutMs",
-            "databaseConnectionTimeoutSeconds",
-            "databaseSsl",
             "clearParseCache",
             "clearParseCacheLanguage",
             "command",
@@ -26499,14 +25974,8 @@ mod tests {
                 "admin contract omitted {field}"
             );
         }
-        assert_eq!(
-            properties["databaseProvider"]["enum"],
-            json!(["postgres", "postgresql"])
-        );
-        assert_eq!(
-            properties["databasePgvector"]["enum"],
-            json!(["auto", "require"])
-        );
+        assert!(properties.get("databaseProvider").is_none());
+        assert!(properties.get("databasePgvector").is_none());
         assert_eq!(properties["summarizeLimit"]["type"], "number");
     }
 
@@ -26668,37 +26137,6 @@ mod tests {
     }
 
     #[test]
-    fn postgres_init_settings_apply_bounds_and_reject_removed_modes() {
-        let settings = parse_admin_database_settings(&Map::from_iter([
-            (
-                "databaseUrl".to_owned(),
-                json!("postgresql://cartograph@127.0.0.1:55432/cartograph"),
-            ),
-            ("databaseSchema".to_owned(), json!("Review_Project")),
-            ("databaseMaxConnections".to_owned(), json!(12)),
-            ("databaseQueryTimeoutMs".to_owned(), json!(45_000)),
-            ("databaseConnectionTimeoutSeconds".to_owned(), json!(7)),
-            ("databaseSsl".to_owned(), json!(true)),
-            ("databasePgvector".to_owned(), json!("require")),
-        ]))
-        .unwrap_or_else(|error| panic!("valid PostgreSQL init settings failed: {error:?}"))
-        .unwrap_or_else(|| panic!("valid PostgreSQL init settings disappeared"));
-        assert_eq!(settings.schema().as_str(), "review_project");
-        assert_eq!(settings.max_connections().get(), 12);
-        assert_eq!(settings.acquire_timeout(), Duration::from_secs(7));
-        assert_eq!(settings.query_timeout(), Duration::from_secs(45));
-        assert!(settings.require_ssl());
-
-        for arguments in [
-            Map::from_iter([("databaseProvider".to_owned(), json!("sqlite"))]),
-            Map::from_iter([("databasePgvector".to_owned(), json!("off"))]),
-            Map::from_iter([("databaseSchema".to_owned(), json!("other"))]),
-        ] {
-            assert!(parse_admin_database_settings(&arguments).is_err());
-        }
-    }
-
-    #[test]
     fn admin_init_marker_is_private_idempotent_and_non_symlinked() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("admin init tempdir failed: {error}"));
@@ -26763,7 +26201,6 @@ mod tests {
                 ROLE_TOOL,
                 SESSION_TOOL,
                 SUMMARIES_TOOL,
-                SQL_TOOL,
                 TRACE_TO_CULPRITS_TOOL,
                 VERIFY_TOOL,
                 REVIEW_TOOL,
@@ -26807,7 +26244,7 @@ mod tests {
             .collect::<BTreeMap<_, _>>();
 
         assert_eq!(
-            legacy.len() + 1,
+            legacy.len(),
             current.len(),
             "the additive v2 tool registry drifted"
         );
@@ -26815,6 +26252,10 @@ mod tests {
             let name = tool["name"]
                 .as_str()
                 .unwrap_or_else(|| panic!("legacy tool name was invalid"));
+            if name == "cartograph_sql" {
+                assert!(!current.contains_key(name));
+                continue;
+            }
             let actual = current
                 .get(name)
                 .unwrap_or_else(|| panic!("v2 dropped the v1.1.33 MCP tool {name}"));
@@ -26830,6 +26271,26 @@ mod tests {
                 .as_object()
                 .unwrap_or_else(|| panic!("{name} current properties were invalid"));
             for (property, legacy_schema) in legacy_properties {
+                if name == ADMIN_TOOL
+                    && matches!(
+                        property.as_str(),
+                        "databaseProvider"
+                            | "databaseUrl"
+                            | "databaseSchema"
+                            | "databasePgvector"
+                            | "databaseSsl"
+                            | "databasePoolMax"
+                            | "databaseConnectionTimeoutSeconds"
+                            | "databaseMaxConnections"
+                            | "databaseRequireSsl"
+                            | "databaseAcquireTimeoutMs"
+                            | "sourceSchema"
+                            | "maximumSearchRelationBytes"
+                    )
+                {
+                    assert!(!actual_properties.contains_key(property));
+                    continue;
+                }
                 let actual_schema = actual_properties
                     .get(property)
                     .unwrap_or_else(|| panic!("v2 dropped v1.1.33 input {name}.{property}"));
@@ -26969,7 +26430,16 @@ mod tests {
         tool == ADMIN_TOOL
             && matches!(
                 (property, encoded_value),
-                ("databaseProvider", "\"sqlite\"") | ("databasePgvector", "\"off\"")
+                ("databaseProvider" | "databasePgvector", _)
+                    | (
+                        "action",
+                        "\"uninit\""
+                            | "\"unlock\""
+                            | "\"migrate\""
+                            | "\"storage-migrate\""
+                            | "\"prune-store\""
+                            | "\"sql\""
+                    )
             )
     }
 
@@ -27104,88 +26574,6 @@ mod tests {
     }
 
     #[test]
-    fn sql_contract_makes_both_modes_and_shared_controls_explicit() {
-        let definition = sql_definition(read_only_annotations())
-            .unwrap_or_else(|error| panic!("SQL definition failed: {error}"));
-        let definition = serde_json::to_value(definition)
-            .unwrap_or_else(|error| panic!("SQL definition serialization failed: {error}"));
-        let properties = &definition["inputSchema"]["properties"];
-        assert!(
-            properties["query"]["description"]
-                .as_str()
-                .is_some_and(|description| description.contains("Query mode"))
-        );
-        assert!(
-            properties["schema"]["description"]
-                .as_str()
-                .is_some_and(|description| description.contains("Schema mode"))
-        );
-        assert!(
-            properties["compact"]["description"]
-                .as_str()
-                .is_some_and(|description| description.contains("Both modes"))
-        );
-        assert!(
-            properties["limit"]["description"]
-                .as_str()
-                .is_some_and(|description| {
-                    description.contains("rows") && description.contains("relations")
-                })
-        );
-    }
-
-    #[test]
-    fn sql_schema_mode_tolerates_shared_controls_and_reports_unknown_tables() {
-        let arguments = Map::from_iter([
-            ("schema".to_owned(), json!(true)),
-            ("compact".to_owned(), json!(true)),
-            ("limit".to_owned(), json!(20)),
-            ("timeoutMs".to_owned(), json!(1_000)),
-            ("allowStale".to_owned(), json!(true)),
-            (
-                "tables".to_owned(),
-                json!(["symbols", "physical_search_documents", "nodes"]),
-            ),
-        ]);
-        let result = sql_schema_result(&arguments)
-            .unwrap_or_else(|error| panic!("schema controls failed: {error:?}"));
-        assert!(
-            result
-                .primary_text()
-                .is_some_and(|text| !text.contains('\n'))
-        );
-        let structured = result
-            .structured_content()
-            .unwrap_or_else(|| panic!("schema result omitted structured content"));
-        assert_eq!(structured["relationLimit"], 20);
-        assert_eq!(structured["relations"][0]["name"], "symbols");
-        assert_eq!(structured["relations"].as_array().map(Vec::len), Some(1));
-        assert_eq!(
-            structured["unknownTables"],
-            json!(["nodes", "physical_search_documents"])
-        );
-        assert_eq!(
-            structured["ignoredArguments"],
-            json!(["timeoutMs", "allowStale"])
-        );
-    }
-
-    #[test]
-    fn sql_query_mode_accepts_compact_and_rejects_schema_filters() {
-        let compact = Map::from_iter([
-            ("query".to_owned(), json!("SELECT * FROM files")),
-            ("compact".to_owned(), json!(true)),
-        ]);
-        assert_eq!(sql_query_compaction(&compact), Ok(true));
-
-        let tables = Map::from_iter([
-            ("query".to_owned(), json!("SELECT * FROM files")),
-            ("tables".to_owned(), json!(["files"])),
-        ]);
-        assert!(sql_query_compaction(&tables).is_err());
-    }
-
-    #[test]
     fn review_mode_inference_preserves_all_five_v1_routes() {
         assert_eq!(infer_review_mode(&Map::new()), Ok("risk"));
         assert_eq!(
@@ -27299,20 +26687,11 @@ mod tests {
     }
 
     #[test]
-    fn admin_and_mcp_reasons_keep_the_reference_bound_failure_actionable() {
-        let error = ProjectError::IndexStageFailedWithReason {
-            stage: PipelineStage::Reduce,
-            reason: PipelineFailureReason::ReferenceNameTooLong,
-        };
-        assert_eq!(
-            admin_job_failure(&error),
-            AdminJobFailure::ReduceReferenceNameTooLong
-        );
-        assert_eq!(
-            project_error_reason(&error),
-            "reduce_reference_name_too_long"
-        );
-
+    fn native_capacity_and_route_errors_never_prescribe_a_postgresql_backend() {
+        let routed = project_route_error(ProjectRouteError::DatabaseUnavailable);
+        assert_eq!(routed.code(), ToolErrorCode::NotReady);
+        assert!(routed.wire_message().contains("native storage"));
+        assert!(!routed.wire_message().contains("PostgreSQL"));
         let capacity = ProjectError::IndexStageFailedWithReason {
             stage: PipelineStage::Resolve,
             reason: PipelineFailureReason::GenerationCapacityExceeded,
@@ -27330,7 +26709,25 @@ mod tests {
         assert_eq!(detail.reason, "generation_capacity_exceeded");
         assert_eq!(detail.limit, crate::error_codes::GENERATION_CAPACITY_LIMIT);
         assert_eq!(detail.scope, "cartograph_process");
-        assert!(detail.next_action.contains("generationStorage=postgres"));
+        assert!(!detail.next_action.contains("generationStorage=postgres"));
+        assert!(detail.next_action.contains("native working limits"));
+        assert!(detail.next_action.contains("--exclude"));
+    }
+
+    #[test]
+    fn admin_and_mcp_reasons_keep_the_reference_bound_failure_actionable() {
+        let error = ProjectError::IndexStageFailedWithReason {
+            stage: PipelineStage::Reduce,
+            reason: PipelineFailureReason::ReferenceNameTooLong,
+        };
+        assert_eq!(
+            admin_job_failure(&error),
+            AdminJobFailure::ReduceReferenceNameTooLong
+        );
+        assert_eq!(
+            project_error_reason(&error),
+            "reduce_reference_name_too_long"
+        );
 
         let deadline = ProjectError::IndexStageFailedWithReason {
             stage: PipelineStage::Resolve,
@@ -27890,7 +27287,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     fn summary_sweep_uses_bounded_llm_protocol_and_persists_digest_fenced_results() {
         thread::Builder::new()
             .name("cartograph-summary-live".to_owned())
@@ -27910,18 +27306,6 @@ mod tests {
     }
 
     async fn summary_sweep_live_body() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live summary test database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_summary_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("live summary settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::create_dir_all(project.path().join("src"))
             .unwrap_or_else(|error| panic!("summary fixture directory failed: {error}"));
@@ -27939,7 +27323,7 @@ mod tests {
         git_fixture(project.path(), &["add", "src/summary.rs"]);
         git_fixture(project.path(), &["commit", "-m", "summary baseline"]);
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("summary runtime connect failed: {error}")),
         );
@@ -27992,7 +27376,6 @@ mod tests {
         Box::pin(verify_summary_cross_project_routing(
             &runtime,
             project.path(),
-            &settings,
         ))
         .await;
         server
@@ -28000,15 +27383,6 @@ mod tests {
             .unwrap_or_else(|_| panic!("summary fixture server panicked"));
 
         drop(runtime);
-        let cleanup_pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("summary cleanup connection failed: {error}"));
-        let drop_schema = format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#);
-        query(AssertSqlSafe(drop_schema))
-            .execute(&cleanup_pool)
-            .await
-            .unwrap_or_else(|error| panic!("summary schema cleanup failed: {error}"));
-        cleanup_pool.close().await;
     }
 
     async fn verify_summary_sweep_counts(
@@ -28256,7 +27630,7 @@ mod tests {
         let status = serde_json::to_value(status)
             .unwrap_or_else(|error| panic!("status serialization failed: {error}"));
         let content = &status["structuredContent"];
-        assert_eq!(content["storage"], "postgresql_paradedb_pgvector");
+        assert_eq!(content["storage"], "rocksdb");
         assert_eq!(content["featureReadiness"]["state"], "indexed");
         assert_eq!(
             content["featureReadiness"]["summaryCoverage"]["byModel"]["fixture-summary"],
@@ -28418,24 +27792,24 @@ mod tests {
         assert_eq!(deleted["structuredContent"]["deleted"], true);
     }
 
-    async fn verify_summary_cross_project_routing(
-        runtime: &Arc<ProjectRuntime>,
-        project: &Path,
-        settings: &cartograph_config::DatabaseSettings,
-    ) {
+    async fn verify_summary_cross_project_routing(runtime: &Arc<ProjectRuntime>, project: &Path) {
         let handler = CartographMcpHandler::new(runtime.clone())
             .unwrap_or_else(|error| panic!("routing handler failed: {error}"));
         let other_project = project.join("other-project");
         std::fs::create_dir_all(&other_project)
             .unwrap_or_else(|error| panic!("other project directory failed: {error}"));
         let initialized = AdminCoreTools(&handler)
-            .admin(Map::from_iter([
-                ("action".to_owned(), json!("init")),
-                (
-                    "path".to_owned(),
-                    Value::String(other_project.to_string_lossy().into_owned()),
-                ),
-            ]))
+            .admin(
+                Map::from_iter([
+                    ("action".to_owned(), json!("init")),
+                    (
+                        "path".to_owned(),
+                        Value::String(other_project.to_string_lossy().into_owned()),
+                    ),
+                ]),
+                ProjectCancellation::new(),
+                &ToolCallContext::local(Duration::from_secs(30)),
+            )
             .await
             .unwrap_or_else(|error| panic!("other project admin init failed: {error:?}"));
         let initialized = serde_json::to_value(initialized)
@@ -28444,15 +27818,22 @@ mod tests {
             initialized["structuredContent"]["stateDirectoryCreated"],
             true
         );
-        assert_eq!(initialized["structuredContent"]["sqliteSupported"], false);
+        assert_eq!(initialized["structuredContent"]["storage"], "rocksdb");
         std::fs::write(
             other_project.join("other.rs"),
             "pub fn routed_project_symbol() -> bool { true }\n",
         )
         .unwrap_or_else(|error| panic!("other project source failed: {error}"));
-        let other_runtime = ProjectRuntime::connect(&other_project, settings)
+        let other_runtime = handler
+            .project_cache
+            .runtime_for_bounded(
+                other_project
+                    .to_str()
+                    .unwrap_or_else(|| panic!("fixture path encoding")),
+                &ToolCallContext::local(Duration::from_secs(30)),
+            )
             .await
-            .unwrap_or_else(|error| panic!("other runtime connect failed: {error}"));
+            .unwrap_or_else(|error| panic!("other runtime connect failed: {error:?}"));
         let other_index = other_runtime
             .index(IndexOptions::default())
             .await
@@ -28480,20 +27861,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn structural_summary_sweep_restores_thin_symbol_rules_without_an_llm() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live structural summary database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_structural_summaries_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("structural summary settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::create_dir_all(project.path().join("src"))
             .unwrap_or_else(|error| panic!("source directory failed: {error}"));
@@ -28513,7 +27881,7 @@ app.get('/orders', forward);
         )
         .unwrap_or_else(|error| panic!("structural summary fixture write failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("structural summary runtime failed: {error}")),
         );
@@ -28563,16 +27931,6 @@ app.get('/orders', forward);
         .await;
 
         drop(runtime);
-        let cleanup_pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("structural cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&cleanup_pool)
-        .await
-        .unwrap_or_else(|_| panic!("structural cleanup schema failed"));
-        cleanup_pool.close().await;
     }
 
     async fn seed_preexisting_structural_summary(
@@ -28855,20 +28213,7 @@ app.get('/orders', forward);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn graph_tool_retains_every_non_visual_v1_traversal_mode() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live graph parity database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_graph_parity_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("graph parity settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::write(
             project.path().join("graph.rs"),
@@ -28887,7 +28232,7 @@ pub fn root() -> u32 {
         )
         .unwrap_or_else(|error| panic!("graph parity fixture write failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("graph parity runtime failed: {error}")),
         );
@@ -28902,16 +28247,6 @@ pub fn root() -> u32 {
 
         drop(handler);
         drop(runtime);
-        let cleanup_pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("graph parity cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&cleanup_pool)
-        .await
-        .unwrap_or_else(|_| panic!("graph parity cleanup schema failed"));
-        cleanup_pool.close().await;
     }
 
     async fn verify_graph_direction_modes(handler: &CartographMcpHandler) {
@@ -29000,21 +28335,75 @@ pub fn root() -> u32 {
         assert_eq!(path_names, vec!["root", "middle", "leaf"]);
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn base_only_index_skips_structural_work_without_changing_model_only_switch() {
+        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+        std::fs::create_dir(project.path().join("src"))
+            .unwrap_or_else(|error| panic!("source dir: {error}"));
+        std::fs::write(project.path().join("src/lib.rs"), "pub fn leaf() -> u32 {\n    let value = 1;\n    value\n}\npub fn middle() -> u32 {\n    let value = leaf();\n    value\n}\npub fn root() -> u32 {\n    let value = middle();\n    value\n}\n").unwrap_or_else(|error| panic!("source: {error}"));
+        let runtime = Arc::new(
+            ProjectRuntime::open(project.path())
+                .await
+                .unwrap_or_else(|error| panic!("runtime: {error}")),
+        );
+        let handler = CartographMcpHandler::new(runtime.clone())
+            .unwrap_or_else(|error| panic!("handler: {error}"));
+        for base_only in [true, false] {
+            AdminLifecycleTools(&handler)
+                .start_index_job(
+                    AdminAction::Index,
+                    &Map::from_iter([
+                        ("baseOnly".to_owned(), json!(base_only)),
+                        ("enrich".to_owned(), json!(false)),
+                    ]),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("index start: {error}"));
+            let started = handler
+                .admin_jobs
+                .status(None)
+                .await
+                .unwrap_or_else(|error| panic!("status: {error}"));
+            let terminal = wait_for_admin_status(
+                &handler.admin_jobs,
+                started.job_id,
+                AdminJobStatus::Succeeded,
+            )
+            .await;
+            let report = terminal.report.unwrap_or_else(|| panic!("report missing"));
+            if base_only {
+                assert_eq!(report["enrichment"]["state"], "not_requested");
+                assert_eq!(report["enrichment"]["reason"], "base_only");
+            } else {
+                assert_eq!(
+                    report["enrichment"]["structuralSummaries"]["state"],
+                    "succeeded"
+                );
+                assert_eq!(
+                    report["enrichment"]["structuralRollups"]["state"],
+                    "succeeded"
+                );
+                assert_eq!(report["enrichment"]["optionalPhaseFailures"], false);
+            }
+            let coverage = runtime
+                .database()
+                .current_summary_coverage(runtime.database().project_id())
+                .await
+                .unwrap_or_else(|error| panic!("coverage: {error}"));
+            let coverage = serde_json::to_value(coverage)
+                .unwrap_or_else(|error| panic!("coverage json: {error}"));
+            assert_eq!(coverage["summarizedSymbols"], if base_only { 0 } else { 3 });
+        }
+        handler.admin_jobs.shutdown().await;
+        handler
+            .project_cache
+            .shutdown()
+            .await
+            .unwrap_or_else(|error| panic!("shutdown: {error}"));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn full_index_tracks_post_publication_enrichment_while_sync_skips_the_deep_tail() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live post-index database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_post_index_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("post-index settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::write(
             project.path().join("lib.rs"),
@@ -29022,7 +28411,7 @@ pub fn root() -> u32 {
         )
         .unwrap_or_else(|error| panic!("post-index fixture write failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("post-index runtime failed: {error}")),
         );
@@ -29040,16 +28429,6 @@ pub fn root() -> u32 {
 
         drop(handler);
         drop(runtime);
-        let cleanup_pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("post-index cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&cleanup_pool)
-        .await
-        .unwrap_or_else(|_| panic!("post-index cleanup schema failed"));
-        cleanup_pool.close().await;
     }
 
     async fn verify_full_index_enrichment(handler: &CartographMcpHandler) {
@@ -29093,6 +28472,7 @@ pub fn root() -> u32 {
             .admin_init(
                 AdminAction::Init,
                 &Map::from_iter([("index".to_owned(), json!(true))]),
+                &ToolCallContext::local(Duration::from_secs(30)),
             )
             .await
             .unwrap_or_else(|error| panic!("init-and-index job failed to start: {error:?}"));
@@ -29115,7 +28495,7 @@ pub fn root() -> u32 {
         assert_eq!(init_report["index"]["publication"]["state"], "skipped");
         assert_eq!(
             init_report["index"]["publication"]["reason"],
-            "unchanged_current_generation"
+            "unchanged_source"
         );
         assert_eq!(
             init_report["index"]["publication"]["generation_remains_current"],
@@ -29190,11 +28570,7 @@ pub fn root() -> u32 {
                 &Map::from_iter([
                     ("keepSuperseded".to_owned(), json!(0)),
                     ("maximumDeletions".to_owned(), json!(1)),
-                    ("maximumCascadeRows".to_owned(), json!(5_200_000)),
-                    (
-                        "maximumSearchRelationBytes".to_owned(),
-                        json!(10_737_418_240_u64),
-                    ),
+                    ("maximumCascadeRows".to_owned(), json!(10_000)),
                     ("confirm".to_owned(), json!(true)),
                 ]),
             )
@@ -29214,249 +28590,28 @@ pub fn root() -> u32 {
         let report = terminal
             .report
             .unwrap_or_else(|| panic!("generation prune report was missing"));
-        assert_eq!(report["current_preserved"], 1);
-        assert_eq!(report["superseded_removed"], 1);
-        assert_eq!(report["superseded_preserved"], 0);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn admin_index_job_reports_its_failed_cleanup_beside_the_primary_failure() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live admin cleanup database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_admin_cleanup_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("admin cleanup settings failed: {error}"));
-        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        let source = project.path().join("lib.rs");
-        std::fs::write(&source, "fn cleaned() -> u32 { 1 }\n")
-            .unwrap_or_else(|error| panic!("admin cleanup fixture write failed: {error}"));
-        let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
-                .await
-                .unwrap_or_else(|error| panic!("admin cleanup runtime failed: {error}")),
+        assert_eq!(report["generations_removed"], 1);
+        assert!(
+            report["versions_removed"]
+                .as_u64()
+                .is_some_and(|rows| rows > 0)
         );
-        runtime
-            .index(IndexOptions::default().with_history_refresh(false))
+        let current = handler
+            .runtime
+            .status()
             .await
-            .unwrap_or_else(|error| panic!("admin cleanup initial index failed: {error}"));
-        let handler = CartographMcpHandler::new(runtime.clone())
-            .unwrap_or_else(|error| panic!("admin cleanup handler failed: {error}"));
-        std::fs::write(&source, "fn cleaned() -> u32 { 2 }\n")
-            .unwrap_or_else(|error| panic!("admin cleanup edit failed: {error}"));
-
-        // Schema maintenance refuses the lease after the job reserved its
-        // generation, and the fixture makes that generation's cleanup fail.
-        reject_staging_failure(&settings, &schema).await;
-        let maintenance = HeldSchemaMaintenance::hold(&settings, &schema).await;
-        AdminLifecycleTools(&handler)
-            .start_index_job(AdminAction::Index, &Map::new())
-            .await
-            .unwrap_or_else(|error| panic!("admin cleanup job failed to start: {error}"));
-        let started = handler
-            .admin_jobs
-            .status(None)
-            .await
-            .unwrap_or_else(|error| panic!("admin cleanup status failed: {error}"));
-        let terminal =
-            wait_for_admin_status(&handler.admin_jobs, started.job_id, AdminJobStatus::Failed)
-                .await;
-        maintenance.release().await;
-
-        let wire = serde_json::to_value(&terminal)
-            .unwrap_or_else(|error| panic!("admin cleanup view did not serialize: {error}"));
-        assert_eq!(wire["failure"], "lease_failed", "{wire}");
-        assert_eq!(
-            wire["cleanupFailure"]["code"], "index_cleanup_failed",
-            "the job dropped its failed cleanup: {wire}"
-        );
-        drop(handler);
-        drop(runtime);
-    }
-
-    /// A live project with a published generation and its exported
-    /// `index.scip`, whose later indexes cannot clean up their staging
-    /// generations. Fields drop in order: the handler and its runtime first,
-    /// the schema last.
-    struct ScipRollbackProject {
-        handler: CartographMcpHandler,
-        project_id: ProjectId,
-        project: tempfile::TempDir,
-        settings: cartograph_config::DatabaseSettings,
-        schema: String,
-        _schema_guard: cartograph_test_support::TestSchemaGuard,
-    }
-
-    impl ScipRollbackProject {
-        async fn new(schema_prefix: &str) -> Self {
-            let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-                .unwrap_or_else(|_| panic!("live SCIP rollback database is not configured"));
-            let nanos = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let schema = format!("{schema_prefix}_{}_{}", process::id(), nanos);
-            let schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-                .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-            let settings =
-                cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-                    .and_then(|settings| settings.with_schema(&schema))
-                    .unwrap_or_else(|error| panic!("SCIP rollback settings failed: {error}"));
-            let project =
-                tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-            std::fs::write(
-                project.path().join("lib.rs"),
-                "pub fn imported() -> u32 { 1 }\n",
-            )
-            .unwrap_or_else(|error| panic!("SCIP rollback fixture write failed: {error}"));
-            let runtime = Arc::new(
-                ProjectRuntime::connect(project.path(), &settings)
-                    .await
-                    .unwrap_or_else(|error| panic!("SCIP rollback runtime failed: {error}")),
-            );
-            let project_id = runtime
-                .index(IndexOptions::default().with_history_refresh(false))
-                .await
-                .unwrap_or_else(|error| panic!("SCIP rollback initial index failed: {error}"))
-                .project_id;
-            runtime
-                .export_scip_with_cancellation(
-                    ScipExportRequest::new("index.scip", 10_000)
-                        .unwrap_or_else(|error| panic!("SCIP export request failed: {error}")),
-                    ProjectCancellation::new(),
-                )
-                .await
-                .unwrap_or_else(|error| panic!("SCIP rollback export failed: {error}"));
-            reject_staging_failure(&settings, &schema).await;
-            let handler = CartographMcpHandler::new(runtime)
-                .unwrap_or_else(|error| panic!("SCIP rollback handler failed: {error}"));
-            Self {
-                handler,
-                project_id,
-                project,
-                settings,
-                schema,
-                _schema_guard: schema_guard,
-            }
-        }
-
-        /// Start a `scip-import` of `index.scip` and return once its forced
-        /// index waits inside its reservation: the requested overlay is
-        /// installed and no rollback has run yet.
-        async fn start_paused_import(&self) -> (u64, HeldProjectRow) {
-            let reservation =
-                HeldProjectRow::hold(&self.settings, &self.schema, &self.project_id).await;
-            AdminLifecycleTools(&self.handler)
-                .start_scip_import_job(AdminAction::ScipImport, &Map::new())
-                .await
-                .unwrap_or_else(|error| panic!("SCIP import job failed to start: {error}"));
-            let started = self
-                .handler
-                .admin_jobs
-                .status(None)
-                .await
-                .unwrap_or_else(|error| panic!("SCIP import status failed: {error}"));
-            reservation.wait_until_reserving().await;
-            (started.job_id, reservation)
-        }
-
-        /// Leave a directory where the import installed its overlay, so the
-        /// rollback can neither read it back nor restore it.
-        fn break_overlay_rollback(&self) {
-            let overlay = self.project.path().join(TEST_SCIP_OVERLAY_PATH);
-            std::fs::remove_file(&overlay)
-                .unwrap_or_else(|error| panic!("the import installed no overlay: {error}"));
-            std::fs::create_dir(&overlay)
-                .unwrap_or_else(|error| panic!("overlay sabotage failed: {error}"));
-        }
-
-        async fn terminal_wire(&self, job_id: u64, expected: AdminJobStatus) -> Value {
-            let terminal = wait_for_admin_status(&self.handler.admin_jobs, job_id, expected).await;
-            serde_json::to_value(&terminal)
-                .unwrap_or_else(|error| panic!("SCIP import view did not serialize: {error}"))
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn scip_import_job_reports_a_failed_overlay_rollback_beside_its_index_failure() {
-        let fixture = ScipRollbackProject::new("cg_cli_scip_rollback_failed").await;
-        // Schema maintenance refuses the forced index's lease once it reserved
-        // its generation, and the fixture makes that generation's cleanup fail.
-        let maintenance = HeldSchemaMaintenance::hold(&fixture.settings, &fixture.schema).await;
-        let (job_id, reservation) = fixture.start_paused_import().await;
-        fixture.break_overlay_rollback();
-        reservation.release().await;
-        let wire = fixture.terminal_wire(job_id, AdminJobStatus::Failed).await;
-        maintenance.release().await;
-
-        assert_eq!(wire["failure"], "lease_failed", "{wire}");
-        assert_eq!(
-            wire["cleanupFailure"]["code"], "index_cleanup_failed",
-            "the import dropped its failed cleanup: {wire}"
-        );
-        assert_eq!(
-            wire["overlayRollbackFailure"]["code"], "scip_overlay_rollback_failed",
-            "the import dropped its failed overlay rollback: {wire}"
+            .unwrap_or_else(|error| panic!("prune current status: {error}"));
+        assert!(current.fresh);
+        assert!(
+            current
+                .snapshot
+                .and_then(|snapshot| snapshot.current)
+                .is_some()
         );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn cancelled_scip_import_job_keeps_its_cleanup_proof_and_failed_overlay_rollback() {
-        let fixture = ScipRollbackProject::new("cg_cli_scip_rollback_cancelled").await;
-        // The refused lease keeps the forced index from publishing before it
-        // observes the cancellation.
-        let maintenance = HeldSchemaMaintenance::hold(&fixture.settings, &fixture.schema).await;
-        let (job_id, reservation) = fixture.start_paused_import().await;
-        fixture.break_overlay_rollback();
-        fixture
-            .handler
-            .admin_jobs
-            .cancel(Some(job_id))
-            .await
-            .unwrap_or_else(|error| panic!("SCIP import cancel failed: {error}"));
-        reservation.release().await;
-        let wire = fixture
-            .terminal_wire(job_id, AdminJobStatus::Cancelled)
-            .await;
-        maintenance.release().await;
-
-        assert!(wire.get("failure").is_none(), "{wire}");
-        // The reserved generation is still `staging`, so the PostgreSQL proof
-        // reports the cleanup as failed.
-        assert_eq!(
-            wire["cleanupFailure"]["code"], "index_cleanup_failed",
-            "{wire}"
-        );
-        assert_eq!(
-            wire["overlayRollbackFailure"]["code"], "scip_overlay_rollback_failed",
-            "the cancelled import dropped its failed overlay rollback: {wire}"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn neighbor_summary_sweep_uses_same_kind_pgvector_evidence_without_transitive_drift() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live neighbor summary database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_neighbor_summaries_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("neighbor summary settings failed: {error}"));
+    async fn neighbor_summary_sweep_uses_same_kind_vector_evidence_without_transitive_drift() {
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::write(
             project.path().join("lib.rs"),
@@ -29475,7 +28630,7 @@ pub fn target(value: u32) -> u32 {
         )
         .unwrap_or_else(|error| panic!("neighbor summary fixture write failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("neighbor summary runtime failed: {error}")),
         );
@@ -29530,16 +28685,6 @@ pub fn target(value: u32) -> u32 {
         .await;
 
         drop(runtime);
-        let cleanup_pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("neighbor cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&cleanup_pool)
-        .await
-        .unwrap_or_else(|_| panic!("neighbor cleanup schema failed"));
-        cleanup_pool.close().await;
     }
 
     struct NeighborSymbolFixture {
@@ -29779,20 +28924,7 @@ pub fn target(value: u32) -> u32 {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn role_sweep_combines_structural_and_llm_classification_then_hits_exact_cache() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live role test database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_roles_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("live role settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::write(
             project.path().join("roles.rs"),
@@ -29800,7 +28932,7 @@ pub fn target(value: u32) -> u32 {
         )
         .unwrap_or_else(|error| panic!("role fixture write failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("role runtime connect failed: {error}")),
         );
@@ -29812,16 +28944,6 @@ pub fn target(value: u32) -> u32 {
         Box::pin(verify_llm_role_sweep(&runtime, &project_id, classified)).await;
 
         drop(runtime);
-        let cleanup_pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("role cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&cleanup_pool)
-        .await
-        .unwrap_or_else(|_| panic!("role cleanup schema failed"));
-        cleanup_pool.close().await;
     }
 
     async fn verify_structural_role_sweep(runtime: &Arc<ProjectRuntime>) -> (ProjectId, u64) {
@@ -29943,25 +29065,12 @@ pub fn target(value: u32) -> u32 {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn protocol_handshake_precedes_startup_reconciliation_and_sessions_remain_durable() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live project test database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_live_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("live session settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::write(project.path().join("main.rs"), "fn main() {}\n")
             .unwrap_or_else(|error| panic!("session fixture write failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("session runtime connect failed: {error}")),
         );
@@ -30007,18 +29116,11 @@ pub fn target(value: u32) -> u32 {
 
         drop(auto_sync);
         if let Ok(runtime) = Arc::try_unwrap(runtime) {
-            runtime.close().await;
+            runtime
+                .close()
+                .await
+                .unwrap_or_else(|error| panic!("native runtime close: {error}"));
         }
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|_| panic!("cleanup schema failed"));
-        pool.close().await;
     }
 
     async fn exercise_session_protocol(
@@ -30614,14 +29716,68 @@ pub fn target(value: u32) -> u32 {
     }
 
     #[test]
-    fn status_statement_timeout_has_a_stable_public_code_and_remediation() {
-        let error = status_storage_error(&StorageError::StatementTimeout {
-            operation: "file-aggregates",
-        });
+    fn status_statement_timeout_identifies_only_its_safe_phase_and_timing() {
+        let error = status_phase_error(
+            "inventory",
+            std::time::Instant::now(),
+            &StorageError::StatementTimeout {
+                operation: "private-operation-must-not-leak",
+            },
+        );
 
         assert_eq!(error.code(), ToolErrorCode::Timeout);
-        assert!(error.wire_message().contains("bounded statement timeout"));
-        assert!(error.wire_message().contains("cartograph db usage"));
+        assert!(error.wire_message().contains("phase inventory"));
+        assert!(error.wire_message().contains("deadline after"));
+        assert!(error.wire_message().ends_with(" ms"));
+        assert!(!error.wire_message().contains("private-operation"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn status_rejects_publication_between_features_and_rollups()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let project = tempfile::tempdir()?;
+        let path = project.path().join("lib.rs");
+        std::fs::write(&path, "pub fn status_generation_one() -> u32 { 1 }\n")?;
+        let runtime = Arc::new(ProjectRuntime::open(project.path()).await?);
+        let options = IndexOptions::default().with_history_refresh(false);
+        runtime.index(options.clone()).await?;
+        let handler = CartographMcpHandler::new(runtime.clone())?;
+        let pause = Arc::new(TracePause {
+            stage: "status-features-loaded",
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        *handler.session_trace.pause.lock().await = Some(pause.clone());
+        let reading = Box::pin(status_tool(
+            &handler,
+            Map::new(),
+            ProjectCancellation::new(),
+        ));
+        let publishing = async {
+            tokio::time::timeout(Duration::from_secs(10), pause.entered.notified()).await?;
+            std::fs::write(&path, "pub fn status_generation_two() -> u32 { 2 }\n")?;
+            let publication = runtime.index(options).await;
+            pause.release.notify_one();
+            publication?;
+            Ok::<_, Box<dyn std::error::Error>>(())
+        };
+        let (result, publication) = tokio::join!(reading, publishing);
+        publication?;
+        let error = result
+            .err()
+            .ok_or("status accepted mixed publication generations")?;
+        assert_eq!(error.code(), ToolErrorCode::Conflict);
+        assert!(error.wire_message().contains("generation_changed"));
+        *handler.session_trace.pause.lock().await = None;
+        Box::pin(status_tool(
+            &handler,
+            Map::new(),
+            ProjectCancellation::new(),
+        ))
+        .await?;
+        handler.shutdown().await;
+        runtime.shutdown().await?;
+        Ok(())
     }
 
     #[test]
@@ -30703,76 +29859,102 @@ pub fn target(value: u32) -> u32 {
     }
 
     #[tokio::test]
-    async fn cancellable_admin_maintenance_drops_blocked_database_work() {
-        let cancellation = ProjectCancellation::new();
-        let operation_cancellation = cancellation.clone();
-        let dropped = Arc::new(AtomicBool::new(false));
-        let drop_flag = DropFlag(dropped.clone());
-        let (started_sender, started_receiver) = tokio::sync::oneshot::channel::<()>();
-        let task = tokio::spawn(async move {
-            run_cancellable_admin_maintenance(&operation_cancellation, async move {
-                let _drop_flag = drop_flag;
-                let _ = started_sender.send(());
-                std::future::pending::<Result<(), ()>>().await
-            })
-            .await
-        });
-
-        started_receiver
-            .await
-            .unwrap_or_else(|_| panic!("maintenance operation did not start"));
-        cancellation.cancel();
-        let result = tokio::time::timeout(Duration::from_secs(1), task)
-            .await
-            .unwrap_or_else(|_| panic!("cancelled maintenance operation did not stop"))
-            .unwrap_or_else(|error| panic!("maintenance cancellation task failed: {error}"));
-
-        assert_matches!(result, Err(ProjectError::RequestCancelled));
-        assert!(dropped.load(Ordering::SeqCst));
-    }
-
-    #[tokio::test]
-    async fn admin_shutdown_force_aborts_and_reaps_an_uncooperative_operation() {
+    async fn admin_shutdown_retains_cancelling_work_until_actual_completion() {
         let jobs = AdminJobs::new();
-        let dropped = Arc::new(AtomicBool::new(false));
-        let drop_flag = DropFlag(dropped.clone());
+        let cancellation = ProjectCancellation::new();
+        let stopped = cancellation.clone();
+        let (release, blocked) = tokio::sync::oneshot::channel::<()>();
         let started = jobs
             .start(AdminJobRequest {
                 action: AdminAction::Index,
-                cancellation: ProjectCancellation::new(),
+                cancellation,
                 operation: async move {
-                    let _drop_flag = drop_flag;
-                    std::future::pending::<Result<Value, ProjectError>>().await
+                    stopped.cancelled().await;
+                    let _ = blocked.await;
+                    Err::<Value, _>(ProjectError::RequestCancelled)
                 },
             })
             .await
-            .unwrap_or_else(|error| panic!("admin job did not start: {error}"));
-
+            .unwrap_or_else(|error| panic!("start: {error}"));
         jobs.shutdown_with_timeout(Duration::from_millis(1)).await;
-
-        assert!(dropped.load(Ordering::SeqCst));
-        let terminal = jobs
+        let pending = jobs
             .status(Some(started.job_id))
             .await
-            .unwrap_or_else(|error| panic!("admin terminal status failed: {error}"));
-        assert_eq!(terminal.status, AdminJobStatus::Cancelled);
+            .unwrap_or_else(|error| panic!("status: {error}"));
+        assert_eq!(pending.status, AdminJobStatus::Cancelling);
+        assert_eq!(pending.shutdown_deadline_exceeded, Some(true));
+        assert!(jobs.shared.state.lock().await.active.is_some());
+        release
+            .send(())
+            .unwrap_or_else(|()| panic!("lost reconciliation owner"));
+        wait_for_admin_status(&jobs, started.job_id, AdminJobStatus::Cancelled).await;
+        jobs.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn completed_job_remains_queryable_and_cancellable_while_the_next_job_runs() {
+        let jobs = AdminJobs::new();
+        let a = jobs
+            .start(AdminJobRequest {
+                action: AdminAction::Index,
+                cancellation: ProjectCancellation::new(),
+                operation: async {
+                    Ok::<_, ProjectError>(json!({"complete":true,"source":"preserved"}))
+                },
+            })
+            .await
+            .unwrap_or_else(|error| panic!("start A: {error}"));
+        let completed = wait_for_admin_status(&jobs, a.job_id, AdminJobStatus::Succeeded).await;
+        let (release, blocked) = tokio::sync::oneshot::channel::<()>();
+        let b = jobs
+            .start(AdminJobRequest {
+                action: AdminAction::Sync,
+                cancellation: ProjectCancellation::new(),
+                operation: async move {
+                    let _ = blocked.await;
+                    Ok::<_, ProjectError>(json!({}))
+                },
+            })
+            .await
+            .unwrap_or_else(|error| panic!("start B: {error}"));
+        assert_eq!(
+            jobs.status(Some(a.job_id)).await.ok(),
+            Some(completed.clone())
+        );
+        assert_eq!(jobs.cancel(Some(a.job_id)).await.ok(), Some(completed));
+        assert_eq!(
+            jobs.status(Some(b.job_id))
+                .await
+                .ok()
+                .map(|view| view.status),
+            Some(AdminJobStatus::Running)
+        );
+        release.send(()).unwrap_or_else(|()| panic!("lost B"));
+        wait_for_admin_status(&jobs, b.job_id, AdminJobStatus::Succeeded).await;
+    }
+
+    #[tokio::test]
+    async fn panicked_admin_job_has_a_terminal_failed_report() {
+        let jobs = AdminJobs::new();
+        let job = jobs
+            .start(AdminJobRequest {
+                action: AdminAction::Index,
+                cancellation: ProjectCancellation::new(),
+                operation: async {
+                    std::future::poll_fn(|_| -> std::task::Poll<Result<Value, ProjectError>> {
+                        panic!("injected admin panic")
+                    })
+                    .await
+                },
+            })
+            .await
+            .unwrap_or_else(|error| panic!("start: {error}"));
+        wait_for_admin_status(&jobs, job.job_id, AdminJobStatus::Failed).await;
+        assert!(jobs.shared.state.lock().await.active.is_none());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn node_history_and_blame_surface_generation_fenced_issue_coupling() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live issue surface database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_issue_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("issue surface settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         std::fs::create_dir_all(project.path().join("src"))
             .unwrap_or_else(|error| panic!("issue surface source directory failed: {error}"));
@@ -30801,7 +29983,7 @@ pub fn target(value: u32) -> u32 {
             git_fixture(project.path(), &["commit", "-m", message]);
         }
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("issue surface runtime failed: {error}")),
         );
@@ -30815,16 +29997,6 @@ pub fn target(value: u32) -> u32 {
 
         drop(handler);
         drop(runtime);
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("issue surface cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|_| panic!("issue surface cleanup failed"));
-        pool.close().await;
     }
 
     async fn verify_issue_node_history_and_blame(handler: &CartographMcpHandler) {
@@ -30893,8 +30065,79 @@ pub fn target(value: u32) -> u32 {
         }));
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn context_source_edit_downgrades_packet_and_response_without_unverified_code()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let project = tempfile::tempdir()?;
+        let path = project.path().join("lib.rs");
+        std::fs::write(&path, "pub fn source_window() -> u64 { 1 }\n")?;
+        let runtime = Arc::new(ProjectRuntime::open(project.path()).await?);
+        runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await?;
+        let handler = CartographMcpHandler::new(runtime.clone())?;
+        let arguments = Map::from_iter([
+            ("task".to_owned(), json!("source_window")),
+            ("exactName".to_owned(), json!("source_window")),
+            ("mode".to_owned(), json!("deterministic")),
+            ("format".to_owned(), json!("json")),
+            ("workingTree".to_owned(), json!("indexed")),
+            ("code".to_owned(), json!(true)),
+        ]);
+        let parsed = parse_context_arguments(&arguments)?;
+        let cancellation = ProjectCancellation::new();
+        let (project_id, freshness) = current_project(&handler, cancellation.clone()).await?;
+        assert_eq!(freshness, IndexFreshness::Current);
+        let tools = ContextTools(&handler);
+        let (intent, packet) = tools
+            .build_context_packet(ContextBuild {
+                project_id: &project_id,
+                freshness,
+                arguments: &arguments,
+                cancellation: &cancellation,
+                parsed: &parsed,
+            })
+            .await?;
+        assert_eq!(packet.freshness(), IndexFreshness::Current);
+        std::fs::write(&path, "pub fn source_window() -> u64 { 2 }\n")?;
+        let source_windows = tools
+            .context_source_windows(ContextSourceRequest {
+                freshness,
+                cancellation: &cancellation,
+                parsed: &parsed,
+                packet: &packet,
+            })
+            .await?;
+        assert_eq!(source_windows.len(), 1);
+        assert!(!source_windows[0].fresh());
+        let response = tools
+            .context_response(ContextResponse {
+                project_id: &project_id,
+                freshness,
+                cancellation,
+                parsed: &parsed,
+                intent,
+                packet,
+                source_windows,
+            })
+            .await?;
+        let value = serde_json::to_value(response)?;
+        assert_eq!(value["structuredContent"]["freshness"], "stale");
+        let evidence = &value["structuredContent"]["evidence"];
+        assert_eq!(evidence["packet"]["freshness"], "stale");
+        assert_eq!(evidence["packet"]["confidence"], "low");
+        assert_eq!(evidence["packet"]["abstention"], "stale_index");
+        assert_eq!(evidence["sourceWindows"][0]["fresh"], false);
+        assert!(evidence["sourceWindows"][0]["excerpt"].is_null());
+        drop(handler);
+        Arc::into_inner(runtime)
+            .ok_or("source fixture retained an unexpected runtime reference")?
+            .close()
+            .await?;
+        Ok(())
+    }
+
     #[test]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     fn consolidated_agent_surface_executes_against_one_real_index() {
         thread::Builder::new()
             .name("agent-surface-live".to_owned())
@@ -30914,23 +30157,11 @@ pub fn target(value: u32) -> u32 {
     }
 
     async fn consolidated_agent_surface_live_body() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live agent-surface database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_cli_agent_surface_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("live CLI schema guard failed: {error}"));
-        let settings = cartograph_config::DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("agent-surface settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         write_agent_surface_fixture(project.path());
 
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("agent-surface runtime connect failed: {error}")),
         );
@@ -30959,16 +30190,6 @@ pub fn target(value: u32) -> u32 {
 
         drop(handler);
         drop(runtime);
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("agent-surface cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("agent-surface cleanup failed: {error}"));
-        pool.close().await;
     }
 
     async fn verify_agent_context_surfaces(handler: &CartographMcpHandler) {
@@ -31440,25 +30661,6 @@ pub fn target(value: u32) -> u32 {
             handler,
             SUMMARIES_TOOL,
             json!({"action": "pending", "limit": 20}),
-        )
-        .await;
-        execute_live_tool(
-            handler,
-            SQL_TOOL,
-            json!({
-                "schema": true,
-                "tables": ["symbols", "edges", "search_documents"],
-                "compact": true,
-                "limit": 20,
-                "timeoutMs": 1_000,
-                "allowStale": false
-            }),
-        )
-        .await;
-        execute_live_tool(
-            handler,
-            SQL_TOOL,
-            json!({"query": "SELECT simple_name, symbol_kind FROM symbols ORDER BY simple_name LIMIT 10", "limit": 10, "compact": true}),
         )
         .await;
         execute_live_tool(

@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-13 (`v2.1.44`).
+Last release audit: 2026-10-19 (`v3.0.0`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -44,11 +44,6 @@ cartograph install --yes --target claude --location local --project-path .
 cartograph install --yes --target cursor --location local --project-path .
 ```
 
-When the managed database uses a non-default loopback port, add
-`--managed-database-port <PORT>` to the install command. The generated stdio
-command carries that port directly; no host-specific environment table is
-required.
-
 ### Manual server definition
 
 ```json
@@ -58,15 +53,14 @@ required.
     "serve",
     "--mcp",
     "--project-path",
-    "/absolute/path/to/project",
-    "--managed-database-port",
-    "55435"
+    "/absolute/path/to/project"
   ]
 }
 ```
 
-Omit the final two arguments when the project uses the default port `55432` or
-external PostgreSQL through `CARTOGRAPH_DATABASE_URL`.
+Each project opens its own `.cartograph/data`; no database credentials or port
+are required. On Unix another CLI or MCP process routes through that project's
+same-user owner endpoint. Windows currently requires one process per project.
 
 ### Restart and prove the transport
 
@@ -82,26 +76,35 @@ prove the loaded transport.
 
 ## Auto-sync and admin job reporting
 
-### Managed preflight and source catch-up
+### Native owner and source catch-up
 
-Before serving, managed mode checks the owned image, HNSW shared-memory
-allocation, and explicit CPU/memory/process policy. An incompatible container
-fails with exact backup and confirmed upgrade commands. Source catch-up starts
-through the native watcher after the stdio server is ready, so modern
-`server/discover`/`tools/list` and the legacy `initialize` handshake do not wait
-for a full index.
+The server opens one per-project RocksDB primary and starts source catch-up
+through its bounded watcher. Source synchronization does not delay the MCP
+handshake for an entire initial index. Other Unix CLI/MCP processes reuse the
+same-user owner IPC service rather than opening another primary. Windows
+currently requires one primary process at a time for a project.
 
-`autoSync` in `cartograph_status` exposes:
+On Unix, `cartograph watch --project-path .` runs the same owner independently of
+MCP stdin. On macOS, `cartograph service start --project-path .` installs it as a
+project-scoped login service pinned to the invoking executable. MCP processes
+become proxies and their disconnect does not stop that owner. `service status`
+reports registration, launchd state, and owner availability independently;
+`service stop` stops and removes only its verified owned registration. An
+already active owner retains the primary while the login service retries.
 
-- attempts, publications, no-ops, and errors;
-- `retentionAttempts`, consecutive `retentionFailures`, and `nextRetentionAt`,
-  independent of source freshness and index retry suppression;
-- stable stage-specific `lastErrorCode`;
-- failure/retry times;
-- unchanged-revision attempt count and retry suppression;
-- cross-revision capacity-failure count;
-- the exact capacity limit/scope/next action;
-- the additive `lastCleanupFailureCode` (see below).
+Status exposes index attempts, publications, no-ops, errors, backoff, capacity
+suppression, and independent maintenance outcomes. Native capability readiness
+and graph freshness remain separate. Require exact current evidence before
+using a result as source truth.
+
+`autoSync.recentFailures` retains the latest 16 redacted failure events across
+recovery. `failureActive` reports a current retry condition; `lastErrorCode`,
+`lastCleanupFailureCode`, and `lastFailureAt` retain the latest historical event.
+`lastIndexProfile` reports the latest successful preparation, pipeline, per-stage,
+history, and total timings separately from debounce and query latency.
+`sourceManifestReused` means discovery and byte hashing occurred during
+preparation and were admitted by the pipeline's read stage; no second discover
+stage is reported.
 
 ### Automatic retry policy
 
@@ -109,12 +112,10 @@ for a full index.
 | --- | --- | --- |
 | Persistent failure of an unchanged revision | — | Bounded exponential backoff; stops after five automatic attempts until source changes |
 | Concurrent edits | `source_changed_during_index` or `parse_source_changed` | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
-| Another live lease owner, a writer still inside its prepare transaction, or a lock that keeps the read of the project's leases waiting past its bounded wait | `lease_busy`, normally detected before reserving a generation; a writer that wins after that check is refused at lease acquisition | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
-| Eligible failed, retiring, or excess superseded backlog | `retention_backlog` | Bounded exponential backoff from 30 seconds to 15 minutes; does not exhaust the persistent-failure circuit |
-| A lease the attempt could not establish, keep, or confirm: an acquisition that failed for a reason other than contention, or a lost or unconfirmed heartbeat | `lease_failed` | Retains its separate failure handling |
-| Database errors, including a read of the project's leases that fails for another reason | `status_failed` for that lease read | Retain their separate failure handling |
+| Another admitted native writer | `lease_busy`, before admitting a competing writer | Recovery scheduled after 2–30 seconds; does not exhaust the persistent-failure circuit |
+| Obsolete revisions or auxiliary data awaiting a bounded collection batch | `retention_backlog` | Bounded exponential backoff from 30 seconds to 15 minutes; does not exhaust the persistent-failure circuit |
 | Generation-capacity failure | — | Five trip a separate circuit that new source revisions cannot bypass; adjust the reported capacity setting and run an explicit index to prove recovery and clear the circuit |
-| PostgreSQL unavailable before a revision can be recovered | — | Watcher events share an unknown-revision backoff bucket and retain a capped recovery probe rather than retrying every event or becoming permanently suppressed |
+| Native storage unavailable before a revision can be recovered | — | Watcher events share an unknown-revision backoff bucket and retain a capped recovery probe rather than retrying every event or becoming permanently suppressed |
 
 - A retry timer runs even when no new filesystem event arrives; it does not wait
   for the 30-second missed-event reconciliation.
@@ -125,16 +126,22 @@ for a full index.
   additive `lastCleanupFailureCode` reports `index_cleanup_failed`; it is
   omitted otherwise.
 
+`autoSync.lastSyncDurationMillis` reports the last successful structural index
+through its awaited maintenance/source checks, excluding debounce and query
+transport. `autoSync.lastIncrementalFiles` is positive for a proven local
+replacement and zero for full/no-op reconciliation. These fields distinguish
+watcher detection time from actual index work.
+
 ### Watcher timing and sync flags
 
-Watcher events use a 750 ms quiet window with a default two-second hard
+Watcher events use a 150 ms quiet window with a default two-second hard
 coalescing deadline, then call the indexer's own manifest/no-op fence directly.
 Automatic attempts cap native extraction at four workers and omit independent
 Git-history enrichment; explicit indexing refreshes those auxiliary channels.
 Periodic retention runs concurrently with this event loop under the same
 supervised host lifetime. It drains generations and parse-cache rows while
-source is unchanged, with independent capped failure backoff and exact project
-leases. `--no-auto-sync` also disables this periodic maintenance owner.
+source is unchanged, with independent capped failure backoff and exact native writer
+fences. `--no-auto-sync` also disables this periodic maintenance owner.
 
 | `serve` flag | Effect |
 | --- | --- |
@@ -149,7 +156,7 @@ A failed admin job's terminal status keeps the failure that ended it in
 | Object | When it appears | Contents |
 | --- | --- | --- |
 | `fileFailure` | A non-recoverable file-local admin index failure; the terminal job still exposes its stable failure category and the previous published generation remains untouched | The normalized project-relative `path`, fixed `reason`, and credential-safe `description` |
-| `cleanupFailure` | An `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` job failed and the bounded cleanup of its own staging generation also failed, or a cancelled job's cleanup was not confirmed by PostgreSQL (see details) | `code: index_cleanup_failed` and `message` |
+| `cleanupFailure` | An `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` job failed and the bounded cleanup of its own staging generation also failed, or a cancelled job's cleanup was not confirmed by the native owner (see details) | `code: index_cleanup_failed` and `message` |
 | `overlayRollbackFailure` | A `scip-import` job's forced index failed or was cancelled and restoring the previous SCIP overlay failed too | `code: scip_overlay_rollback_failed` and `message` |
 | `failureDetail` | A terminal generation-capacity failure | Guidance naming `maxGenerationBytes`, its `cartograph_process` scope, and the next action |
 
@@ -159,21 +166,12 @@ parser stop without cancellation is a successful partial-file outcome with
 `extraction_invalid_span` or `extraction_parser_stopped` in the bounded
 degraded-file report.
 
-<details>
-<summary>Details: cleanup failures and cancelled jobs</summary>
+A cancellation is nonterminal while admitted work is draining. The owner keeps
+its source tasks, native futures, and writer admission until actual completion.
+A failed cleanup is independent of the original failure and remains explicit;
+no timeout is reported as successful cleanup. Atomic publication and the WAL
+preserve the last complete graph if an unpublished attempt stops.
 
-When an `index`, `sync`, `embed-only`, `scip-import`, or indexing `init` admin
-job fails and the bounded cleanup of its own staging generation also fails (for
-`scip-import`, the staging generation of its forced index), its terminal status
-adds an optional `cleanupFailure` object with `code: index_cleanup_failed` and
-`message`, the same object direct `index --format json` reports as
-`cleanup_failure`. It never replaces `failure`, which stays the failure that
-ended the job. A cancelled job has no `failure`; like a cancelled direct index,
-it adds `cleanupFailure` unless PostgreSQL confirms that no generation it
-reserved is still `staging` or `ready` and that its lease names none of them. A
-generation left `staging` is terminalized by the next index's staging preflight.
-
-</details>
 
 > [!WARNING]
 > A `scip-import` job whose forced index fails or is cancelled restores the
@@ -181,7 +179,7 @@ generation left `staging` is terminalized by the next index's staging preflight.
 > status adds an optional `overlayRollbackFailure` object of the same shape,
 > with `code: scip_overlay_rollback_failed` and `message`. It sits beside
 > `failure`, or the cancellation, and any `cleanupFailure`, and replaces none of
-> them; a cancelled import still gets the PostgreSQL cleanup check above.
+> them; a cancelled import still gets the native cleanup check above.
 > Nothing retries the restore: `.cartograph/scip/overlay.scip` may still hold
 > the requested artifact, which the next index, including an automatic one,
 > would use.
@@ -194,11 +192,11 @@ belongs to all five profiles.
 
 | Profile | Advertised tools | Intended use |
 | --- | --- | --- |
-| `full` | All 36, including `cartograph_admin` | Every advertised tool, including bounded administration |
-| `core` (default) | All 36, including `cartograph_admin` | Normal coding tools plus explicit bounded administration |
-| `coding` | The 35 tools other than `cartograph_admin` | Lean retrieval, source, graph, test-selection, and review loop |
-| `review` | The 35 tools other than `cartograph_admin` | Comparison and verification-oriented surface |
-| `read-only` | The 35 tools other than `cartograph_admin` | Retrieval without write/admin operations: `serve` additionally refuses every mutating call branch |
+| `full` | All 35, including `cartograph_admin` | Every advertised tool, including bounded administration |
+| `core` (default) | All 35, including `cartograph_admin` | Normal coding tools plus explicit bounded administration |
+| `coding` | The 34 tools other than `cartograph_admin` | Lean retrieval, source, graph, test-selection, and review loop |
+| `review` | The 34 tools other than `cartograph_admin` | Comparison and verification-oriented surface |
+| `read-only` | The 34 tools other than `cartograph_admin` | Retrieval without write/admin operations: `serve` additionally refuses every mutating call branch |
 
 `serve --no-write-tools` applies the same read-only call enforcement under any
 profile.
@@ -207,6 +205,11 @@ Profiles are immutable authorization ceilings for one server process. Tool
 lists are deterministic, and a tool hidden by the selected profile or an exact
 `--disable-tool` cannot be called by name. Use the narrowest ceiling that
 supports the workflow.
+
+When a second MCP process uses the project's active RocksDB owner, its tool
+ceiling also applies to every saved-macro step and project-routed call. The
+proxy and owner limits intersect; forwarding cannot enable a tool hidden by
+either process. Read-only branch checks still apply before dispatch.
 
 ## Modern protocol and dynamic tool selection
 
@@ -235,9 +238,9 @@ schema loading can safely expose the complete profile catalog.
 
 ## Selected high-use tools
 
-The full profile advertises 36 tools. The table below highlights the normal
+The full profile advertises 35 tools. The table below highlights the normal
 coding loop; see the [complete CLI/MCP alignment inventory](cli-mcp-alignment.md#public-mcp-tools)
-for all 36 wire contracts and their CLI families.
+for all 35 wire contracts and their CLI families.
 
 | Tool | Purpose |
 | --- | --- |
@@ -248,7 +251,7 @@ for all 36 wire contracts and their CLI families.
 | `cartograph_entry_points` | Typed routes, CLI commands, MCP tools, CLI declarations, and public API boundaries with exact totals |
 | `cartograph_at_range` | Exact symbols overlapping one source range or diff hunk |
 | `cartograph_node` | Exact symbol metadata and bounded source only when indexed line provenance is fresh; batches retain partial results and identify unresolved or ambiguous inputs |
-| `cartograph_graph` | Bounded callers/callees/impact, exact edge filters, shortest paths, or model-scoped pgvector symbol neighbors |
+| `cartograph_graph` | Bounded callers/callees/impact, exact edge filters, shortest paths, or model-scoped vector symbol neighbors |
 | `cartograph_affected` | Structurally connected test candidates; file and symbol modes both enforce `depth`, `maxNodes`, and `limit`, and file mode reports `impact.nodesTruncated` when its traversal budget is reached |
 | `cartograph_numerical` | Generation-scoped static numerical sites, coverage, explanation, and non-executing probe plans with explicit evidence levels and unknowns |
 | `cartograph_review` | Git-ref plus committed/staged/unstaged/untracked review packet |
@@ -311,10 +314,10 @@ a clean ready lens.
   reports an empty inline rollup with `biomarkerRollupState: not_computed`.
 - The `cartograph_admin` `biomarkers-refresh` action is dry-run-first; execution
   requires `dryRun: false`, `confirm: true`, and optionally accepts
-  `databaseQueryTimeoutMs` from 1 through 1800000 as the exact inner PostgreSQL
-  statement timeout. `timeoutMs` remains an exclusive legacy alias.
+  `databaseQueryTimeoutMs` from 1 through 300000 as the native operation
+  deadline. `timeoutMs` remains an exclusive legacy alias.
 - Results name the effective timeout and its source; the MCP client deadline
-  must be longer than that database deadline.
+  always bounds the native operation, including its inner deadline.
 
 ### Dead code and digest
 
@@ -426,19 +429,12 @@ database settings.
 
 ### Deferred retention
 
-Retention attached to a successful index (its `retention` object) can be
-independently deferred:
-
-| Field | Value |
-| --- | --- |
-| `state` | `"deferred"` |
-| `reason` | `"project_busy"` |
-| `retryable` | `true` |
-| `unlock_applicable` | `false` |
-| `next_action` | A wait-and-retry action |
-
-`admin unlock` removes expired leases only; it does not retroactively clear that
-historical outcome or steal a live writer.
+Index reports retain graph, parse-cache, and auxiliary maintenance outcomes.
+Busy snapshots and finite row/byte/time budgets may defer work for a later
+batch. Phase errors remain visible and contribute to maintenance failure
+telemetry; successful publication does not imply successful cleanup. Recheck
+usage and reports before requesting another bounded prune. Never steal a live
+writer or delete native lock files.
 
 ### SCIP interchange jobs
 

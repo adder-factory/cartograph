@@ -2,32 +2,21 @@
 
 mod dependency_ownership;
 
-use std::{
-    collections::BTreeSet,
-    env, fs,
-    path::Path,
-    process::{self, Stdio},
-    time::{Duration, SystemTime},
-};
+use std::{collections::BTreeSet, fs, path::Path, process::Stdio, time::Duration};
 
 use cartograph_agent::{IndexOptions, ProjectRuntime, ReviewOptions};
-use cartograph_config::DatabaseSettings;
 use cartograph_db::CurrentSymbolSetLookup;
 use cartograph_search::{
     ContextAbstention, ContextBudget, ContextPacket, ContextRequest, DeterministicRetriever,
     EvidenceItem, EvidenceReason, IndexFreshness, RetrievalConfidence, ReviewAbstention,
     ReviewPacket, TraversalBudget,
 };
-use cartograph_test_support::TestSchemaGuard;
-use sqlx_core::{query::query, sql_str::AssertSqlSafe};
 use tokio::process::{Child, Command};
 
 #[path = "patch_task_evaluation/fixture.rs"]
 mod fixture;
 
-const TEST_DATABASE_URL_ENV: &str = "CARTOGRAPH_TEST_DATABASE_URL";
 const TOP_K: usize = 5;
-const LIVE_TEST_TIMEOUT: Duration = Duration::from_mins(3);
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const BASELINE_EDIT_PRECISION: f64 = 0.866_666_666_666_666_8;
 const BASELINE_ESTIMATED_TOKENS: f64 = 982.0;
@@ -106,33 +95,9 @@ fn locked_v1_1_33_patch_contract_fingerprints_match() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires CARTOGRAPH_TEST_DATABASE_URL for PostgreSQL 18 with pg_search and pgvector"]
 async fn native_patch_task_gate_meets_v1_1_33_and_repeats_exactly() {
-    let Some(url) = env::var(TEST_DATABASE_URL_ENV).ok() else {
-        eprintln!("native patch-task gate skipped: {TEST_DATABASE_URL_ENV} is not configured");
-        return;
-    };
-    let schema = unique_schema();
-    let _schema_guard = TestSchemaGuard::new(&url, schema.clone())
-        .unwrap_or_else(|error| panic!("patch-task schema guard failed: {error}"));
-    let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-        .and_then(|value| value.with_schema(&schema))
-        .unwrap_or_else(|error| panic!("patch-task database settings failed: {error}"));
-    let cleanup_settings = settings.clone();
-    let mut task = tokio::spawn(run_live_evaluation(settings));
-    let outcome = if let Ok(joined) = tokio::time::timeout(LIVE_TEST_TIMEOUT, &mut task).await {
-        joined.map_err(|_| "patch-task evaluation task panicked".to_owned())
-    } else {
-        task.abort();
-        let _ = task.await;
-        Err("patch-task evaluation exceeded its 180-second deadline".to_owned())
-    };
-    let cleanup = drop_schema(&cleanup_settings, &schema).await;
-    if let Err(error) = cleanup {
-        panic!("patch-task schema cleanup failed: {error}");
-    }
-    let (first, second) = outcome
-        .and_then(|result| result)
+    let (first, second) = run_live_evaluation()
+        .await
         .unwrap_or_else(|error| panic!("native patch-task evaluation failed: {error}"));
 
     assert_eq!(
@@ -156,13 +121,11 @@ async fn native_patch_task_gate_meets_v1_1_33_and_repeats_exactly() {
     );
 }
 
-async fn run_live_evaluation(
-    settings: DatabaseSettings,
-) -> EvalResult<(EvaluationReport, EvaluationReport)> {
+async fn run_live_evaluation() -> EvalResult<(EvaluationReport, EvaluationReport)> {
     let project = tempfile::tempdir().map_err(|_| "patch-task tempdir failed".to_owned())?;
     fixture::materialize(project.path())?;
     initialize_repository(project.path()).await?;
-    let runtime = ProjectRuntime::connect(project.path(), &settings)
+    let runtime = ProjectRuntime::open(project.path())
         .await
         .map_err(|error| format!("patch-task runtime connect failed: {error}"))?;
     let index = runtime
@@ -187,7 +150,10 @@ async fn run_live_evaluation(
     let retriever = DeterministicRetriever::new(runtime.database().clone());
     let first = evaluate_corpus(&runtime, &retriever, &index.project_id, project.path()).await?;
     let second = evaluate_corpus(&runtime, &retriever, &index.project_id, project.path()).await?;
-    runtime.close().await;
+    runtime
+        .close()
+        .await
+        .map_err(|_| "native evaluation shutdown failed".to_owned())?;
     Ok((first, second))
 }
 
@@ -922,25 +888,4 @@ async fn run_fixture_git(project_root: &Path, arguments: &[&str]) -> EvalResult<
 async fn terminate_child(child: &mut Child) {
     let _ = child.kill().await;
     let _ = child.wait().await;
-}
-
-fn unique_schema() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("cg_patch_eval_{}_{}", process::id(), nanos)
-}
-
-async fn drop_schema(settings: &DatabaseSettings, schema: &str) -> EvalResult<()> {
-    let pool = cartograph_db::connect(settings)
-        .await
-        .map_err(|error| format!("cleanup connection failed: {error}"))?;
-    let statement = format!("DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
-    let result = query(AssertSqlSafe(statement))
-        .execute(&pool)
-        .await
-        .map_err(|_| "cleanup schema drop failed".to_owned());
-    pool.close().await;
-    result.map(|_| ())
 }

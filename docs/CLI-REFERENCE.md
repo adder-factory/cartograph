@@ -3,14 +3,12 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-13 (`v2.1.44`).
+Last release audit: 2026-10-19 (`v3.0.0`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
-the exact bounds in the installed version; destructive-operation confirmation
-phrases are listed in
-[Storage and operations](STORAGE-BACKENDS.md#destructive-operations-and-confirmation-phrases)
-because `db upgrade`, `db remove`, and `db derived-index --rebuild` help do not
-print theirs. This page
+the exact bounds in the installed version. Bounded maintenance and its
+confirmation phrases are documented in
+[Storage and operations](STORAGE-BACKENDS.md#usage-and-bounded-maintenance). This page
 lists the complete top-level command inventory and selected high-use forms;
 subcommand help remains the authority for every option and default.
 
@@ -32,9 +30,9 @@ subcommand help remains the authority for every option and default.
 | Every public top-level command | [Complete command inventory](#complete-top-level-command-inventory) |
 | Upgrade to a new release and read its report | [Upgrade](#upgrade) |
 | Exact flags, defaults, or bounds | `cartograph <command> --help` from the installed version |
-| Confirmation phrase for a destructive operation | [Destructive operations and confirmation phrases](STORAGE-BACKENDS.md#destructive-operations-and-confirmation-phrases) |
+| Confirmation phrase for a destructive operation | [Bounded maintenance](STORAGE-BACKENDS.md#usage-and-bounded-maintenance) |
 | Equivalent agent tools | [CLI and MCP alignment](cli-mcp-alignment.md) |
-| Database ownership and lifecycle | [PostgreSQL storage and operations](STORAGE-BACKENDS.md) |
+| Database ownership and lifecycle | [Native storage and operations](STORAGE-BACKENDS.md) |
 
 ## High-use coding forms
 
@@ -42,6 +40,8 @@ subcommand help remains the authority for every option and default.
 cartograph index [PROJECT] [--exclude GLOB]...
 cartograph sync-if-dirty [PROJECT] [--quiet] [--max-file-size SIZE]
 cartograph status [PROJECT]
+cartograph watch --project-path [PROJECT]
+cartograph service start|stop|status --project-path [PROJECT]  # macOS login owner
 cartograph embedding-status [PROJECT]
 cartograph embed [PROJECT]
 cartograph find <QUERY> --by auto|name|content|env|sql|build|path|reference|bm25|hybrid
@@ -72,7 +72,7 @@ cartograph admin scip-import [--in index.scip] [--maximum-rows 10000000]
 ### Retrieval and output formats
 
 Retrieval inputs and result counts are bounded. `context` selects a deterministic
-typed task intent and can use exact anchors, ParadeDB BM25, a ready matching
+typed task intent and can use exact anchors, native BM25, a ready matching
 semantic model, graph expansion, affected tests, and a separate stale
 working-tree overlay. JSON is the stable automation format; text favors concise
 operator output.
@@ -94,7 +94,7 @@ nonzero and writes a structured `error` object to stderr:
 | `code` | Always the failure that ended the attempt |
 | `message` | The failure message |
 | `stage` | The index stage of the failure |
-| `previous_generation_visible` | Read from PostgreSQL after the failure: `true` when a published generation is still current, `false` when the project has none (for example, before its first successful index), and `null` when that bounded lookup itself failed |
+| `previous_generation_visible` | Read from the native current-revision pointer after the failure: `true` when a published generation is still current, `false` when the project has none (for example, before its first successful index), and `null` when that bounded lookup itself failed |
 | `file_failure.path`, `file_failure.reason`, `file_failure.description` | The project-relative path, allowlisted reason, and description of a non-recoverable file-local failure |
 | `cleanup_failure` | Optional secondary failure; see [Cleanup failures](#cleanup-failures) |
 
@@ -108,7 +108,7 @@ reason `extraction_invalid_span` or `extraction_parser_stopped`.
 
 For a generation-capacity failure, text and JSON name `maxGenerationBytes`, the
 `cartograph_process` scope, its hard 8 GiB maximum, and the bounded
-PostgreSQL-spill/generated-artifact-exclusion next action. An out-of-range
+generated-artifact-exclusion and finite native-build limits. An out-of-range
 configuration names the field and exact inclusive range. Auto-sync performs
 bounded failed-generation cleanup after each failed attempt and suppresses
 itself after five capacity failures across source revisions; adjust the
@@ -119,38 +119,24 @@ reported setting and run an explicit index to clear that circuit. See
 
 | `code` | Meaning |
 | --- | --- |
-| `lease_busy` | Retryable. Another live project lease, another writer still holding the project lock past the bounded five-second wait, or a lock that keeps the read of the project's leases waiting past that same bound, returned before any generation is reserved. An unchanged checkout still returns its no-op report. A writer that wins after that check is refused at lease acquisition (see details below) |
-| `lease_failed` | The attempt could not establish, keep, or confirm ownership of its own lease: an acquisition that failed for a reason other than contention, or a lost or unconfirmed heartbeat |
-| `index_failed` with message `Cartograph project status is unavailable` | A read of the project's leases failed for another reason. It is never `lease_failed`: that attempt held no lease to lose |
-| `schema_busy` | Retryable. An index that applies a pending schema migration while connecting found another session's PostgreSQL locks held throughout the migration's 5-minute contention budget. It reports `previous_generation_visible: null`; it reserved nothing and applied nothing (see [Schema migration reports `schema_busy`](TROUBLESHOOTING.md#schema-migration-reports-schema_busy)) |
+| `lease_busy` | Retryable. Another admitted native writer owns the project. Wait for it to finish or cancel its exact admin job; reads continue against the last complete revision |
+| `index_failed` with message `Cartograph project status is unavailable` | The bounded current-publication or live-source observation failed; freshness is unverified |
 | `index_cleanup_failed` (as `code`, alone) | The pre-reservation recovery of abandoned staging generations itself failed for a reason other than contention |
 | `request_cancelled` | The index request was interrupted; see [Index cancellation](#index-cancellation) |
 | `source_changed_during_index` | An ordinary index whose checkout kept changing after it published rebuilt a bounded number of times and then failed |
 
-<details>
-<summary>Details: a writer that takes the lease after the pre-reservation check</summary>
 
-A writer that takes the lease or the project lock after that check is still
-rejected at lease acquisition with `lease_busy`. By then the attempt has
-reserved a generation, and it fails that reservation itself only if it gets the
-project lock within another five-second bound. When the other writer holds the
-lock longer, for example inside its prepare transaction, the failure adds
-`cleanup_failure` and the reservation stays `staging` (it never becomes current)
-until the project is free again: the next index's staging recovery, including a
-supervised retry's, then fails it.
-
-</details>
 
 #### Cleanup failures
 
 In the `index --format json` failure object, `code` is always the failure that
 ended the attempt. When bounded cleanup of the attempt's own staging generation
-also fails afterward, and the attempt's final unleased-staging cleanup does not
+also fails afterward, and the attempt's final native cleanup does not
 terminalize that generation either, the object adds a separate
 `cleanup_failure` (`code: index_cleanup_failed`, `message`) instead of replacing
 `code`; the next index retries that cleanup. MCP admin job status reports the
 same object as `cleanupFailure`. For a cancelled index, `cleanup_failure`
-instead reflects the PostgreSQL check described in
+instead reflects reconciliation of admitted native work described in
 [Index cancellation](#index-cancellation).
 
 ### Successful index report: `live_source`
@@ -170,85 +156,36 @@ with `source_changed_during_index`. Only the supervised child of
 
 ### Index cancellation
 
-Once its index request has started, `index` stops cooperatively on its first
-SIGINT or SIGTERM (Ctrl-C on Windows): it fails its unpublished staging
-generation, releases its project lease, and exits nonzero with code
-`request_cancelled`.
+Once indexing starts, the first SIGINT or SIGTERM cancels it cooperatively.
+Before publication, the previous complete graph remains visible. Native work
+keeps its writer admission until the actual source, extractor, or storage task
+finishes; a timeout is not evidence that a native operation has stopped. WAL
+and the atomic current-revision pointer preserve a complete graph on reopen.
+A publication that already committed remains current; its actual commit result
+is preserved while post-publication freshness and maintenance are reported
+independently. A second interrupt ends the process immediately.
 
-| Interrupt arrives | Result |
-| --- | --- |
-| While `index` resolves its database settings, connects, or applies schema migrations | Ends the process at once; it holds no project lease or generation yet |
-| After the index request has started, before publication | Cooperative stop with `request_cancelled` |
-| After a generation was already published | That generation stays current and the index does not rebuild; the exit depends on the post-publication recheck (see details) |
-| A second interrupt | Ends the process at once, without cleanup |
-| After the request has ended | Ends the process at once |
+CLI jobs routed to a Unix owner cancel and poll the same job on the same owner
+instance. If that owner restarts, the old job outcome is unverified; a reused
+numeric job ID cannot authorize cancellation on the replacement process.
+MCP cancellation retains admission and drains actual native completion while
+unrelated ping requests remain available. Background jobs have their own finite
+controls, and cancelling the request that started a job does not replace the
+explicit job cancellation action.
 
-The immediate exits are the signal's default disposition: on Unix the process
-dies by the received signal, so its parent sees that signal rather than an exit
-status (a shell shows 130 for SIGINT or 143 for SIGTERM), and on Windows Ctrl-C
-exits with `STATUS_CONTROL_C_EXIT`.
-
-<details>
-<summary>Details: in-flight statements, cleanup confirmation, and post-publication interrupts</summary>
-
-The statement in flight in the generation's prepare transaction (a COPY batch, a
-derived-relation or evidence statement, or an `ANALYZE`) finishes or reaches its
-3-minute statement bound. The transaction then rolls back at its next
-cancellation check instead of running its remaining COPY, derived-relation,
-evidence, and `ANALYZE` statements; at most a few short bookkeeping statements
-(lock, fence, and state checks) run before that check. The code stays
-`request_cancelled`, including for a stop that meets another writer's lease or
-project lock before reserving anything.
-
-The failure has no `cleanup_failure` only when PostgreSQL then shows that every
-generation this request reserved is no longer `staging` or `ready` and that the
-project's index lease names none of them; a request stopped before it reserved a
-generation held nothing to clean up. Another writer's lease or staging
-generation on the same project does not affect this. Otherwise, for example when
-the lease expired instead of being released, the failure adds `cleanup_failure`
-(`index_cleanup_failed`), the next index retries the cleanup, and any remaining
-lease expires on its 5-minute TTL.
-
-An interrupt that arrives after a generation was already published leaves that
-generation current, and the index does not rebuild. The result depends on the
-post-publication recheck of the checkout: the index reports `request_cancelled`
-when the interrupt stopped that recheck or the recheck found a change, but still
-exits successfully with `live_source: matched` when the recheck had already
-finished and matched (an interrupt during the final retention step also leaves
-that success). The supervised child of `upgrade --apply` always reports its
-publication as a success, with `live_source` `matched`,
-`changed_after_publication`, or `unverified`.
-
-</details>
 
 ### Admin background jobs
 
-A generated `cartograph admin` command that starts a background job, such as
-`admin index`, runs the job in-process and polls its status until it finishes.
+Generated admin commands poll the admitted job until its terminal result.
+Native jobs have a five-minute storage-operation ceiling; shorter request and
+stage budgets still apply. Cancellation changes a running job to `cancelling`
+until its actual work drains. A bounded shutdown wait that expires reports
+unverified cleanup and retains the admitted operation instead of marking it
+finished. Completed reports are retained in a bounded eight-job history.
 
-- The wait has a ten-minute CLI deadline which also bounds every individual
-  status poll.
-- When the deadline elapses, or the wait fails for any other reason, the command
-  cancels the job and waits up to four minutes for its cleanup before it exits
-  nonzero.
-- Cleanup normally fails the staging generation and releases the project's
-  index lease.
-
-> [!TIP]
-> Run index work expected to exceed the deadline through `cartograph index` or
-> the `cartograph_admin` job API of a long-lived `cartograph serve`.
-
-<details>
-<summary>Details: cancellation inside a long synchronous stage section</summary>
-
-A job cancelled inside a long synchronous stage section first waits up to three
-minutes past its 10-second cancellation grace for that section to finish,
-keeping its lease renewed meanwhile. If lease ownership is lost or its outcome
-is ambiguous, the section is still running when that wait ends, or cleanup
-outlasts the four-minute wait, the lease is not released by this command: it
-expires on its own and the next writer recovers the staging generation.
-
-</details>
+Unix CLI polling and cancellation bind to the owner instance that started the
+job. Owner replacement is a conflict with an unverified prior result. It cannot
+redirect an old cancellation to a new job with the same numeric ID.
 
 ### Embedding sweeps
 
@@ -268,23 +205,15 @@ requesting an explicit sweep.
 
 ### Hook-driven sync: `sync-if-dirty`
 
-`sync-if-dirty` skips a clean, current checkout. Otherwise:
+`sync-if-dirty` skips a clean, current checkout. Otherwise it runs a bounded
+reconciliation. On Unix it routes through the running project owner when one
+exists; otherwise it opens the native project itself. A competing writer is
+never stolen. After contention, it checks whether the other writer already
+published the exact current source before retrying its own index. SIGINT and
+SIGTERM cancel an owner-routed job and wait for its actual terminal report.
 
-- If another operation holds a live lease on the project (a native watcher or
-  manual index, or a sync, hook, migration, or rebuild), it waits for every such
-  lease, within one bounded five-minute wait, instead of stealing it or
-  rescanning the checkout while the lease is live.
-- After the competing writers release, the command succeeds when one of them
-  published the now-current source revision; otherwise it retries its own
-  complete index.
-- A collision that no live lease explains, such as a project lock held by an
-  operation without a lease, pauses before that retry instead, from 15 seconds
-  doubling up to 4 minutes within the same wait, because every retry repeats the
-  source scan.
-- A writer that outlasts the five minutes ends the command with the retryable
-  `lease_busy`.
-- Like `index`, a failure message names a cleanup failure that followed it as a
-  secondary `index_cleanup_failed`.
+Like `index`, a failure preserves the primary category and independent cleanup
+diagnostics. `--quiet` suppresses successful hook output, not failures.
 
 ### SCIP import and export
 
@@ -332,7 +261,7 @@ function/class categories.
 
 ## Complete top-level command inventory
 
-This inventory contains every non-hidden v2.1.42 top-level command advertised
+This inventory contains every non-hidden native top-level command advertised
 by `cartograph --help`. Hidden compatibility adapters and Clap's generated
 `help` command are intentionally excluded.
 
@@ -345,18 +274,18 @@ by `cartograph --help`. Hidden compatibility adapters and Clap's generated
   `compare-to-ref`, `digest`, `explore`, `find`, `node`, `files`,
   `entry-points`, `at-range`, `graph`, `affected`, `tests-for`, `biomarkers`,
   `numerical`, `coverage`, `dead-code`, `deps`, `hotspots`, `host`, `history`,
-  `imports`, `note`, `propose-rename`, `role`, `session`, `summaries`, `sql`,
+  `imports`, `note`, `propose-rename`, `role`, `session`, `summaries`,
   `trace-to-culprits`, `verify`, `review`, `playbook`, `admin`.
 - Configuration and lifecycle: `backend`, `llm`, `upgrade`, `install`,
-  `uninstall`, `serve`, `db`.
+  `uninstall`, `serve`, `watch`, `service`, `db`.
 
 <!-- CARTOGRAPH_TOP_LEVEL_COMMANDS_END -->
 
 ## MCP and agent configuration
 
 ```text
-cartograph serve --mcp [--managed-database-port PORT] [--profile coding|core|full|read-only|review] [--no-startup-sync] [--no-auto-sync]
-cartograph install --yes --target <TARGET[,TARGET...]> --location local [--managed-database-port PORT]
+cartograph serve --mcp [--profile coding|core|full|read-only|review] [--no-startup-sync] [--no-auto-sync]
+cartograph install --yes --target <TARGET[,TARGET...]> --location local
 cartograph uninstall --target <TARGET[,TARGET...]> --location local
 ```
 
@@ -389,10 +318,10 @@ The 19 concrete host target IDs are:
   `~/.cartograph-cli/current/bin/cartograph` launcher, whose target changes
   atomically on upgrade.
 - With `--location local`, installation modifies only project-local agent
-  configuration. For a non-default managed port, it also pins the non-secret
-  loopback port in the portable server arguments.
-- A local install then indexes the project (starting the managed database first
-  when no `CARTOGRAPH_DATABASE_URL` is set) and installs Git hooks unless
+  configuration. Each project uses its own native storage owner.
+
+- A local install then indexes the project through its native storage owner
+  and installs Git hooks unless
   `--no-hooks`. If that index fails or is interrupted, install exits nonzero
   before installing hooks, in either output format; with `--format json` the
   index failure object precedes install's own error line on stderr.
@@ -406,7 +335,7 @@ Rewriting an existing `cartograph` entry merges instead of replacing it.
 
 | Cartograph owns and rewrites | Kept as written |
 | --- | --- |
-| `command`, its own server flags in `args` (`serve`, `--mcp`, `--project-path`, `--managed-database-port`), and the target's transport keys | `env`, `cwd`, other host-specific keys, and extra server arguments such as `--profile` |
+| `command`, its own server flags in `args` (`serve`, `--mcp`, `--project-path`, the native owner flags), and the target's transport keys | `env`, `cwd`, other host-specific keys, and extra server arguments such as `--profile` |
 
 An entry that launches Cartograph through a wrapper (`/usr/bin/env`,
 `op run --`, `doppler run --`, `aws-vault exec`, `direnv exec`, or a custom
@@ -428,365 +357,46 @@ selection belongs in the host rather than a connection-mutating dispatcher.
 
 ## Upgrade
 
-`cartograph upgrade --project-path <PATH>` is a read-only release and
-registration audit. The canonical version-to-version operation is:
+`cartograph upgrade --project-path <PATH>` audits published release and host
+registration state; `--apply` installs a checksum-verified published release
+and reconciles the native project. For the v2-to-v3 cutover, first install
+v3 and run `cartograph db migrate --to rocksdb --project-path <PATH>`; legacy
+PostgreSQL user state is preserved separately, not imported into RocksDB.
+
+Read `completed`, `projectReconciliation`, and `restartRequired` separately.
+Stop the existing project owner before upgrading: on macOS use `service stop`,
+then `upgrade --apply`, then `service start`. For manually managed owners, use
+the equivalent cooperative stop/start through their service manager. Verify
+the new owner's status version separately from the client's `--version`.
+A retryable reconciliation can be resumed with the same command. Reopen the
+host after its executable/pin changes; a no-op later invocation cannot prove
+that an already attached child has restarted.
+
+## Native database operations
 
 ```sh
-cartograph upgrade --apply --project-path <PATH>
+cartograph db migrate --to rocksdb --project-path . --format json
+cartograph db usage --project-path . --format json
+cartograph db prune --project-path . --keep-superseded 2 \
+  --maximum-deletions 4 --maximum-cascade-rows 10000 \
+  --confirm prune-old-generations --format json
 ```
 
-That command is safe to repeat. Read its result through
-[`completed` and `projectReconciliation`](#completed-and-projectreconciliation)
-and [`restartRequired`](#restartrequired-and-reopening-the-host).
-
-### What `upgrade --apply` does
-
-1. Checksum-verifies and smoke-tests the latest native release.
-2. Atomically switches the stable launcher.
-3. Starts or reuses the project-owned managed database when applicable.
-4. Applies safe append-only schema migrations.
-5. Reconciles a complete current generation.
-6. Runs `doctor`.
-7. Uses the installed executable to require an exact installed-version status
-   with a valid current generation.
-8. Then repairs stale owned Codex, Claude, and Cursor registrations in local and
-   global locations, preserving unrelated configuration and managed-port
-   arguments.
-
-Running `--apply` when the binary is already current resumes or heals the
-project and registration steps instead of returning early.
-
-### Index-step supervision
-
-The index step runs the installed binary as a supervised child. It publishes at
-most one generation: if the checkout changes again after that publication, the
-step reports `source_changed` instead of rebuilding in a loop. It leaves the
-optional Git churn/co-change and issue-history refresh to the next explicit
-`cartograph index`, as MCP auto-sync does.
-
-| Bound | Value |
-| --- | --- |
-| Wait for another live writer before reporting `another_writer_active` | 30 minutes |
-| Pause before retrying a `lease_busy` that no live lease explains | 15 seconds growing to 4 minutes, within the same 30 minutes |
-| Startup progress (database resolution, connection, schema migrations) | A startup line that changes every 2 seconds, for at most 30 minutes |
-| Stop when no progress arrives | 15 minutes |
-| Absolute ceiling | 210 minutes |
-| Wait for the child to exit after the parent closes its stdin | 4 minutes, then the child is killed |
-| Lease left by a killed or unconfirmed child | Expires on its 5-minute TTL |
-
-> [!NOTE]
-> These bounds apply when the binary that starts `upgrade --apply` contains
-> them; an upgrade started from an older release uses that release's index
-> orchestration until it is rerun from the new one.
-
-<details>
-<summary>Details: writer collisions, progress, the 210-minute ceiling, and cooperative stop</summary>
-
-When another live writer (for example an MCP server's auto-sync, or a
-maintenance operation) holds the project, the child waits up to 30 minutes for
-it before reporting `another_writer_active`. A writer that starts while the
-child scans the checkout is awaited within the same 30 minutes: the child's
-attempt then reports `lease_busy`, either before reserving a generation (its
-bounded staging recovery found that writer's lease, or waited five seconds
-behind that writer's prepare transaction) or at lease acquisition, and is
-retried after the writer's lease is gone. A `lease_busy` that no live lease
-explains (for example a schema-maintenance lock) is retried after a pause that
-grows from 15 seconds to 4 minutes, within the same 30 minutes. Each such
-collision repeats the source scan.
-
-The step has no fixed wall-clock limit. Instead the child reports progress from
-its start: while it resolves its database, connects, and applies schema
-migrations, a startup line that changes every 2 seconds for at most 30 minutes;
-then stage, item and byte counters, files discovered and hashed by source scans,
-lease renewals, and the other writer's renewals while it waits. The step stops
-only when no progress arrives for 15 minutes (so a startup still running after
-its 30 minutes is stopped 15 minutes later) or after an absolute 210-minute
-ceiling (the 30-minute startup allowance, the 30-minute writer wait, and a
-150-minute allowance for one generation build: the child's 2-hour supervisor
-budget plus the source scans and retention around it).
-
-To stop the child, the parent closes the child's stdin. The child treats that as
-a cooperative cancellation. Before publication it fails its staging generation,
-releases its lease, and reports `request_cancelled` without a `cleanup_failure`
-once PostgreSQL confirms that cleanup. After publication the generation stays
-current and the child still reports success, which the step accepts. A child
-that is still starting acts on the request when its index request begins, before
-it holds a lease or generation. The parent waits up to 4 minutes for the child
-to exit before it kills it. A killed child, or one that exited without
-confirming its cleanup, can leave its lease to the 5-minute TTL, and a rerun's
-writer wait absorbs that.
-
-</details>
-
-### `completed` and `projectReconciliation`
-
-`completed: true` means all of these hold:
-
-- the verified binary is installed (or was already current);
-- the database step is ready;
-- the installed binary published or confirmed a complete current generation;
-- `doctor` passed;
-- a next-process status reports the installed version and a valid current
-  generation;
-- no registration repair failed.
-
-It does not require freshness. `projectReconciliation.state` reports it:
-
-| `state` | Meaning | What to do |
-| --- | --- | --- |
-| `ready` | That next-process status is fresh | Nothing |
-| `source_changed` | The status proves the generation this upgrade published is still current and only the live checkout moved past it. Any edit that changes the live source revision after publication counts, including source-discovery or admission settings in `.cartograph/config.json` | No rerun is needed; run `cartograph index <path>` once edits pause (or let MCP auto-sync reconcile) |
-| `blocked` | Includes staleness that a moved live revision does not explain (for example a digest-contract or admission-policy mismatch with an unchanged revision, or another writer replacing the published generation) | Inspect the step states below |
-
-JSON distinguishes `currentVersion` (the process that began the operation),
-`latestVersion` (the published release), `installedVersion`, `applied`,
-`completed`, and `restartRequired`; `projectReconciliation` reports database,
-index, doctor, verification, freshness, generation, port, and any required
-confirmation independently.
-
-`projectReconciliation` has this shape:
-
-| Field | Contents |
-| --- | --- |
-| `state` | `ready`, `source_changed`, or `blocked` |
-| `retryable` | True when rerunning the same command, with no other action, is the next step |
-| `database`, `index`, `doctor`, `verification` | Each `{state, message}` plus an optional stable `reason`. A step that did not run because an earlier step stopped the reconciliation reports `not_run` |
-| `fresh`, `generationId`, `managedDatabasePort`, `requiredConfirmation` | Freshness, generation, managed port, and any required confirmation |
-
-`retryable` is true when a bounded wait or timeout ended without a failure
-verdict (a `timed_out` database, index, doctor, or verification step, or a
-database or index step in `another_writer_active`), and also when verification
-is `blocked` because another writer replaced the generation this upgrade
-published or confirmed and the checkout is not fresh.
-
-### Database step states
-
-| `database.state` | Meaning | What to do |
-| --- | --- | --- |
-| `ready` | The managed database is healthy and its migrations are current, or the validated external database from the environment is used; with an external database the index child applies the migrations | Nothing |
-| `another_writer_active` | `reason: schema_busy`, retryable. Another Cartograph process, often a long-running MCP server started from an older binary, held PostgreSQL locks that the pending schema migration needs for its whole 5-minute contention budget, so nothing was applied | Restart or stop that process, then rerun the same command; it never points to `doctor` or the managed database replacement |
-| `timed_out` | Retryable; managed `db start` exceeded its 15-minute cold image-pull/readiness budget | Rerun the same command |
-| `blocked` | The managed start failed; a bounded `db status` probe decides whether `requiredConfirmation` names the confirmed managed upgrade | See [Managed database replacement](#managed-database-replacement) |
-
-Managed `db start` has a separate 15-minute cold image-pull/readiness budget.
-Exceeding it reports the database step as `timed_out`, draws no compatibility
-conclusion, and asks the caller to rerun the same command; only a bounded status
-probe with positive image/shared-memory incompatibility evidence can emit the
-destructive confirmation path. The schema migration inside that start retries
-lock contention for at most 5 minutes, well inside the 15-minute budget, so a
-busy schema is reported as `another_writer_active` with `reason: schema_busy`
-instead of `timed_out`.
-
-### Managed database replacement
-
-> [!CAUTION]
-> The command never replaces an incompatible managed container implicitly. It
-> keeps the verified binary installed, reports `completed: false`, and emits the
-> exact private-backup and `--confirm upgrade-managed-database` commands. After
-> that approval-gated replacement, rerun the same `upgrade --apply` command to
-> resume.
-
-Registration failures likewise leave the already-verified binary installed and
-report only the remaining repair.
-
-### Index step states
-
-| `index.state` | Meaning |
-| --- | --- |
-| `ready` | — |
-| `source_changed` | The checkout changed again after the step's one publication |
-| `another_writer_active` | `reason: lease_busy`, retryable; or `reason: schema_busy`, retryable, when the index child applied the schema migration itself and another process's locks kept it from applying, as for the database step |
-| `timed_out` | `reason: no_progress` or `ceiling`, retryable; the message says whether the child confirmed a cooperative cleanup (`request_cancelled` with no `cleanup_failure`), exited without confirming it, or was killed |
-| `blocked` | `reason` is the child's stable index failure code, such as `parse_failed`, when one was reported; the next step then names that code and runs `cartograph index <path> --format json` for the full failure, while a `blocked` index without a code points to `cartograph doctor <path>` |
-| `not_run` | The database step did not finish as `ready` |
-
-### Verification and doctor step states
-
-| `verification.state` | Meaning |
-| --- | --- |
-| `ready` | — |
-| `source_changed` | — |
-| `timed_out` | Retryable |
-| `blocked` | Retryable only when the next-process status reports a different, non-fresh current generation, meaning another writer replaced the generation this upgrade published or confirmed. A status that fails, cannot be decoded, or reports another version is `blocked` and not retryable |
-| `not_run` | The database or doctor step was not `ready`, or the index step did not end as `ready` or `source_changed` |
-
-`doctor` and the next-process `status` each rescan the checkout, so each gets a
-10-minute budget. A `timed_out` doctor or verification step is retryable and
-draws no conclusion about the project.
-
-### Registration repair
-
-Each audited registration reports a `commandState`. A direct pin is one whose
-`command` is itself a Cartograph executable (file name `cartograph`, or under
-`~/.cartograph-cli/versions/*/bin/` or `current/bin/`).
-
-| `commandState` | Registration | Repair |
-| --- | --- | --- |
-| `path_lookup` | Direct pin | None |
-| `absolute_unchecked` | Direct pin | None |
-| `current_absolute` | Direct pin | None |
-| `stale_absolute` | Direct pin | Reinstalled through the normal installer |
-| `wrapped` | Wrapper registration; `wrappedExecutableState` reports its embedded executable in the same vocabulary | Only when the embedded executable is `stale_absolute`: repinned in place, so its wrapper command, other arguments, `env`, and every other key are unchanged |
-| `custom_command` | Any other launcher | Never repaired |
-
-Only `stale_absolute` and a `wrapped` entry whose embedded executable is
-`stale_absolute` are repaired. `registrationRepair.changes` lists every
-attempted entry with `target`, `location`, `configPath`, `field` (`command` or
-`args[N]`), the unchanged `wrapper`, `from` and `to` executable paths, and
-`outcome` (`repinned` or `manual`). A `manual` entry carries a `manualStep`
-naming the exact edit; the report never includes wrapper arguments or `env`
-values.
-
-### `restartRequired` and reopening the host
-
-`restartRequired` is deliberately run-local: it is true only when a completed
-invocation changed the installed binary or repaired a configured host pin. A
-pure idempotent project reconciliation does not request another reopen, while
-false still does not prove the version of a process that remained attached
-across an earlier invocation.
-
-An already-open host cannot hot-load the new child. When `restartRequired` is
-true, close and reopen it once, then prove `server/discover` (or legacy
-`initialize`), `tools/list`, `cartograph_status`, and one real query on the new
-transport.
-
-## Database lifecycle
-
-```text
-cartograph db start
-cartograph db stop
-cartograph db status
-cartograph db logs
-cartograph db backup <OUTPUT>
-cartograph db restore <ARCHIVE>
-cartograph db upgrade
-cartograph db derived-index
-cartograph db remove
-cartograph db import-v1
-cartograph db prune
-cartograph db usage
-cartograph db compact
-```
-
-> [!NOTE]
-> Managed lifecycle is supported on macOS/Linux with local Docker. Windows uses
-> external PostgreSQL.
-
-> [!CAUTION]
-> Restore, upgrade, derived-index rebuild, remove, v1 import, and prune require
-> explicit operation-specific confirmation.
-
-### Storage inventory
-
-Storage inventory accepts `--limit` (1–128), `--table-offset`, and
-`--index-offset` (0–100,000) for independent table/index pages. JSON includes
-complete catalog counts, per-page truncation, statistics observation/reset
-context, and nullable live/dead row estimates when counters are unobserved.
-It also reports the latest automatic retention attempt, retiring generations,
-and database allocation outside the observed relation catalog. This allocation
-gap does not identify safely deletable files.
-
-Interrupted generation drains include fixed phase/relation evidence in
-`deferred_at` after committed progress or in
-`retentionMaintenance.outcome.generationFailureAt` before any commit. Async
-hosts periodically retry generation and cache retention independently of source
-changes; maintenance failures use capped backoff rather than continuous retries.
-
-`db usage` is read-only: it verifies the exact current append-only migration
-ledger and fails with migration guidance instead of creating or upgrading a
-schema.
-
-### Pruning generations
-
-| Prune option | Range | Default |
-| --- | --- | --- |
-| `--maximum-cascade-rows` | 1–100,000,000 | 5,000,000 |
-| `--maximum-search-relation-bytes` | 1–68,719,476,736 | 8 GiB |
-
-These are invocation budgets. Canonical rows drain in resumable transactions of
-at most 10,000 rows; `batches_committed`, `retiring_remaining`, and
-`deferred_reason` distinguish durable progress from pending work. Inspect the
-report before repeating the confirmed command. MCP exposes the same limits as
-`maximumCascadeRows` and `maximumSearchRelationBytes` on `prune-generations`.
-
-### Start bounds and schema migration
-
-`db start --wait-seconds` (default 90, at most 600) bounds readiness, extension
-initialization, and capability proof. The append-only schema migration that
-follows has its own bounds:
-
-| Migration bound | Value |
-| --- | --- |
-| Deadline per statement | 60 seconds |
-| Lock wait per attempt | At most two seconds, so a queued schema change never stalls other sessions' readers for longer |
-| Lock-contention budget across retried attempts | 5 minutes (an attempt that starts inside the budget runs to its end) |
-
-A start with pending migrations can therefore take longer than
-`--wait-seconds`; `upgrade --apply` still caps its whole managed start at 15
-minutes.
-
-| `db start` exit status | Meaning |
-| --- | --- |
-| 75 | Another session's locks outlasted the migration budget; nothing is applied, and `db start` prints its message with `(reason: schema_busy)`. See [Schema migration reports `schema_busy`](TROUBLESHOOTING.md#schema-migration-reports-schema_busy) |
-| 1 | Every other `db start` failure |
-
-### Compaction
-
-- `db compact` is a dry run unless `--apply --confirm compact-online-indexes` is
-  supplied; with `pgstattuple` installed it selects only B-trees whose measured
-  reclaim reaches `--minimum-reclaimable-bytes` (default 64 MiB), and otherwise
-  falls back to size.
-- `db compact --heap` is a separate reclaimable-heap/TOAST plan; apply requires
-  `--confirm compact-heap-relations`, no live operation leases, and accepts the
-  `ACCESS EXCLUSIVE` lock taken by one bounded `VACUUM FULL` at a time.
-- Managed mode always verifies filesystem headroom and rejects an operator
-  override, while external PostgreSQL requires `--available-headroom-bytes` and
-  an installed `pgstattuple` extension.
-
-See [PostgreSQL operations](STORAGE-BACKENDS.md).
-
-### Managed container port and resources
-
-Without an explicit `--port` or `CARTOGRAPH_MANAGED_DATABASE_PORT`, managed
-commands inspect the deterministic project-owned container and reuse its actual
-loopback port before falling back to `55432`.
-
-New/replaced containers use:
-
-| Resource | Setting |
-| --- | --- |
-| Docker shared memory | 256 MiB reserved |
-| Memory | 2 GiB hard limit with a 1 GiB reservation |
-| CPUs and processes | Limited to four CPUs and 256 processes |
-| PostgreSQL memory and parallel workers | Bounded settings |
-| Checkpoint interval | 15 minutes |
-| Soft maximum WAL size | 2 GiB (`max_wal_size=2GB`) |
-| Recycled-WAL floor | 256 MiB (`min_wal_size=256MB`) |
-| WAL compression | `wal_compression=lz4` |
-
-The checkpoint and WAL settings absorb bursty immutable-generation publication
-without repeated 1 GiB WAL checkpoints; durability remains fully synchronous.
-Because an idle database does not checkpoint retained WAL away,
-`max_wal_size` is also each project's steady-state WAL footprint; lz4
-compression offsets the extra full-page images the smaller cap causes.
-Containers created before v2.1.33 used a 4 GiB soft maximum WAL size and a
-512 MiB recycled-WAL floor.
-
-- Structured `db status` reports `postgres_settings` as `current`, `outdated`,
-  or `absent` (no managed container exists). An `outdated` container keeps
-  working; `doctor` warns, and after a backup the confirmed `db upgrade`
-  replaces it with the current settings while keeping the data volume.
-- `doctor`, MCP preflight, and structured `db status` report both HNSW
-  shared-memory and resource-policy compatibility. Older containers require
-  backup plus the confirmed managed upgrade; status inspection never recreates
-  them.
-
-### Storage totals in `status`
-
-`status` includes compact allocated database/schema/heap/index/TOAST totals in
-readable IEC units such as MiB and GiB. Structured JSON retains exact `*Bytes`
-integers and adds `databaseStorage.humanReadable` display strings; `db usage`
-retains the relation, cache, generation, and maintenance detail.
+Migration rebuilds source facts, verifies current native evidence, and records
+a completion marker. It preserves old PostgreSQL resources; legacy-only user
+state is not imported. Usage is read-only and does not initialize absent native
+storage. It reports file allocation, SST, WAL, memtables, and pending compaction
+separately from logical records.
+
+Pruning is bounded, resumable, and protects current readers. Inspect phase
+errors/deferred work before repeating it. `--maximum-deletions` admits 1..100,
+`--keep-superseded` admits 0..32, and `--maximum-cascade-rows` admits 1..10000.
+Automatic reconciliation also attempts smaller maintenance batches. Physical
+reclamation depends on later native compaction.
+
+Managed PostgreSQL lifecycle, SQL queries, v1 database imports, and SQL index
+compaction are retired. No online checkpoint/restore CLI is implemented yet.
+See [storage](STORAGE-BACKENDS.md) for ownership, bounds, and current limits.
 
 ### Biomarker statistics
 
@@ -811,11 +421,11 @@ replaces it.
 | `state: unavailable` with `reason: timeout` or `reason: database_error` | Remains reserved for a storage read that genuinely failed |
 
 `cartograph admin biomarkers-refresh` is dry-run-first. Execute mode requires
-`--no-dry-run --confirm` and accepts an explicit inner PostgreSQL statement
-timeout through `--database-query-timeout-ms`, from 1 through 1800000. The old
+`--no-dry-run --confirm` and accepts a native operation deadline through
+`--database-query-timeout-ms`, from 1 through 300000. The old
 `--timeout-ms` spelling remains an exclusive compatibility alias. Dry-run and
 execution output report `statementTimeoutMs` and `statementTimeoutSource`; the
-caller deadline must exceed the selected statement timeout.
+caller deadline bounds the operation even when the selected inner timeout is longer.
 
 ### Dead code and digest
 
@@ -890,27 +500,31 @@ processes, and state written by an unsupported newer/older format. Cleanup JSON
 exposes only validated project-relative entry names and stable path-free reason
 codes; unsafe/control-character names are never echoed.
 
-## Database selection
+## Native storage selection
 
-External database settings are environment-only:
-
-```sh
-export CARTOGRAPH_DATABASE_URL='postgresql://<user>:<password>@127.0.0.1:5432/cartograph'
-export CARTOGRAPH_DATABASE_SCHEMA='cartograph_project'
-export CARTOGRAPH_DATABASE_MAX_CONNECTIONS=8
-export CARTOGRAPH_DATABASE_ACQUIRE_TIMEOUT_MS=5000
-```
-
-> [!WARNING]
-> The URL is secret and must not be committed or echoed.
-
-Without an external URL, the project-local managed credential is resolved for a
-database started by `cartograph db start`.
+Every project uses `.cartograph/data` RocksDB 11.8.1. `storageBackend` is a
+verified migration marker, not an optional backend. Retired database flags are
+rejected, and old PostgreSQL environment variables do not choose a runtime.
+One primary owns a project; Unix CLI/MCP clients route to the active MCP owner.
+Windows currently requires closing the other primary before a new process opens
+that project. Never delete locks or state to bypass ownership.
 
 ## Exit and error behavior
 
-Invalid inputs, missing capabilities, stale/lost lease fences, unavailable
+Invalid inputs, missing capabilities, stale revision or ownership fences, unavailable
 database/source/Git state, and operation failures return nonzero. Public errors
 omit database URLs, query text, source literals, and absolute project paths.
 Machine consumers should inspect JSON fields and stable MCP error codes rather
 than parse human prose.
+
+### Persistent project owner
+
+`cartograph watch --project-path .` keeps the existing RocksDB owner, watcher,
+and bounded maintenance alive independently of MCP stdin on Unix. SIGINT and
+SIGTERM drain admitted requests, watcher work, and native storage before exit.
+On macOS, `cartograph service start --project-path .` registers the invoking
+executable with launchd at login. `service status` reports private registration,
+loaded state, and IPC availability separately. `service stop` stops only that
+project's verified owned service and removes its login registration. An existing
+owner keeps the primary; launchd retries after it exits. Additional CLI/MCP
+processes retain their own authorization ceilings when using the owner.

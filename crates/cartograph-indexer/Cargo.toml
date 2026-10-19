@@ -22,10 +22,7 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-cartograph-test-support.workspace = true
 cartograph-config.workspace = true
-sqlx-core.workspace = true
-sqlx-postgres.workspace = true
 tempfile.workspace = true
 
 [[bench]]

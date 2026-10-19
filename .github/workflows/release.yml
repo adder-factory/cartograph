@@ -3,8 +3,8 @@
 # manifest. This workflow verifies that immutable evidence, then performs only
 # the four release-specific native builds, archive audits, provenance, and
 # publication.
-# PostgreSQL, ParadeDB, and pgvector are external runtime services and are never
-# bundled in these archives.
+# RocksDB and its selected native codecs are linked into the executable;
+# archives include the audited native dependency notices and licenses.
 name: release
 
 on:
@@ -137,9 +137,9 @@ jobs:
                 "windows-portability",
                 "macos-portability",
                 "linux-release-portability",
-                "paradedb/database",
-                "paradedb/runtime",
-                "paradedb/operations"
+                "rocksdb/database",
+                "rocksdb/runtime",
+                "rocksdb/operations"
               ]
             ' "$manifest" >/dev/null
           echo "Verified exact-SHA green main evidence from run $GATE_RUN_ID"

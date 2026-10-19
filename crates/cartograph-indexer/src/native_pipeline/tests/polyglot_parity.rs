@@ -177,7 +177,7 @@ async fn dense_generated_go_constants_still_build_a_generation() {
     assert_eq!(call.target_symbol_id.as_ref(), Some(&helper.symbol_id));
     drop(cancellation);
     let task_report = tasks
-        .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
+        .close_abort_and_reap_retained(Instant::now() + TEST_TIMEOUT)
         .await;
     assert!(task_report.all_joined);
     assert!(!task_report.worker_failed);

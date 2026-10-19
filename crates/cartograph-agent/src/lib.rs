@@ -1,59 +1,40 @@
-//! Stable project runtime for the Rust/PostgreSQL Cartograph product.
+//! Stable project runtime for the native `RocksDB` Cartograph product.
 //!
 //! This crate owns project identity, freshness, bounded worker selection, and
 //! the complete source-to-publication operation. CLI and MCP adapters consume
 //! this public service instead of reaching into database or indexer internals.
 
 #[cfg(test)]
-use cartograph_test_support as _;
-#[cfg(test)]
 use sha2 as _;
-#[cfg(test)]
-use sqlx_core as _;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions},
     io::{self, Read},
     path::{Path, PathBuf},
-    process,
     sync::{
-        Arc, OnceLock, RwLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
-use cartograph_config::DatabaseSettings;
-use cartograph_config::{
-    ProjectConfigError, ProjectGenerationStorage, ProjectSourceSettings,
-    load_project_source_settings,
-};
-use cartograph_db::NativeGenerationSpillReport;
+use cartograph_config::{ProjectConfigError, ProjectSourceSettings, load_project_source_settings};
 use cartograph_db::{
-    CartographDatabase, GenerationContents, GenerationRecoveryRequest, GenerationRetentionAttempt,
-    GenerationRetentionPolicy, GenerationRetentionReport, GenerationRetentionRequest,
-    HistoryRefreshReport, IssueHistoryRefreshReport, LeaseError, LeaseRequest, LeaseTarget,
-    MigrationError, NativeGenerationSpillPolicy, NativeParseCacheRetentionPolicy,
-    NativeParseCacheRetentionReport, NativeParseCacheRetentionRequest, NewGeneration, NewProject,
-    PostRetentionMaintenancePolicy, ProjectLease, ProjectSnapshot, SpilledGenerationContents,
-    StagedGeneration,
+    CartographDatabase, HistoryRefreshReport, IssueHistoryRefreshReport, ProjectSnapshot,
 };
 use cartograph_domain::{
-    ContentDigest, GenerationDigestVersion, NormalizedPath, ProjectId, ProjectOperation,
-    SourceLanguage, SourceManifestDigestBuilder, project_root_identity,
+    ContentDigest, GenerationDigestVersion, NormalizedPath, ProjectId, SourceManifestDigestBuilder,
+    project_root_identity,
 };
 use cartograph_extract::{
     DiscoveryLimits, DiscoveryPolicy, NestedRepositoryPolicy, SourceDiscoveryOptions, SourceLimits,
-    SourceReadError, SourceReadOptions, SourceRoot,
+    SourceRoot,
 };
 use cartograph_indexer::{
-    IndexerSupervisor, NativeGenerationBuild, NativeGenerationStorage, NativeParseCache,
-    NativePipelineConfig, NativePipelineDeadlines, NativePipelineLimits, NativePipelineParallelism,
-    NativePipelineReport, NativeRetainedLimits, PipelineFailure, PipelineStageTiming,
-    ScipOverlayInput, StageCapacity, SupervisorConfig, SupervisorContext, SupervisorRequest,
-    build_native_generation_spilled, build_native_generation_with_scip_and_cache,
-    native_parse_cache_contract_digest,
+    NativeBuildProgress, NativeGenerationStorage, NativePipelineConfig, NativePipelineDeadlines,
+    NativePipelineLimits, NativePipelineParallelism, NativePipelineReport, NativeRetainedLimits,
+    PipelineStageTiming, ScipOverlayInput, StageCapacity,
 };
 pub use cartograph_indexer::{
     PipelineFailureReason, PipelineFileFailure, PipelineStage, SupervisorState, SupervisorStatus,
@@ -61,12 +42,7 @@ pub use cartograph_indexer::{
 use cartograph_scip::ScipOverlayReport;
 use serde::Serialize;
 use thiserror::Error;
-use tokio::sync::{Semaphore, oneshot, watch};
-use tokio::task::JoinHandle;
-
-use index_failure::{
-    StagingPreflight, SupervisorFailureContext, recover_abandoned_staging, supervisor_index_failure,
-};
+use tokio::sync::{Semaphore, watch};
 
 mod compare;
 mod coverage;
@@ -82,14 +58,17 @@ mod embeddings;
 mod git_intelligence;
 mod history;
 mod imports;
-mod index_admission;
-mod index_failure;
 mod issue_history;
 mod layering;
 mod navigation;
 mod rename;
 mod retrieval;
 mod review;
+mod rocks;
+pub use rocks::{
+    RocksIndexOptions, RocksIndexReport, RocksMaintenanceReport, RocksProjectError,
+    RocksProjectRuntime, RocksQuery, RocksQueryResult, RocksStatus,
+};
 mod scip_interchange;
 mod source_context;
 mod source_search;
@@ -175,7 +154,6 @@ pub use verification::{VerificationCommand, VerificationPlan};
 pub use working_tree::WorkingTreeOverlayRequest;
 
 const PROJECT_IDENTITY_DOMAIN: &[u8] = b"cartograph-v2-project-root-v1";
-const PROCESS_OWNER_DOMAIN: &[u8] = b"cartograph-v2-process-owner-v1";
 const SOURCE_SCIP_OVERLAY_DOMAIN: &[u8] = b"cartograph-v2-source-scip-overlay-v1";
 const SOURCE_INDEX_POLICY_DOMAIN: &[u8] = b"cartograph-v2-source-index-policy-v3";
 const SCIP_OVERLAY_RELATIVE_PATH: &str = ".cartograph/scip/overlay.scip";
@@ -188,12 +166,6 @@ const DEFAULT_MAX_PATH_BYTES: u64 = 256 * 1024 * 1024;
 const DEFAULT_MAX_SOURCE_BYTES: usize = 32 * 1024 * 1024;
 const DEFAULT_MAX_MANIFEST_BYTES: u64 = 256 * 1024 * 1024;
 const DEFAULT_MAX_GENERATION_BYTES: u64 = 1024 * 1024 * 1024;
-const AUTO_SPILL_MINIMUM_FILES: usize = 10_000;
-const AUTO_SPILL_MINIMUM_CARGO_MANIFESTS: usize = 64;
-const AUTO_SPILL_MINIMUM_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
-const AUTO_SPILL_EXPANSION_FACTOR: u64 = 16;
-const DEFAULT_MAX_SUPERVISOR_BYTES: u64 = 6 * 1024 * 1024 * 1024;
-const DEFAULT_MAX_SUPERVISOR_TASKS: usize = 128;
 const MAX_CONFIGURED_WORKERS: u16 = 16;
 const MAX_CONCURRENT_SOURCE_SCANS: usize = 1;
 const SINGLE_WORKER_MAX_FILES: usize = 8;
@@ -210,23 +182,7 @@ const FOUR_WORKERS: u16 = 4;
 const EIGHT_WORKERS: u16 = 8;
 const DEFAULT_ITEM_TIMEOUT: Duration = Duration::from_mins(5);
 const DEFAULT_STAGE_TIMEOUT: Duration = Duration::from_mins(90);
-const DEFAULT_OPERATION_TIMEOUT: Duration = Duration::from_hours(2);
-const DEFAULT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-const DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(5);
-const DEFAULT_PROGRESS_TIMEOUT: Duration = Duration::from_mins(10);
 const DEFAULT_CANCELLATION_GRACE: Duration = Duration::from_secs(10);
-const DEFAULT_COPY_TIMEOUT: Duration = Duration::from_mins(3);
-const DEFAULT_LEASE_DURATION: Duration = Duration::from_mins(5);
-const DEFAULT_STAGING_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
-const MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS: usize = 2;
-const AUTOMATIC_RETENTION_KEEP_SUPERSEDED: u32 = 2;
-const AUTOMATIC_RETENTION_MAXIMUM_DELETIONS: u32 = 32;
-const AUTOMATIC_RETENTION_LEASE_DURATION: Duration = Duration::from_mins(2);
-const AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
-const AUTOMATIC_RETENTION_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
-const AUTOMATIC_RETENTION_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
-const AUTOMATIC_RETENTION_MAINTENANCE: PostRetentionMaintenancePolicy =
-    PostRetentionMaintenancePolicy::DelegateToAutovacuum;
 const OVERSIZED_SOURCE_DIGEST_DOMAIN: &[u8] = b"cartograph-v2-oversized-source-v1";
 
 pub(crate) fn trim_ascii_bytes(value: &[u8]) -> &[u8] {
@@ -450,8 +406,6 @@ pub struct NativeIndexMetrics {
     pub parse_cache: NativeParseCacheMetrics,
     /// Working-set strategy selected for native construction.
     pub generation_storage: NativeGenerationStorageMetrics,
-    /// Fixed-size durable spill accounting, absent for memory construction.
-    pub spill: Option<NativeGenerationSpillMetrics>,
 }
 
 /// One source file retained as partial instead of aborting its generation.
@@ -471,24 +425,6 @@ pub enum NativeGenerationStorageMetrics {
     /// Complete generation canonicalization stayed in Rust memory.
     #[default]
     Memory,
-    /// Bulky extraction and resolved facts were reduced in PostgreSQL.
-    Postgres,
-}
-
-/// Fixed-size quota and admitted-row evidence for PostgreSQL generation spill.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NativeGenerationSpillMetrics {
-    /// Sort-key plus serialized payload bytes admitted before canonical reduction.
-    pub logical_bytes: u64,
-    /// Raw extraction and fact rows admitted.
-    pub raw_rows: u64,
-    /// File-local extraction payloads durably retained.
-    pub extracted_files: u64,
-    /// Configured logical spill byte quota.
-    pub maximum_bytes: u64,
-    /// Configured raw spill row quota.
-    pub maximum_rows: u64,
 }
 
 /// Exact cache activity proving how much source was reparsed without weakening global resolution.
@@ -548,23 +484,10 @@ impl From<ScipOverlayReport> for ScipOverlayMetrics {
     }
 }
 
-impl From<NativeGenerationSpillReport> for NativeGenerationSpillMetrics {
-    fn from(spill: NativeGenerationSpillReport) -> Self {
-        Self {
-            logical_bytes: spill.logical_bytes,
-            raw_rows: spill.raw_rows,
-            extracted_files: spill.extracted_files,
-            maximum_bytes: spill.maximum_bytes,
-            maximum_rows: spill.maximum_rows,
-        }
-    }
-}
-
 struct NativeAuxiliaryMetrics {
     scip_overlay: Option<ScipOverlayMetrics>,
     parse_cache: NativeParseCacheMetrics,
     generation_storage: NativeGenerationStorageMetrics,
-    spill: Option<NativeGenerationSpillMetrics>,
 }
 
 impl From<&NativePipelineReport> for NativeAuxiliaryMetrics {
@@ -583,7 +506,6 @@ impl From<&NativePipelineReport> for NativeAuxiliaryMetrics {
                 write_errors: cache.write_errors(),
             },
             generation_storage: report.storage().into(),
-            spill: report.spill().map(NativeGenerationSpillMetrics::from),
         }
     }
 }
@@ -592,7 +514,6 @@ impl From<NativeGenerationStorage> for NativeGenerationStorageMetrics {
     fn from(storage: NativeGenerationStorage) -> Self {
         match storage {
             NativeGenerationStorage::Memory => Self::Memory,
-            NativeGenerationStorage::PostgreSql => Self::Postgres,
         }
     }
 }
@@ -626,7 +547,6 @@ impl From<NativePipelineReport> for NativeIndexMetrics {
             scip_overlay: auxiliary.scip_overlay,
             parse_cache: auxiliary.parse_cache,
             generation_storage: auxiliary.generation_storage,
-            spill: auxiliary.spill,
         }
     }
 }
@@ -634,6 +554,9 @@ impl From<NativePipelineReport> for NativeIndexMetrics {
 /// Terminal result for an index request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct IndexReport {
+    /// Complete file-local replacements that reused proven resolution inputs.
+    /// Zero identifies a full build or an unchanged reconciliation.
+    pub incremental_files: u16,
     /// Stable project identity.
     pub project_id: ProjectId,
     /// Visible immutable generation identity.
@@ -697,58 +620,22 @@ pub enum IndexPublication {
     },
 }
 
-/// Automatic bounded generation-retention outcome attached to every successful index request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// Independent bounded native retention outcomes attached to every successful request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum GenerationRetentionStatus {
-    /// A bounded cleanup transaction committed under an exact migration lease.
-    Completed {
-        /// Generation rows removed or preserved by the retention transaction.
-        report: GenerationRetentionReport,
-        /// Parse-cache rows removed or preserved under the same lease.
-        parse_cache: NativeParseCacheRetentionReport,
-    },
-    /// Cleanup committed, but releasing its bounded lease could not be confirmed.
-    CompletedWithWarning {
-        /// Generation rows removed or preserved by the committed transaction.
-        report: GenerationRetentionReport,
-        /// Parse-cache retention report, absent when that phase did not complete.
-        parse_cache: Option<NativeParseCacheRetentionReport>,
-        /// Stable warning describing the unconfirmed lease-release outcome.
-        warning: &'static str,
-    },
-    /// Cache eviction committed independently while generation cleanup failed.
-    CacheOnly {
-        /// Committed cache progress; generation rows were not removed.
-        parse_cache: NativeParseCacheRetentionReport,
-        /// Stable generation-cleanup failure label.
-        reason: &'static str,
-        /// Whether the migration lease release was confirmed.
-        lease_released: bool,
-    },
-    /// Cleanup was safely deferred because another writer won or storage was unavailable.
-    Deferred {
-        /// Stable reason the bounded cleanup could not safely start.
-        reason: &'static str,
-        /// Whether a later bounded index/prune attempt may safely retry.
-        retryable: bool,
-        /// Whether `admin unlock` can change this historical report.
-        unlock_applicable: bool,
-        /// Stable operator action for this outcome.
-        next_action: &'static str,
+    /// Each maintenance phase reports its own committed progress or failure.
+    Attempted {
+        /// Graph, extraction-cache and auxiliary cleanup outcomes.
+        report: RocksMaintenanceReport,
     },
 }
-
 impl GenerationRetentionStatus {
-    /// Whether a background maintenance owner should back off and retry later.
-    /// Normal bounded progress is retried at its regular cadence.
+    /// Whether background maintenance should retry after backoff.
     #[must_use]
     pub fn maintenance_failed(&self) -> bool {
         match self {
-            Self::Completed { report, .. } => report.maintenance_failed(),
-            Self::CompletedWithWarning { .. } | Self::CacheOnly { .. } | Self::Deferred { .. } => {
-                true
-            }
+            Self::Attempted { report } => report.maintenance_failed(),
         }
     }
 }
@@ -759,6 +646,9 @@ impl GenerationRetentionStatus {
 pub struct IndexProfile {
     /// Source manifest comparison plus generation staging.
     pub preparation_millis: u64,
+    /// Complete byte-hashed manifest was reused by the full native pipeline.
+    /// Discovery time is included in preparation instead of a second scan.
+    pub source_manifest_reused: bool,
     /// Supervisor-owned extraction, COPY, derived-index, and publication time.
     pub pipeline_millis: u64,
     /// Per-stage timings in exact native pipeline order.
@@ -834,7 +724,7 @@ pub struct ProjectSourceIdentity {
 #[derive(Clone)]
 pub struct ProjectCancellation {
     sender: watch::Sender<bool>,
-    index_supervisor: Arc<RwLock<Option<IndexerSupervisor>>>,
+    index_supervisor: Arc<RwLock<Option<NativeBuildProgress>>>,
     reserved_generation: Arc<RwLock<Option<ReservedIndexGeneration>>>,
 }
 
@@ -907,7 +797,7 @@ impl ProjectCancellation {
         Some(supervisor.status().await)
     }
 
-    fn attach_index_supervisor(&self, supervisor: IndexerSupervisor) {
+    fn attach_index_supervisor(&self, supervisor: NativeBuildProgress) {
         if let Ok(mut attached) = self.index_supervisor.write() {
             *attached = Some(supervisor);
         }
@@ -924,30 +814,12 @@ impl ProjectCancellation {
             .ok()
             .and_then(|reserved| reserved.clone())
     }
-
-    fn record_reserved_generation(&self, reserved: ReservedIndexGeneration) {
-        if let Ok(mut recorded) = self.reserved_generation.write() {
-            *recorded = Some(reserved);
-        }
-    }
 }
 
 impl Default for ProjectCancellation {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// PostgreSQL-backed service for one canonical project root.
-pub struct ProjectRuntime {
-    root: PathBuf,
-    root_identity: String,
-    repository_fingerprint: ContentDigest,
-    database: CartographDatabase,
-    source_scan_permits: Arc<Semaphore>,
-    source_scans: Arc<SourceScanCounters>,
-    /// Set once this runtime attempted to backfill legacy generation counts.
-    fact_count_backfill_attempted: Arc<AtomicBool>,
 }
 
 /// Saturating counters shared by every source scan of one runtime.
@@ -965,1813 +837,6 @@ fn saturating_increment(counter: &AtomicU64) {
     });
 }
 
-struct AbortTaskOnDrop {
-    handle: Option<JoinHandle<()>>,
-}
-
-impl AbortTaskOnDrop {
-    fn new(handle: JoinHandle<()>) -> Self {
-        Self {
-            handle: Some(handle),
-        }
-    }
-
-    async fn abort_and_reap(mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-            let _reaped = handle.await;
-        }
-    }
-}
-
-impl Drop for AbortTaskOnDrop {
-    fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct IndexEnrichmentPolicy {
-    refresh_history: bool,
-    history_enabled: bool,
-    history_channels: HistoryEnrichmentChannels,
-    issue_history_enabled: bool,
-}
-
-#[derive(Clone, Copy)]
-struct HistoryEnrichmentChannels {
-    churn: bool,
-    co_change: bool,
-}
-
-struct TimedHistoryPreparation {
-    result: Result<history::PreparedHistoryIndex, HistoryIndexError>,
-    elapsed_millis: u64,
-}
-
-struct TimedIssueHistoryPreparation {
-    result: Result<issue_history::PreparedIssueHistory, IssueHistoryIndexError>,
-    elapsed_millis: u64,
-}
-
-struct IndexCompletion {
-    report: IndexReport,
-    history: Option<TimedHistoryPreparation>,
-    issue_history: Option<TimedIssueHistoryPreparation>,
-    policy: IndexEnrichmentPolicy,
-    operation_started: Instant,
-}
-
-struct IndexSourceReconciliation<'report> {
-    options: &'report IndexOptions,
-    published: &'report PublishedAttempt,
-    cancellation: ProjectCancellation,
-}
-
-/// One attempt's newly published generation and the run-scoped exclusions it recorded.
-struct PublishedAttempt {
-    report: IndexReport,
-    run_excludes: Vec<String>,
-}
-
-enum IndexAttemptOutcome {
-    Complete(IndexReport),
-    Published(PublishedAttempt),
-}
-
-fn index_enrichment_policy(
-    options: &IndexOptions,
-    source_settings: &ProjectSourceSettings,
-) -> IndexEnrichmentPolicy {
-    let churn_enabled = source_settings.enable_churn();
-    let co_change_enabled = source_settings.enable_co_change();
-    IndexEnrichmentPolicy {
-        refresh_history: options.refresh_history,
-        history_enabled: options.refresh_history && (churn_enabled || co_change_enabled),
-        history_channels: HistoryEnrichmentChannels {
-            churn: churn_enabled,
-            co_change: co_change_enabled,
-        },
-        issue_history_enabled: options.refresh_history && source_settings.enable_issue_history(),
-    }
-}
-
-/// The answer an index attempt gives before reserving a generation, if any:
-/// an unchanged checkout returns its no-op without needing a lease, and a
-/// changed one must not reserve a generation that another live writer's lease
-/// would reject.
-fn index_preflight_outcome(
-    source: &PreparedIndexSource,
-    options: &IndexOptions,
-) -> Option<Result<IndexPreparation, ProjectError>> {
-    if let Some(unchanged) = unchanged_index_preparation(UnchangedIndexInput {
-        prior: source.prior.as_ref(),
-        source: &source.source,
-        options,
-        effective_run_excludes: &source.effective_run_excludes,
-        maximum_ast_depth: source.index_policy.maximum_ast_depth,
-    }) {
-        return Some(Ok(unchanged));
-    }
-    (source.staging == StagingPreflight::ProjectBusy).then_some(Err(ProjectError::IndexLeaseBusy))
-}
-
-/// A project's first index, before any generation is published.
-struct FirstIndexStaging<'a> {
-    database: &'a CartographDatabase,
-    project_id: &'a ProjectId,
-    /// Whether a prior snapshot already ran the abandoned-staging preflight.
-    has_prior: bool,
-}
-
-/// Recover abandoned staging rows before a project's first reservation;
-/// another live writer makes the attempt `IndexLeaseBusy` instead.
-async fn recover_first_index_staging(input: FirstIndexStaging<'_>) -> Result<(), ProjectError> {
-    if input.has_prior {
-        return Ok(());
-    }
-    let preflight = recover_abandoned_staging(
-        input.database,
-        input.project_id,
-        DEFAULT_STAGING_CLEANUP_TIMEOUT,
-    )
-    .await?;
-    (preflight != StagingPreflight::ProjectBusy).ok_or(ProjectError::IndexLeaseBusy)
-}
-
-async fn run_core_index(
-    runtime: &ProjectRuntime,
-    options: IndexOptions,
-    cancellation: ProjectCancellation,
-) -> Result<IndexReport, IndexFailure> {
-    for attempt in 0..=MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS {
-        let published =
-            match run_core_index_attempt(runtime, &options, cancellation.clone()).await? {
-                IndexAttemptOutcome::Complete(report) => return Ok(report),
-                IndexAttemptOutcome::Published(published) => published,
-            };
-        let observation = index_report_matches_live_source(
-            runtime,
-            IndexSourceReconciliation {
-                options: &options,
-                published: &published,
-                cancellation: cancellation.clone(),
-            },
-        )
-        .await;
-        let observed = match observation {
-            Ok(matched) => Some(matched),
-            Err(_) if options.source_drift == SourceDriftPolicy::ReportPublished => None,
-            Err(error) => return Err(error.into()),
-        };
-        let mut report = published.report;
-        match source_reconciliation_step(SourceReconciliationInput {
-            policy: options.source_drift,
-            observed,
-            cancelled: cancellation.is_cancelled(),
-            final_attempt: attempt == MAXIMUM_SOURCE_RECONCILIATION_ATTEMPTS,
-        }) {
-            SourceReconciliationStep::Finish(live_source) => {
-                report.live_source = live_source;
-                report.retention = runtime
-                    .maintain_generation_retention(
-                        &report.project_id,
-                        &report.parse_cache_contract_digest,
-                    )
-                    .await;
-                return Ok(report);
-            }
-            SourceReconciliationStep::Cancelled => {
-                return Err(ProjectError::RequestCancelled.into());
-            }
-            SourceReconciliationStep::Exhausted => {
-                return Err(ProjectError::SourceChangedDuringIndex.into());
-            }
-            SourceReconciliationStep::Rebuild => {}
-        }
-    }
-    Err(ProjectError::SourceChangedDuringIndex.into())
-}
-
-/// Evidence gathered after one attempt published a generation.
-#[derive(Clone, Copy)]
-struct SourceReconciliationInput {
-    policy: SourceDriftPolicy,
-    /// Whether the live checkout matched; `None` when the single-publication
-    /// check could not run to completion.
-    observed: Option<bool>,
-    cancelled: bool,
-    final_attempt: bool,
-}
-
-/// What a published attempt does next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SourceReconciliationStep {
-    /// Return the published report with this live-source agreement.
-    Finish(IndexLiveSource),
-    /// Cancellation won before a rebuild could start.
-    Cancelled,
-    /// Every bounded rebuild observed another change.
-    Exhausted,
-    /// Rebuild from the changed checkout.
-    Rebuild,
-}
-
-/// Decide whether a published attempt returns, rebuilds, or fails. A
-/// single-publication request never rebuilds: the generation it published
-/// stays current, so reporting it, with whatever the post-publication check
-/// observed, is the truthful terminal state even when cancellation arrived
-/// after publication.
-const fn source_reconciliation_step(input: SourceReconciliationInput) -> SourceReconciliationStep {
-    let single_publication = matches!(input.policy, SourceDriftPolicy::ReportPublished);
-    match (input.observed, single_publication) {
-        (Some(true), _) => SourceReconciliationStep::Finish(IndexLiveSource::Matched),
-        (Some(false), true) => {
-            SourceReconciliationStep::Finish(IndexLiveSource::ChangedAfterPublication)
-        }
-        (None, true) => SourceReconciliationStep::Finish(IndexLiveSource::Unverified),
-        _ if input.cancelled => SourceReconciliationStep::Cancelled,
-        _ if input.final_attempt => SourceReconciliationStep::Exhausted,
-        _ => SourceReconciliationStep::Rebuild,
-    }
-}
-
-async fn run_core_index_attempt(
-    runtime: &ProjectRuntime,
-    options: &IndexOptions,
-    cancellation: ProjectCancellation,
-) -> Result<IndexAttemptOutcome, IndexFailure> {
-    let preparation_started = Instant::now();
-    let preparation = runtime
-        .prepare_index(options.clone(), cancellation.clone())
-        .await?;
-    let preparation_millis = monotonic_millis(preparation_started.elapsed());
-    let (mut report, published_run_excludes) = match preparation {
-        IndexPreparation::Unchanged(report) => (*report, None),
-        IndexPreparation::Pending(mut pending) => {
-            let cache_contract =
-                native_parse_cache_contract_digest(pending.index_policy.maximum_ast_depth);
-            let run_excludes = std::mem::take(&mut pending.run_excludes);
-            match runtime
-                .publish_index(*pending, cancellation, options.profile)
-                .await
-            {
-                Ok(report) => (report, Some(run_excludes)),
-                Err(error) => {
-                    if options.failure_retention == IndexFailureRetention::AutomaticFailures {
-                        maintain_failed_generation_retention(runtime, &cache_contract).await;
-                    }
-                    return Err(error);
-                }
-            }
-        }
-    };
-    if let Some(profile) = report.profile.as_mut() {
-        profile.preparation_millis = preparation_millis;
-    }
-    if let Some(run_excludes) = published_run_excludes {
-        return Ok(IndexAttemptOutcome::Published(PublishedAttempt {
-            report,
-            run_excludes,
-        }));
-    }
-    // Generations published before counts were persisted gain them once
-    // per process; failure only leaves status on its counting fallback.
-    if !runtime
-        .fact_count_backfill_attempted
-        .swap(true, Ordering::Relaxed)
-    {
-        let _backfilled = runtime
-            .database
-            .backfill_generation_fact_counts(&report.project_id, &report.generation_id)
-            .await;
-    }
-    report.retention = runtime
-        .maintain_generation_retention(&report.project_id, &report.parse_cache_contract_digest)
-        .await;
-    Ok(IndexAttemptOutcome::Complete(report))
-}
-
-/// Rescan with the admission policy the published generation recorded. An
-/// inherited (`PreserveCurrent`) exclusion list is part of that policy even
-/// when this request supplied no exclusions itself; scanning without it would
-/// report every excluded file as a source change.
-async fn index_report_matches_live_source(
-    runtime: &ProjectRuntime,
-    reconciliation: IndexSourceReconciliation<'_>,
-) -> Result<bool, ProjectError> {
-    let IndexSourceReconciliation {
-        options,
-        published,
-        cancellation,
-    } = reconciliation;
-    let report = &published.report;
-    let source_policy =
-        project_source_policy_with_excludes(&runtime.root, &published.run_excludes)?;
-    let max_source_bytes = options
-        .max_source_bytes
-        .or(source_policy.maximum_file_bytes)
-        .unwrap_or(DEFAULT_MAX_SOURCE_BYTES);
-    let source = runtime
-        .scan_source_for_index(IndexSourceScan {
-            cancellation,
-            max_source_bytes,
-            discovery_policy: source_policy.discovery,
-            index_policy: source_policy.index,
-        })
-        .await?;
-    Ok(source.digest == report.source_revision)
-}
-
-async fn prepare_optional_history(
-    runtime: &ProjectRuntime,
-    policy: IndexEnrichmentPolicy,
-    cancellation: ProjectCancellation,
-) -> Option<TimedHistoryPreparation> {
-    if !policy.history_enabled {
-        return None;
-    }
-    let started = Instant::now();
-    let result = runtime
-        .prepare_git_history_reusing(
-            HistoryIndexOptions::default(),
-            (
-                policy.history_channels.churn,
-                policy.history_channels.co_change,
-            ),
-            cancellation,
-        )
-        .await;
-    Some(TimedHistoryPreparation {
-        result,
-        elapsed_millis: monotonic_millis(started.elapsed()),
-    })
-}
-
-async fn prepare_optional_issue_history(
-    runtime: &ProjectRuntime,
-    policy: IndexEnrichmentPolicy,
-    cancellation: ProjectCancellation,
-) -> Option<TimedIssueHistoryPreparation> {
-    if !policy.issue_history_enabled {
-        return None;
-    }
-    let started = Instant::now();
-    let result = runtime
-        .prepare_issue_history(IssueHistoryIndexOptions::default(), cancellation)
-        .await;
-    Some(TimedIssueHistoryPreparation {
-        result,
-        elapsed_millis: monotonic_millis(started.elapsed()),
-    })
-}
-
-async fn finalize_index_completion(
-    runtime: &ProjectRuntime,
-    completion: IndexCompletion,
-) -> IndexReport {
-    let mut report = completion.report;
-    if let Some(history) = completion.history {
-        report = runtime.attach_history(report, history.result).await;
-        if let Some(profile) = report.profile.as_mut() {
-            profile.history_millis = history.elapsed_millis;
-        }
-    } else if completion.policy.refresh_history && !completion.policy.history_enabled {
-        report.history = match runtime
-            .database
-            .clear_file_history(&report.project_id)
-            .await
-        {
-            Ok(()) => HistoryIndexStatus::Unavailable {
-                reason: "disabled_by_project_config",
-            },
-            Err(_) => HistoryIndexStatus::Unavailable {
-                reason: "storage_unavailable",
-            },
-        };
-    }
-    if let Some(issue_history) = completion.issue_history {
-        report = runtime
-            .attach_issue_history(report, issue_history.result)
-            .await;
-        if let Some(profile) = report.profile.as_mut() {
-            profile.issue_history_millis = issue_history.elapsed_millis;
-        }
-    } else if completion.policy.refresh_history {
-        report.issue_history = match runtime
-            .database
-            .clear_issue_history(&report.project_id, &report.generation_id)
-            .await
-        {
-            Ok(()) => IssueHistoryIndexStatus::Unavailable {
-                reason: "disabled_by_project_config",
-            },
-            Err(_) => IssueHistoryIndexStatus::Unavailable {
-                reason: "storage_unavailable",
-            },
-        };
-    }
-    if let Some(profile) = report.profile.as_mut() {
-        profile.total_millis = monotonic_millis(completion.operation_started.elapsed());
-    }
-    report
-}
-
-async fn cancellable_project_read<T>(
-    cancellation: &ProjectCancellation,
-    operation: impl Future<Output = Result<T, ProjectError>>,
-) -> Result<T, ProjectError> {
-    tokio::select! {
-        biased;
-        () = cancellation.cancelled() => Err(ProjectError::RequestCancelled),
-        result = operation => result,
-    }
-}
-
-async fn project_status_with_cancellation(
-    runtime: &ProjectRuntime,
-    cancellation: ProjectCancellation,
-) -> Result<ProjectStatus, ProjectError> {
-    let before = cancellable_project_read(&cancellation, async {
-        runtime
-            .database
-            .project_snapshot_by_root(&runtime.root_identity)
-            .await
-            .map_err(|_| ProjectError::StatusFailed)
-    })
-    .await?;
-    let run_excludes = before
-        .as_ref()
-        .and_then(|project| project.current.as_ref())
-        .map_or(&[][..], |current| current.source_admission.run_excludes());
-    let mut source = runtime
-        .scan_source_with_excludes(None, run_excludes, cancellation.clone())
-        .await?;
-    if cancellation.is_cancelled() {
-        return Err(ProjectError::RequestCancelled);
-    }
-    let mut snapshot = cancellable_project_read(&cancellation, async {
-        runtime
-            .database
-            .project_snapshot_by_root(&runtime.root_identity)
-            .await
-            .map_err(|_| ProjectError::StatusFailed)
-    })
-    .await?;
-    let stable_basis = same_status_source_basis(before.as_ref(), snapshot.as_ref());
-    if !stable_basis {
-        let run_excludes = snapshot
-            .as_ref()
-            .and_then(|project| project.current.as_ref())
-            .map_or(&[][..], |current| current.source_admission.run_excludes());
-        source = runtime
-            .scan_source_with_excludes(None, run_excludes, cancellation.clone())
-            .await?;
-        if cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled);
-        }
-        let observed = cancellable_project_read(&cancellation, async {
-            runtime
-                .database
-                .project_snapshot_by_root(&runtime.root_identity)
-                .await
-                .map_err(|_| ProjectError::StatusFailed)
-        })
-        .await?;
-        if !same_status_source_basis(snapshot.as_ref(), observed.as_ref()) {
-            return Ok(ProjectStatus {
-                snapshot: observed,
-                live_source_revision: source.digest,
-                fresh: false,
-            });
-        }
-        snapshot = observed;
-    }
-    let fresh = snapshot
-        .as_ref()
-        .and_then(|project| project.current.as_ref())
-        .is_some_and(|current| {
-            current.source_revision == source.digest.as_str()
-                && current.digest_version == GenerationDigestVersion::CURRENT
-        });
-    Ok(ProjectStatus {
-        snapshot,
-        live_source_revision: source.digest,
-        fresh,
-    })
-}
-
-fn same_status_source_basis(
-    left: Option<&ProjectSnapshot>,
-    right: Option<&ProjectSnapshot>,
-) -> bool {
-    match (left, right) {
-        (None, None) => true,
-        (Some(left), Some(right)) if left.project_id == right.project_id => {
-            match (left.current.as_ref(), right.current.as_ref()) {
-                (None, None) => true,
-                (Some(left), Some(right)) => {
-                    left.generation_id == right.generation_id
-                        && left.source_admission.run_excludes()
-                            == right.source_admission.run_excludes()
-                }
-                (None, Some(_)) | (Some(_), None) => false,
-            }
-        }
-        _ => false,
-    }
-}
-
-async fn index_project_with_cancellation(
-    runtime: &ProjectRuntime,
-    options: IndexOptions,
-    cancellation: ProjectCancellation,
-) -> Result<IndexReport, IndexFailure> {
-    let operation_started = Instant::now();
-    let source_settings =
-        load_project_source_settings(&runtime.root).map_err(ProjectError::from)?;
-    let policy = index_enrichment_policy(&options, &source_settings);
-    let index = run_core_index(runtime, options, cancellation.clone());
-    let history = prepare_optional_history(runtime, policy, cancellation.clone());
-    let issue_history = prepare_optional_issue_history(runtime, policy, cancellation);
-    let (report, history, issue_history) = tokio::join!(index, history, issue_history);
-    Ok(finalize_index_completion(
-        runtime,
-        IndexCompletion {
-            report: report?,
-            history,
-            issue_history,
-            policy,
-            operation_started,
-        },
-    )
-    .await)
-}
-
-async fn attach_history_result(
-    runtime: &ProjectRuntime,
-    mut report: IndexReport,
-    history: Result<history::PreparedHistoryIndex, HistoryIndexError>,
-) -> IndexReport {
-    report.history = match history {
-        Ok(history) => match runtime
-            .persist_git_history(report.project_id.clone(), history)
-            .await
-        {
-            Ok(history) => HistoryIndexStatus::Indexed { report: history },
-            Err(error) => HistoryIndexStatus::Unavailable {
-                reason: history_unavailable_reason(error),
-            },
-        },
-        Err(error) => HistoryIndexStatus::Unavailable {
-            reason: history_unavailable_reason(error),
-        },
-    };
-    report
-}
-
-async fn attach_issue_history_result(
-    runtime: &ProjectRuntime,
-    mut report: IndexReport,
-    issue_history: Result<issue_history::PreparedIssueHistory, IssueHistoryIndexError>,
-) -> IndexReport {
-    report.issue_history = match issue_history {
-        Ok(issue_history) => match runtime
-            .persist_issue_history(
-                report.project_id.clone(),
-                report.generation_id.clone(),
-                issue_history,
-            )
-            .await
-        {
-            Ok(issue_history) => IssueHistoryIndexStatus::Indexed {
-                report: issue_history,
-            },
-            Err(error) => IssueHistoryIndexStatus::Unavailable {
-                reason: issue_history_unavailable_reason(error),
-            },
-        },
-        Err(error) => IssueHistoryIndexStatus::Unavailable {
-            reason: issue_history_unavailable_reason(error),
-        },
-    };
-    report
-}
-
-async fn maintain_generation_retention(
-    runtime: &ProjectRuntime,
-    project_id: &ProjectId,
-    contract: &ContentDigest,
-) -> GenerationRetentionStatus {
-    let Some(policy) = automatic_retention_policy() else {
-        return GenerationRetentionStatus::Deferred {
-            reason: "invalid_policy",
-            retryable: false,
-            unlock_applicable: false,
-            next_action: "upgrade_or_reconfigure_cartograph",
-        };
-    };
-    let lease = match acquire_retention_lease(runtime, project_id).await {
-        Ok(lease) => lease,
-        Err(error) => return retention_lease_deferral(&error),
-    };
-    let fence = lease.fence();
-    let report = runtime
-        .database
-        .cleanup_generations(
-            GenerationRetentionRequest::new(policy, &fence, AUTOMATIC_RETENTION_STATEMENT_TIMEOUT)
-                .with_post_retention_maintenance(AUTOMATIC_RETENTION_MAINTENANCE),
-        )
-        .await;
-    // This is an independent transaction with its own exact-fence check. A
-    // generation timeout must not suppress eviction of old unpinned contracts.
-    let parse_cache = tokio::time::timeout(
-        AUTOMATIC_RETENTION_STATEMENT_TIMEOUT,
-        runtime
-            .database
-            .cleanup_native_parse_cache(NativeParseCacheRetentionRequest {
-                project_id,
-                protected_contract_digest: contract,
-                policy: NativeParseCacheRetentionPolicy::automatic(),
-                fence: &fence,
-                statement_timeout: AUTOMATIC_RETENTION_STATEMENT_TIMEOUT,
-            }),
-    )
-    .await
-    .ok()
-    .and_then(Result::ok);
-    let recorded = matches!(
-        tokio::time::timeout(
-            AUTOMATIC_RETENTION_RELEASE_TIMEOUT,
-            runtime.database.record_generation_retention_attempt(
-                &fence,
-                GenerationRetentionAttempt::new(&report, parse_cache),
-                AUTOMATIC_RETENTION_RELEASE_TIMEOUT,
-            )
-        )
-        .await,
-        Ok(Ok(()))
-    );
-    let released = runtime
-        .database
-        .release_lease_bounded(&lease, AUTOMATIC_RETENTION_RELEASE_TIMEOUT)
-        .await;
-    generation_retention_outcome(
-        report,
-        parse_cache,
-        RetentionFinalization {
-            lease_released: released.is_ok(),
-            recorded,
-        },
-    )
-}
-
-/// Acquire the short migration lease automatic retention runs under.
-async fn acquire_retention_lease(
-    runtime: &ProjectRuntime,
-    project_id: &ProjectId,
-) -> Result<ProjectLease, LeaseError> {
-    let target = LeaseTarget::new(project_id.clone(), ProjectOperation::Migration, None);
-    runtime
-        .database
-        .acquire_lease_bounded(
-            LeaseRequest::new(target, process_owner(), AUTOMATIC_RETENTION_LEASE_DURATION),
-            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
-        )
-        .await
-}
-
-/// Why retention must wait for a later attempt when its lease is unavailable.
-const fn retention_lease_deferral(error: &LeaseError) -> GenerationRetentionStatus {
-    match error {
-        LeaseError::Busy => GenerationRetentionStatus::Deferred {
-            reason: "project_busy",
-            retryable: true,
-            unlock_applicable: false,
-            next_action: "retry_after_the_active_writer_completes",
-        },
-        _ => GenerationRetentionStatus::Deferred {
-            reason: "lease_unavailable",
-            retryable: true,
-            unlock_applicable: true,
-            next_action: "inspect_leases_then_retry",
-        },
-    }
-}
-
-/// The fixed bounded policy automatic retention applies after a publication.
-fn automatic_retention_policy() -> Option<GenerationRetentionPolicy> {
-    GenerationRetentionPolicy::new(
-        AUTOMATIC_RETENTION_KEEP_SUPERSEDED,
-        AUTOMATIC_RETENTION_MAXIMUM_DELETIONS,
-    )
-    .ok()
-}
-
-#[derive(Clone, Copy)]
-struct RetentionFinalization {
-    lease_released: bool,
-    recorded: bool,
-}
-
-fn generation_retention_outcome(
-    report: Result<GenerationRetentionReport, cartograph_db::GenerationRetentionError>,
-    parse_cache: Option<NativeParseCacheRetentionReport>,
-    finalization: RetentionFinalization,
-) -> GenerationRetentionStatus {
-    let RetentionFinalization {
-        lease_released: released,
-        recorded,
-    } = finalization;
-    match (report, parse_cache, released) {
-        (Ok(report), Some(parse_cache), true) if recorded => GenerationRetentionStatus::Completed {
-            report,
-            parse_cache,
-        },
-        (Ok(report), Some(parse_cache), true) => GenerationRetentionStatus::CompletedWithWarning {
-            report,
-            parse_cache: Some(parse_cache),
-            warning: "maintenance_report_unavailable",
-        },
-        (Ok(report), None, true) => GenerationRetentionStatus::CompletedWithWarning {
-            report,
-            parse_cache: None,
-            warning: "parse_cache_cleanup_unavailable",
-        },
-        (Ok(report), parse_cache, false) => GenerationRetentionStatus::CompletedWithWarning {
-            report,
-            parse_cache,
-            warning: "lease_release_unavailable",
-        },
-        (Err(_), Some(parse_cache), released) => GenerationRetentionStatus::CacheOnly {
-            parse_cache,
-            reason: "generation_cleanup_unavailable",
-            lease_released: released,
-        },
-        (Err(_), None, _) => GenerationRetentionStatus::Deferred {
-            reason: "cleanup_unavailable",
-            retryable: true,
-            unlock_applicable: false,
-            next_action: "rerun_index_or_bounded_prune",
-        },
-    }
-}
-
-/// Whether a bounded retention attempt committed any generation cleanup.
-/// A prior project's terminal-generation backlog, counted and drained through
-/// its runtime for [`index_admission`].
-struct RuntimeTerminalBacklog<'runtime> {
-    runtime: &'runtime ProjectRuntime,
-    project_id: &'runtime ProjectId,
-    /// Bound whose parse-cache contract a drain protects; digested per drain.
-    maximum_ast_depth: usize,
-}
-
-impl index_admission::TerminalBacklog for RuntimeTerminalBacklog<'_> {
-    async fn count(&self) -> Result<u64, ProjectError> {
-        self.runtime
-            .database
-            .generation_retention_backlog(self.project_id, AUTOMATIC_RETENTION_KEEP_SUPERSEDED)
-            .await
-            .map_err(|_| ProjectError::StatusFailed)
-    }
-
-    async fn drain(&self) -> index_admission::BacklogDrain {
-        let contract = native_parse_cache_contract_digest(self.maximum_ast_depth);
-        let retention =
-            maintain_generation_retention(self.runtime, self.project_id, &contract).await;
-        if matches!(
-            retention,
-            GenerationRetentionStatus::Deferred {
-                reason: "project_busy",
-                ..
-            }
-        ) {
-            index_admission::BacklogDrain::ProjectBusy
-        } else {
-            index_admission::BacklogDrain::Attempted
-        }
-    }
-}
-
-async fn maintain_failed_generation_retention(runtime: &ProjectRuntime, contract: &ContentDigest) {
-    let Ok(Some(snapshot)) = runtime
-        .database
-        .project_snapshot_by_root(&runtime.root_identity)
-        .await
-    else {
-        return;
-    };
-    let _status = maintain_generation_retention(runtime, &snapshot.project_id, contract).await;
-}
-
-impl ProjectRuntime {
-    /// Inspect a checkout without connecting to PostgreSQL.
-    /// # Errors
-    ///
-    /// Returns an error when the checkout root cannot be canonicalized as a
-    /// directory or its bounded source/config/SCIP manifest cannot be read safely.
-    pub fn inspect_source_identity(
-        project_root: impl AsRef<Path>,
-    ) -> Result<ProjectSourceIdentity, ProjectError> {
-        let root = std::fs::canonicalize(project_root.as_ref())
-            .map_err(|_| ProjectError::ProjectRootUnavailable)?;
-        if !root.is_dir() {
-            return Err(ProjectError::ProjectRootUnavailable);
-        }
-        let source = source_revision(&root)?;
-        Ok(ProjectSourceIdentity {
-            repository_fingerprint: project_identity_digest(&root),
-            source_revision: source.digest,
-            v1_source_manifest: source.v1_source_manifest,
-            files: source.files,
-            source_bytes: source.source_bytes,
-        })
-    }
-
-    /// Open a project and apply the append-only v2 schema after capability proof.
-    /// # Errors
-    ///
-    /// Returns an error when the checkout root is unavailable, PostgreSQL
-    /// cannot be connected, or append-only schema migration fails;
-    /// [`ProjectError::SchemaBusy`] when another session's locks kept the
-    /// pending migration from applying for its whole contention budget.
-    pub async fn connect(
-        project_root: impl AsRef<Path>,
-        settings: &DatabaseSettings,
-    ) -> Result<Self, ProjectError> {
-        let root = std::fs::canonicalize(project_root.as_ref())
-            .map_err(|_| ProjectError::ProjectRootUnavailable)?;
-        if !root.is_dir() {
-            return Err(ProjectError::ProjectRootUnavailable);
-        }
-        let repository_fingerprint = project_identity_digest(&root);
-        let root_identity = project_root_identity(&repository_fingerprint);
-        let pool = cartograph_db::connect(settings)
-            .await
-            .map_err(|_| ProjectError::DatabaseUnavailable)?;
-        let database = CartographDatabase::new(pool, settings.schema().clone());
-        match database.migrate().await {
-            Ok(_) => {}
-            Err(MigrationError::SchemaVersionAhead { version }) => {
-                return Err(ProjectError::SchemaVersionAhead {
-                    binary_version: env!("CARGO_PKG_VERSION"),
-                    database_schema_version: version,
-                    supported_schema_version: cartograph_db::latest_schema_version(),
-                });
-            }
-            Err(MigrationError::SchemaBusy { .. }) => return Err(ProjectError::SchemaBusy),
-            Err(_) => {
-                let error = match database.verify_current_schema().await {
-                    Err(MigrationError::SchemaVersionBehind {
-                        version,
-                        required_version,
-                    }) => ProjectError::SchemaMigrationBlocked {
-                        database_schema_version: version,
-                        required_schema_version: required_version,
-                        pending_migration_version: version.saturating_add(1),
-                    },
-                    Err(MigrationError::SchemaVersionAhead { version }) => {
-                        ProjectError::SchemaVersionAhead {
-                            binary_version: env!("CARGO_PKG_VERSION"),
-                            database_schema_version: version,
-                            supported_schema_version: cartograph_db::latest_schema_version(),
-                        }
-                    }
-                    _ => ProjectError::MigrationFailed,
-                };
-                return Err(error);
-            }
-        }
-        Ok(Self {
-            root,
-            root_identity,
-            repository_fingerprint,
-            database,
-            source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-            source_scans: Arc::default(),
-            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
-        })
-    }
-
-    /// Open a project for diagnostics without applying schema migrations.
-    ///
-    /// Doctor and other read-only health checks use this boundary after an
-    /// explicit capability probe. Normal runtime startup must use [`Self::connect`]
-    /// so append-only migrations are applied before serving queries.
-    /// # Errors
-    ///
-    /// Returns an error when the checkout root is unavailable or PostgreSQL
-    /// cannot be connected with the supplied settings.
-    pub async fn connect_read_only(
-        project_root: impl AsRef<Path>,
-        settings: &DatabaseSettings,
-    ) -> Result<Self, ProjectError> {
-        let root = std::fs::canonicalize(project_root.as_ref())
-            .map_err(|_| ProjectError::ProjectRootUnavailable)?;
-        if !root.is_dir() {
-            return Err(ProjectError::ProjectRootUnavailable);
-        }
-        let repository_fingerprint = project_identity_digest(&root);
-        let root_identity = project_root_identity(&repository_fingerprint);
-        let pool = cartograph_db::connect(settings)
-            .await
-            .map_err(|_| ProjectError::DatabaseUnavailable)?;
-        Ok(Self {
-            root,
-            root_identity,
-            repository_fingerprint,
-            database: CartographDatabase::new(pool, settings.schema().clone()),
-            source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-            source_scans: Arc::default(),
-            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
-        })
-    }
-
-    /// Bind another checkout to an already migrated PostgreSQL data plane.
-    ///
-    /// Long-lived MCP hosts use this for cross-project calls when an explicit
-    /// shared `CARTOGRAPH_DATABASE_URL` is configured. The pool and schema are
-    /// cloned cheaply; project identity and all source access remain rooted in
-    /// the newly canonicalized checkout.
-    /// # Errors
-    ///
-    /// Returns [`ProjectError::ProjectRootUnavailable`] when the checkout root
-    /// cannot be canonicalized as an existing directory.
-    pub fn with_database(
-        project_root: impl AsRef<Path>,
-        database: CartographDatabase,
-    ) -> Result<Self, ProjectError> {
-        let root = std::fs::canonicalize(project_root.as_ref())
-            .map_err(|_| ProjectError::ProjectRootUnavailable)?;
-        if !root.is_dir() {
-            return Err(ProjectError::ProjectRootUnavailable);
-        }
-        let repository_fingerprint = project_identity_digest(&root);
-        let root_identity = project_root_identity(&repository_fingerprint);
-        Ok(Self {
-            root,
-            root_identity,
-            repository_fingerprint,
-            database,
-            source_scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-            source_scans: Arc::default(),
-            fact_count_backfill_attempted: Arc::new(AtomicBool::new(false)),
-        })
-    }
-
-    /// Public database service for graph/search adapters; SQL internals stay private.
-    #[must_use]
-    pub const fn database(&self) -> &CartographDatabase {
-        &self.database
-    }
-
-    /// Privacy-preserving stable identity stored instead of the absolute checkout path.
-    #[must_use]
-    pub fn root_identity(&self) -> &str {
-        &self.root_identity
-    }
-
-    /// Canonical checkout root for explicit host/install operations.
-    /// Callers must not copy it into errors, logs, or unrelated tool results.
-    #[must_use]
-    pub fn project_root_for_host_operations(&self) -> &Path {
-        &self.root
-    }
-
-    /// Normalize a project-relative path or an existing absolute path contained by this checkout.
-    /// # Errors
-    ///
-    /// Returns an error when the input is empty or contains NUL, a relative
-    /// path is invalid, or an absolute path is missing, outside the checkout,
-    /// not a file, or not representable as a normalized project path.
-    pub fn normalized_project_path(&self, input: &str) -> Result<NormalizedPath, ProjectError> {
-        if input.is_empty() || input.contains('\0') {
-            return Err(ProjectError::InvalidOptions);
-        }
-        let path = Path::new(input);
-        if !path.is_absolute() {
-            return NormalizedPath::parse(input).map_err(|_| ProjectError::InvalidOptions);
-        }
-        let canonical = std::fs::canonicalize(path).map_err(|_| ProjectError::FileNotFound)?;
-        if !canonical.starts_with(&self.root) || !canonical.is_file() {
-            return Err(ProjectError::InvalidOptions);
-        }
-        let relative = canonical
-            .strip_prefix(&self.root)
-            .map_err(|_| ProjectError::InvalidOptions)?;
-        let relative = relative.to_str().ok_or(ProjectError::InvalidOptions)?;
-        NormalizedPath::parse(relative).map_err(|_| ProjectError::InvalidOptions)
-    }
-
-    /// Ensure durable project-scoped agent state can be written before the first index.
-    /// This registers only stable privacy-preserving identities; it does not create a generation.
-    /// # Errors
-    ///
-    /// Returns [`ProjectError::RegisterFailed`] when the stable project identity
-    /// cannot be registered in PostgreSQL.
-    pub async fn register_agent_state_project(&self) -> Result<ProjectId, ProjectError> {
-        self.database
-            .register_project(NewProject::new(
-                self.root_identity.clone(),
-                self.repository_fingerprint.clone(),
-            ))
-            .await
-            .map_err(|_| ProjectError::RegisterFailed)
-    }
-
-    /// Inspect durable state and compare it with a complete live source manifest.
-    /// # Errors
-    ///
-    /// Returns an error when durable project status or the bounded live source
-    /// manifest cannot be read, or the source scan cannot be scheduled.
-    pub async fn status(&self) -> Result<ProjectStatus, ProjectError> {
-        self.status_with_cancellation(ProjectCancellation::new())
-            .await
-    }
-
-    /// Inspect durable state with a cancellable, blocking-pool source scan.
-    /// # Errors
-    ///
-    /// Returns an error when durable project status or the bounded live source
-    /// manifest cannot be read, the source scan cannot be scheduled, or
-    /// `cancellation` wins.
-    pub async fn status_with_cancellation(
-        &self,
-        cancellation: ProjectCancellation,
-    ) -> Result<ProjectStatus, ProjectError> {
-        project_status_with_cancellation(self, cancellation).await
-    }
-
-    /// Build and atomically publish one complete generation, or return an exact no-op.
-    /// # Errors
-    ///
-    /// Returns an error when options or source policy are invalid, source
-    /// discovery fails, a generation/extraction/COPY/publication stage fails,
-    /// or failed pre-publication work cannot be reconciled safely.
-    pub async fn index(&self, options: IndexOptions) -> Result<IndexReport, ProjectError> {
-        Box::pin(self.index_with_cancellation(options, ProjectCancellation::new())).await
-    }
-
-    /// Build and publish one generation while cooperatively reconciling cancellation.
-    /// # Errors
-    ///
-    /// Returns an error when options or source policy are invalid, source
-    /// discovery fails, a generation/extraction/COPY/publication stage fails,
-    /// cancellation wins, or failed pre-publication work cannot be reconciled safely.
-    pub async fn index_with_cancellation(
-        &self,
-        options: IndexOptions,
-        cancellation: ProjectCancellation,
-    ) -> Result<IndexReport, ProjectError> {
-        self.index_with_cancellation_detail(options, cancellation)
-            .await
-            .map_err(IndexFailure::into_error)
-    }
-
-    /// Build and publish one generation, keeping a secondary cleanup failure.
-    ///
-    /// The returned [`IndexFailure`] carries the same primary error as
-    /// [`Self::index`] plus whether bounded cleanup of the attempt's own
-    /// staging generation also failed, for surfaces that report both.
-    /// # Errors
-    ///
-    /// Returns the primary failure under the same conditions as [`Self::index`].
-    pub async fn index_with_failure_detail(
-        &self,
-        options: IndexOptions,
-    ) -> Result<IndexReport, IndexFailure> {
-        self.index_with_cancellation_detail(options, ProjectCancellation::new())
-            .await
-    }
-
-    /// Build and publish one generation while cooperatively reconciling
-    /// cancellation, keeping a secondary cleanup failure.
-    ///
-    /// The returned [`IndexFailure`] carries the same primary error as
-    /// [`Self::index_with_cancellation`] plus whether bounded cleanup of the
-    /// attempt's own staging generation also failed. Every generation this
-    /// request reserves is recorded on `cancellation`
-    /// ([`ProjectCancellation::reserved_index_generation`]), so a caller that
-    /// cancelled can check exactly that cleanup in PostgreSQL.
-    /// # Errors
-    ///
-    /// Returns the primary failure under the same conditions as
-    /// [`Self::index_with_cancellation`].
-    pub async fn index_with_cancellation_detail(
-        &self,
-        options: IndexOptions,
-        cancellation: ProjectCancellation,
-    ) -> Result<IndexReport, IndexFailure> {
-        Box::pin(index_project_with_cancellation(self, options, cancellation)).await
-    }
-
-    async fn attach_history(
-        &self,
-        report: IndexReport,
-        history: Result<history::PreparedHistoryIndex, HistoryIndexError>,
-    ) -> IndexReport {
-        attach_history_result(self, report, history).await
-    }
-
-    async fn attach_issue_history(
-        &self,
-        report: IndexReport,
-        issue_history: Result<issue_history::PreparedIssueHistory, IssueHistoryIndexError>,
-    ) -> IndexReport {
-        attach_issue_history_result(self, report, issue_history).await
-    }
-
-    async fn prepare_index(
-        &self,
-        options: IndexOptions,
-        cancellation: ProjectCancellation,
-    ) -> Result<IndexPreparation, ProjectError> {
-        let mut source = self
-            .prepare_index_source(&options, cancellation.clone())
-            .await?;
-        if let Some(early) = index_preflight_outcome(&source, &options) {
-            return early;
-        }
-        self.admit_automatic_generation(&source, &options).await?;
-        let run_excludes = source.effective_run_excludes.clone();
-        let reservation = self.reserve_index_generation(&mut source, &options).await?;
-        Ok(IndexPreparation::Pending(Box::new(PendingIndex {
-            project_id: reservation.project_id,
-            generation_id: reservation.generation_id,
-            run_excludes,
-            source_revision: source.source.digest,
-            scip_overlay: source.source.scip_overlay,
-            workers: reservation.workers,
-            max_source_bytes: source.max_source_bytes,
-            max_generation_bytes: source.max_generation_bytes,
-            parse_cache_reads: !options.force,
-            discovery_policy: source.discovery_policy,
-            index_policy: source.index_policy,
-            generation_storage: reservation.generation_storage,
-            staged: reservation.staged,
-        })))
-    }
-
-    /// Apply the terminal-backlog admission policy in [`index_admission`]
-    /// before an attempt reserves a generation, counting and draining the prior
-    /// project's backlog through this runtime. Only automatic attempts are ever
-    /// deferred while eligible retention work remains above its bound.
-    async fn admit_automatic_generation(
-        &self,
-        source: &PreparedIndexSource,
-        options: &IndexOptions,
-    ) -> Result<(), ProjectError> {
-        let backlog = source.prior.as_ref().map(|prior| RuntimeTerminalBacklog {
-            runtime: self,
-            project_id: &prior.project_id,
-            maximum_ast_depth: source.index_policy.maximum_ast_depth,
-        });
-        index_admission::admit_index_attempt(options.failure_retention, backlog.as_ref())
-            .await?
-            .into_result()
-    }
-
-    async fn prepare_index_source(
-        &self,
-        options: &IndexOptions,
-        cancellation: ProjectCancellation,
-    ) -> Result<PreparedIndexSource, ProjectError> {
-        let prior = self
-            .database
-            .project_snapshot_by_root(&self.root_identity)
-            .await
-            .map_err(|_| ProjectError::StatusFailed)?;
-        let effective_run_excludes = effective_run_excludes(options, prior.as_ref());
-        let source_policy =
-            project_source_policy_with_excludes(&self.root, &effective_run_excludes)?;
-        let max_source_bytes = options
-            .max_source_bytes
-            .or(source_policy.maximum_file_bytes)
-            .unwrap_or(DEFAULT_MAX_SOURCE_BYTES);
-        let max_generation_bytes = source_policy
-            .maximum_generation_bytes
-            .unwrap_or(DEFAULT_MAX_GENERATION_BYTES);
-        let source = self
-            .scan_source_for_index(IndexSourceScan {
-                cancellation: cancellation.clone(),
-                max_source_bytes,
-                discovery_policy: source_policy.discovery.clone(),
-                index_policy: source_policy.index,
-            })
-            .await?;
-        if cancellation.is_cancelled() {
-            return Err(ProjectError::RequestCancelled);
-        }
-        let staging = match prior.as_ref() {
-            Some(prior) => {
-                recover_abandoned_staging(
-                    &self.database,
-                    &prior.project_id,
-                    DEFAULT_STAGING_CLEANUP_TIMEOUT,
-                )
-                .await?
-            }
-            None => StagingPreflight::Recovered,
-        };
-        Ok(PreparedIndexSource {
-            prior,
-            staging,
-            source,
-            effective_run_excludes,
-            max_source_bytes,
-            max_generation_bytes,
-            generation_storage_policy: source_policy.generation_storage,
-            discovery_policy: source_policy.discovery,
-            index_policy: source_policy.index,
-        })
-    }
-
-    async fn reserve_index_generation(
-        &self,
-        source: &mut PreparedIndexSource,
-        options: &IndexOptions,
-    ) -> Result<IndexGenerationReservation, ProjectError> {
-        let workers = select_worker_count(
-            source.source.files,
-            source.source.source_bytes,
-            options.max_workers,
-        );
-        let generation_storage = select_generation_storage(
-            source.generation_storage_policy,
-            GenerationStorageSignals {
-                files: source.source.files,
-                source_bytes: source.source.source_bytes,
-                cargo_manifests: source.source.cargo_manifests,
-                maximum_generation_bytes: source.max_generation_bytes,
-            },
-        );
-        let project_id = self
-            .database
-            .register_project(NewProject::new(
-                self.root_identity.clone(),
-                self.repository_fingerprint.clone(),
-            ))
-            .await
-            .map_err(|_| ProjectError::RegisterFailed)?;
-        recover_first_index_staging(FirstIndexStaging {
-            database: &self.database,
-            project_id: &project_id,
-            has_prior: source.prior.is_some(),
-        })
-        .await?;
-        let staged = self
-            .database
-            .begin_generation(
-                NewGeneration::new(project_id.clone(), source.source.digest.as_str(), workers)
-                    .with_run_excludes(std::mem::take(&mut source.effective_run_excludes)),
-            )
-            .await
-            .map_err(|_| ProjectError::BeginGenerationFailed)?;
-        let generation_id = staged.generation_id().clone();
-        Ok(IndexGenerationReservation {
-            project_id,
-            generation_id,
-            workers,
-            generation_storage,
-            staged,
-        })
-    }
-
-    async fn publish_index(
-        &self,
-        pending: PendingIndex,
-        cancellation: ProjectCancellation,
-        profile_requested: bool,
-    ) -> Result<IndexReport, IndexFailure> {
-        let project_id = pending.project_id.clone();
-        let generation_id = pending.generation_id.clone();
-        cancellation.record_reserved_generation(ReservedIndexGeneration {
-            project_id: project_id.clone(),
-            generation_id: generation_id.clone(),
-        });
-        let failure = match self
-            .publish_index_inner(pending, cancellation, profile_requested)
-            .await
-        {
-            Ok(report) => return Ok(report),
-            Err(failure) => failure,
-        };
-        // The primary failure stays authoritative: an unfinished cleanup only
-        // leaves this attempt's staging row for the next bounded preflight.
-        let cleanup = self
-            .database
-            .fail_unleased_staging_generation_bounded(
-                GenerationRecoveryRequest::new(&project_id, &generation_id),
-                DEFAULT_STAGING_CLEANUP_TIMEOUT,
-            )
-            .await;
-        Err(failure.after_staging_cleanup(&cleanup))
-    }
-
-    async fn publish_index_inner(
-        &self,
-        pending: PendingIndex,
-        cancellation: ProjectCancellation,
-        profile_requested: bool,
-    ) -> Result<IndexReport, IndexFailure> {
-        self.prepare_index_publication(pending, cancellation)?
-            .execute(profile_requested)
-            .await
-    }
-
-    /// Create the index supervisor sized for the pipeline's largest stage
-    /// reservation and bind it to the project's cancellation: the cancellation
-    /// can stop it directly, and a watcher task cancels it once cancellation
-    /// fires. The watcher is aborted when the returned guard drops.
-    fn start_cancellable_index_supervisor(
-        &self,
-        pipeline: &NativePipelineConfig,
-        cancellation: &ProjectCancellation,
-    ) -> Result<(IndexerSupervisor, AbortTaskOnDrop), ProjectError> {
-        let maximum_stage_reservation = pipeline
-            .maximum_stage_reservation_bytes()
-            .map_err(|_| ProjectError::InvalidOptions)?;
-        let supervisor = IndexerSupervisor::new(
-            self.database.clone(),
-            supervisor_config(maximum_stage_reservation.max(DEFAULT_MAX_SUPERVISOR_BYTES)),
-        );
-        cancellation.attach_index_supervisor(supervisor.clone());
-        let cancellation_supervisor = supervisor.clone();
-        let cancellation_signal = cancellation.clone();
-        let cancellation_task = AbortTaskOnDrop::new(tokio::spawn(async move {
-            cancellation_signal.cancelled().await;
-            let _cancellation_was_new = cancellation_supervisor.cancel();
-        }));
-        Ok((supervisor, cancellation_task))
-    }
-
-    fn prepare_index_publication(
-        &self,
-        pending: PendingIndex,
-        cancellation: ProjectCancellation,
-    ) -> Result<PreparedIndexPublication, ProjectError> {
-        let PendingIndex {
-            project_id,
-            generation_id,
-            run_excludes: _,
-            source_revision,
-            scip_overlay,
-            workers,
-            max_source_bytes,
-            max_generation_bytes,
-            parse_cache_reads,
-            discovery_policy,
-            index_policy,
-            generation_storage,
-            staged,
-        } = pending;
-        let target = cartograph_db::LeaseTarget::new(
-            project_id.clone(),
-            ProjectOperation::Index,
-            Some(generation_id.clone()),
-        );
-        let source_root = SourceRoot::open_with_policy(&self.root, discovery_policy)
-            .map_err(|_| ProjectError::ProjectRootUnavailable)?;
-        let pipeline = pipeline_config(
-            PipelineBounds {
-                workers,
-                max_source_bytes,
-                max_generation_bytes,
-            },
-            index_policy,
-        )?;
-        let (supervisor, cancellation_task) =
-            self.start_cancellable_index_supervisor(&pipeline, &cancellation)?;
-        let request = SupervisorRequest::new(target, process_owner(), DEFAULT_LEASE_DURATION);
-        let parse_cache = NativeParseCache::new(self.database.clone(), project_id.clone())
-            .with_reads(parse_cache_reads);
-        let (report_sender, report_receiver) = oneshot::channel();
-        let mut build =
-            NativeGenerationBuild::new(source_root, pipeline).with_parse_cache(parse_cache);
-        if let Some(overlay) = scip_overlay {
-            build = build.with_scip_overlay(overlay);
-        }
-        let work = GenerationBuildWork {
-            build,
-            generation_storage,
-            staged,
-            report_sender,
-        };
-        Ok(PreparedIndexPublication {
-            parse_cache_contract_digest: native_parse_cache_contract_digest(
-                index_policy.maximum_ast_depth,
-            ),
-            project_id,
-            generation_id,
-            source_revision,
-            workers,
-            supervisor,
-            cancellation,
-            cancellation_task,
-            request,
-            work,
-            report_receiver,
-        })
-    }
-
-    /// Run the existing bounded generation and parse-cache retention policy
-    /// without scanning, reserving, or publishing a generation. The exact
-    /// configured parsing contract remains protected, including on idle hosts.
-    /// # Errors
-    /// Returns a redacted error when project identity or policy cannot be read.
-    pub async fn maintain_retention(&self) -> Result<GenerationRetentionStatus, ProjectError> {
-        let snapshot = tokio::time::timeout(
-            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
-            self.database.project_snapshot_by_root(&self.root_identity),
-        )
-        .await
-        .map_err(|_| ProjectError::StatusFailed)?
-        .map_err(|_| ProjectError::StatusFailed)?
-        .ok_or(ProjectError::StatusFailed)?;
-        let root = self.root.clone();
-        let permit = tokio::time::timeout(
-            AUTOMATIC_RETENTION_ACQUIRE_TIMEOUT,
-            self.source_scan_permits.clone().acquire_owned(),
-        )
-        .await
-        .map_err(|_| ProjectError::SourceScanFailed)?
-        .map_err(|_| ProjectError::SourceScanFailed)?;
-        let policy = run_source_worker(move || {
-            let _permit = permit;
-            project_source_policy(&root)
-        })
-        .await?;
-        let contract = native_parse_cache_contract_digest(policy.index.maximum_ast_depth);
-        Ok(self
-            .maintain_generation_retention(&snapshot.project_id, &contract)
-            .await)
-    }
-
-    async fn maintain_generation_retention(
-        &self,
-        project_id: &ProjectId,
-        contract: &ContentDigest,
-    ) -> GenerationRetentionStatus {
-        maintain_generation_retention(self, project_id, contract).await
-    }
-
-    /// Number of admitted full source-manifest observations by this runtime.
-    ///
-    /// Includes failed scans; queued requests cancelled before admission do not
-    /// increment it. The counter saturates and contains no source or query data.
-    #[must_use]
-    pub fn source_scan_observations(&self) -> u64 {
-        self.source_scans.observations.load(Ordering::Relaxed)
-    }
-
-    /// Bounded units of source-scan work completed by this runtime: the
-    /// cancellation checkpoints its scans pass while discovering and hashing
-    /// files. It advances throughout a long scan, so a supervisor can tell a
-    /// slow scan from a stalled one. The counter saturates and contains no
-    /// source data.
-    #[must_use]
-    pub fn source_scan_checkpoints(&self) -> u64 {
-        self.source_scans.checkpoints.load(Ordering::Relaxed)
-    }
-
-    /// Close all PostgreSQL connections owned by this project runtime.
-    pub async fn close(self) {
-        self.database.close().await;
-    }
-
-    async fn scan_source_with_excludes(
-        &self,
-        capture_path: Option<NormalizedPath>,
-        additional_excludes: &[String],
-        cancellation: ProjectCancellation,
-    ) -> Result<SourceRevision, ProjectError> {
-        self.scan_source_batch(
-            capture_path.into_iter().collect(),
-            additional_excludes,
-            cancellation,
-        )
-        .await
-    }
-
-    async fn scan_source_batch(
-        &self,
-        capture_paths: BTreeSet<NormalizedPath>,
-        additional_excludes: &[String],
-        cancellation: ProjectCancellation,
-    ) -> Result<SourceRevision, ProjectError> {
-        if capture_paths.len() > source_context::MAXIMUM_CONTEXT_BATCH {
-            return Err(ProjectError::InvalidOptions);
-        }
-        let source_policy = project_source_policy_with_excludes(&self.root, additional_excludes)?;
-        let max_source_bytes = source_policy
-            .maximum_file_bytes
-            .unwrap_or(DEFAULT_MAX_SOURCE_BYTES);
-        scan_source_path(SourceScanRequest {
-            root: self.root.clone(),
-            permits: self.source_scan_permits.clone(),
-            counters: self.source_scans.clone(),
-            capture_paths,
-            retain_scip_overlay: false,
-            max_source_bytes,
-            discovery_policy: source_policy.discovery,
-            index_policy: source_policy.index,
-            cancellation,
-        })
-        .await
-    }
-
-    async fn scan_source(
-        &self,
-        capture_path: Option<NormalizedPath>,
-        cancellation: ProjectCancellation,
-    ) -> Result<SourceRevision, ProjectError> {
-        let snapshot = self
-            .database
-            .project_snapshot_by_root(&self.root_identity)
-            .await
-            .map_err(|_| ProjectError::StatusFailed)?;
-        let run_excludes = snapshot
-            .as_ref()
-            .and_then(|project| project.current.as_ref())
-            .map_or(&[][..], |current| current.source_admission.run_excludes());
-        self.scan_source_with_excludes(capture_path, run_excludes, cancellation)
-            .await
-    }
-
-    async fn scan_source_for_index(
-        &self,
-        input: IndexSourceScan,
-    ) -> Result<SourceRevision, ProjectError> {
-        let IndexSourceScan {
-            cancellation,
-            max_source_bytes,
-            discovery_policy,
-            index_policy,
-        } = input;
-        scan_source_path(SourceScanRequest {
-            root: self.root.clone(),
-            permits: self.source_scan_permits.clone(),
-            counters: self.source_scans.clone(),
-            capture_paths: BTreeSet::new(),
-            retain_scip_overlay: true,
-            max_source_bytes,
-            discovery_policy,
-            index_policy,
-            cancellation,
-        })
-        .await
-    }
-}
-
-enum IndexPreparation {
-    Unchanged(Box<IndexReport>),
-    Pending(Box<PendingIndex>),
-}
-
-struct PreparedIndexSource {
-    prior: Option<ProjectSnapshot>,
-    /// Whether staging recovery ran or found another live project writer.
-    staging: StagingPreflight,
-    source: SourceRevision,
-    effective_run_excludes: Vec<String>,
-    max_source_bytes: usize,
-    max_generation_bytes: u64,
-    generation_storage_policy: GenerationStoragePolicy,
-    discovery_policy: DiscoveryPolicy,
-    index_policy: SourceIndexPolicy,
-}
-
-struct IndexGenerationReservation {
-    project_id: ProjectId,
-    generation_id: cartograph_domain::GenerationId,
-    workers: u16,
-    generation_storage: GenerationStorageSelection,
-    staged: StagedGeneration,
-}
-
-fn effective_run_excludes(options: &IndexOptions, prior: Option<&ProjectSnapshot>) -> Vec<String> {
-    if !options.additional_excludes().is_empty() {
-        return options.additional_excludes().to_vec();
-    }
-    if options.admission_reconciliation == IndexAdmissionReconciliation::PreserveCurrent {
-        return prior
-            .and_then(|snapshot| snapshot.current.as_ref())
-            .map_or_else(Vec::new, |current| {
-                current.source_admission.run_excludes().to_vec()
-            });
-    }
-    Vec::new()
-}
-
-#[derive(Clone, Copy)]
-struct UnchangedIndexInput<'input> {
-    prior: Option<&'input ProjectSnapshot>,
-    source: &'input SourceRevision,
-    options: &'input IndexOptions,
-    effective_run_excludes: &'input [String],
-    maximum_ast_depth: usize,
-}
-
-fn unchanged_index_preparation(input: UnchangedIndexInput<'_>) -> Option<IndexPreparation> {
-    let prior = input.prior?;
-    let current = prior.current.as_ref()?;
-    if input.options.force
-        || current.source_revision != input.source.digest.as_str()
-        || current.digest_version != GenerationDigestVersion::CURRENT
-        || current.source_admission.run_excludes() != input.effective_run_excludes
-    {
-        return None;
-    }
-    Some(IndexPreparation::Unchanged(Box::new(IndexReport {
-        project_id: prior.project_id.clone(),
-        generation_id: current.generation_id.clone(),
-        source_revision: input.source.digest.clone(),
-        parse_cache_contract_digest: native_parse_cache_contract_digest(input.maximum_ast_depth),
-        content_digest: current.content_digest.clone(),
-        workers: select_worker_count(
-            input.source.files,
-            input.source.source_bytes,
-            input.options.max_workers,
-        ),
-        published: false,
-        publication: IndexPublication::Skipped {
-            reason: "unchanged_current_generation",
-            generation_remains_current: true,
-        },
-        native: None,
-        history: HistoryIndexStatus::Unavailable {
-            reason: "not_attempted",
-        },
-        issue_history: IssueHistoryIndexStatus::Unavailable {
-            reason: "not_attempted",
-        },
-        profile: input.options.profile.then(IndexProfile::default),
-        retention: GenerationRetentionStatus::Deferred {
-            reason: "not_attempted",
-            retryable: false,
-            unlock_applicable: false,
-            next_action: "none",
-        },
-        live_source: IndexLiveSource::Matched,
-    })))
-}
-
-struct PendingIndex {
-    project_id: ProjectId,
-    generation_id: cartograph_domain::GenerationId,
-    /// Run-scoped exclusions the reserved generation records; post-publication
-    /// verification must scan under the same admission policy.
-    run_excludes: Vec<String>,
-    source_revision: ContentDigest,
-    scip_overlay: Option<ScipOverlayInput>,
-    workers: u16,
-    max_source_bytes: usize,
-    max_generation_bytes: u64,
-    parse_cache_reads: bool,
-    discovery_policy: DiscoveryPolicy,
-    index_policy: SourceIndexPolicy,
-    generation_storage: GenerationStorageSelection,
-    staged: StagedGeneration,
-}
-
-struct PreparedIndexPublication {
-    parse_cache_contract_digest: ContentDigest,
-    project_id: ProjectId,
-    generation_id: cartograph_domain::GenerationId,
-    source_revision: ContentDigest,
-    workers: u16,
-    supervisor: IndexerSupervisor,
-    cancellation: ProjectCancellation,
-    cancellation_task: AbortTaskOnDrop,
-    request: SupervisorRequest,
-    work: GenerationBuildWork,
-    report_receiver: oneshot::Receiver<NativePipelineReport>,
-}
-
-impl PreparedIndexPublication {
-    async fn execute(self, profile_requested: bool) -> Result<IndexReport, IndexFailure> {
-        let current_result = self
-            .supervisor
-            .run(self.request, move |context| {
-                prepare_generation(context, self.work)
-            })
-            .await;
-        self.cancellation_task.abort_and_reap().await;
-        let supervisor_status = self.supervisor.status().await;
-        let current = current_result.map_err(|error| {
-            supervisor_index_failure(
-                error,
-                &SupervisorFailureContext {
-                    cancelled: self.cancellation.is_cancelled(),
-                    stage: supervisor_status.stage(),
-                },
-            )
-        })?;
-        let native = self
-            .report_receiver
-            .await
-            .map_err(|_| ProjectError::IndexFailed)?;
-        Ok(IndexReport {
-            project_id: self.project_id,
-            generation_id: self.generation_id,
-            source_revision: self.source_revision,
-            parse_cache_contract_digest: self.parse_cache_contract_digest,
-            content_digest: current.content_digest().clone(),
-            workers: self.workers,
-            published: true,
-            publication: IndexPublication::Published,
-            native: Some(native.into()),
-            history: HistoryIndexStatus::Unavailable {
-                reason: "not_attempted",
-            },
-            issue_history: IssueHistoryIndexStatus::Unavailable {
-                reason: "not_attempted",
-            },
-            profile: profile_requested.then(|| IndexProfile {
-                pipeline_millis: supervisor_status.total_elapsed_millis(),
-                pipeline_stages: supervisor_status.stage_timings().to_vec(),
-                ..IndexProfile::default()
-            }),
-            retention: GenerationRetentionStatus::Deferred {
-                reason: "not_attempted",
-                retryable: false,
-                unlock_applicable: false,
-                next_action: "none",
-            },
-            live_source: IndexLiveSource::Matched,
-        })
-    }
-}
-
-struct GenerationBuildWork {
-    build: NativeGenerationBuild,
-    generation_storage: GenerationStorageSelection,
-    staged: StagedGeneration,
-    report_sender: oneshot::Sender<NativePipelineReport>,
-}
-
-async fn prepare_generation(
-    context: SupervisorContext,
-    work: GenerationBuildWork,
-) -> Result<cartograph_db::ReadyGeneration, PipelineFailure> {
-    match work.generation_storage {
-        GenerationStorageSelection::Memory => {
-            let native = build_native_generation_with_scip_and_cache(&context.stages(), work.build)
-                .await
-                .map_err(|error| native_pipeline_failure(&error))?;
-            let report = native.report();
-            let (facts, _) = native.into_parts();
-            work.report_sender
-                .send(report)
-                .map_err(|_| PipelineFailure::new(PipelineStage::Reduce))?;
-            context
-                .progress()
-                .begin_stage(PipelineStage::Copy)
-                .await
-                .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
-            context
-                .prepare_generation(GenerationContents::new(work.staged, facts))
-                .await
-                .map_err(|_| PipelineFailure::new(PipelineStage::Copy))
-        }
-        GenerationStorageSelection::Postgres(policy) => {
-            let spill = context
-                .generation_spill(&work.staged, policy)
-                .map_err(|_| PipelineFailure::new(PipelineStage::Parse))?;
-            let native = build_native_generation_spilled(&context.stages(), work.build, spill)
-                .await
-                .map_err(|error| native_pipeline_failure(&error))?;
-            let report = native.report();
-            let (digest, _) = native.into_parts();
-            work.report_sender
-                .send(report)
-                .map_err(|_| PipelineFailure::new(PipelineStage::Reduce))?;
-            context
-                .progress()
-                .begin_stage(PipelineStage::Copy)
-                .await
-                .map_err(|_| PipelineFailure::new(PipelineStage::Copy))?;
-            context
-                .prepare_spilled_generation(SpilledGenerationContents::new(work.staged, digest))
-                .await
-                .map_err(|_| PipelineFailure::new(PipelineStage::Copy))
-        }
-    }
-}
-
-fn native_pipeline_failure(error: &cartograph_indexer::NativePipelineError) -> PipelineFailure {
-    if let Some(failure) = error.file_failure() {
-        return PipelineFailure::with_file_failure(error.stage(), failure.clone());
-    }
-    match error.reason() {
-        Some(reason) => PipelineFailure::with_reason(error.stage(), reason),
-        None => PipelineFailure::new(error.stage()),
-    }
-}
-
 struct SourceScanRequest {
     root: PathBuf,
     permits: Arc<Semaphore>,
@@ -2782,13 +847,6 @@ struct SourceScanRequest {
     discovery_policy: DiscoveryPolicy,
     index_policy: SourceIndexPolicy,
     cancellation: ProjectCancellation,
-}
-
-struct IndexSourceScan {
-    cancellation: ProjectCancellation,
-    max_source_bytes: usize,
-    discovery_policy: DiscoveryPolicy,
-    index_policy: SourceIndexPolicy,
 }
 
 async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, ProjectError> {
@@ -2803,41 +861,52 @@ async fn scan_source_path(input: SourceScanRequest) -> Result<SourceRevision, Pr
         index_policy,
         cancellation,
     } = input;
+    let native_control = CartographDatabase::request_control(Duration::from_secs(30))
+        .map_err(|_| ProjectError::RequestCancelled)?;
     let permit = tokio::select! {
         biased;
         () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
+        _reason = native_control.stopped() => return Err(ProjectError::RequestCancelled),
         result = permits.acquire_owned() => result.map_err(|_| ProjectError::SourceScanFailed)?,
     };
     if cancellation.is_cancelled() {
         return Err(ProjectError::RequestCancelled);
     }
     let worker_cancellation = cancellation.clone();
+    let worker_control = native_control.clone();
     let result = run_source_worker(move || {
         // Keep the per-project permit inside the blocking worker. Tokio cannot
         // abort `spawn_blocking` work once it has started, so retaining the
         // permit in the async caller would allow a dropped request to start a
         // second scan while the first worker was still unwinding.
         let _permit = permit;
-        saturating_increment(&counters.observations);
-        source_revision_with_options(
-            SourceRevisionRequest {
-                root: &root,
-                capture_paths: &capture_paths,
-                retain_scip_overlay,
-                max_source_bytes,
-                discovery_policy,
-                index_policy,
-            },
-            || {
-                saturating_increment(&counters.checkpoints);
-                worker_cancellation.is_cancelled()
-            },
-        )
+        source_scan::retry_complete_scan(|| {
+            if worker_cancellation.is_cancelled() || worker_control.check().is_err() {
+                return Err(ProjectError::RequestCancelled);
+            }
+            saturating_increment(&counters.observations);
+            source_revision_with_options(
+                SourceRevisionRequest {
+                    root: &root,
+                    capture_paths: &capture_paths,
+                    retain_scip_overlay,
+                    max_source_bytes,
+                    discovery_policy: discovery_policy.clone(),
+                    index_policy,
+                },
+                || {
+                    saturating_increment(&counters.checkpoints);
+                    worker_cancellation.is_cancelled() || worker_control.check().is_err()
+                },
+            )
+        })
     })
     .await;
     match result {
+        _ if cancellation.is_cancelled() || native_control.check().is_err() => {
+            Err(ProjectError::RequestCancelled)
+        }
         Ok(source) => Ok(source),
-        Err(_) if cancellation.is_cancelled() => Err(ProjectError::RequestCancelled),
         Err(error) => Err(error),
     }
 }
@@ -2852,12 +921,14 @@ async fn run_source_worker<T: Send + 'static>(
 
 struct SourceRevision {
     digest: ContentDigest,
+    admitted_source_digest: ContentDigest,
+    admitted_manifest: Vec<(NormalizedPath, ContentDigest)>,
     v1_source_manifest: ContentDigest,
     files: usize,
     source_bytes: u64,
-    cargo_manifests: usize,
     captures: BTreeMap<NormalizedPath, CapturedSource>,
     scip_overlay: Option<ScipOverlayInput>,
+    native_manifest: Option<cartograph_indexer::NativeObservedManifest>,
 }
 
 struct CapturedSource {
@@ -2902,20 +973,7 @@ struct ProjectSourcePolicy {
     discovery: DiscoveryPolicy,
     maximum_file_bytes: Option<usize>,
     maximum_generation_bytes: Option<u64>,
-    generation_storage: GenerationStoragePolicy,
     index: SourceIndexPolicy,
-}
-
-#[derive(Clone, Copy)]
-struct GenerationStoragePolicy {
-    preference: ProjectGenerationStorage,
-    spill: NativeGenerationSpillPolicy,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum GenerationStorageSelection {
-    Memory,
-    Postgres(NativeGenerationSpillPolicy),
 }
 
 /// Cheap, immutable source-policy snapshot used by filesystem watchers before
@@ -2960,7 +1018,7 @@ impl ProjectWatchFilter {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct SourceIndexPolicy {
     centrality: SourceCentralityPolicy,
     retention: SourceRetentionPolicy,
@@ -2969,13 +1027,13 @@ struct SourceIndexPolicy {
     maximum_ast_depth: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct SourceCentralityPolicy {
     page_rank: bool,
     betweenness: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct SourceRetentionPolicy {
     docstrings: bool,
     call_sites: bool,
@@ -3044,58 +1102,8 @@ impl ProjectSourcePolicy {
             discovery,
             maximum_file_bytes: settings.maximum_file_bytes(),
             maximum_generation_bytes: settings.maximum_generation_bytes(),
-            generation_storage: GenerationStoragePolicy {
-                preference: settings.generation_storage(),
-                spill: NativeGenerationSpillPolicy::new(
-                    settings
-                        .maximum_spill_bytes()
-                        .unwrap_or_else(|| NativeGenerationSpillPolicy::default().maximum_bytes()),
-                    settings
-                        .maximum_spill_rows()
-                        .unwrap_or_else(|| NativeGenerationSpillPolicy::default().maximum_rows()),
-                )
-                .map_err(|_| ProjectError::InvalidOptions)?,
-            },
             index: SourceIndexPolicy::from_settings(settings),
         })
-    }
-}
-
-/// Observed corpus size and generation bound one storage selection weighs.
-#[derive(Clone, Copy)]
-struct GenerationStorageSignals {
-    files: usize,
-    source_bytes: u64,
-    cargo_manifests: usize,
-    maximum_generation_bytes: u64,
-}
-
-fn select_generation_storage(
-    policy: GenerationStoragePolicy,
-    signals: GenerationStorageSignals,
-) -> GenerationStorageSelection {
-    let GenerationStorageSignals {
-        files,
-        source_bytes,
-        cargo_manifests,
-        maximum_generation_bytes,
-    } = signals;
-    match policy.preference {
-        ProjectGenerationStorage::Memory => GenerationStorageSelection::Memory,
-        ProjectGenerationStorage::Postgres => GenerationStorageSelection::Postgres(policy.spill),
-        ProjectGenerationStorage::Auto => {
-            let estimated_generation_bytes =
-                source_bytes.saturating_mul(AUTO_SPILL_EXPANSION_FACTOR);
-            if files >= AUTO_SPILL_MINIMUM_FILES
-                || source_bytes >= AUTO_SPILL_MINIMUM_SOURCE_BYTES
-                || estimated_generation_bytes >= maximum_generation_bytes
-                || cargo_manifests >= AUTO_SPILL_MINIMUM_CARGO_MANIFESTS
-            {
-                GenerationStorageSelection::Postgres(policy.spill)
-            } else {
-                GenerationStorageSelection::Memory
-            }
-        }
     }
 }
 
@@ -3128,7 +1136,7 @@ fn source_revision_with_capture<Cancel>(
     cancelled: Cancel,
 ) -> Result<SourceRevision, ProjectError>
 where
-    Cancel: FnMut() -> bool,
+    Cancel: FnMut() -> bool + Send,
 {
     let source_policy = project_source_policy(root)?;
     source_revision_with_options(
@@ -3160,7 +1168,7 @@ fn source_revision_with_options<Cancel>(
     mut cancelled: Cancel,
 ) -> Result<SourceRevision, ProjectError>
 where
-    Cancel: FnMut() -> bool,
+    Cancel: FnMut() -> bool + Send,
 {
     let SourceRevisionRequest {
         root,
@@ -3174,8 +1182,8 @@ where
         .map_err(|_| ProjectError::ProjectRootUnavailable)?;
     let discovery = discovery_limits()?;
     let source_limits = source_limits_with_max(max_source_bytes)?;
-    let files = source_root
-        .discover_with_cancellation(SourceDiscoveryOptions::new(discovery, &mut cancelled))
+    let (files, exclusions) = source_root
+        .discover_with_evidence(SourceDiscoveryOptions::new(discovery, &mut cancelled))
         .map_err(|_| ProjectError::SourceScanFailed)?;
     let mut manifest_entries = Vec::new();
     manifest_entries
@@ -3186,49 +1194,50 @@ where
         .try_reserve_exact(files.len())
         .map_err(|_| ProjectError::SourceScanFailed)?;
     let mut captures = SourceCaptures::default();
+    let mut admitted_manifest_entries = Vec::new();
+    admitted_manifest_entries
+        .try_reserve_exact(files.len())
+        .map_err(|_| ProjectError::SourceScanFailed)?;
     let mut source_bytes = 0_u64;
-    let mut cargo_manifests = 0_usize;
-    for file in &files {
-        if is_cargo_manifest(file.path()) {
-            cargo_manifests = cargo_manifests
-                .checked_add(1)
-                .ok_or(ProjectError::SourceScanFailed)?;
-        }
-        if file.byte_size() > u64::try_from(max_source_bytes).unwrap_or(u64::MAX) {
-            let marker = oversized_source_digest(file);
-            if SourceLanguage::is_v1_candidate_path(file.path().as_str()) {
-                v1_manifest_entries.push((file.path().clone(), marker.clone()));
+    let mut native_manifest =
+        retain_scip_overlay.then(|| cartograph_indexer::NativeObservedManifest::new(exclusions));
+    source_scan::read_sources(
+        source_scan::HashScan {
+            root: &source_root,
+            files: &files,
+            limits: source_limits,
+            maximum_bytes: max_source_bytes,
+            retain_native: retain_scip_overlay,
+        },
+        &mut cancelled,
+        capture_paths,
+        &mut captures,
+        |observed| {
+            if let Some(file) = observed.native {
+                if native_manifest
+                    .as_mut()
+                    .is_some_and(|manifest| !manifest.push(file))
+                {
+                    native_manifest = None;
+                }
+            } else if !observed.admitted
+                && let Some(manifest) = &mut native_manifest
+            {
+                manifest.record_oversized();
             }
-            manifest_entries.push((file.path().clone(), marker));
-            continue;
-        }
-        let snapshot = match source_root.read_with_cancellation(
-            file.path(),
-            SourceReadOptions::new(source_limits, &mut cancelled),
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(SourceReadError::UnsupportedLanguage) => continue,
-            Err(_) => return Err(ProjectError::SourceScanFailed),
-        };
-        let snapshot_bytes =
-            u64::try_from(snapshot.source().len()).map_err(|_| ProjectError::SourceScanFailed)?;
-        source_bytes = source_bytes
-            .checked_add(snapshot_bytes)
-            .ok_or(ProjectError::SourceScanFailed)?;
-        let content_hash = snapshot.content_hash().clone();
-        if SourceLanguage::for_v1_normalized_path_with_source(
-            file.path().as_str(),
-            snapshot.source(),
-        )
-        .is_some()
-        {
-            v1_manifest_entries.push((file.path().clone(), content_hash.clone()));
-        }
-        manifest_entries.push((file.path().clone(), content_hash));
-        if capture_paths.contains(file.path()) {
-            captures.insert(file.path(), &snapshot)?;
-        }
-    }
+            source_bytes = source_bytes
+                .checked_add(observed.bytes)
+                .ok_or(ProjectError::SourceScanFailed)?;
+            if observed.v1 {
+                v1_manifest_entries.push((observed.path.clone(), observed.hash.clone()));
+            }
+            if observed.admitted {
+                admitted_manifest_entries.push((observed.path.clone(), observed.hash.clone()));
+            }
+            manifest_entries.push((observed.path, observed.hash));
+            Ok(())
+        },
+    )?;
     let source_digest = finish_source_manifest(&manifest_entries)?;
     let v1_source_manifest = finish_source_manifest(&v1_manifest_entries)?;
     let overlay = read_scip_overlay(root, retain_scip_overlay, &mut cancelled)?;
@@ -3239,18 +1248,15 @@ where
     let digest = source_index_policy_digest(&source_and_overlay_digest, index_policy);
     Ok(SourceRevision {
         digest,
+        admitted_source_digest: finish_source_manifest(&admitted_manifest_entries)?,
+        admitted_manifest: admitted_manifest_entries,
         v1_source_manifest,
         files: manifest_entries.len(),
         source_bytes,
-        cargo_manifests,
         captures: captures.entries,
         scip_overlay: overlay.input,
+        native_manifest,
     })
-}
-
-fn is_cargo_manifest(path: &NormalizedPath) -> bool {
-    let path = path.as_str();
-    path == "Cargo.toml" || path.ends_with("/Cargo.toml")
 }
 
 fn finish_source_manifest(
@@ -3439,22 +1445,6 @@ fn project_identity_digest(root: &Path) -> ContentDigest {
     ContentDigest::from_bytes(*hasher.finalize().as_bytes())
 }
 
-fn process_owner() -> cartograph_db::LeaseOwner {
-    static MARKER: OnceLock<String> = OnceLock::new();
-    let marker = MARKER.get_or_init(|| {
-        let started = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO)
-            .as_nanos();
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(PROCESS_OWNER_DOMAIN);
-        hasher.update(&process::id().to_le_bytes());
-        hasher.update(&started.to_le_bytes());
-        hasher.finalize().to_hex().to_string()
-    });
-    cartograph_db::LeaseOwner::new(process::id(), marker.clone())
-}
-
 fn select_worker_count(files: usize, source_bytes: u64, maximum: u16) -> u16 {
     let file_workers = if files <= SINGLE_WORKER_MAX_FILES {
         ONE_WORKER
@@ -3484,31 +1474,6 @@ fn select_worker_count(files: usize, source_bytes: u64, maximum: u16) -> u16 {
         .and_then(|value| u16::try_from(value.get()).ok())
         .unwrap_or(ONE_WORKER);
     corpus.min(maximum).min(hardware.max(ONE_WORKER))
-}
-
-const fn history_unavailable_reason(error: HistoryIndexError) -> &'static str {
-    match error {
-        HistoryIndexError::InvalidOptions => "invalid_options",
-        HistoryIndexError::NotGitRepository => "not_git_repository",
-        HistoryIndexError::GitUnavailable => "git_unavailable",
-        HistoryIndexError::GitOutputInvalid => "git_output_bound",
-        HistoryIndexError::RelationLimit => "relation_bound",
-        HistoryIndexError::Cancelled => "cancelled",
-        HistoryIndexError::StorageUnavailable => "storage_unavailable",
-        HistoryIndexError::DisabledByProjectConfig => "disabled_by_project_config",
-    }
-}
-
-const fn issue_history_unavailable_reason(error: IssueHistoryIndexError) -> &'static str {
-    match error {
-        IssueHistoryIndexError::InvalidOptions => "invalid_options",
-        IssueHistoryIndexError::NotGitRepository => "not_git_repository",
-        IssueHistoryIndexError::GitUnavailable => "git_unavailable",
-        IssueHistoryIndexError::ComparisonFailed => "comparison_failed",
-        IssueHistoryIndexError::RelationLimit => "relation_bound",
-        IssueHistoryIndexError::Cancelled => "cancelled",
-        IssueHistoryIndexError::StorageUnavailable => "storage_unavailable",
-    }
 }
 
 fn discovery_limits() -> Result<DiscoveryLimits, ProjectError> {
@@ -3571,17 +1536,6 @@ fn pipeline_config(
     .with_partial_clones(policy.partial_clones)
     .with_maximum_ast_depth(policy.maximum_ast_depth)
     .map_err(|_| ProjectError::InvalidOptions)
-}
-
-fn supervisor_config(max_worker_bytes: u64) -> SupervisorConfig {
-    SupervisorConfig::new(DEFAULT_OPERATION_TIMEOUT)
-        .with_heartbeat_interval(DEFAULT_HEARTBEAT_INTERVAL)
-        .with_heartbeat_timeout(DEFAULT_HEARTBEAT_TIMEOUT)
-        .with_progress_timeout(DEFAULT_PROGRESS_TIMEOUT)
-        .with_cancellation_grace(DEFAULT_CANCELLATION_GRACE)
-        .with_copy_timeout(DEFAULT_COPY_TIMEOUT)
-        .with_max_worker_tasks(DEFAULT_MAX_SUPERVISOR_TASKS)
-        .with_max_worker_bytes(max_worker_bytes)
 }
 
 fn monotonic_millis(duration: Duration) -> u64 {
@@ -3751,988 +1705,67 @@ pub enum ProjectError {
     RequestCancelled,
 }
 
-#[cfg(test)]
-mod tests {
-    use std::assert_matches;
+mod runtime;
+pub use runtime::ProjectRuntime;
+mod index_failure;
+mod source_runtime;
+mod source_scan;
 
-    use super::*;
+async fn cancellable_project_read<T>(
+    cancellation: &ProjectCancellation,
+    operation: impl std::future::Future<Output = Result<T, ProjectError>>,
+) -> Result<T, ProjectError> {
+    cancellable_native_read(cancellation, operation, || ProjectError::RequestCancelled).await
+}
 
-    #[test]
-    fn schema_ahead_error_names_binary_and_both_schema_versions() {
-        let error = ProjectError::SchemaVersionAhead {
-            binary_version: "2.1.4",
-            database_schema_version: 27,
-            supported_schema_version: 26,
-        };
-        let message = error.to_string();
-        assert!(message.contains("Cartograph 2.1.4"));
-        assert!(message.contains("schema version 26"));
-        assert!(message.contains("schema version 27"));
-        assert!(message.contains("repin the MCP registration"));
-    }
-
-    #[test]
-    fn blocked_schema_migration_names_the_exact_pending_version() {
-        let error = ProjectError::SchemaMigrationBlocked {
-            database_schema_version: 38,
-            required_schema_version: 39,
-            pending_migration_version: 39,
-        };
-        let message = error.to_string();
-        assert!(message.contains("schema version 38"));
-        assert!(message.contains("required version 39"));
-        assert!(message.contains("pending migration 39"));
-    }
-
-    #[test]
-    fn native_pipeline_failures_preserve_stage_and_allowlisted_reason_without_source_text() {
-        let parse = native_pipeline_failure(&cartograph_indexer::NativePipelineError::Stage(
-            cartograph_indexer::StageRunError::StageDeadline {
-                stage: PipelineStage::Parse,
+fn cancellable_native_read<T, E>(
+    cancellation: &ProjectCancellation,
+    operation: impl std::future::Future<Output = Result<T, E>>,
+    cancelled: impl Fn() -> E,
+) -> impl std::future::Future<Output = Result<T, E>> {
+    let operation = Box::pin(operation);
+    async move {
+        let request = CartographDatabase::request_control(Duration::from_secs(30))
+            .map_err(|_| cancelled())?;
+        let operation = CartographDatabase::with_request(request.clone(), operation);
+        tokio::pin!(operation);
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                request.cancel();
+                let _completed = operation.await;
+                Err(cancelled())
             },
-        ));
-        assert_eq!(parse.stage(), PipelineStage::Parse);
-        assert_eq!(
-            parse.reason(),
-            Some(PipelineFailureReason::DeadlineExceeded)
-        );
-
-        let bounded =
-            native_pipeline_failure(&cartograph_indexer::NativePipelineError::Validation {
-                reason: Some(PipelineFailureReason::ReferenceNameTooLong),
-            });
-        assert_eq!(bounded.stage(), PipelineStage::Reduce);
-        assert_eq!(
-            bounded.reason(),
-            Some(PipelineFailureReason::ReferenceNameTooLong)
-        );
-        let capacity =
-            native_pipeline_failure(&cartograph_indexer::NativePipelineError::StageWithReason {
-                stage: PipelineStage::Resolve,
-                reason: PipelineFailureReason::GenerationCapacityExceeded,
-            });
-        assert_eq!(capacity.stage(), PipelineStage::Resolve);
-        assert_eq!(
-            capacity.reason(),
-            Some(PipelineFailureReason::GenerationCapacityExceeded)
-        );
-        let Some(capacity_reason) = capacity.reason() else {
-            panic!("generation-capacity reason was discarded");
-        };
-        assert_eq!(
-            ProjectError::IndexStageFailedWithReason {
-                stage: capacity.stage(),
-                reason: capacity_reason,
-            }
-            .to_string(),
-            "Cartograph index operation failed during resolve/generation_capacity_exceeded; the previous generation remains visible"
-        );
-        let Some(reason) = bounded.reason() else {
-            panic!("allowlisted pipeline reason was discarded");
-        };
-        let public = ProjectError::IndexStageFailedWithReason {
-            stage: bounded.stage(),
-            reason,
-        };
-        assert_eq!(
-            public.to_string(),
-            "Cartograph index operation failed during reduce/reference_name_too_long; the previous generation remains visible"
-        );
-
-        let path = NormalizedPath::parse("src/broken.rs")
-            .unwrap_or_else(|error| panic!("fixture path was invalid: {error}"));
-        let input = native_pipeline_failure(
-            &cartograph_indexer::NativePipelineError::StageWithFileFailure {
-                stage: PipelineStage::Parse,
-                failure: PipelineFileFailure::new(
-                    path,
-                    PipelineFailureReason::ExtractionParserStopped,
-                ),
-            },
-        );
-        let input_failure = input
-            .file_failure()
-            .unwrap_or_else(|| panic!("native parser failure lost its input path"));
-        assert_eq!(input_failure.path().as_str(), "src/broken.rs");
-        assert_eq!(
-            input_failure.reason(),
-            PipelineFailureReason::ExtractionParserStopped
-        );
-        let public = ProjectError::IndexStageFileFailed {
-            stage: input.stage(),
-            failure: input_failure.clone(),
-        };
-        assert_eq!(
-            public.to_string(),
-            "Cartograph index operation failed during parse/extraction_parser_stopped at project-relative path \"src/broken.rs\"; the previous generation remains visible"
-        );
-    }
-
-    #[test]
-    fn retention_release_warning_preserves_the_committed_cleanup_report() {
-        let status = GenerationRetentionStatus::CompletedWithWarning {
-            report: GenerationRetentionReport {
-                staging_removed: 1,
-                ready_removed: 0,
-                superseded_removed: 2,
-                failed_removed: 3,
-                embeddings_removed: 4,
-                current_preserved: 1,
-                superseded_preserved: 2,
-                failed_remaining: 0,
-                staging_remaining: 0,
-                ready_remaining: 0,
-                retiring_remaining: 0,
-                batches_committed: 1,
-                deferred_reason: None,
-                deferred_at: None,
-                cascade_rows_removed: 20,
-                search_relations_removed: 2,
-                search_relation_bytes_removed: 1_024,
-                maintenance: cartograph_db::PostRetentionMaintenance::NotNeeded,
-            },
-            parse_cache: Some(NativeParseCacheRetentionReport::default()),
-            warning: "lease_release_unavailable",
-        };
-        let value = serde_json::to_value(status)
-            .unwrap_or_else(|error| panic!("retention status serialization failed: {error}"));
-
-        assert_eq!(value["state"], "completed_with_warning");
-        assert_eq!(value["warning"], "lease_release_unavailable");
-        assert_eq!(value["report"]["failed_removed"], 3);
-        assert_eq!(value["report"]["search_relation_bytes_removed"], 1_024);
-    }
-
-    #[test]
-    fn worker_selector_is_corpus_aware_bounded_and_monotonic() {
-        const OVERSIZED_CORPUS: usize = EIGHT_WORKER_MAX_FILES * EIGHT_WORKER_MAX_FILES;
-        const CALLER_CAP: u16 = 3;
-
-        let hardware = std::thread::available_parallelism()
-            .ok()
-            .and_then(|value| u16::try_from(value.get()).ok())
-            .unwrap_or(ONE_WORKER)
-            .max(ONE_WORKER);
-        let cases = [
-            (0, ONE_WORKER),
-            (SINGLE_WORKER_MAX_FILES, ONE_WORKER),
-            (SINGLE_WORKER_MAX_FILES + 1, TWO_WORKERS),
-            (TWO_WORKER_MAX_FILES + 1, FOUR_WORKERS),
-            (FOUR_WORKER_MAX_FILES + 1, EIGHT_WORKERS),
-            (EIGHT_WORKER_MAX_FILES + 1, MAX_CONFIGURED_WORKERS),
-        ];
-        let mut prior = 0;
-        for (files, requested) in cases {
-            let selected = select_worker_count(files, 0, MAX_CONFIGURED_WORKERS);
-            assert_eq!(selected, requested.min(hardware));
-            assert!(selected >= prior);
-            prior = selected;
+            result = &mut operation => result,
         }
-        let byte_cases = [
-            (0, ONE_WORKER),
-            (SINGLE_WORKER_MAX_SOURCE_BYTES, ONE_WORKER),
-            (SINGLE_WORKER_MAX_SOURCE_BYTES + 1, TWO_WORKERS),
-            (TWO_WORKER_MAX_SOURCE_BYTES + 1, FOUR_WORKERS),
-            (FOUR_WORKER_MAX_SOURCE_BYTES + 1, EIGHT_WORKERS),
-            (EIGHT_WORKER_MAX_SOURCE_BYTES + 1, MAX_CONFIGURED_WORKERS),
-        ];
-        let mut prior = 0;
-        for (source_bytes, requested) in byte_cases {
-            let selected = select_worker_count(1, source_bytes, MAX_CONFIGURED_WORKERS);
-            assert_eq!(selected, requested.min(hardware));
-            assert!(selected >= prior);
-            prior = selected;
-        }
-        assert_eq!(
-            select_worker_count(34, 1_052_564, MAX_CONFIGURED_WORKERS),
-            EIGHT_WORKERS.min(hardware)
-        );
-        assert_eq!(
-            select_worker_count(256, 6_145_536, MAX_CONFIGURED_WORKERS),
-            MAX_CONFIGURED_WORKERS.min(hardware)
-        );
-        assert_eq!(
-            select_worker_count(OVERSIZED_CORPUS, u64::MAX, CALLER_CAP),
-            CALLER_CAP.min(hardware)
-        );
-    }
-
-    #[test]
-    fn generation_storage_selection_is_forced_or_manifest_aware() {
-        let policy = |preference| GenerationStoragePolicy {
-            preference,
-            spill: NativeGenerationSpillPolicy::default(),
-        };
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Memory),
-                GenerationStorageSignals {
-                    files: AUTO_SPILL_MINIMUM_FILES,
-                    source_bytes: AUTO_SPILL_MINIMUM_SOURCE_BYTES,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Memory
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Postgres),
-                GenerationStorageSignals {
-                    files: 1,
-                    source_bytes: 1,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Auto),
-                GenerationStorageSignals {
-                    files: AUTO_SPILL_MINIMUM_FILES - 1,
-                    source_bytes: (DEFAULT_MAX_GENERATION_BYTES / AUTO_SPILL_EXPANSION_FACTOR) - 1,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Memory
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Auto),
-                GenerationStorageSignals {
-                    files: AUTO_SPILL_MINIMUM_FILES,
-                    source_bytes: 1,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Auto),
-                GenerationStorageSignals {
-                    files: 1,
-                    source_bytes: 1,
-                    cargo_manifests: AUTO_SPILL_MINIMUM_CARGO_MANIFESTS,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-        assert!(is_cargo_manifest(
-            &NormalizedPath::parse("crates/service/Cargo.toml")
-                .unwrap_or_else(|error| panic!("fixture path failed: {error}"))
-        ));
-        assert!(!is_cargo_manifest(
-            &NormalizedPath::parse("docs/Cargo.toml.md")
-                .unwrap_or_else(|error| panic!("fixture path failed: {error}"))
-        ));
-    }
-
-    #[test]
-    fn generation_storage_selection_honours_forced_preferences() {
-        let policy = |preference| GenerationStoragePolicy {
-            preference,
-            spill: NativeGenerationSpillPolicy::default(),
-        };
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Auto),
-                GenerationStorageSignals {
-                    files: 1,
-                    source_bytes: AUTO_SPILL_MINIMUM_SOURCE_BYTES,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Auto),
-                GenerationStorageSignals {
-                    files: 1,
-                    source_bytes: DEFAULT_MAX_GENERATION_BYTES / AUTO_SPILL_EXPANSION_FACTOR,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Auto),
-                GenerationStorageSignals {
-                    files: AUTO_SPILL_MINIMUM_FILES,
-                    source_bytes: AUTO_SPILL_MINIMUM_SOURCE_BYTES,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-        assert_matches!(
-            select_generation_storage(
-                policy(ProjectGenerationStorage::Postgres),
-                GenerationStorageSignals {
-                    files: 1,
-                    source_bytes: 1,
-                    cargo_manifests: 0,
-                    maximum_generation_bytes: DEFAULT_MAX_GENERATION_BYTES,
-                },
-            ),
-            GenerationStorageSelection::Postgres(_)
-        );
-    }
-
-    #[test]
-    fn project_identity_is_stable_distinct_and_does_not_expose_the_path() {
-        let first = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        let second = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        let first_path = std::fs::canonicalize(first.path())
-            .unwrap_or_else(|error| panic!("canonicalize failed: {error}"));
-        let second_path = std::fs::canonicalize(second.path())
-            .unwrap_or_else(|error| panic!("canonicalize failed: {error}"));
-        let identity = project_identity_digest(&first_path);
-        assert_eq!(identity, project_identity_digest(&first_path));
-        assert_ne!(identity, project_identity_digest(&second_path));
-        assert!(
-            !identity
-                .as_str()
-                .contains(&first_path.to_string_lossy().to_string())
-        );
-    }
-
-    #[test]
-    fn source_revision_counts_only_exact_cargo_manifests_for_storage_selection() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        let nested = directory.path().join("crates/service");
-        std::fs::create_dir_all(&nested)
-            .unwrap_or_else(|error| panic!("fixture directory failed: {error}"));
-        std::fs::write(directory.path().join("Cargo.toml"), "[workspace]\n")
-            .unwrap_or_else(|error| panic!("root manifest write failed: {error}"));
-        std::fs::write(
-            nested.join("Cargo.toml"),
-            "[package]\nname = \"service\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap_or_else(|error| panic!("nested manifest write failed: {error}"));
-        std::fs::write(directory.path().join("Cargo.toml.md"), "not a manifest\n")
-            .unwrap_or_else(|error| panic!("decoy write failed: {error}"));
-
-        let revision = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("source revision failed: {error}"));
-        assert_eq!(revision.cargo_manifests, 2);
-    }
-
-    #[test]
-    fn source_revision_changes_with_supported_content_and_ignores_local_state() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        let source = directory.path().join("service.ts");
-        std::fs::write(&source, "export const value = 1;\n")
-            .unwrap_or_else(|error| panic!("source write failed: {error}"));
-        let first = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("source revision failed: {error}"));
-        std::fs::write(directory.path().join(".editorconfig"), "root = true\n")
-            .unwrap_or_else(|error| panic!("unrelated dotfile write failed: {error}"));
-        let unrelated_dotfile = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("dotfile source revision failed: {error}"));
-        assert_eq!(first.digest, unrelated_dotfile.digest);
-        std::fs::create_dir(directory.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("state dir failed: {error}"));
-        std::fs::write(directory.path().join(".cartograph/cache"), "private state")
-            .unwrap_or_else(|error| panic!("state write failed: {error}"));
-        let ignored = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("source revision failed: {error}"));
-        assert_eq!(first.digest, ignored.digest);
-        std::fs::write(&source, "export const value = 2;\n")
-            .unwrap_or_else(|error| panic!("source write failed: {error}"));
-        let changed = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("source revision failed: {error}"));
-        assert_ne!(first.digest, changed.digest);
-        assert_eq!(changed.files, 1);
-        std::fs::create_dir_all(directory.path().join(".cartograph/scip"))
-            .unwrap_or_else(|error| panic!("SCIP state dir failed: {error}"));
-        let overlay_bytes = [0x0a_u8, 0x00];
-        std::fs::write(
-            directory.path().join(SCIP_OVERLAY_RELATIVE_PATH),
-            overlay_bytes,
-        )
-        .unwrap_or_else(|error| panic!("SCIP overlay write failed: {error}"));
-        let overlaid = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("overlaid source revision failed: {error}"));
-        assert_ne!(changed.digest, overlaid.digest);
-        assert_eq!(changed.files, overlaid.files);
-        let retained = source_revision_with_options(
-            SourceRevisionRequest {
-                root: directory.path(),
-                capture_paths: &BTreeSet::new(),
-                retain_scip_overlay: true,
-                max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
-                discovery_policy: DiscoveryPolicy::v1_defaults()
-                    .unwrap_or_else(|error| panic!("default discovery policy failed: {error}")),
-                index_policy: SourceIndexPolicy::full(duplicate_code_allowlist_digest(&[])),
-            },
-            || false,
-        )
-        .unwrap_or_else(|error| panic!("retained overlay scan failed: {error}"));
-        assert_eq!(retained.digest, overlaid.digest);
-        assert_eq!(
-            retained
-                .scip_overlay
-                .as_ref()
-                .map(|overlay| overlay.content_digest().clone()),
-            Some(ContentDigest::from_bytes(
-                *blake3::hash(&overlay_bytes).as_bytes()
-            ))
-        );
-    }
-
-    #[test]
-    fn source_revision_honors_live_project_excludes_and_ignores_excluded_edits() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::create_dir_all(directory.path().join("private"))
-            .unwrap_or_else(|error| panic!("private directory failed: {error}"));
-        std::fs::create_dir_all(directory.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("config directory failed: {error}"));
-        std::fs::write(
-            directory.path().join("public.ts"),
-            "export const visible = true;\n",
-        )
-        .unwrap_or_else(|error| panic!("public source failed: {error}"));
-        std::fs::write(
-            directory.path().join("private/hidden.ts"),
-            "export const hidden = 1;\n",
-        )
-        .unwrap_or_else(|error| panic!("private source failed: {error}"));
-        std::fs::write(
-            directory.path().join(".cartograph/config.json"),
-            r#"{"exclude":["private/**"]}"#,
-        )
-        .unwrap_or_else(|error| panic!("project config failed: {error}"));
-        let excluded = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("excluded revision failed: {error}"));
-        assert_eq!(excluded.files, 1);
-        std::fs::write(
-            directory.path().join("private/hidden.ts"),
-            "export const hidden = 2;\n",
-        )
-        .unwrap_or_else(|error| panic!("private edit failed: {error}"));
-        let excluded_edit = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("excluded edit revision failed: {error}"));
-        assert_eq!(excluded.digest, excluded_edit.digest);
-        std::fs::write(directory.path().join(".cartograph/config.json"), "{}")
-            .unwrap_or_else(|error| panic!("project config reset failed: {error}"));
-        let included = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("included revision failed: {error}"));
-        assert_eq!(included.files, 2);
-        assert_ne!(included.digest, excluded.digest);
-    }
-
-    #[test]
-    fn source_revision_fences_graph_analysis_policy_changes() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::write(directory.path().join("service.rs"), "pub fn ready() {}\n")
-            .unwrap_or_else(|error| panic!("source write failed: {error}"));
-        let baseline = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("baseline revision failed: {error}"));
-        std::fs::create_dir(directory.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("config directory failed: {error}"));
-        let config = directory.path().join(".cartograph/config.json");
-        std::fs::write(&config, r#"{"enableCentrality":false}"#)
-            .unwrap_or_else(|error| panic!("centrality config failed: {error}"));
-        let without_page_rank = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("centrality revision failed: {error}"));
-        assert_ne!(baseline.digest, without_page_rank.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false}"#,
-        )
-        .unwrap_or_else(|error| panic!("betweenness config failed: {error}"));
-        let without_graph_scores = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("betweenness revision failed: {error}"));
-        assert_ne!(without_page_rank.digest, without_graph_scores.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false,"enableIssueHistory":false}"#,
-        )
-        .unwrap_or_else(|error| panic!("history config failed: {error}"));
-        let auxiliary_change = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("auxiliary revision failed: {error}"));
-        assert_eq!(without_graph_scores.digest, auxiliary_change.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false,"extractDocstrings":false}"#,
-        )
-        .unwrap_or_else(|error| panic!("docstring config failed: {error}"));
-        let without_docstrings = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("docstring revision failed: {error}"));
-        assert_ne!(without_graph_scores.digest, without_docstrings.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false,"extractDocstrings":false,"trackCallSites":false}"#,
-        )
-        .unwrap_or_else(|error| panic!("call-site config failed: {error}"));
-        let without_call_sites = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("call-site revision failed: {error}"));
-        assert_ne!(without_docstrings.digest, without_call_sites.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false,"extractDocstrings":false,"trackCallSites":false,"duplicateCodePartialClones":true}"#,
-        )
-        .unwrap_or_else(|error| panic!("partial-clone config failed: {error}"));
-        let wider_clone_band = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("partial-clone revision failed: {error}"));
-        assert_ne!(without_call_sites.digest, wider_clone_band.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false,"extractDocstrings":false,"trackCallSites":false,"duplicateCodePartialClones":true,"duplicateCodeAllowlist":["generated/**"]}"#,
-        )
-        .unwrap_or_else(|error| panic!("clone allowlist config failed: {error}"));
-        let clone_allowlist = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("clone allowlist revision failed: {error}"));
-        assert_ne!(wider_clone_band.digest, clone_allowlist.digest);
-
-        std::fs::write(
-            &config,
-            r#"{"enableCentrality":false,"enableBetweenness":false,"extractDocstrings":false,"trackCallSites":false,"duplicateCodePartialClones":true,"duplicateCodeAllowlist":["generated/**"],"maxAstDepth":512}"#,
-        )
-        .unwrap_or_else(|error| panic!("AST depth config failed: {error}"));
-        let deeper_ast = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("AST depth revision failed: {error}"));
-        assert_ne!(clone_allowlist.digest, deeper_ast.digest);
-    }
-
-    #[test]
-    fn source_revision_honors_the_configured_language_allow_list() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::write(directory.path().join("service.rs"), "pub fn ready() {}\n")
-            .unwrap_or_else(|error| panic!("Rust fixture failed: {error}"));
-        let typescript = directory.path().join("ignored.ts");
-        std::fs::write(&typescript, "export const ignored = 1;\n")
-            .unwrap_or_else(|error| panic!("TypeScript fixture failed: {error}"));
-        std::fs::create_dir(directory.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("config directory failed: {error}"));
-        let config = directory.path().join(".cartograph/config.json");
-        std::fs::write(&config, r#"{"languages":["rust"]}"#)
-            .unwrap_or_else(|error| panic!("language config failed: {error}"));
-        let rust_only = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("Rust-only revision failed: {error}"));
-        assert_eq!(rust_only.files, 1);
-        std::fs::write(&typescript, "export const ignored = 2;\n")
-            .unwrap_or_else(|error| panic!("ignored edit failed: {error}"));
-        let ignored_edit = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("ignored revision failed: {error}"));
-        assert_eq!(rust_only.digest, ignored_edit.digest);
-
-        std::fs::write(&config, r#"{"languages":[]}"#)
-            .unwrap_or_else(|error| panic!("all-language config failed: {error}"));
-        let all_languages = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("all-language revision failed: {error}"));
-        assert_eq!(all_languages.files, 2);
-        assert_ne!(rust_only.digest, all_languages.digest);
-    }
-
-    #[test]
-    fn source_revision_honors_include_globs_and_migrates_v1_additions() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::create_dir_all(directory.path().join("src"))
-            .unwrap_or_else(|error| panic!("source directory failed: {error}"));
-        std::fs::create_dir_all(directory.path().join("tests"))
-            .unwrap_or_else(|error| panic!("test directory failed: {error}"));
-        std::fs::create_dir(directory.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("config directory failed: {error}"));
-        std::fs::write(directory.path().join("src/lib.rs"), "pub fn ready() {}\n")
-            .unwrap_or_else(|error| panic!("source fixture failed: {error}"));
-        let excluded = directory.path().join("tests/lib.rs");
-        std::fs::write(&excluded, "#[test] fn ready() {}\n")
-            .unwrap_or_else(|error| panic!("test fixture failed: {error}"));
-        std::fs::write(
-            directory.path().join("Cargo.toml"),
-            "[package]\nname='fixture'\n",
-        )
-        .unwrap_or_else(|error| panic!("TOML fixture failed: {error}"));
-        let config = directory.path().join(".cartograph/config.json");
-        std::fs::write(&config, r#"{"version":2,"include":["src/**/*.rs"]}"#)
-            .unwrap_or_else(|error| panic!("include config failed: {error}"));
-        let included = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("included revision failed: {error}"));
-        assert_eq!(included.files, 1);
-        std::fs::write(&excluded, "#[test] fn changed() {}\n")
-            .unwrap_or_else(|error| panic!("excluded edit failed: {error}"));
-        let excluded_edit = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("excluded edit revision failed: {error}"));
-        assert_eq!(included.digest, excluded_edit.digest);
-
-        std::fs::write(&config, r#"{"version":1,"include":["src/**/*.rs"]}"#)
-            .unwrap_or_else(|error| panic!("v1 include config failed: {error}"));
-        let migrated = source_revision(directory.path())
-            .unwrap_or_else(|error| panic!("migrated include revision failed: {error}"));
-        assert_eq!(migrated.files, 2);
-        assert_ne!(included.digest, migrated.digest);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn source_revision_rejects_a_symlinked_scip_overlay() {
-        use std::os::unix::fs::symlink;
-
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::write(directory.path().join("service.rs"), "pub fn ready() {}\n")
-            .unwrap_or_else(|error| panic!("source write failed: {error}"));
-        std::fs::create_dir_all(directory.path().join(".cartograph/scip"))
-            .unwrap_or_else(|error| panic!("SCIP state dir failed: {error}"));
-        let external = directory.path().join("foreign.scip");
-        std::fs::write(&external, [0x0a_u8, 0x00])
-            .unwrap_or_else(|error| panic!("external write failed: {error}"));
-        symlink(&external, directory.path().join(SCIP_OVERLAY_RELATIVE_PATH))
-            .unwrap_or_else(|error| panic!("symlink failed: {error}"));
-        assert_eq!(
-            source_revision(directory.path()).map(|source| source.digest),
-            Err(ProjectError::ScipOverlayInvalid)
-        );
-    }
-
-    #[test]
-    fn public_source_identity_matches_internal_revision_without_leaking_root_text() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::write(
-            directory.path().join("service.ts"),
-            "export const ready = true;\n",
-        )
-        .unwrap_or_else(|error| panic!("source write failed: {error}"));
-        std::fs::write(
-            directory.path().join("service.pyi"),
-            "def ready() -> bool: ...\n",
-        )
-        .unwrap_or_else(|error| panic!("additive Python source write failed: {error}"));
-        std::fs::write(
-            directory.path().join("Cargo.toml"),
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap_or_else(|error| panic!("additive TOML source write failed: {error}"));
-        let canonical = std::fs::canonicalize(directory.path())
-            .unwrap_or_else(|error| panic!("canonicalize failed: {error}"));
-
-        let identity = ProjectRuntime::inspect_source_identity(directory.path())
-            .unwrap_or_else(|error| panic!("source identity failed: {error}"));
-        let internal = source_revision(&canonical)
-            .unwrap_or_else(|error| panic!("source revision failed: {error}"));
-
-        assert_eq!(identity.source_revision, internal.digest);
-        assert_eq!(identity.v1_source_manifest, internal.v1_source_manifest);
-        let service_path = NormalizedPath::parse("service.ts")
-            .unwrap_or_else(|error| panic!("service path was invalid: {error}"));
-        let service_hash =
-            ContentDigest::from_bytes(*blake3::hash(b"export const ready = true;\n").as_bytes());
-        assert_eq!(
-            identity.v1_source_manifest,
-            finish_source_manifest(&[(service_path, service_hash)])
-                .unwrap_or_else(|error| panic!("v1 manifest failed: {error}"))
-        );
-        assert_eq!(identity.files, 3);
-        assert_eq!(
-            identity.repository_fingerprint,
-            project_identity_digest(&canonical)
-        );
-        assert!(!format!("{identity:?}").contains(&canonical.to_string_lossy().to_string()));
-    }
-
-    #[test]
-    fn invalid_worker_caps_fail_before_any_database_or_source_work() {
-        assert_eq!(
-            IndexOptions::default().with_max_workers(0),
-            Err(ProjectError::InvalidOptions)
-        );
-        assert_eq!(
-            IndexOptions::default().with_max_workers(17),
-            Err(ProjectError::InvalidOptions)
-        );
-        assert_eq!(
-            IndexOptions::default().with_max_source_bytes(0),
-            Err(ProjectError::InvalidOptions)
-        );
-        assert_eq!(
-            IndexOptions::default().with_max_source_bytes(DEFAULT_MAX_SOURCE_BYTES + 1),
-            Err(ProjectError::InvalidOptions)
-        );
-        assert!(
-            IndexOptions::default()
-                .with_max_source_bytes(10 * 1024 * 1024)
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn source_identity_preserves_named_project_configuration_range_errors() {
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::create_dir(directory.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("config directory failed: {error}"));
-        std::fs::write(
-            directory.path().join(".cartograph/config.json"),
-            r#"{"maxGenerationBytes":8589934593}"#,
-        )
-        .unwrap_or_else(|error| panic!("config fixture failed: {error}"));
-        let error = ProjectRuntime::inspect_source_identity(directory.path())
-            .err()
-            .unwrap_or_else(|| panic!("out-of-range source identity unexpectedly succeeded"));
-        assert_eq!(
-            error,
-            ProjectError::ProjectConfiguration(ProjectConfigError::NumericFieldOutOfRange {
-                field: "maxGenerationBytes",
-                minimum: 1,
-                maximum: 8_589_934_592,
-            })
-        );
-        assert!(error.to_string().contains("`maxGenerationBytes`"));
-    }
-
-    #[test]
-    fn automatic_indexing_is_history_free_and_worker_bounded() {
-        let automatic = IndexOptions::automatic();
-
-        assert_eq!(automatic.max_workers, FOUR_WORKERS);
-        assert!(!automatic.refresh_history);
-        assert_eq!(
-            automatic.failure_retention,
-            IndexFailureRetention::AutomaticFailures
-        );
-        assert!(!automatic.force);
-        assert_eq!(automatic.max_source_bytes, None);
-        assert!(!automatic.profile);
-        assert_eq!(automatic.additional_excludes, [] as [String; 0]);
-        assert_eq!(
-            automatic.admission_reconciliation,
-            IndexAdmissionReconciliation::PreserveCurrent
-        );
-        assert_eq!(
-            AUTOMATIC_RETENTION_MAINTENANCE,
-            PostRetentionMaintenancePolicy::DelegateToAutovacuum
-        );
-    }
-
-    #[test]
-    fn semantic_maintenance_can_skip_only_the_independent_history_refresh() {
-        let defaults = IndexOptions::default();
-        assert!(defaults.refresh_history);
-        assert_eq!(
-            defaults.admission_reconciliation,
-            IndexAdmissionReconciliation::Replace
-        );
-        assert_eq!(
-            IndexOptions::reconciliation().admission_reconciliation,
-            IndexAdmissionReconciliation::PreserveCurrent
-        );
-        let semantic = defaults.with_history_refresh(false);
-        assert!(!semantic.refresh_history);
-        assert!(!semantic.force);
-        assert_eq!(semantic.max_source_bytes, None);
-    }
-
-    #[test]
-    fn single_publication_reports_a_changed_checkout_instead_of_rebuilding() {
-        assert_eq!(
-            IndexOptions::default().source_drift,
-            SourceDriftPolicy::Rebuild
-        );
-        assert_eq!(
-            IndexOptions::reconciliation().source_drift,
-            SourceDriftPolicy::Rebuild
-        );
-        let single = IndexOptions::reconciliation().with_single_publication(true);
-        assert_eq!(single.source_drift, SourceDriftPolicy::ReportPublished);
-        assert_eq!(
-            single.with_single_publication(false).source_drift,
-            SourceDriftPolicy::Rebuild
-        );
-
-        let changed = |policy, cancelled, final_attempt| {
-            source_reconciliation_step(SourceReconciliationInput {
-                policy,
-                observed: Some(false),
-                cancelled,
-                final_attempt,
-            })
-        };
-        // A published single-publication attempt is terminal on its first
-        // attempt, and cancellation after publication cannot relabel the
-        // generation it already made current as a failure.
-        for (cancelled, final_attempt) in [(false, false), (true, false), (false, true)] {
-            assert_eq!(
-                changed(SourceDriftPolicy::ReportPublished, cancelled, final_attempt),
-                SourceReconciliationStep::Finish(IndexLiveSource::ChangedAfterPublication)
-            );
-        }
-        assert_eq!(
-            changed(SourceDriftPolicy::Rebuild, false, false),
-            SourceReconciliationStep::Rebuild
-        );
-        assert_eq!(
-            changed(SourceDriftPolicy::Rebuild, false, true),
-            SourceReconciliationStep::Exhausted
-        );
-        assert_eq!(
-            changed(SourceDriftPolicy::Rebuild, true, false),
-            SourceReconciliationStep::Cancelled
-        );
-        for policy in [
-            SourceDriftPolicy::Rebuild,
-            SourceDriftPolicy::ReportPublished,
-        ] {
-            assert_eq!(
-                source_reconciliation_step(SourceReconciliationInput {
-                    policy,
-                    observed: Some(true),
-                    cancelled: true,
-                    final_attempt: true,
-                }),
-                SourceReconciliationStep::Finish(IndexLiveSource::Matched)
-            );
-        }
-        // A published single-publication generation whose check was cut
-        // short (for example by the parent's stop request) is still reported,
-        // never invented as matched or changed.
-        let unobserved = |policy| {
-            source_reconciliation_step(SourceReconciliationInput {
-                policy,
-                observed: None,
-                cancelled: true,
-                final_attempt: false,
-            })
-        };
-        assert_eq!(
-            unobserved(SourceDriftPolicy::ReportPublished),
-            SourceReconciliationStep::Finish(IndexLiveSource::Unverified)
-        );
-        assert_eq!(
-            unobserved(SourceDriftPolicy::Rebuild),
-            SourceReconciliationStep::Cancelled
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn queued_source_scans_cancel_without_starving_runtime_timers() {
-        const REQUESTS: usize = 32;
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        std::fs::write(directory.path().join("service.rs"), "pub fn ready() {}\n")
-            .unwrap_or_else(|error| panic!("fixture write failed: {error}"));
-        let root = directory
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|error| panic!("fixture canonicalize failed: {error}"));
-        let permits = Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS));
-        let held = permits
-            .clone()
-            .acquire_owned()
-            .await
-            .unwrap_or_else(|error| panic!("fixture permit failed: {error}"));
-        let mut signals = Vec::new();
-        let mut scans = Vec::new();
-        for _ in 0..REQUESTS {
-            let cancellation = ProjectCancellation::new();
-            signals.push(cancellation.clone());
-            scans.push(tokio::spawn(scan_source_path(SourceScanRequest {
-                root: root.clone(),
-                permits: permits.clone(),
-                counters: Arc::default(),
-                capture_paths: BTreeSet::new(),
-                retain_scip_overlay: false,
-                max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
-                discovery_policy: DiscoveryPolicy::v1_defaults()
-                    .unwrap_or_else(|error| panic!("default discovery policy failed: {error}")),
-                index_policy: SourceIndexPolicy::full(duplicate_code_allowlist_digest(&[])),
-                cancellation,
-            })));
-        }
-        tokio::time::timeout(
-            Duration::from_millis(100),
-            tokio::time::sleep(Duration::from_millis(1)),
-        )
-        .await
-        .unwrap_or_else(|_| panic!("source scans starved the runtime timer"));
-        for signal in &signals {
-            signal.cancel();
-        }
-        let reaped = tokio::time::timeout(Duration::from_secs(1), async {
-            for scan in scans {
-                let result = scan
-                    .await
-                    .unwrap_or_else(|error| panic!("source scan task failed: {error}"));
-                assert_eq!(
-                    result.map(|source| source.files),
-                    Err(ProjectError::RequestCancelled)
-                );
-            }
-        });
-        reaped
-            .await
-            .unwrap_or_else(|_| panic!("cancelled source scans were not reaped"));
-        drop(held);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn scan_checkpoints_advance_with_every_file_a_scan_hashes() {
-        const FILES: u64 = 12;
-        let directory =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-        let root = directory
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|error| panic!("fixture canonicalize failed: {error}"));
-        let scan = |counters: Arc<SourceScanCounters>| {
-            scan_source_path(SourceScanRequest {
-                root: root.clone(),
-                permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SOURCE_SCANS)),
-                counters,
-                capture_paths: BTreeSet::new(),
-                retain_scip_overlay: false,
-                max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
-                discovery_policy: DiscoveryPolicy::v1_defaults()
-                    .unwrap_or_else(|error| panic!("default discovery policy failed: {error}")),
-                index_policy: SourceIndexPolicy::full(duplicate_code_allowlist_digest(&[])),
-                cancellation: ProjectCancellation::new(),
-            })
-        };
-        let empty = Arc::<SourceScanCounters>::default();
-        scan(empty.clone())
-            .await
-            .unwrap_or_else(|error| panic!("empty scan failed: {error}"));
-        let baseline = empty.checkpoints.load(Ordering::Relaxed);
-
-        for index in 0..FILES {
-            std::fs::write(
-                directory.path().join(format!("service_{index}.rs")),
-                format!("pub fn ready_{index}() {{}}\n"),
-            )
-            .unwrap_or_else(|error| panic!("fixture write failed: {error}"));
-        }
-        let counters = Arc::<SourceScanCounters>::default();
-        let source = scan(counters.clone())
-            .await
-            .unwrap_or_else(|error| panic!("fixture scan failed: {error}"));
-        assert_eq!(source.files, 12);
-        assert_eq!(counters.observations.load(Ordering::Relaxed), 1);
-        // Work units grow with the corpus, so a long scan keeps reporting
-        // progress instead of looking idle until it finishes.
-        assert!(counters.checkpoints.load(Ordering::Relaxed) >= baseline + FILES);
     }
 }
+
+const fn history_unavailable_reason(error: HistoryIndexError) -> &'static str {
+    match error {
+        HistoryIndexError::InvalidOptions => "invalid_options",
+        HistoryIndexError::NotGitRepository => "not_git_repository",
+        HistoryIndexError::GitUnavailable => "git_unavailable",
+        HistoryIndexError::GitOutputInvalid => "git_output_bound",
+        HistoryIndexError::RelationLimit => "relation_bound",
+        HistoryIndexError::Cancelled => "cancelled",
+        HistoryIndexError::StorageUnavailable => "storage_unavailable",
+        HistoryIndexError::DisabledByProjectConfig => "disabled_by_project_config",
+    }
+}
+
+const fn issue_history_unavailable_reason(error: IssueHistoryIndexError) -> &'static str {
+    match error {
+        IssueHistoryIndexError::DisabledByProjectConfig => "disabled_by_project_config",
+        IssueHistoryIndexError::InvalidOptions => "invalid_options",
+        IssueHistoryIndexError::NotGitRepository => "not_git_repository",
+        IssueHistoryIndexError::GitUnavailable => "git_unavailable",
+        IssueHistoryIndexError::ComparisonFailed => "comparison_failed",
+        IssueHistoryIndexError::RelationLimit => "relation_bound",
+        IssueHistoryIndexError::Cancelled => "cancelled",
+        IssueHistoryIndexError::StorageUnavailable => "storage_unavailable",
+    }
+}
+
+#[cfg(test)]
+mod lib_tests;

@@ -3,10 +3,10 @@
 [Documentation home](README.md) · [CLI reference](CLI-REFERENCE.md) ·
 [MCP usage](MCP-USAGE.md) · [Project overview](../README.md)
 
-Last release audit: 2026-10-13 (`v2.1.44`).
+Last release audit: 2026-10-19 (`v3.0.0`).
 
 Cartograph exposes one native Rust feature surface through human CLI commands
-and 36 bounded MCP tools. Shared schemas generate ordinary CLI adapters where
+and 35 bounded MCP tools. Shared schemas generate ordinary CLI adapters where
 possible; hand-curated family commands retain deliberate positional and
 subcommand shapes.
 
@@ -20,11 +20,11 @@ The v1.1.33 public contracts are frozen in:
 - `crates/cartograph-cli/src/v1_1_33_mcp_contract.json`;
 - `crates/cartograph-cli/src/v1_1_33_cli_contract.json`.
 
-Permanent Rust tests verify every v1 MCP tool/property/required field/type/
-enum/bound and every v1 CLI command/alias/option/positional. The only product
-capability exemption is the browser visual-graph viewer. The only storage-
-contract exemptions are the intentionally removed SQLite provider and
-pgvector-off mode; PostgreSQL graph functionality remains.
+Permanent Rust tests compare the retained v1 coding contracts with the native
+surfaces. Explicit retirement exceptions cover the browser viewer, SQLite and
+PostgreSQL lifecycle/connection options, SQL queries, old generation spill,
+and pgvector-specific switches. Frozen captures are not rewritten to hide
+these deliberate product changes.
 
 ## Public MCP tools
 
@@ -41,7 +41,7 @@ history            host                 hotspots
 imports            node                 note
 numerical          playbook             propose_rename
 review             role                 session
-sql                status               summaries
+status             summaries
 tests_for          trace_to_culprits    verify
 ```
 
@@ -56,11 +56,11 @@ Only `cartograph_admin` is profile-restricted:
 
 | Profile | Advertised tools |
 | --- | --- |
-| `full` | All 36 |
-| `core` (default) | All 36 |
-| `coding` | The 35 tools other than `cartograph_admin` |
-| `review` | The 35 tools other than `cartograph_admin` |
-| `read-only` | The 35 tools other than `cartograph_admin`; `serve` also refuses mutating call branches |
+| `full` | All 35 |
+| `core` (default) | All 35 |
+| `coding` | The 34 tools other than `cartograph_admin` |
+| `review` | The 34 tools other than `cartograph_admin` |
+| `read-only` | The 34 tools other than `cartograph_admin`; `serve` also refuses mutating call branches |
 
 See [MCP profiles](MCP-USAGE.md#profiles) for the intended use of each.
 
@@ -80,7 +80,7 @@ startup schemas:
 | `cartograph_session` | investigation, audit/usage, and macro subcommands |
 | `cartograph_summaries` | `summaries pending/save` |
 
-The native CLI retains all v1 family actions and adds v2 PostgreSQL generation,
+The native CLI retains coding family actions and adds native generation,
 retention, embedding-readiness, SCIP, and agent-workflow operations.
 
 ## Intentional CLI-only operations
@@ -108,7 +108,7 @@ bounded jobs with explicit status/cancel instead of blocking transport.
 
 | Contract | Direct CLI JSON or output | MCP and admin job status |
 | --- | --- | --- |
-| Biomarker refresh inner PostgreSQL statement timeout, through 30 minutes | Generated `--database-query-timeout-ms` flag | `databaseQueryTimeoutMs` field |
+| Biomarker refresh native operation timeout (bounded by the request deadline) | Generated `--database-query-timeout-ms` flag | `databaseQueryTimeoutMs` field |
 | Exclusive legacy timeout alias | `--timeout-ms` | `timeoutMs` |
 | Non-recoverable file-local index error | `error.file_failure` | `fileFailure` |
 | Failed cleanup of the attempt's own staging generation | `error.cleanup_failure` | `cleanupFailure` |
@@ -152,6 +152,6 @@ target/debug/cartograph --help
 target/debug/cartograph serve --help
 ```
 
-Then run the full workspace and live PostgreSQL/ParadeDB gates. Contract tests
+Then run the full workspace and native RocksDB gates. Contract tests
 catch accepted input shape; focused handler/live tests must still prove that
 every mode consumes its arguments and produces real behavior.

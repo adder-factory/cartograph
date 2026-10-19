@@ -26,7 +26,7 @@ guides below own the detailed operational and implementation contracts.
 | Translate between a CLI command and an MCP tool | [CLI/MCP alignment](cli-mcp-alignment.md) |
 | Check language, extension, or framework support | [Language support matrix](SUPPORT-MATRIX.md) |
 | Configure source policy, limits, retrieval, or models | [Configuration](CONFIGURATION.md) |
-| Choose managed or external PostgreSQL | [Storage and operations](STORAGE-BACKENDS.md) |
+| Configure per-project native storage | [Storage and operations](STORAGE-BACKENDS.md) |
 | Diagnose an error code, failed setup, or stale index | [Troubleshooting](TROUBLESHOOTING.md) |
 | Tune a large or memory-sensitive repository | [Performance tuning](PERF-TUNING.md) |
 | Understand code-health findings | [Native code-health detectors](BIOMARKER-DETECTORS.md) |
@@ -122,10 +122,10 @@ guides below own the detailed operational and implementation contracts.
 
 | Guide | What it covers |
 | --- | --- |
-| [Storage and operations](STORAGE-BACKENDS.md) | PostgreSQL ownership, capabilities, migration, backup, recovery, retention, and compaction |
+| [Storage and operations](STORAGE-BACKENDS.md) | Native ownership, capabilities, migration, recovery, retention, and storage limits |
 | [Performance tuning](PERF-TUNING.md) | Worker selection, storage strategy, measurement, and safe tuning boundaries |
 | [Troubleshooting](TROUBLESHOOTING.md) | Symptom-oriented diagnosis and bounded recovery |
-| [Distribution and licensing](v2/LICENSING.md) | Cartograph/ParadeDB packaging and deployment boundary |
+| [Distribution and licensing](v2/LICENSING.md) | Native archive license notices and distribution boundaries |
 
 ### Architecture and contribution
 

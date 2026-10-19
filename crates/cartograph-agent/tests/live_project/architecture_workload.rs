@@ -1,17 +1,14 @@
 use std::fmt::Write as _;
 
-use super::{
-    Duration, IndexOptions, IndexReport, ProjectRuntime, drop_schema, live_project_fixture,
-};
+use super::{Duration, IndexOptions, IndexReport, ProjectRuntime, live_project_fixture};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector; timings are observations, never gates"]
 async fn repeated_edit_workload_matches_clean_rebuilds_and_reports_stage_costs() {
     let mut observations = Vec::new();
-    for storage in ["memory", "postgres"] {
-        let (schema, settings, project) = live_project_fixture("8");
+    for storage in ["rocksdb"] {
+        let project = live_project_fixture();
         write_fixture(project.path(), storage);
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("workload connect: {error}"));
         let initial = index(&runtime, false).await;
@@ -27,16 +24,11 @@ async fn repeated_edit_workload_matches_clean_rebuilds_and_reports_stage_costs()
                 "{storage}/{edit} must publish changed source/policy"
             );
             if edit == "body" {
-                let cache = &cached
-                    .native
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("workload native report missing"))
-                    .parse_cache;
+                assert_eq!(cached.incremental_files, 1);
                 assert!(
-                    cache.hits >= 60,
-                    "unchanged files should reuse parse payloads"
+                    cached.native.is_none(),
+                    "sparse edits do not run a full parse pipeline"
                 );
-                assert_eq!(cache.parsed_files, 1);
             }
             let digest = current_digest(&runtime).await;
             observations.push(observe(&runtime, storage, edit, &cached).await);
@@ -48,8 +40,10 @@ async fn repeated_edit_workload_matches_clean_rebuilds_and_reports_stage_costs()
                 "{storage}/{edit}: cache reuse must equal a clean parse and full resolution"
             );
         }
-        runtime.close().await;
-        drop_schema(&settings, &schema).await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown: {error}"));
     }
     println!(
         "ARCHITECTURE_WORKLOAD_V1 {}",
@@ -87,13 +81,13 @@ fn write_fixture(root: &std::path::Path, storage: &str) {
     write_policy(root, storage, false);
 }
 
-fn write_policy(root: &std::path::Path, storage: &str, exclude: bool) {
+fn write_policy(root: &std::path::Path, _storage: &str, exclude: bool) {
     let exclude = if exclude {
         vec!["src/leaf_63.rs"]
     } else {
         Vec::new()
     };
-    let config = serde_json::json!({"generationStorage": storage, "exclude": exclude,
+    let config = serde_json::json!({"exclude": exclude,
         "enableChurn": false, "enableCoChange": false, "enableIssueHistory": false});
     std::fs::write(root.join(".cartograph/config.json"), config.to_string())
         .unwrap_or_else(|error| panic!("workload policy: {error}"));
@@ -160,9 +154,10 @@ async fn observe(
 ) -> serde_json::Value {
     let usage = runtime
         .database()
-        .storage_usage(&report.project_id, 128, Duration::from_secs(30))
+        .storage_usage(Duration::from_secs(30))
         .await
         .unwrap_or_else(|error| panic!("workload storage: {error}"));
     serde_json::json!({"storage": storage, "case": case, "profile": report.profile,
-        "parseCache": report.native.as_ref().map(|native| native.parse_cache), "usage": usage})
+        "parseCache": report.native.as_ref().map(|native| native.parse_cache),
+        "incrementalFiles": report.incremental_files, "usage": usage})
 }

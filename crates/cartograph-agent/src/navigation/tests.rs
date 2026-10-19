@@ -2,12 +2,9 @@ use std::assert_matches;
 use std::{
     fmt::Write as _,
     sync::atomic::{AtomicUsize, Ordering},
-    time::SystemTime,
 };
 
-use cartograph_config::DatabaseSettings;
 use cartograph_search::{ContextBudget, ContextRequest, ContextRequestOptions, IndexFreshness};
-use cartograph_test_support::TestSchemaGuard;
 
 use super::*;
 
@@ -73,6 +70,8 @@ fn candidate_admission_bounds_bytes_and_deduplicates_identity() {
 
 fn response(choice: &str, criteria: &BTreeMap<String, String>) -> JevDecision {
     JevDecision {
+        usage: None,
+        metrics: Some(crate::decision_batch::fixture_request_metrics()),
         model: JEV_MODEL.to_owned(),
         answers: BTreeMap::from([
             (
@@ -364,27 +363,15 @@ fn navigator<'a>(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector; provider decisions are scripted"]
 async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_source_and_generation()
  {
-    let url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-        .unwrap_or_else(|_| panic!("test database not configured"));
-    let stamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let schema = format!("cg_navigation_{}_{}", std::process::id(), stamp);
-    let guard = TestSchemaGuard::new(&url, &schema).unwrap_or_else(|e| panic!("guard: {e}"));
-    let settings = DatabaseSettings::parse(&url, Some("4"), Some("10000"))
-        .and_then(|s| s.with_schema(&schema))
-        .unwrap_or_else(|e| panic!("settings: {e}"));
     let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     std::fs::write(
         root.path().join("lib.rs"),
         "pub fn entry_point() -> u32 { helper() }\nfn helper() -> u32 { 42 }\nconst LIMIT: u32 = 7;\nstruct Settings { value: u32 }\n",
     )
     .unwrap_or_else(|e| panic!("source: {e}"));
-    let runtime = ProjectRuntime::connect(root.path(), &settings)
+    let runtime = ProjectRuntime::open(root.path())
         .await
         .unwrap_or_else(|e| panic!("runtime: {e}"));
     runtime
@@ -436,11 +423,10 @@ async fn live_navigation_preserves_evidence_on_outage_and_fences_cancellation_so
         Err(ProjectError::SourceContextUnavailable)
     );
     verify_truncation(&runtime, root.path(), &project).await;
-    runtime.close().await;
-    guard
-        .cleanup()
+    runtime
+        .close()
         .await
-        .unwrap_or_else(|e| panic!("cleanup: {e}"));
+        .unwrap_or_else(|e| panic!("shutdown: {e}"));
 }
 
 async fn verify_fan_out_round(
@@ -458,6 +444,16 @@ async fn verify_fan_out_round(
         .unwrap_or_else(|e| panic!("fan-out navigation: {e}"));
     assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
     assert_eq!(nav.ledger.report.stop, NavigationStop::Finished);
+    assert_eq!(nav.ledger.report.decision_requests.len(), 2);
+    assert_eq!(
+        nav.ledger
+            .report
+            .decision_requests
+            .iter()
+            .filter_map(|metrics| metrics.input_tokens)
+            .sum::<u64>(),
+        240
+    );
     let reads = nav
         .ledger
         .report

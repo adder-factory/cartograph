@@ -7,8 +7,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cartograph_config::{DATABASE_URL_ENV, DatabaseSettings};
-use cartograph_db::{CartographDatabase, ManagedDatabase};
 use cartograph_llm::{
     ChatMessageRequest, ChatSettings, CliBridgeConfig, CliBridgeConfigInput, CliBridgeInputMode,
     CliBridgeResponseFormat, CredentialCommand, EmbeddingSettings, InstallModelsOptions,
@@ -248,76 +246,6 @@ pub(super) struct SmokeArguments {
     /// Print structured JSON instead of Markdown.
     #[arg(long)]
     json: bool,
-}
-
-#[derive(Args)]
-pub(super) struct InstallArguments {
-    /// Existing project root.
-    #[arg(default_value = ".")]
-    path: PathBuf,
-    #[command(flatten)]
-    models: ModelInstallFlags,
-    /// Model directory (defaults to ~/.cartograph/models).
-    #[arg(long)]
-    dir: Option<PathBuf>,
-    /// Parallel checksum-bounded model downloads.
-    #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u16).range(1..=4))]
-    concurrency: u16,
-    /// Storage provider compatibility selector. Cartograph v2 accepts PostgreSQL only.
-    #[arg(long)]
-    database_provider: Option<String>,
-    /// Secret-bearing PostgreSQL URL used only by this process and never persisted.
-    #[arg(long)]
-    database_url: Option<String>,
-    /// Validated PostgreSQL schema for this project.
-    #[arg(long)]
-    database_schema: Option<String>,
-    /// pgvector compatibility selector. V2 requires auto or require.
-    #[arg(long)]
-    database_pgvector: Option<String>,
-    /// Bounded PostgreSQL connection-pool size.
-    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=64))]
-    database_max_connections: Option<u32>,
-    /// PostgreSQL statement timeout in milliseconds.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=600_000))]
-    database_query_timeout_ms: Option<u64>,
-    /// PostgreSQL connection acquisition timeout in seconds.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=120))]
-    database_connection_timeout_seconds: Option<u64>,
-    /// Require TLS at the PostgreSQL driver boundary.
-    #[arg(long)]
-    database_ssl: bool,
-    /// Print structured JSON.
-    #[arg(long)]
-    json: bool,
-}
-
-/// Redacts the secret-bearing `--database-url`; every other field prints.
-impl fmt::Debug for InstallArguments {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("InstallArguments")
-            .field("path", &self.path)
-            .field("models", &self.models)
-            .field("dir", &self.dir)
-            .field("concurrency", &self.concurrency)
-            .field("database_provider", &self.database_provider)
-            .field(
-                "database_url",
-                &self.database_url.as_ref().map(|_| "<redacted>"),
-            )
-            .field("database_schema", &self.database_schema)
-            .field("database_pgvector", &self.database_pgvector)
-            .field("database_max_connections", &self.database_max_connections)
-            .field("database_query_timeout_ms", &self.database_query_timeout_ms)
-            .field(
-                "database_connection_timeout_seconds",
-                &self.database_connection_timeout_seconds,
-            )
-            .field("database_ssl", &self.database_ssl)
-            .field("json", &self.json)
-            .finish()
-    }
 }
 
 #[derive(Debug, Args)]
@@ -600,7 +528,7 @@ struct InstallReport {
     config_written: bool,
     minimal: bool,
     database: &'static str,
-    database_migrations_applied: usize,
+    native_storage_verified: bool,
     doctor: crate::DoctorReport,
     next_steps: Vec<String>,
 }
@@ -1560,21 +1488,20 @@ fn render_smoke(report: &SmokeReport) {
 
 async fn run_install(arguments: InstallArguments) -> Result<ExitCode, String> {
     let project = prepare_install_project(&arguments)?;
-    let database = prepare_install_database(&project, &arguments).await?;
+    prepare_install_database(&project).await?;
     let model_state = prepare_install_models(&project, &arguments).await?;
     let doctor = crate::build_doctor_report_with_settings(crate::DoctorReportInput {
         project_path: project.clone(),
         fix: false,
         skip_project_checks: false,
-        explicit_database_settings: database.doctor_settings.as_ref(),
     })
     .await?;
     let report = InstallReport {
         models: model_state.models,
         config_written: model_state.config_written,
         minimal: arguments.models.minimal,
-        database: database.kind,
-        database_migrations_applied: database.migrations_applied,
+        database: "rocksdb",
+        native_storage_verified: true,
         doctor,
         next_steps: install_next_steps(&project, model_state.config_written),
     };
@@ -1611,45 +1538,23 @@ fn prepare_install_project(arguments: &InstallArguments) -> Result<PathBuf, Stri
     Ok(project)
 }
 
-struct InstallDatabaseState {
-    kind: &'static str,
-    migrations_applied: usize,
-    doctor_settings: Option<DatabaseSettings>,
-}
-
-async fn prepare_install_database(
-    project: &Path,
-    arguments: &InstallArguments,
-) -> Result<InstallDatabaseState, String> {
-    let explicit_database = resolve_install_database_settings(arguments)?;
-    if let Some(settings) = explicit_database {
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .map_err(|error| error.to_string())?;
-        let database = CartographDatabase::new(pool, settings.schema().clone());
-        let migrations = database
-            .migrate()
-            .await
-            .map_err(|error| error.to_string())?;
-        database.close().await;
-        return Ok(InstallDatabaseState {
-            kind: "external",
-            migrations_applied: migrations.applied_versions.len(),
-            doctor_settings: Some(settings),
-        });
+async fn prepare_install_database(project: &Path) -> Result<(), String> {
+    let result = crate::generated_cli::run_direct_result(
+        "cartograph_admin",
+        project.to_path_buf(),
+        serde_json::Map::from_iter([
+            ("action".to_owned(), serde_json::Value::from("doctor")),
+            (
+                "skipProjectChecks".to_owned(),
+                serde_json::Value::Bool(true),
+            ),
+        ]),
+    )
+    .await?;
+    if result.is_error() {
+        return Err("native storage verification failed during LLM installation".to_owned());
     }
-    let port = crate::resolve_managed_database_port(project, None).await?;
-    let report = ManagedDatabase::new(project, port)
-        .map_err(|error| error.to_string())?
-        .lifecycle()
-        .start()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(InstallDatabaseState {
-        kind: "managed",
-        migrations_applied: report.migrations.applied_versions.len(),
-        doctor_settings: None,
-    })
+    Ok(())
 }
 
 struct InstallModelState {
@@ -1721,100 +1626,6 @@ fn render_install_report(report: &InstallReport, json: bool) -> Result<(), Strin
         print!("{}", crate::render_doctor_report(&report.doctor));
     }
     Ok(())
-}
-
-fn resolve_install_database_settings(
-    arguments: &InstallArguments,
-) -> Result<Option<DatabaseSettings>, String> {
-    validate_install_database_modes(arguments)?;
-    let connection_override = install_has_connection_override(arguments);
-    let Some(settings) = base_install_database_settings(arguments, connection_override)? else {
-        return Ok(None);
-    };
-    apply_install_database_overrides(settings, arguments).map(Some)
-}
-
-fn validate_install_database_modes(arguments: &InstallArguments) -> Result<(), String> {
-    match arguments.database_provider.as_deref() {
-        None | Some("postgres" | "postgresql") => {}
-        Some("sqlite") => {
-            return Err(
-                "SQLite was intentionally removed in Cartograph v2; use PostgreSQL 18 with ParadeDB and pgvector"
-                    .to_owned(),
-            );
-        }
-        Some(_) => return Err("database provider must be postgres or postgresql".to_owned()),
-    }
-    match arguments.database_pgvector.as_deref() {
-        None | Some("auto" | "require") => {}
-        Some("off") => {
-            return Err("pgvector cannot be disabled in Cartograph v2".to_owned());
-        }
-        Some(_) => return Err("database pgvector mode must be auto or require".to_owned()),
-    }
-    Ok(())
-}
-
-fn install_has_connection_override(arguments: &InstallArguments) -> bool {
-    arguments.database_url.is_some()
-        || arguments.database_schema.is_some()
-        || arguments.database_max_connections.is_some()
-        || arguments.database_query_timeout_ms.is_some()
-        || arguments.database_connection_timeout_seconds.is_some()
-        || arguments.database_ssl
-}
-
-fn base_install_database_settings(
-    arguments: &InstallArguments,
-    connection_override: bool,
-) -> Result<Option<DatabaseSettings>, String> {
-    if let Some(url) = arguments.database_url.as_deref() {
-        DatabaseSettings::parse(url, None, None)
-            .map(Some)
-            .map_err(|error| error.to_string())
-    } else if env::var_os(DATABASE_URL_ENV).is_some() {
-        DatabaseSettings::from_env()
-            .map(Some)
-            .map_err(|error| error.to_string())
-    } else if connection_override {
-        Err(
-            "--database-url or CARTOGRAPH_DATABASE_URL is required with external PostgreSQL connection overrides"
-                .to_owned(),
-        )
-    } else {
-        Ok(None)
-    }
-}
-
-fn apply_install_database_overrides(
-    mut settings: DatabaseSettings,
-    arguments: &InstallArguments,
-) -> Result<DatabaseSettings, String> {
-    if let Some(max_connections) = arguments.database_max_connections {
-        settings = settings
-            .with_max_connections(max_connections)
-            .map_err(|error| error.to_string())?;
-    }
-    if let Some(seconds) = arguments.database_connection_timeout_seconds {
-        settings = settings
-            .with_acquire_timeout_ms(seconds.saturating_mul(1_000))
-            .map_err(|error| error.to_string())?;
-    }
-    if let Some(query_timeout_ms) = arguments.database_query_timeout_ms {
-        let raw = query_timeout_ms.to_string();
-        settings = settings
-            .with_query_timeout_ms(Some(&raw))
-            .map_err(|error| error.to_string())?;
-    }
-    if let Some(schema) = arguments.database_schema.as_deref() {
-        settings = settings
-            .with_schema(schema)
-            .map_err(|error| error.to_string())?;
-    }
-    if arguments.database_ssl {
-        settings = settings.with_require_ssl(true);
-    }
-    Ok(settings)
 }
 
 fn local_inputs_in(
@@ -1973,27 +1784,6 @@ mod tests {
         assert!(setup_inputs(&arguments, SetupPreset::Jev).is_err());
     }
 
-    fn install_arguments() -> InstallArguments {
-        InstallArguments {
-            path: PathBuf::from("."),
-            models: ModelInstallFlags {
-                minimal: false,
-                no_models: true,
-            },
-            dir: None,
-            concurrency: 2,
-            database_provider: None,
-            database_url: None,
-            database_schema: None,
-            database_pgvector: None,
-            database_max_connections: None,
-            database_query_timeout_ms: None,
-            database_connection_timeout_seconds: None,
-            database_ssl: false,
-            json: false,
-        }
-    }
-
     #[test]
     fn credential_environment_overrides_are_tier_scoped_and_bounded_by_the_library() {
         let parsed = parse_tier_environment_override("summarize=CARTOGRAPH_CHAT_KEY")
@@ -2079,40 +1869,6 @@ mod tests {
         assert!(anthropic_config.contains("\"provider\": \"anthropic-api\""));
         assert!(anthropic_config.contains("\"apiKeyEnv\": \"ANTHROPIC_API_KEY\""));
         assert!(!anthropic_config.contains("apiKey\""));
-    }
-
-    #[test]
-    fn explicit_postgres_install_options_are_validated_without_persisting_the_url() {
-        let mut arguments = install_arguments();
-        arguments.database_provider = Some("postgresql".to_owned());
-        arguments.database_url =
-            Some("postgresql://cartograph@127.0.0.1:55432/cartograph".to_owned());
-        arguments.database_schema = Some("Review_Project".to_owned());
-        arguments.database_pgvector = Some("require".to_owned());
-        arguments.database_max_connections = Some(12);
-        arguments.database_query_timeout_ms = Some(45_000);
-        arguments.database_connection_timeout_seconds = Some(7);
-        arguments.database_ssl = true;
-
-        let settings = resolve_install_database_settings(&arguments)
-            .unwrap_or_else(|error| panic!("explicit database settings failed: {error}"))
-            .unwrap_or_else(|| panic!("explicit database settings disappeared"));
-        assert_eq!(settings.schema().as_str(), "review_project");
-        assert_eq!(settings.max_connections().get(), 12);
-        assert_eq!(settings.acquire_timeout(), Duration::from_secs(7));
-        assert_eq!(settings.query_timeout(), Duration::from_secs(45));
-        assert!(settings.require_ssl());
-
-        arguments.database_provider = Some("sqlite".to_owned());
-        let error = resolve_install_database_settings(&arguments)
-            .err()
-            .unwrap_or_else(|| panic!("SQLite install mode was accepted"));
-        assert!(error.contains("intentionally removed"));
-        assert!(!error.contains("private"));
-
-        arguments.database_provider = Some("postgres".to_owned());
-        arguments.database_pgvector = Some("off".to_owned());
-        assert!(resolve_install_database_settings(&arguments).is_err());
     }
 
     #[test]
@@ -2389,17 +2145,8 @@ mod tests {
             #[command(flatten)]
             setup: SetupArguments,
         }
-        // Assembled at runtime so no source literal reads as a stored credential.
-        let database_url = [
-            "postgresql://cartograph:",
-            "debug-secret",
-            "@127.0.0.1:1/cartograph",
-        ]
-        .concat();
         let parsed = <Harness as clap::Parser>::try_parse_from([
             "install",
-            "--database-url",
-            database_url.as_str(),
             "--api-key-command",
             "/opt/helper",
             "--api-key-arg",
@@ -2410,10 +2157,6 @@ mod tests {
         assert!(!rendered.contains("debug-secret"), "{rendered}");
         assert!(!rendered.contains("helper-secret"), "{rendered}");
         assert!(rendered.contains("api_key_argument_count: 1"), "{rendered}");
-        assert_eq!(
-            parsed.install.database_url.as_deref(),
-            Some(database_url.as_str())
-        );
         let setup = <SetupHarness as clap::Parser>::try_parse_from([
             "setup",
             ".",
@@ -2503,4 +2246,21 @@ mod tests {
         );
         assert_eq!(row.model.as_deref(), Some(cartograph_llm::JEV_MODEL));
     }
+}
+
+#[derive(Debug, Args)]
+pub(super) struct InstallArguments {
+    /// Existing project root.
+    #[arg(default_value = ".")]
+    path: PathBuf,
+    #[command(flatten)]
+    models: ModelInstallFlags,
+    /// Model directory (defaults to ~/.cartograph/models).
+    #[arg(long)]
+    dir: Option<PathBuf>,
+    /// Parallel checksum-bounded model downloads.
+    #[arg(long,default_value_t=2,value_parser=clap::value_parser!(u16).range(1..=4))]
+    concurrency: u16,
+    #[arg(long)]
+    json: bool,
 }

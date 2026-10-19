@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, future::Future, pin::Pin};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -8,6 +13,7 @@ use crate::{CancellationToken, ToolContractError, ToolError, ToolProfile, ToolPr
 
 const MAX_TOOL_NAME_BYTES: usize = 128;
 const MAX_TOOL_DESCRIPTION_BYTES: usize = 4_096;
+const MAX_TOOL_CEILING_NAMES: usize = 256;
 
 /// Boxed async tool call returned by [`ToolHandler`].
 pub type BoxToolFuture<'a> =
@@ -19,6 +25,13 @@ pub type BoxShutdownFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 pub trait ToolHandler: Send + Sync + 'static {
     /// Return the immutable tool contracts to validate and advertise.
     fn tools(&self) -> Vec<ToolDefinition>;
+
+    /// Keep a cancelled call admitted until its owned native work is reconciled.
+    /// Such handlers must propagate the context and retain bounded work; the
+    /// transport preserves their actual completion instead of aborting them.
+    fn drain_cancelled_calls(&self) -> bool {
+        false
+    }
 
     /// Execute one already envelope-validated call.
     fn call(&self, call: ToolCall, context: ToolCallContext) -> BoxToolFuture<'_>;
@@ -205,11 +218,12 @@ pub struct ToolCall {
     pub arguments: Map<String, Value>,
 }
 
-/// Deadline and cooperative cancellation visible to a tool adapter.
+/// Deadline, cooperative cancellation, and inherited authorization ceiling.
 #[derive(Clone, Debug)]
 pub struct ToolCallContext {
     cancellation: CancellationToken,
     deadline: Instant,
+    tool_ceiling: Option<Arc<[String]>>,
 }
 
 impl ToolCallContext {
@@ -217,6 +231,7 @@ impl ToolCallContext {
         Self {
             cancellation,
             deadline,
+            tool_ceiling: None,
         }
     }
 
@@ -243,6 +258,48 @@ impl ToolCallContext {
         self.deadline
     }
 
+    /// Narrow this request and every nested call to a bounded set of tools.
+    /// Repeated narrowing intersects with the inherited ceiling; it cannot
+    /// re-enable a tool excluded by a forwarding host.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] for invalid names or more than 256 names.
+    pub fn with_tool_ceiling<'a>(
+        mut self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Self, ToolContractError> {
+        let mut allowed = BTreeSet::new();
+        for (index, name) in names.into_iter().enumerate() {
+            if index >= MAX_TOOL_CEILING_NAMES {
+                return Err(ToolContractError::InvalidToolCeiling);
+            }
+            validate_name(name)?;
+            if self.allows_tool(name) {
+                allowed.insert(name.to_owned());
+            }
+        }
+        self.tool_ceiling = Some(allowed.into_iter().collect::<Vec<_>>().into());
+        Ok(self)
+    }
+
+    /// The immutable sorted ceiling to preserve across an owner transport.
+    #[must_use]
+    pub fn tool_ceiling(&self) -> Option<&[String]> {
+        self.tool_ceiling.as_deref()
+    }
+
+    /// Whether a tool is within the inherited request ceiling. An adapter must
+    /// additionally enforce its own process-lifetime authorization ceiling.
+    #[must_use]
+    pub fn allows_tool(&self, name: &str) -> bool {
+        self.tool_ceiling.as_ref().is_none_or(|allowed| {
+            allowed
+                .binary_search_by(|candidate| candidate.as_str().cmp(name))
+                .is_ok()
+        })
+    }
+
     /// Return whether cancellation or the hard deadline has elapsed.
     #[must_use]
     pub fn should_stop(&self) -> bool {
@@ -251,10 +308,10 @@ impl ToolCallContext {
 }
 
 /// MCP text content block used by Cartograph v2's initial tool surface.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct TextContent {
     #[serde(rename = "type")]
-    kind: &'static str,
+    kind: TextContentKind,
     text: String,
 }
 
@@ -263,20 +320,20 @@ impl TextContent {
     #[must_use]
     pub fn new(text: impl Into<String>) -> Self {
         Self {
-            kind: "text",
+            kind: TextContentKind::Text,
             text: text.into(),
         }
     }
 }
 
 /// MCP call result with optional structured output and stable error metadata.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolResult {
     content: Vec<TextContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     structured_content: Option<Map<String, Value>>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     is_error: bool,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     metadata: Option<BTreeMap<String, String>>,
@@ -354,4 +411,56 @@ fn validate_input_schema(schema: &Value) -> Result<(), ToolContractError> {
     });
     let valid = valid_type && valid_properties && valid_required;
     valid.ok_or(ToolContractError::InvalidInputSchema)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum TextContentKind {
+    Text,
+}
+
+#[cfg(test)]
+mod ceiling_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn nested_ceilings_intersect_without_changing_deadline_or_cancellation()
+    -> Result<(), ToolContractError> {
+        let original = ToolCallContext::local(Duration::from_secs(10));
+        let narrowed = original.clone().with_tool_ceiling(["find", "session"])?;
+        let nested = narrowed.clone().with_tool_ceiling(["admin", "session"])?;
+        assert!(original.allows_tool("admin"));
+        assert!(narrowed.allows_tool("find"));
+        assert!(!narrowed.allows_tool("admin"));
+        assert_eq!(
+            nested.tool_ceiling(),
+            Some(["session".to_owned()].as_slice())
+        );
+        assert!(!nested.allows_tool("admin"));
+        assert!(!nested.allows_tool("find"));
+        assert_eq!(nested.deadline(), original.deadline());
+        original.cancellation().cancel();
+        assert!(nested.should_stop());
+        assert!(narrowed.should_stop());
+        Ok(())
+    }
+
+    #[test]
+    fn an_empty_ceiling_denies_all_and_invalid_or_oversized_ceilings_fail_closed()
+    -> Result<(), ToolContractError> {
+        let context = ToolCallContext::local(Duration::from_secs(10));
+        let empty = context.clone().with_tool_ceiling([])?;
+        assert!(!empty.allows_tool("find"));
+        assert!(!empty.with_tool_ceiling(["find"])?.allows_tool("find"));
+        assert!(matches!(
+            context.clone().with_tool_ceiling(["bad name"]),
+            Err(ToolContractError::InvalidName)
+        ));
+        assert!(matches!(
+            context.with_tool_ceiling(std::iter::repeat_n("find", 257)),
+            Err(ToolContractError::InvalidToolCeiling)
+        ));
+        Ok(())
+    }
 }

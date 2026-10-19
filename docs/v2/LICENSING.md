@@ -1,78 +1,40 @@
-# Cartograph v2 and ParadeDB distribution boundary
+# Native storage distribution notices
 
-[Documentation home](https://github.com/adder-factory/cartograph/blob/main/docs/README.md) ·
-[Project overview](https://github.com/adder-factory/cartograph/blob/main/README.md) ·
-[Storage and operations](https://github.com/adder-factory/cartograph/blob/main/docs/STORAGE-BACKENDS.md) ·
-[Release evidence](https://github.com/adder-factory/cartograph/blob/main/docs/v2/benchmarks/README.md)
+This notice describes Cartograph `v3.0.0` and its native RocksDB backend.
+Cartograph code remains MIT licensed. The executable now includes native
+RocksDB and compression libraries; their upstream terms remain in force.
 
-Status: release policy for the local Cartograph v2 product. This records the
-technical distribution boundary; it is not a substitute for legal advice.
-
-This file is maintained as `docs/v2/LICENSING.md` and ships in every release
-archive as `share/cartograph/PARADEDB-NOTICE.md`.
-
-## What Cartograph releases distribute
-
-The Cartograph GitHub release contains only the MIT-licensed Cartograph Rust
-executable, Cartograph notices/documentation, and checksums/provenance for that
-executable. It must not contain a ParadeDB image, `pg_search` binary, PostgreSQL
-server, extension package, copied ParadeDB source, or a combined installer.
-
-Each native archive contains exactly these files:
+Each release archive contains exactly:
 
 - `bin/cartograph` (`bin/cartograph.exe` on Windows)
 - `LICENSE`
 - `README.md`
 - `ACKNOWLEDGEMENTS.md`
-- `share/cartograph/PARADEDB-NOTICE.md` (this notice)
+- `share/cartograph/NATIVE-STORAGE-NOTICE.md` (this document)
+- `share/cartograph/THIRD-PARTY-STORAGE-LICENSES.txt`
 
-`cartograph db start` asks the user's local Docker daemon to pull the pinned
-upstream ParadeDB image by manifest digest. The image remains a separately
-installed and separately executed PostgreSQL service. External PostgreSQL is
-also supported when the user has installed compatible `pg_search` and
-`pgvector` extensions themselves.
+The storage license bundle reproduces the pinned upstream texts for
+`rust-rocksdb` (Apache-2.0), RocksDB 11.8.1 (Apache-2.0 selected), LevelDB
+portions (BSD-3-Clause), LZ4 1.10.0 library (BSD-2-Clause), and Zstandard 1.5.7
+library (BSD-3-Clause). Disabled Snappy/bzip2/zlib features are not part of this
+storage build. Other Rust dependencies retain their declared licenses and
+remain subject to the strict dependency license/advisory gate.
 
-The release audit must inspect every archive and fail if it contains a
-PostgreSQL/ParadeDB executable, shared library, package, container layer, or
-image archive. Changing this boundary requires a new legal review before
-publication.
+The Rust binding is pinned to commit
+`50017c3de5bc24cf5d81fdc0fe6b0f23df700765` in Cargo.toml/Cargo.lock. Build from
+those reviewed sources and preserve notices when distributing the executable.
 
-## Upstream license and supported use
+Release audits require the exact file allowlist, no private build-root paths,
+no separate database-server/container artifacts, no SQLX/PostgreSQL or SQLite
+runtime dependencies, and the pinned native engine in the dependency tree.
+Compile, archive smoke, checksum, provenance, and independent review evidence
+are required before a new release is published. Historical ParadeDB release
+notices remain part of their original archives and release records.
 
-ParadeDB states that its repository is available under AGPL-3.0 and commercial
-licensing. Cartograph does not change, remove, or replace those terms. The
-upstream project, license, and deployment links are carried in this notice
-(see "Upstream references" below). The managed-database diagnostics report
-only whether the container matches the supported digest-pinned image
-(`image_matches`); they do not print license or upstream text.
+Upstream sources:
 
-ParadeDB's deployment documentation also warns that Community lacks WAL
-support and discourages using it for a paying production application because a
-crash or restart can require reindexing and downtime. Cartograph therefore
-treats Community BM25 data as rebuildable derived local data:
-
-- Cartograph v2 supports local developer/agent use with the pinned Community
-  image;
-- relational source-of-truth rows are backed up separately from rebuildable
-  BM25/vector indexes;
-- startup detects an unusable derived index and provides a bounded rebuild;
-- shared, hosted, replicated, or customer-facing production deployments are
-  outside the Community support claim and require an explicit durability and
-  ParadeDB commercial/Enterprise licensing decision.
-
-## Release review checklist
-
-Before each stable release:
-
-1. Confirm the pinned image digest and extension version still match the live
-   capability suite on every supported database architecture.
-2. Confirm native Cartograph archives contain no ParadeDB/PostgreSQL artifact.
-3. Run the dependency license/advisory audit for the Rust executable.
-4. Keep the upstream license and deployment links in the public notices.
-5. Record a new review if Cartograph begins redistributing an image/extension,
-   operating a hosted service, or offering a combined commercial product.
-
-## Upstream references
-
-- ParadeDB repository and license: <https://github.com/paradedb/paradedb>
-- ParadeDB deployment documentation: <https://docs.paradedb.com/deploy/overview>
+- [rust-rocksdb](https://github.com/zaidoon1/rust-rocksdb)
+- [RocksDB](https://github.com/facebook/rocksdb)
+- [LevelDB](https://github.com/google/leveldb)
+- [LZ4](https://github.com/lz4/lz4)
+- [Zstandard](https://github.com/facebook/zstd)

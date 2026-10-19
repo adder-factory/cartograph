@@ -79,6 +79,9 @@ pub struct IssueHistoryIndexRequest {
 /// Source-safe issue-history failure.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum IssueHistoryIndexError {
+    /// The project's explicit issue-history policy disables this derived channel.
+    #[error("issue history is disabled by project configuration")]
+    DisabledByProjectConfig,
     #[error("issue-history options are invalid")]
     /// Supplied options violate a documented bound or invariant.
     InvalidOptions,

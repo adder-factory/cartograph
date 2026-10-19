@@ -428,6 +428,7 @@ impl RoundPrompt {
             "task": ledger.task,
             "round": round,
             "candidates": candidates,
+            "generationId": report.generation_id,
             "nativeSourceWindows": ledger.native_sources,
             "nativeSourcesTruncated": report.native_sources_truncated,
             "sourceWindows": report.source_windows.iter().rev().take(detail.windows).collect::<Vec<_>>(),

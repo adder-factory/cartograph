@@ -112,3 +112,12 @@ Cartograph's development and release gates also use:
 
 If a project or author is missing or miscredited, please open an issue or pull
 request so the acknowledgement can be corrected.
+
+## Native storage cutover
+
+The unreleased native backend includes [RocksDB](https://github.com/facebook/rocksdb)
+11.8.1 through [rust-rocksdb](https://github.com/zaidoon1/rust-rocksdb), with
+[LZ4](https://github.com/lz4/lz4) and [Zstandard](https://github.com/facebook/zstd)
+compression. See [distribution notices](docs/v2/LICENSING.md) and the packaged
+upstream license texts. Historical PostgreSQL acknowledgements describe earlier
+releases; the native runtime does not include that server or its extensions.

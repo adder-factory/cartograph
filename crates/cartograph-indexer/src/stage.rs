@@ -127,16 +127,6 @@ impl<Key, Payload> StageEnvelope<Key, Payload> {
     pub const fn new(meta: StageItemMeta<Key>, payload: Payload) -> Self {
         Self { meta, payload }
     }
-
-    #[cfg(test)]
-    pub(crate) const fn test_meta(&self) -> &StageItemMeta<Key> {
-        &self.meta
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn test_payload(&self) -> &Payload {
-        &self.payload
-    }
 }
 
 /// Worker-facing item. Metadata cannot be rewritten by the worker.
@@ -897,14 +887,6 @@ impl StageRunner {
         }
     }
 
-    pub(crate) async fn advance_progress(
-        &self,
-        items: u64,
-        bytes: u64,
-    ) -> Result<(), ProgressError> {
-        self.progress.advance(items, bytes).await
-    }
-
     /// Run a lazily-fed bounded worker window and reduce outputs in input order.
     ///
     /// Dropping this future after it starts poisons the supervisor task scope and aborts
@@ -1645,7 +1627,7 @@ mod tests {
                 && item.2 == expected * 2
         }));
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(!report.unobserved_results);
@@ -1698,7 +1680,7 @@ mod tests {
         let result = handle.await;
         assert_matches!(result, Ok(Ok(TEST_ITEMS)));
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
     }
@@ -1741,7 +1723,7 @@ mod tests {
         assert_eq!(maximum.load(Ordering::Acquire), 1);
         assert_eq!(consumed.load(Ordering::Acquire), TEST_ITEMS);
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(!report.unobserved_results);
@@ -1780,7 +1762,7 @@ mod tests {
         assert!(started.load(Ordering::Acquire));
         cancellation.send_replace(true);
         assert_matches!(handle.await, Ok(Err(StageRunError::Cancelled { .. })));
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(dropped.load(Ordering::Acquire));
@@ -1808,7 +1790,7 @@ mod tests {
             Err(StageRunError::Cancelled { .. })
         );
         assert_eq!(consumed.load(Ordering::Acquire), 0);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(!report.unobserved_results);
@@ -1834,7 +1816,7 @@ mod tests {
             }) if sequence == StageSequence::new(0)
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(stage_deadline).await;
+        let report = tasks.close_abort_and_reap_retained(stage_deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
     }
@@ -1851,7 +1833,7 @@ mod tests {
         );
         assert_eq!(runner.execute(execution).await, Ok(7));
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(!report.unobserved_results);
@@ -1907,7 +1889,7 @@ mod tests {
             );
             drop(cancellation);
             let report = tasks
-                .close_abort_and_reap(Instant::now() + CLEANUP_GRACE)
+                .close_abort_and_reap_retained(Instant::now() + CLEANUP_GRACE)
                 .await;
             assert!(report.all_joined);
             assert!(report.worker_failed);
@@ -1946,7 +1928,7 @@ mod tests {
         assert!(dropped.load(Ordering::Acquire));
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + CLEANUP_GRACE)
+            .close_abort_and_reap_retained(Instant::now() + CLEANUP_GRACE)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -1999,7 +1981,7 @@ mod tests {
             release_lock.send_replace(true);
             assert!(lock_holder.await.is_ok());
             drop(cancellation);
-            let report = tasks.close_abort_and_reap(deadline).await;
+            let report = tasks.close_abort_and_reap_retained(deadline).await;
             assert!(report.all_joined);
             assert_eq!(report.worker_failed, !parent_cancelled);
             assert_eq!(report.unobserved_results, !parent_cancelled);
@@ -2045,7 +2027,7 @@ mod tests {
         );
         drop(cancellation);
         let report = tasks
-            .close_abort_and_reap(Instant::now() + CLEANUP_GRACE)
+            .close_abort_and_reap_retained(Instant::now() + CLEANUP_GRACE)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -2069,7 +2051,7 @@ mod tests {
                 ..
             }) if expected == StageSequence::new(0) && actual == StageSequence::new(1)
         );
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
     }
@@ -2117,7 +2099,7 @@ mod tests {
         first_release.store(true, Ordering::Release);
         assert_matches!(handle.await, Ok(Ok(TEST_ITEMS)));
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(!report.unobserved_results);
@@ -2153,7 +2135,7 @@ mod tests {
             }) if sequence == StageSequence::new(0)
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
         let Ok(snapshot) = metrics.snapshot() else {
@@ -2193,7 +2175,7 @@ mod tests {
             })
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert_eq!(report.active_tasks, 0);
         assert!(report.all_joined);
         assert!(report.worker_failed);
@@ -2241,7 +2223,7 @@ mod tests {
                 if sequence == StageSequence::new(0)
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
         assert!(second_dropped.load(Ordering::Acquire));
@@ -2268,7 +2250,7 @@ mod tests {
             }) if sequence == StageSequence::new(0)
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
     }
@@ -2299,7 +2281,7 @@ mod tests {
             }) if sequence == StageSequence::new(0)
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(stage_deadline).await;
+        let report = tasks.close_abort_and_reap_retained(stage_deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
     }
@@ -2346,7 +2328,7 @@ mod tests {
         );
         assert!(saw_stage_cancellation.load(Ordering::Acquire));
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(report.worker_failed);
     }

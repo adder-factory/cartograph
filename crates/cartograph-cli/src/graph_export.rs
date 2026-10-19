@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     time::Duration,
 };
 
@@ -10,11 +10,12 @@ use cartograph_db::{
     InterchangeSymbol,
 };
 use cartograph_domain::{EdgeKind, ProjectId, SymbolKind};
+use cartograph_mcp::ToolCallContext;
 use clap::ValueEnum;
 use serde::Serialize;
 
 const DEFAULT_MAXIMUM_ROWS: u64 = 5_000_000;
-const SNAPSHOT_TIMEOUT: Duration = Duration::from_mins(10);
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub(super) const DEFAULT_NODE_LIMIT: u16 = 1_000;
 const MAXIMUM_NODE_LIMIT: u16 = 50_000;
@@ -41,7 +42,7 @@ pub(super) enum GraphExportFormat {
 pub(super) struct GraphExportRequest {
     pub project_id: ProjectId,
     pub format: GraphExportFormat,
-    pub output: Option<PathBuf>,
+    pub context: ToolCallContext,
     pub limit: u16,
     pub kinds: Option<String>,
     pub edge_kinds: Option<String>,
@@ -157,6 +158,8 @@ struct CytoscapeEdgeData<'a> {
     site_count: u32,
 }
 
+static EXPORT_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
 pub(super) async fn run_graph_export(
     database: &CartographDatabase,
     request: GraphExportRequest,
@@ -174,6 +177,11 @@ pub(super) async fn run_graph_export(
     )?;
     let languages = parse_unrestricted_filter(request.languages.as_deref());
     let file_prefix = request.file_prefix.as_deref().map(normalize_prefix);
+    let permit = tokio::select! {
+        () = request.context.cancellation().cancelled() => return Err("Graph export cancelled".to_owned()),
+        () = tokio::time::sleep_until(request.context.deadline()) => return Err("Graph export deadline exceeded".to_owned()),
+        permit = EXPORT_WORKERS.acquire() => permit.map_err(|_| "Graph export owner closed".to_owned())?,
+    };
     let raw = database
         .current_interchange_snapshot(InterchangeSnapshotRequest {
             project_id: &request.project_id,
@@ -182,26 +190,38 @@ pub(super) async fn run_graph_export(
         })
         .await
         .map_err(|error| error.to_string())?;
-    let snapshot = build_snapshot(GraphSnapshotInput {
-        raw,
-        limit: request.limit,
-        kinds,
-        edge_kinds,
-        languages,
-        file_prefix,
-    });
-    let artifact = format_snapshot(&snapshot, request.format)?;
-    if let Some(output) = request.output {
-        write_artifact(&output, artifact.as_bytes())?;
-        Ok(format!(
-            "Exported graph snapshot -> {} ({} nodes, {} edges)\n",
-            output.display(),
-            snapshot.stats.exported_nodes,
-            snapshot.stats.exported_edges
-        ))
-    } else {
+    // The semaphore bounds queued/executing CPU work. Retain the join until
+    // completion; the adapter cancels cooperatively and reaps this future.
+    let artifact = tokio::task::spawn_blocking(move || {
+        if request.context.should_stop() {
+            return Err("Graph export stopped".to_owned());
+        }
+        let snapshot = build_snapshot(GraphSnapshotInput {
+            raw,
+            limit: request.limit,
+            kinds,
+            edge_kinds,
+            languages,
+            file_prefix,
+        });
+        if request.context.should_stop() {
+            return Err("Graph export stopped".to_owned());
+        }
+        let artifact = format_snapshot(&snapshot, request.format)?;
+        if request.context.should_stop() {
+            return Err("Graph export stopped".to_owned());
+        }
+        if artifact.len() > 1_048_576 {
+            return Err(
+                "Graph export exceeds 1 MiB; reduce --limit or narrow its filters".to_owned(),
+            );
+        }
         Ok(artifact)
-    }
+    })
+    .await
+    .map_err(|_| "Graph export worker failed".to_owned())?;
+    drop(permit);
+    artifact
 }
 
 struct GraphSnapshotInput {
@@ -535,7 +555,7 @@ fn escape_mermaid(value: &str) -> String {
         .replace('\n', "<br/>")
 }
 
-fn write_artifact(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(super) fn write_artifact(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())

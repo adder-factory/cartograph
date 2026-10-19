@@ -9,7 +9,6 @@ use std::{
     time::Duration,
 };
 
-use cartograph_config::DATABASE_URL_ENV;
 use cartograph_domain::GenerationId;
 use futures_util::StreamExt as _;
 use reqwest::Client;
@@ -19,10 +18,10 @@ use tempfile::{NamedTempFile, TempPath};
 use tokio::io::AsyncReadExt as _;
 use tokio::process::Command;
 
-use crate::error_codes::{SCHEMA_BUSY_CODE, SCHEMA_BUSY_EXIT_STATUS};
+use crate::error_codes::SCHEMA_BUSY_CODE;
 use crate::host::{
-    DiagnosticLocation, HostScope, InstallTargetDetection, detect_install_targets,
-    detect_install_targets_in, host_home,
+    DiagnosticLocation, HostScope, InstallTargetDetection, ServerArgumentState,
+    detect_install_targets, detect_install_targets_in, host_home,
 };
 use crate::install::{self, InstallLocation, InstallRequest, InstallRequestInput, InstallTarget};
 use index_child::{
@@ -42,7 +41,6 @@ const MAXIMUM_CHECKSUM_BYTES: usize = 1024 * 1024;
 const MAXIMUM_BINARY_BYTES: usize = 200 * 1024 * 1024;
 const MAXIMUM_STAGED_BINARY_LAUNCH_ATTEMPTS: usize = 3;
 const STAGED_BINARY_LAUNCH_RETRY_DELAY: Duration = Duration::from_millis(25);
-const MANAGED_START_TIMEOUT: Duration = Duration::from_mins(15);
 const PROJECT_VERIFICATION_TIMEOUT: Duration = Duration::from_mins(2);
 /// Doctor and the next-process status each rescan the whole checkout (status
 /// twice when the generation changes underneath it), so on a large project
@@ -110,8 +108,9 @@ struct RegistrationChange {
     config_path: &'static str,
     /// `stale_absolute` for a direct pin, `wrapped` for a wrapper registration.
     command_state: &'static str,
-    /// `repinned` or `manual`.
+    /// `repinned`, `updated_arguments`, or `manual`.
     outcome: &'static str,
+    retired_database_options_removed: bool,
     /// The entry field holding the Cartograph executable: `command` or `args[N]`.
     field: String,
     /// The unchanged wrapper `command` of a wrapped registration.
@@ -161,35 +160,26 @@ struct ProjectReconciliation {
     fresh: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     generation_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    managed_database_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    required_confirmation: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectDatabaseMode {
-    External,
-    Managed(u16),
+    Native,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectCommand {
-    ManagedStatus,
-    ManagedStart,
+    StorageVerify,
     Index,
     Doctor,
     Status,
 }
 
 impl ProjectCommand {
-    /// Wall-clock bound for a plain child; the index child is instead
-    /// supervised by progress under [`index_child::DEFAULT_INDEX_CHILD_POLICY`].
     const fn timeout(self) -> Duration {
         match self {
-            Self::ManagedStart => MANAGED_START_TIMEOUT,
+            Self::StorageVerify => PROJECT_VERIFICATION_TIMEOUT,
             Self::Index => index_child::INDEX_ABSOLUTE_CEILING,
-            Self::ManagedStatus => PROJECT_VERIFICATION_TIMEOUT,
             Self::Doctor | Self::Status => SOURCE_VERIFICATION_TIMEOUT,
         }
     }
@@ -228,7 +218,6 @@ const SCHEMA_BUSY_NEXT_STEP: &str = "Another Cartograph process, often a long-ru
 struct ProjectProcessInput<'input> {
     executable: &'input Path,
     project_path: &'input Path,
-    database_mode: ProjectDatabaseMode,
     command: ProjectCommand,
 }
 
@@ -744,8 +733,7 @@ fn project_upgrade_is_configured(
     project_path: &Path,
     registrations: &[InstallTargetDetection],
 ) -> bool {
-    env::var_os(DATABASE_URL_ENV).is_some()
-        || project_path.join(".cartograph").exists()
+    project_path.join(".cartograph").exists()
         || registrations
             .iter()
             .any(|registration| registration.cartograph_configured)
@@ -794,25 +782,7 @@ fn add_project_reconciliation_steps(
         );
         return;
     }
-    if let Some(port) = reconciliation.managed_database_port
-        && reconciliation.required_confirmation == Some("upgrade-managed-database")
-    {
-        next_steps.extend([
-            format!(
-                "Create a fresh private backup: `cartograph db backup ./cartograph-pre-upgrade.backup --project-path <path> --port {port}`."
-            ),
-            format!(
-                "Then replace only the owned incompatible container: `cartograph db upgrade --project-path <path> --port {port} --confirm upgrade-managed-database`."
-            ),
-            "Rerun `cartograph upgrade --apply --project-path <path>`; the already-installed binary will resume the remaining safe steps."
-                .to_owned(),
-        ]);
-    } else {
-        next_steps.push(
-            "Run the installed binary's `cartograph doctor <path>` for the exact failure, fix that boundary, then rerun `cartograph upgrade --apply --project-path <path>`."
-                .to_owned(),
-        );
-    }
+    next_steps.push("Run the installed binary's `cartograph doctor <path>` for the exact failure, fix the reported native boundary, then rerun cartograph upgrade --apply --project-path <path>.".to_owned());
 }
 
 async fn reconcile_project(
@@ -824,19 +794,10 @@ async fn reconcile_project(
         Ok(path) if path.is_dir() => path,
         _ => return invalid_project_reconciliation(),
     };
-    let database_mode = if env::var_os(DATABASE_URL_ENV).is_some() {
-        ProjectDatabaseMode::External
-    } else {
-        match crate::resolve_managed_database_port(&project_path, None).await {
-            Ok(port) => ProjectDatabaseMode::Managed(port),
-            Err(_) => return unresolved_database_reconciliation(),
-        }
-    };
     reconcile_project_with(CompletionProjectInput {
         executable,
         project_path: &project_path,
         installed_version,
-        database_mode,
         index_policy: DEFAULT_INDEX_CHILD_POLICY,
     })
     .await
@@ -846,7 +807,6 @@ struct CompletionProjectInput<'input> {
     executable: &'input Path,
     project_path: &'input Path,
     installed_version: &'input str,
-    database_mode: ProjectDatabaseMode,
     index_policy: IndexChildPolicy,
 }
 
@@ -855,7 +815,6 @@ impl CompletionProjectInput<'_> {
         ProjectProcessInput {
             executable: self.executable,
             project_path: self.project_path,
-            database_mode: self.database_mode,
             command,
         }
     }
@@ -871,7 +830,7 @@ impl ProjectReconciliation {
 }
 
 async fn reconcile_project_with(input: CompletionProjectInput<'_>) -> ProjectReconciliation {
-    let mut report = started_project_reconciliation(input.database_mode);
+    let mut report = started_project_reconciliation(ProjectDatabaseMode::Native);
     if !reconcile_database(&input, &mut report).await {
         return report;
     }
@@ -885,21 +844,16 @@ async fn reconcile_project_with(input: CompletionProjectInput<'_>) -> ProjectRec
     report
 }
 
-fn started_project_reconciliation(database_mode: ProjectDatabaseMode) -> ProjectReconciliation {
+fn started_project_reconciliation(_database_mode: ProjectDatabaseMode) -> ProjectReconciliation {
     ProjectReconciliation {
         state: "blocked",
         retryable: false,
-        database: upgrade_step("not_run", "Database reconciliation did not run."),
+        database: upgrade_step("not_run", "Native storage verification did not run."),
         index: upgrade_step("not_run", "Index reconciliation did not run."),
         doctor: upgrade_step("not_run", "Doctor verification did not run."),
         verification: upgrade_step("not_run", "Freshness verification did not run."),
         fresh: false,
         generation_id: None,
-        managed_database_port: match database_mode {
-            ProjectDatabaseMode::External => None,
-            ProjectDatabaseMode::Managed(port) => Some(port),
-        },
-        required_confirmation: None,
     }
 }
 
@@ -907,83 +861,48 @@ async fn reconcile_database(
     input: &CompletionProjectInput<'_>,
     report: &mut ProjectReconciliation,
 ) -> bool {
-    if input.database_mode == ProjectDatabaseMode::External {
-        report.database = upgrade_step(
-            "ready",
-            "Using the validated external PostgreSQL boundary from the environment.",
-        );
-        return true;
-    }
-    let outcome = run_project_process(ProjectProcessInput {
-        executable: input.executable,
-        project_path: input.project_path,
-        database_mode: input.database_mode,
-        command: ProjectCommand::ManagedStart,
-    })
-    .await;
-    let (step, retryable) = database_step(outcome);
-    let state = step.state;
+    let (step, retryable) =
+        database_step(run_project_process(input.process(ProjectCommand::StorageVerify)).await);
+    let ready = step.state == "ready";
     report.database = step;
     report.retryable = retryable;
-    if state != "blocked" {
-        return state == "ready";
-    }
-    if managed_database_upgrade_required(ProjectProcessInput {
-        executable: input.executable,
-        project_path: input.project_path,
-        database_mode: input.database_mode,
-        command: ProjectCommand::ManagedStatus,
-    })
-    .await
-    {
-        report.required_confirmation = Some("upgrade-managed-database");
-    }
-    false
+    ready
 }
 
-/// The reported database step for one managed `db start` outcome, and whether
-/// rerunning the same command is the next action. A start that exits with
-/// [`SCHEMA_BUSY_EXIT_STATUS`] is retryable schema contention, never the
-/// `blocked` failure that sends the caller to doctor.
 fn database_step(outcome: ProjectProcessOutcome) -> (UpgradeStep, bool) {
     match outcome {
         ProjectProcessOutcome::Succeeded => (
             upgrade_step(
                 "ready",
-                "The owned managed database is healthy and safe append-only migrations are current.",
+                "The native format, project identity and owned storage workers passed verification.",
             ),
             false,
         ),
         ProjectProcessOutcome::TimedOut => (
             upgrade_step(
                 "timed_out",
-                "The managed database start exceeded its cold-image-pull and readiness budget; no compatibility conclusion was made.",
+                "Native storage verification exceeded its request budget.",
             ),
             true,
         ),
-        ProjectProcessOutcome::Failed { exit_status }
-            if exit_status == Some(i32::from(SCHEMA_BUSY_EXIT_STATUS)) =>
-        {
-            (schema_busy_step(), true)
-        }
         ProjectProcessOutcome::Failed { .. } => (
             upgrade_step(
                 "blocked",
-                "The owned managed database could not complete its idempotent start and migration step.",
+                "Native storage could not be opened and verified; inspect the installed binary's doctor report.",
             ),
             false,
         ),
     }
 }
 
-/// The `another_writer_active` step, with reason `schema_busy`, for a schema
-/// migration that another process's PostgreSQL locks kept from applying.
+/// The `another_writer_active` step, with reason `schema_busy`, when another
+/// process prevents storage reconciliation.
 fn schema_busy_step() -> UpgradeStep {
     reasoned_step(
         ANOTHER_WRITER_ACTIVE,
         format!(
-            "Another Cartograph process, often a long-running MCP server started from an older binary, held PostgreSQL locks that the pending schema migration needs for its whole {}-minute lock-contention budget; nothing was applied.",
-            whole_minutes(cartograph_db::SCHEMA_MIGRATION_CONTENTION_BUDGET)
+            "Another Cartograph process kept the project storage busy for the whole {}-minute reconciliation budget; nothing was applied.",
+            whole_minutes(PROJECT_VERIFICATION_TIMEOUT)
         ),
         SCHEMA_BUSY_CODE,
     )
@@ -1123,7 +1042,7 @@ async fn reconcile_doctor(
     let (state, message) = match run_project_process(input.process(ProjectCommand::Doctor)).await {
         ProjectProcessOutcome::Succeeded => (
             "ready",
-            "The new binary passed PostgreSQL, ParadeDB, pgvector, and project doctor checks.",
+            "The new binary passed native RocksDB storage and project doctor checks.",
         ),
         ProjectProcessOutcome::Failed { .. } => (
             "blocked",
@@ -1225,14 +1144,7 @@ fn invalid_project_reconciliation() -> ProjectReconciliation {
     blocked_project_reconciliation("The project path is not an existing real directory.", None)
 }
 
-fn unresolved_database_reconciliation() -> ProjectReconciliation {
-    blocked_project_reconciliation(
-        "The managed database port could not be resolved safely.",
-        None,
-    )
-}
-
-fn blocked_project_reconciliation(message: &str, port: Option<u16>) -> ProjectReconciliation {
+fn blocked_project_reconciliation(message: &str, _port: Option<u16>) -> ProjectReconciliation {
     ProjectReconciliation {
         state: "blocked",
         retryable: false,
@@ -1242,8 +1154,6 @@ fn blocked_project_reconciliation(message: &str, port: Option<u16>) -> ProjectRe
         verification: upgrade_step("not_run", "Freshness verification did not run."),
         fresh: false,
         generation_id: None,
-        managed_database_port: port,
-        required_confirmation: None,
     }
 }
 
@@ -1275,30 +1185,6 @@ async fn run_project_process(input: ProjectProcessInput<'_>) -> ProjectProcessOu
         Ok(Err(_)) => ProjectProcessOutcome::Failed { exit_status: None },
         Err(_) => ProjectProcessOutcome::TimedOut,
     }
-}
-
-async fn managed_database_upgrade_required(input: ProjectProcessInput<'_>) -> bool {
-    let Ok(value) = run_project_json(input).await else {
-        return false;
-    };
-    managed_status_requires_upgrade(&value)
-}
-
-fn managed_status_requires_upgrade(value: &serde_json::Value) -> bool {
-    let state = value.get("state").and_then(serde_json::Value::as_str);
-    state != Some("missing")
-        && (value
-            .get("image_matches")
-            .and_then(serde_json::Value::as_bool)
-            == Some(false)
-            || value
-                .get("hnsw_shared_memory_ready")
-                .and_then(serde_json::Value::as_bool)
-                == Some(false)
-            || value
-                .get("resource_limits_match")
-                .and_then(serde_json::Value::as_bool)
-                == Some(false))
 }
 
 /// Why a JSON probe produced no usable document.
@@ -1393,25 +1279,15 @@ fn configured_project_command(input: &ProjectProcessInput<'_>) -> Command {
         .args(project_command_arguments(input))
         .current_dir(input.project_path)
         .kill_on_drop(true);
-    if let ProjectDatabaseMode::Managed(port) = input.database_mode {
-        command.env(crate::MANAGED_DATABASE_PORT_ENV, port.to_string());
-    }
     command
 }
 
 fn project_command_arguments(input: &ProjectProcessInput<'_>) -> Vec<OsString> {
     let mut arguments = match input.command {
-        ProjectCommand::ManagedStatus => vec![
-            OsString::from("db"),
-            OsString::from("status"),
-            OsString::from("--project-path"),
+        ProjectCommand::StorageVerify => vec![
+            OsString::from("doctor"),
             input.project_path.as_os_str().to_owned(),
-        ],
-        ProjectCommand::ManagedStart => vec![
-            OsString::from("db"),
-            OsString::from("start"),
-            OsString::from("--project-path"),
-            input.project_path.as_os_str().to_owned(),
+            OsString::from("--no-project-checks"),
         ],
         ProjectCommand::Index => vec![
             OsString::from("index"),
@@ -1428,16 +1304,7 @@ fn project_command_arguments(input: &ProjectProcessInput<'_>) -> Vec<OsString> {
             input.project_path.as_os_str().to_owned(),
         ],
     };
-    if matches!(
-        input.command,
-        ProjectCommand::ManagedStatus | ProjectCommand::ManagedStart
-    ) && let ProjectDatabaseMode::Managed(port) = input.database_mode
-    {
-        arguments.push(OsString::from("--port"));
-        arguments.push(OsString::from(port.to_string()));
-    }
-    arguments.push(OsString::from("--format"));
-    arguments.push(OsString::from("json"));
+    arguments.extend([OsString::from("--format"), OsString::from("json")]);
     arguments
 }
 
@@ -1484,12 +1351,12 @@ async fn repair_stale_registrations(executable: &Path, project_path: &Path) -> R
 
 /// Repins every registration whose Cartograph executable is a stale absolute
 /// path. A direct pin is reinstalled by the installed executable; a wrapped
-/// registration is repinned in place, so only its embedded executable
-/// argument changes and its wrapper, other arguments, and keys survive.
+/// registration retains its wrapper and unrelated arguments. Retired database
+/// options are removed only from the recognized Cartograph server suffix.
 async fn repair_registrations(input: &RegistrationRepairInput<'_>) -> RegistrationRepair {
     let stale = detect_install_targets_in(&input.scope, Some(input.executable))
         .into_iter()
-        .filter(InstallTargetDetection::needs_repin)
+        .filter(InstallTargetDetection::needs_registration_repair)
         .collect::<Vec<_>>();
     let pinned = install::registration_executable(input.executable)
         .unwrap_or_else(|| input.executable.to_string_lossy().into_owned());
@@ -1534,7 +1401,8 @@ async fn reinstall_direct_registration(
 }
 
 /// Rewrites only the wrapped entry through the installer's merge, which
-/// replaces the embedded absolute executable argument and nothing else.
+/// replaces the embedded absolute executable and removes retired database
+/// arguments, preserving the wrapper prefix and unrelated keys.
 fn repin_wrapped_registration(
     input: &RegistrationRepairInput<'_>,
     registration: &InstallTargetDetection,
@@ -1570,34 +1438,49 @@ fn registration_change(
     repinned: bool,
 ) -> RegistrationChange {
     let executable = registration.executable.as_ref();
+    let chosen = executable
+        .filter(|executable| {
+            executable.wrapper.is_some() && !Path::new(&executable.path).is_absolute()
+        })
+        .map_or(pinned, |executable| executable.path.as_str());
+    let arguments_only = executable.is_some_and(|executable| executable.path == chosen);
     let mut change = RegistrationChange {
         target: registration.target,
         location: registration.location,
         config_path: registration.config_path,
         command_state: registration.command_state,
-        outcome: if repinned {
+        outcome: if repinned && arguments_only {
+            "updated_arguments"
+        } else if repinned {
             REPAIR_REPINNED
         } else {
             REPAIR_MANUAL
         },
-        field: executable
-            .and_then(|executable| executable.argument_index)
-            .map_or_else(
-                || COMMAND_FIELD.to_owned(),
-                |index| format!("args[{index}]"),
-            ),
+        retired_database_options_removed: repinned
+            && registration.server_arguments == ServerArgumentState::RetiredDatabaseOptions,
+        field: if arguments_only {
+            "args".to_owned()
+        } else {
+            executable
+                .and_then(|executable| executable.argument_index)
+                .map_or_else(
+                    || COMMAND_FIELD.to_owned(),
+                    |index| format!("args[{index}]"),
+                )
+        },
         wrapper: executable.and_then(|executable| executable.wrapper.clone()),
         from: executable
             .map(|executable| executable.path.clone())
             .unwrap_or_default(),
-        to: pinned.to_owned(),
+        to: chosen.to_owned(),
         manual_step: None,
     };
     if !repinned {
-        change.manual_step = Some(manual_repin_step(
-            &change,
-            registration.repin_command.as_deref(),
-        ));
+        let mut step = manual_repin_step(&change, registration.repin_command.as_deref());
+        if registration.server_arguments == ServerArgumentState::RetiredDatabaseOptions {
+            step.push_str(" Remove --managed-database-port and its value from the Cartograph server arguments, preserving the wrapper prefix.");
+        }
+        change.manual_step = Some(step);
     }
     change
 }
@@ -1623,10 +1506,6 @@ fn registration_repair_args(registration: &InstallTargetDetection) -> Vec<String
         "--location".to_owned(),
         registration.location.to_owned(),
     ];
-    if let Some(port) = registration.managed_database_port {
-        arguments.push("--managed-database-port".to_owned());
-        arguments.push(port.to_string());
-    }
     arguments.push("--project-path".to_owned());
     arguments
 }
@@ -1643,7 +1522,7 @@ fn registration_audit(
 fn registration_next_steps(registrations: &[InstallTargetDetection]) -> Vec<String> {
     if registrations
         .iter()
-        .any(InstallTargetDetection::needs_repin)
+        .any(InstallTargetDetection::needs_registration_repair)
     {
         vec!["Run each reported repin command, then restart that MCP host.".to_owned()]
     } else if registrations
@@ -2246,6 +2125,7 @@ mod tests {
             command_state: "stale_absolute",
             wrapped_executable_state: None,
             managed_database_port: None,
+            server_arguments: ServerArgumentState::Current,
             repin_command: Some(
                 "cartograph install --yes --target codex --location local --project-path <path>"
                     .to_owned(),
@@ -2358,24 +2238,8 @@ mod tests {
     }
 
     #[test]
-    fn managed_start_has_a_cold_pull_budget_distinct_from_short_probes() {
-        assert_eq!(
-            ProjectCommand::ManagedStart.timeout(),
-            Duration::from_mins(15)
-        );
-        assert_eq!(
-            ProjectCommand::ManagedStatus.timeout(),
-            Duration::from_mins(2)
-        );
-        // Doctor and status each rescan the checkout, so they get a
-        // source-scan budget rather than the database probe's.
-        assert_eq!(ProjectCommand::Doctor.timeout(), Duration::from_mins(10));
-        assert_eq!(ProjectCommand::Status.timeout(), Duration::from_mins(10));
-    }
-
-    #[test]
     fn verification_timeouts_stay_retryable_and_distinct_from_failures() {
-        let mut report = started_project_reconciliation(ProjectDatabaseMode::External);
+        let mut report = started_project_reconciliation(ProjectDatabaseMode::Native);
         report.doctor = upgrade_step("timed_out", "fixture doctor timeout");
         report.retryable = true;
         let mut steps = Vec::new();
@@ -2398,9 +2262,9 @@ mod tests {
         // then a competing writer's wait followed by a full two-hour build.
         assert_eq!(
             index_child::INDEX_ABSOLUTE_CEILING,
-            Duration::from_mins(210)
+            Duration::from_mins(160)
         );
-        assert_eq!(ProjectCommand::Index.timeout(), Duration::from_mins(210));
+        assert_eq!(ProjectCommand::Index.timeout(), Duration::from_mins(160));
         assert!(
             index_child::INDEX_ABSOLUTE_CEILING
                 >= crate::supervised_index::SUPERVISED_STARTUP_ALLOWANCE
@@ -2421,33 +2285,11 @@ mod tests {
     #[test]
     fn project_command_arguments_are_explicit_and_machine_readable() {
         let project_path = Path::new("/fixture/project");
-        let managed_start = project_command_arguments(&ProjectProcessInput {
-            executable: Path::new("/fixture/cartograph"),
-            project_path,
-            database_mode: ProjectDatabaseMode::Managed(55_433),
-            command: ProjectCommand::ManagedStart,
-        });
-        assert_eq!(
-            managed_start,
-            [
-                "db",
-                "start",
-                "--project-path",
-                "/fixture/project",
-                "--port",
-                "55433",
-                "--format",
-                "json",
-            ]
-            .map(OsString::from)
-        );
-
         assert_eq!(
             project_command_arguments(&ProjectProcessInput {
                 executable: Path::new("/fixture/cartograph"),
                 project_path,
-                database_mode: ProjectDatabaseMode::External,
-                command: ProjectCommand::Index,
+                command: ProjectCommand::Index
             }),
             [
                 "index",
@@ -2455,11 +2297,10 @@ mod tests {
                 "--preserve-current-excludes",
                 "--supervised",
                 "--format",
-                "json",
+                "json"
             ]
             .map(OsString::from)
         );
-
         for (command, first) in [
             (ProjectCommand::Doctor, "doctor"),
             (ProjectCommand::Status, "status"),
@@ -2468,49 +2309,11 @@ mod tests {
                 project_command_arguments(&ProjectProcessInput {
                     executable: Path::new("/fixture/cartograph"),
                     project_path,
-                    database_mode: ProjectDatabaseMode::External,
-                    command,
+                    command
                 }),
                 [first, "/fixture/project", "--format", "json"].map(OsString::from)
             );
         }
-    }
-
-    #[test]
-    fn managed_replacement_requires_positive_incompatibility_evidence() {
-        assert!(!managed_status_requires_upgrade(&serde_json::json!({
-            "state": "missing",
-            "image_matches": false,
-            "hnsw_shared_memory_ready": false,
-            "resource_limits_match": false
-        })));
-        assert!(!managed_status_requires_upgrade(&serde_json::json!({
-            "state": "healthy",
-            "image_matches": true,
-            "hnsw_shared_memory_ready": true,
-            "resource_limits_match": true
-        })));
-        assert!(managed_status_requires_upgrade(&serde_json::json!({
-            "state": "stopped",
-            "image_matches": false,
-            "hnsw_shared_memory_ready": true,
-            "resource_limits_match": true
-        })));
-        assert!(managed_status_requires_upgrade(&serde_json::json!({
-            "state": "healthy",
-            "image_matches": true,
-            "hnsw_shared_memory_ready": false,
-            "resource_limits_match": true
-        })));
-        assert!(managed_status_requires_upgrade(&serde_json::json!({
-            "state": "healthy",
-            "image_matches": true,
-            "hnsw_shared_memory_ready": true,
-            "resource_limits_match": false
-        })));
-        assert!(!managed_status_requires_upgrade(&serde_json::json!({
-            "state": "healthy"
-        })));
     }
 
     const FIXTURE_GENERATION: &str = "11111111-1111-4111-8111-111111111111";
@@ -2606,37 +2409,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn managed_replacement_steps_preserve_backup_confirmation_and_resume() {
-        let mut reconciliation = blocked_project_reconciliation("fixture blocked", Some(55_433));
-        reconciliation.required_confirmation = Some("upgrade-managed-database");
-        let mut steps = Vec::new();
-        add_project_reconciliation_steps(&mut steps, Some(&reconciliation));
-        assert_eq!(steps.len(), 3);
-        assert!(steps[0].contains("db backup"));
-        assert!(steps[0].contains("--port 55433"));
-        assert!(steps[1].contains("--confirm upgrade-managed-database"));
-        assert!(steps[2].contains("upgrade --apply"));
-        assert!(steps[2].contains("resume"));
-    }
-
-    #[test]
-    fn managed_start_timeout_retries_without_claiming_incompatibility() {
-        let mut reconciliation =
-            started_project_reconciliation(ProjectDatabaseMode::Managed(55_433));
-        reconciliation.database = upgrade_step(
-            "timed_out",
-            "fixture cold managed start exceeded its readiness budget",
-        );
-        let mut steps = Vec::new();
-        add_project_reconciliation_steps(&mut steps, Some(&reconciliation));
-        assert_eq!(steps.len(), 1);
-        assert!(steps[0].contains("timed out"));
-        assert!(steps[0].contains("upgrade --apply"));
-        assert!(!steps[0].contains("--confirm"));
-        assert!(!steps[0].contains("doctor"));
-    }
-
     /// Write an executable fake `cartograph` that dispatches on its subcommand.
     #[cfg(unix)]
     fn fixture_cartograph(
@@ -2656,86 +2428,16 @@ mod tests {
         script: &str,
     ) -> Result<ProjectReconciliation, Box<dyn std::error::Error>> {
         let project = tempfile::tempdir()?;
-        let executable = fixture_cartograph(project.path(), script)?;
+        let script = script.replacen("case \"$1\" in", "if [ \"$1\" = doctor ] && [ \"$3\" = --no-project-checks ]; then exit 0; fi\ncase \"$1\" in", 1);
+        let executable = fixture_cartograph(project.path(), &script)?;
         Ok(reconcile_project_with(CompletionProjectInput {
             executable: &executable,
             project_path: project.path(),
             installed_version: "2.1.7",
-            database_mode: ProjectDatabaseMode::External,
+
             index_policy: DEFAULT_INDEX_CHILD_POLICY,
         })
         .await)
-    }
-
-    /// A managed `db start` that exits with `exit_status`, and whether the
-    /// failure path then probed `db status` for an incompatible container.
-    #[cfg(unix)]
-    async fn reconcile_managed_start_exit(
-        exit_status: u8,
-    ) -> Result<(ProjectReconciliation, bool), Box<dyn std::error::Error>> {
-        let project = tempfile::tempdir()?;
-        let executable = fixture_cartograph(
-            project.path(),
-            &format!(
-                r#"#!/bin/sh
-case "$1 $2" in
-  "db start") exit {exit_status} ;;
-  "db status") : > "$PWD/.status-probed"; printf '%s\n' '{{"state":"healthy"}}' ;;
-  *) exit 23 ;;
-esac
-"#
-            ),
-        )?;
-        let report = reconcile_project_with(CompletionProjectInput {
-            executable: &executable,
-            project_path: project.path(),
-            installed_version: "2.1.7",
-            database_mode: ProjectDatabaseMode::Managed(55_433),
-            index_policy: DEFAULT_INDEX_CHILD_POLICY,
-        })
-        .await;
-        Ok((report, project.path().join(".status-probed").exists()))
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_busy_schema_is_retryable_contention_and_never_sent_to_doctor()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let (busy, probed) = reconcile_managed_start_exit(SCHEMA_BUSY_EXIT_STATUS).await?;
-        assert_eq!(busy.state, "blocked");
-        assert!(busy.retryable);
-        assert_eq!(busy.database.state, ANOTHER_WRITER_ACTIVE);
-        assert_eq!(busy.database.reason.as_deref(), Some(SCHEMA_BUSY_CODE));
-        let budget = format!(
-            "{}-minute lock-contention budget",
-            whole_minutes(cartograph_db::SCHEMA_MIGRATION_CONTENTION_BUDGET)
-        );
-        assert!(
-            busy.database.message.contains(&budget),
-            "{}",
-            busy.database.message
-        );
-        assert_eq!(busy.index.state, "not_run");
-        assert_eq!(busy.required_confirmation, None);
-        assert!(!probed, "contention must not probe for a replacement");
-        let mut steps = Vec::new();
-        add_project_reconciliation_steps(&mut steps, Some(&busy));
-        assert_eq!(steps, [SCHEMA_BUSY_NEXT_STEP]);
-        assert!(steps[0].contains("MCP server started from an older binary"));
-        assert!(steps[0].contains("Restart or stop that process"));
-        assert!(steps[0].contains("upgrade --apply"));
-        assert!(!steps[0].contains("doctor"));
-
-        // Every other nonzero start keeps the permanent failure and its probe.
-        let (failed, probed) = reconcile_managed_start_exit(1).await?;
-        assert_eq!(failed.database.state, "blocked");
-        assert_eq!(failed.database.reason, None);
-        assert!(!failed.retryable);
-        assert!(probed);
-        let mut steps = Vec::new();
-        add_project_reconciliation_steps(&mut steps, Some(&failed));
-        assert!(steps[0].contains("doctor <path>` for the exact failure"));
-        Ok(())
     }
 
     #[cfg(unix)]
@@ -2765,17 +2467,6 @@ esac
         add_project_reconciliation_steps(&mut steps, Some(&report));
         assert_eq!(steps, [SCHEMA_BUSY_NEXT_STEP]);
         Ok(())
-    }
-
-    #[test]
-    fn the_migration_contention_budget_leaves_the_managed_start_room_to_report_it() {
-        // A budget that consumed the managed start's own budget would turn a
-        // busy schema back into an inconclusive `timed_out` database step.
-        const MINIMUM_BUDGET_SHARE_LEFT: u32 = 2;
-        assert!(
-            cartograph_db::SCHEMA_MIGRATION_CONTENTION_BUDGET
-                < MANAGED_START_TIMEOUT / MINIMUM_BUDGET_SHARE_LEFT
-        );
     }
 
     #[cfg(unix)]
@@ -2933,7 +2624,7 @@ esac
     fn an_index_failure_without_a_code_still_points_to_doctor() {
         // A child that crashed or failed before it could report a code
         // leaves no index failure to rerun; doctor finds the boundary.
-        let mut report = started_project_reconciliation(ProjectDatabaseMode::External);
+        let mut report = started_project_reconciliation(ProjectDatabaseMode::Native);
         report.index = upgrade_step("blocked", "fixture index failure without a code");
         let mut steps = Vec::new();
         add_project_reconciliation_steps(&mut steps, Some(&report));
@@ -2964,7 +2655,7 @@ esac
             stop: ChildStop::Cooperative,
         }));
         assert_eq!(ceiling.reason.as_deref(), Some("ceiling"));
-        assert!(ceiling.message.contains("210-minute"));
+        assert!(ceiling.message.contains("160-minute"));
     }
 
     #[test]
@@ -2979,6 +2670,7 @@ esac
             command_state: "stale_absolute",
             wrapped_executable_state: None,
             managed_database_port: Some(55_435),
+            server_arguments: ServerArgumentState::RetiredDatabaseOptions,
             repin_command: None,
             executable: None,
         };
@@ -2993,8 +2685,6 @@ esac
                 "codex".to_owned(),
                 "--location".to_owned(),
                 "local".to_owned(),
-                "--managed-database-port".to_owned(),
-                "55435".to_owned(),
                 "--project-path".to_owned(),
             ]
         );
@@ -3083,6 +2773,64 @@ esac
             .iter()
             .find(|change| change.target == target && change.location == location)
             .unwrap_or_else(|| panic!("no repair reported for {target} {location}"))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn upgrade_repair_cleans_retired_options_for_current_and_path_wrappers()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = RepairFixture::new()?;
+        let cursor = fixture.project_root.join(".cursor/mcp.json");
+        let codex = fixture.project_root.join(".codex/config.toml");
+        write_fixture(&cursor, &serde_json::json!({"mcpServers": {"cartograph": {
+            "command": "credential-helper",
+            "args": ["--", fixture.pinned, "serve", "--mcp", "--managed-database-port=55435", "--profile", "coding"],
+            "env": {"FIXTURE_FLAG": "preserved"}
+        }}}).to_string())?;
+        write_fixture(
+            &codex,
+            "[mcp_servers.cartograph]\ncommand = 'credential-helper'\nargs = ['--', 'cartograph', 'serve', '--mcp', '--managed-database-port', '55435', '--no-auto-sync']\n",
+        )?;
+        let report = fixture.repair().await;
+        assert_eq!(
+            (report.attempted, report.repaired, report.failed),
+            (2, 2, 0)
+        );
+        assert_eq!(
+            read_json(&cursor)?.pointer("/mcpServers/cartograph/args"),
+            Some(&serde_json::json!([
+                "--",
+                fixture.pinned,
+                "serve",
+                "--mcp",
+                "--profile",
+                "coding"
+            ]))
+        );
+        let document = fs::read_to_string(&codex)?.parse::<toml_edit::DocumentMut>()?;
+        let args = document["mcp_servers"]["cartograph"]["args"]
+            .as_array()
+            .map(|args| {
+                args.iter()
+                    .filter_map(toml_edit::Value::as_str)
+                    .collect::<Vec<_>>()
+            });
+        assert_eq!(
+            args,
+            Some(vec!["--", "cartograph", "serve", "--mcp", "--no-auto-sync"])
+        );
+        assert_eq!(
+            document["mcp_servers"]["cartograph"]["command"].as_str(),
+            Some("credential-helper")
+        );
+        assert_eq!(fixture.repair().await.attempted, 0);
+        for change in &report.changes {
+            assert_eq!(change.outcome, "updated_arguments");
+            assert_eq!(change.field, "args");
+            assert_eq!(change.from, change.to);
+            assert!(change.retired_database_options_removed);
+        }
+        Ok(())
     }
 
     #[cfg(unix)]

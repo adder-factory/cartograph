@@ -9,16 +9,15 @@ use std::{
 
 #[cfg(test)]
 use cartograph_agent::PipelineStage;
-use cartograph_agent::{
-    GenerationRetentionStatus, IndexFailure, IndexOptions, PipelineFailureReason, ProjectError,
-    ProjectRuntime, ProjectWatchFilter,
-};
+use cartograph_agent::{IndexFailure, PipelineFailureReason, ProjectError, ProjectWatchFilter};
+#[cfg(test)]
+use cartograph_agent::{IndexOptions, ProjectRuntime};
 use cartograph_domain::ContentDigest;
 use notify::{Config, Event, EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use thiserror::Error;
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Mutex, mpsc, watch},
     task::JoinHandle,
     time::{Instant, MissedTickBehavior},
 };
@@ -28,7 +27,12 @@ use crate::error_codes::{
     INDEX_CLEANUP_FAILED_CODE, is_generation_capacity_failure, project_index_failure_code,
 };
 
-const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(750);
+mod runtime;
+use runtime::SyncProject;
+#[cfg(test)]
+mod rocks_tests;
+
+const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(150);
 const MAXIMUM_EVENT_COALESCING_LATENCY: Duration = Duration::from_secs(2);
 const MINIMUM_DEBOUNCE_MILLIS: u64 = 50;
 const MAXIMUM_DEBOUNCE_MILLIS: u64 = 60_000;
@@ -49,16 +53,16 @@ const MAXIMUM_REPEATED_AUTOMATIC_FAILURES: u8 = 5;
 pub(crate) struct ProjectAutoSync {
     watcher: AutoSyncWatcher,
     cancellation: watch::Sender<bool>,
-    task: JoinHandle<()>,
+    task: Mutex<Option<JoinHandle<()>>>,
     state: Arc<AutoSyncState>,
 }
 
 impl ProjectAutoSync {
-    pub(crate) fn start(
-        runtime: Arc<ProjectRuntime>,
+    pub(crate) fn start<Project: SyncProject + 'static>(
+        runtime: Arc<Project>,
         startup_reconciliation_enabled: bool,
     ) -> Result<Self, AutoSyncError> {
-        let root = runtime.project_root_for_host_operations().to_path_buf();
+        let root = runtime.sync_root().to_path_buf();
         let (events, receiver) = mpsc::channel(WATCH_CHANNEL_CAPACITY);
         let (cancellation, cancellation_receiver) = watch::channel(false);
         let state = Arc::new(AutoSyncState::default());
@@ -88,13 +92,22 @@ impl ProjectAutoSync {
         Ok(Self {
             watcher,
             cancellation,
-            task,
+            task: Mutex::new(Some(task)),
             state,
         })
     }
 
     pub(crate) fn status(&self) -> AutoSyncStatus {
-        let failure = self.state.failure_status();
+        let (failure, recent_failures) = self.state.failure.read().map_or_else(
+            |_| (AutoSyncFailureStatus::default(), Vec::new()),
+            |failure| {
+                (
+                    failure.status,
+                    failure.recent.iter().copied().collect::<Vec<_>>(),
+                )
+            },
+        );
+        let latest = recent_failures.last();
         let capacity_failure_active = failure.capacity_failure_attempts > 0;
         AutoSyncStatus {
             active: self.state.active.load(Ordering::Acquire),
@@ -108,12 +121,27 @@ impl ProjectAutoSync {
             retention_attempts: self.state.retention_attempts.load(Ordering::Acquire),
             retention_failures: self.state.retention_failures.load(Ordering::Acquire),
             next_retention_at: nonzero(self.state.next_retention_at.load(Ordering::Acquire)),
+            last_sync_duration_millis: (self
+                .state
+                .last_success_unix_millis
+                .load(Ordering::Acquire)
+                != 0)
+                .then(|| self.state.last_sync_duration_millis.load(Ordering::Acquire)),
+            last_incremental_files: self.state.last_incremental_files.load(Ordering::Acquire),
+            last_index_profile: self
+                .state
+                .last_index_profile
+                .read()
+                .ok()
+                .and_then(|profile| profile.clone()),
             last_success_unix_millis: nonzero(
                 self.state.last_success_unix_millis.load(Ordering::Acquire),
             ),
-            last_error_code: failure.last_error_code,
-            last_cleanup_failure_code: failure.last_cleanup_failure_code,
-            last_failure_at: failure.last_failure_at,
+            last_error_code: latest.map(|event| event.code),
+            last_cleanup_failure_code: latest.and_then(|event| event.cleanup_code),
+            last_failure_at: latest.map(|event| event.at),
+            failure_active: failure.last_error_code.is_some(),
+            recent_failures,
             next_retry_at: failure.next_retry_at,
             failed_revision_attempts: failure.attempts,
             retry_suppressed: failure.retry_suppressed.into(),
@@ -127,13 +155,28 @@ impl ProjectAutoSync {
                 .then_some(GENERATION_CAPACITY_NEXT_ACTION),
         }
     }
+
+    pub(crate) async fn shutdown(&self) {
+        self.state.active.store(false, Ordering::Release);
+        let _ = self.cancellation.send(true);
+        let mut task = self.task.lock().await;
+        if let Some(handle) = task.as_mut() {
+            // Native request work remains in its project operation owner until
+            // runtime shutdown drains it. Reap this watcher task explicitly.
+            handle.abort();
+            let _ = handle.await;
+        }
+        *task = None;
+    }
 }
 
 impl Drop for ProjectAutoSync {
     fn drop(&mut self) {
         self.state.active.store(false, Ordering::Release);
         let _ = self.cancellation.send(true);
-        self.task.abort();
+        if let Some(task) = self.task.get_mut() {
+            task.abort();
+        }
     }
 }
 
@@ -150,6 +193,9 @@ struct AutoSyncState {
     retention_failures: AtomicU64,
     next_retention_at: AtomicU64,
     last_success_unix_millis: AtomicU64,
+    last_sync_duration_millis: AtomicU64,
+    last_incremental_files: AtomicU64,
+    last_index_profile: RwLock<Option<cartograph_agent::IndexProfile>>,
     failure: RwLock<AutoSyncFailureState>,
 }
 
@@ -173,6 +219,16 @@ struct AutoSyncFailureState {
     failed_revision: Option<FailedRevision>,
     persistent_revision_attempts: u8,
     status: AutoSyncFailureStatus,
+    recent: std::collections::VecDeque<AutoSyncFailureEvent>,
+}
+
+/// A bounded, source-free record survives successful recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutoSyncFailureEvent {
+    code: &'static str,
+    cleanup_code: Option<&'static str>,
+    at: u64,
 }
 
 impl AutoSyncFailureState {
@@ -239,6 +295,14 @@ impl AutoSyncState {
         )
     }
 
+    #[cfg(test)]
+    fn recent_failures(&self) -> Vec<AutoSyncFailureEvent> {
+        self.failure.read().map_or_else(
+            |_| Vec::new(),
+            |failure| failure.recent.iter().copied().collect(),
+        )
+    }
+
     fn automatic_attempt_allowed(&self, revision: &ContentDigest, now: u64) -> bool {
         self.failure.read().map_or(true, |failure| {
             if failure.status.capacity_retry_suppressed
@@ -280,7 +344,9 @@ impl AutoSyncState {
 
     fn record_index_success(&self) {
         if let Ok(mut failure) = self.failure.write() {
-            *failure = AutoSyncFailureState::default();
+            failure.failed_revision = None;
+            failure.persistent_revision_attempts = 0;
+            failure.status = AutoSyncFailureStatus::default();
         }
     }
 
@@ -349,9 +415,21 @@ impl AutoSyncState {
         };
         let next_retry_at = (!retry_suppressed)
             .then(|| now.saturating_add(interval.as_millis().try_into().unwrap_or(u64::MAX)));
+        let mut recent = std::mem::take(&mut failure.recent);
+        if recent.len() == 16 {
+            recent.pop_front();
+        }
+        recent.push_back(AutoSyncFailureEvent {
+            code: error_code,
+            cleanup_code: attempt
+                .cleanup_failed()
+                .then_some(INDEX_CLEANUP_FAILED_CODE),
+            at: now,
+        });
         *failure = AutoSyncFailureState {
             failed_revision: Some(revision),
             persistent_revision_attempts,
+            recent,
             status: AutoSyncFailureStatus {
                 last_error_code: Some(error_code),
                 last_cleanup_failure_code: attempt
@@ -391,7 +469,7 @@ fn retry_allowed(status: AutoSyncFailureStatus, now: u64) -> bool {
 }
 
 /// Privacy-safe watcher health exposed through status without project paths.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AutoSyncStatus {
     pub active: bool,
@@ -409,6 +487,13 @@ pub(crate) struct AutoSyncStatus {
     /// Next periodic maintenance admission, including bounded failure backoff.
     pub next_retention_at: Option<u64>,
     pub last_success_unix_millis: Option<u64>,
+    /// Last successful index duration, including awaited maintenance and source checks.
+    /// Excludes watcher debounce and subsequent query/transport time.
+    pub last_sync_duration_millis: Option<u64>,
+    /// Files admitted to local replacement by the last successful index; zero for full/no-op.
+    pub last_incremental_files: u64,
+    /// Last successful index/no-op phase timings; distinct from debounce and query latency.
+    pub last_index_profile: Option<cartograph_agent::IndexProfile>,
     /// Stable credential-safe code for the latest failed automatic index.
     pub last_error_code: Option<&'static str>,
     /// `index_cleanup_failed` when bounded cleanup of that attempt's own
@@ -417,6 +502,10 @@ pub(crate) struct AutoSyncStatus {
     pub last_cleanup_failure_code: Option<&'static str>,
     /// Unix-millisecond timestamp of the latest failed automatic index.
     pub last_failure_at: Option<u64>,
+    /// Whether the latest attempt is still failing; successful recovery clears retries.
+    pub failure_active: bool,
+    /// Last sixteen failures, oldest first, retained after successful recovery.
+    pub recent_failures: Vec<AutoSyncFailureEvent>,
     /// Unix-millisecond deadline for the next automatic retry of this revision.
     pub next_retry_at: Option<u64>,
     /// Automatic failures recorded for the current known or unavailable-revision bucket.
@@ -544,7 +633,7 @@ fn watcher_handler(context: WatcherContext) -> impl FnMut(notify::Result<Event>)
 }
 
 struct AutoSyncTask {
-    runtime: Arc<ProjectRuntime>,
+    runtime: Arc<dyn SyncProject>,
     events: mpsc::Receiver<()>,
     cancellation: watch::Receiver<bool>,
     event_debounce: EventDebounce,
@@ -576,7 +665,7 @@ async fn run_auto_sync(input: AutoSyncTask) {
 }
 
 async fn run_retention(
-    runtime: Arc<ProjectRuntime>,
+    runtime: Arc<dyn SyncProject>,
     state: Arc<AutoSyncState>,
     mut cancellation: watch::Receiver<bool>,
     startup_reconciliation_enabled: bool,
@@ -595,13 +684,7 @@ async fn run_retention(
             () = tokio::time::sleep(delay) => {},
         }
         if state.retention_attempt_allowed(unix_millis()) {
-            let outcome = runtime.maintain_retention().await;
-            state.record_retention_outcome(
-                outcome
-                    .as_ref()
-                    .map_or(true, GenerationRetentionStatus::maintenance_failed),
-                unix_millis(),
-            );
+            state.record_retention_outcome(runtime.clone().sync_retention().await, unix_millis());
         }
         // Recheck at most every 30 seconds so a successful index can shorten
         // maintenance backoff, while honoring the exact next-admission time.
@@ -667,16 +750,19 @@ async fn run_watch_sync(input: AutoSyncTask) {
     state.active.store(false, Ordering::Release);
 }
 
-async fn reconcile(runtime: &ProjectRuntime, state: &AutoSyncState) {
+async fn reconcile<Project: SyncProject + ?Sized>(runtime: &Arc<Project>, state: &AutoSyncState) {
     state.reconciliations.fetch_add(1, Ordering::AcqRel);
     if state.reconciliation_probe_allowed(unix_millis()) {
         synchronize_if_stale(runtime, state).await;
     }
 }
 
-async fn synchronize_if_stale(runtime: &ProjectRuntime, state: &AutoSyncState) {
+async fn synchronize_if_stale<Project: SyncProject + ?Sized>(
+    runtime: &Arc<Project>,
+    state: &AutoSyncState,
+) {
     let now = unix_millis();
-    match runtime.status().await {
+    match runtime.clone().sync_status().await {
         Ok(status)
             if !status.fresh
                 && state.automatic_attempt_allowed(&status.live_source_revision, now) =>
@@ -694,7 +780,10 @@ async fn synchronize_if_stale(runtime: &ProjectRuntime, state: &AutoSyncState) {
     }
 }
 
-async fn synchronize_after_event(runtime: &ProjectRuntime, state: &AutoSyncState) {
+async fn synchronize_after_event<Project: SyncProject + ?Sized>(
+    runtime: &Arc<Project>,
+    state: &AutoSyncState,
+) {
     match state.event_sync_route(unix_millis()) {
         EventSyncRoute::DirectIndex => synchronize(runtime, state, None).await,
         EventSyncRoute::CheckFreshness => synchronize_if_stale(runtime, state).await,
@@ -731,18 +820,26 @@ async fn debounce_events(
     }
 }
 
-async fn synchronize(
-    runtime: &ProjectRuntime,
+async fn synchronize<Project: SyncProject + ?Sized>(
+    runtime: &Arc<Project>,
     state: &AutoSyncState,
     revision: Option<ContentDigest>,
 ) {
     state.sync_attempts.fetch_add(1, Ordering::AcqRel);
-    match runtime
-        .index_with_failure_detail(IndexOptions::automatic())
-        .await
-    {
+    let started = Instant::now();
+    match runtime.clone().sync_index().await {
         Ok(report) => {
-            state.record_retention_outcome(report.retention.maintenance_failed(), unix_millis());
+            if let Ok(mut profile) = state.last_index_profile.write() {
+                *profile = report.profile;
+            }
+            state.last_sync_duration_millis.store(
+                u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                Ordering::Release,
+            );
+            state
+                .last_incremental_files
+                .store(u64::from(report.incremental_files), Ordering::Release);
+            state.record_retention_outcome(report.maintenance_failed, unix_millis());
             if report.published {
                 state.publications.fetch_add(1, Ordering::AcqRel);
             } else {
@@ -756,7 +853,7 @@ async fn synchronize(
         Err(failure) => {
             let failed_revision = match revision {
                 Some(revision) => Some(revision),
-                None => match runtime.status().await {
+                None => match runtime.clone().sync_status().await {
                     Ok(status) if status.fresh => {
                         state.record_index_success();
                         return;
@@ -852,11 +949,8 @@ const fn nonzero(value: u64) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, process, time::SystemTime};
 
-    use cartograph_config::DatabaseSettings;
     use notify::event::AccessKind;
-    use sqlx_core::{query::query, sql_str::AssertSqlSafe};
 
     #[test]
     fn retention_backoff_survives_fresh_source_and_recovers_without_suppression() {
@@ -889,257 +983,6 @@ mod tests {
             now + 30_000
         );
         assert_eq!(state.retention_attempts.load(Ordering::Acquire), 13);
-    }
-
-    async fn idle_runtime_fixture() -> (
-        tempfile::TempDir,
-        cartograph_test_support::TestSchemaGuard,
-        DatabaseSettings,
-        Arc<ProjectRuntime>,
-        cartograph_agent::IndexReport,
-    ) {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live watcher database is not configured"));
-        let schema = format!("cg_idle_retention_{}_{}", process::id(), unix_millis());
-        let guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("idle schema guard failed: {error}"));
-        let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("idle settings failed: {error}"));
-        let project =
-            tempfile::tempdir().unwrap_or_else(|error| panic!("idle tempdir failed: {error}"));
-        std::fs::create_dir(project.path().join(".cartograph"))
-            .unwrap_or_else(|error| panic!("idle config directory failed: {error}"));
-        std::fs::write(
-            project.path().join(".cartograph/config.json"),
-            r#"{"version":2,"maxAstDepth":512}"#,
-        )
-        .unwrap_or_else(|error| panic!("idle parsing policy failed: {error}"));
-        std::fs::write(
-            project.path().join("service.rs"),
-            "pub fn value() -> u32 { 1 }\n",
-        )
-        .unwrap_or_else(|error| panic!("idle source failed: {error}"));
-        let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
-                .await
-                .unwrap_or_else(|error| panic!("idle runtime failed: {error}")),
-        );
-        let first = runtime
-            .index(IndexOptions::default().with_history_refresh(false))
-            .await
-            .unwrap_or_else(|error| panic!("idle index failed: {error}"));
-        (project, guard, settings, runtime, first)
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn idle_watcher_drains_retention_without_reserving_or_publishing() {
-        use sqlx_core::row::Row;
-        let (_project, guard, settings, runtime, first) = idle_runtime_fixture().await;
-        let schema = settings.schema().as_str();
-        for index in 0..5 {
-            runtime
-                .database()
-                .begin_generation(cartograph_db::NewGeneration::new(
-                    first.project_id.clone(),
-                    format!("idle-{index}"),
-                    1,
-                ))
-                .await
-                .unwrap_or_else(|error| panic!("idle generation failed: {error}"));
-        }
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("idle pool failed: {error}"));
-        query(AssertSqlSafe(format!(
-            r#"UPDATE "{schema}".index_generations SET state = 'superseded'
-            WHERE project_id = $1::uuid AND state = 'staging'"#
-        )))
-        .bind(first.project_id.as_str())
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("idle backlog failed: {error}"));
-        query(AssertSqlSafe(format!(
-            r#"INSERT INTO "{schema}".native_parse_cache
-            (project_id, extractor_contract_digest, path_digest, normalized_path, language,
-                content_hash, source_bytes, payload, payload_digest, last_used_at)
-            SELECT $1::uuid, repeat(contract,64), repeat(contract,64), 'old.rs', 'rust',
-                repeat('c',64), 1, decode('01','hex'), repeat('d',64), clock_timestamp()
-            FROM (VALUES ('a'),('b')) AS contracts(contract)"#
-        )))
-        .bind(first.project_id.as_str())
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("idle cache seed failed: {error}"));
-        assert_eq!(
-            runtime
-                .database()
-                .generation_retention_backlog(&first.project_id, 2)
-                .await
-                .unwrap_or_else(|error| panic!("idle backlog count failed: {error}")),
-            3
-        );
-        let watcher = ProjectAutoSync::start(runtime.clone(), true)
-            .unwrap_or_else(|error| panic!("idle watcher failed: {error}"));
-        tokio::time::timeout(Duration::from_secs(15), async {
-            while watcher.status().retention_attempts == 0 {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("idle watcher did not maintain retention"));
-        assert_eq!(watcher.status().sync_attempts, 0);
-        assert_eq!(watcher.status().retention_failures, 0);
-        let status = runtime
-            .status()
-            .await
-            .unwrap_or_else(|error| panic!("idle status failed: {error}"));
-        assert!(status.fresh);
-        let snapshot = status
-            .snapshot
-            .unwrap_or_else(|| panic!("idle snapshot missing"));
-        assert_eq!(
-            snapshot
-                .current
-                .unwrap_or_else(|| panic!("idle current missing"))
-                .generation_id,
-            first.generation_id
-        );
-        assert_eq!(snapshot.generation_storage.superseded, 2);
-        let count = query(AssertSqlSafe(format!(
-            r#"SELECT count(*)::bigint FROM "{schema}".native_parse_cache
-            WHERE project_id = $1::uuid"#
-        )))
-        .bind(first.project_id.as_str())
-        .fetch_one(&pool)
-        .await
-        .and_then(|row| row.try_get::<i64, _>(0))
-        .unwrap_or_else(|error| panic!("idle cache count failed: {error}"));
-        assert_eq!(
-            count, 2,
-            "current parse contract and one older contract must survive"
-        );
-        assert_eq!(
-            runtime
-                .database()
-                .generation_retention_backlog(&first.project_id, 2)
-                .await
-                .unwrap_or_else(|error| panic!("idle remaining backlog failed: {error}")),
-            0
-        );
-        drop(watcher);
-        drop(runtime);
-        pool.close().await;
-        guard
-            .cleanup()
-            .await
-            .unwrap_or_else(|error| panic!("idle cleanup failed: {error}"));
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn blocked_retention_does_not_hold_up_the_file_event_loop() {
-        use sqlx_core::row::Row;
-        let (_project, guard, settings, runtime, first) = idle_runtime_fixture().await;
-        let schema = settings.schema().as_str();
-        let staged = runtime
-            .database()
-            .begin_generation(cartograph_db::NewGeneration::new(
-                first.project_id.clone(),
-                "blocked-idle",
-                1,
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("blocked generation failed: {error}"));
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("blocked pool failed: {error}"));
-        query(AssertSqlSafe(format!(
-            r#"UPDATE "{schema}".index_generations SET state = 'failed'
-            WHERE generation_id = $1::uuid"#
-        )))
-        .bind(staged.generation_id().as_str())
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("blocked terminalization failed: {error}"));
-        let mut blocker = pool
-            .begin()
-            .await
-            .unwrap_or_else(|error| panic!("blocked transaction failed: {error}"));
-        query(AssertSqlSafe(format!(
-            r#"SELECT generation_id FROM "{schema}".index_generations
-            WHERE generation_id = $1::uuid FOR UPDATE"#
-        )))
-        .bind(staged.generation_id().as_str())
-        .fetch_one(&mut *blocker)
-        .await
-        .unwrap_or_else(|error| panic!("blocked row lock failed: {error}"));
-        let (events, receiver) = mpsc::channel(1);
-        let (cancel, cancellation) = watch::channel(false);
-        let state = Arc::new(AutoSyncState::default());
-        let task = tokio::spawn(run_auto_sync(AutoSyncTask {
-            runtime: runtime.clone(),
-            events: receiver,
-            cancellation,
-            event_debounce: EventDebounce {
-                quiet_window: Duration::from_millis(50),
-                maximum_latency: Duration::from_millis(100),
-            },
-            state: state.clone(),
-            startup_reconciliation_enabled: true,
-        }));
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let leases = query(AssertSqlSafe(format!(r#"SELECT count(*)::bigint FROM "{schema}".project_operation_leases
-                    WHERE project_id = $1::uuid AND operation = 'migration' AND expires_at > clock_timestamp()"#)))
-                    .bind(first.project_id.as_str()).fetch_one(&pool).await.and_then(|row| row.try_get::<i64,_>(0))
-                    .unwrap_or_else(|error| panic!("blocked lease observation failed: {error}"));
-                if leases > 0 { break; }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        }).await.unwrap_or_else(|_| panic!("periodic retention did not acquire its lease"));
-        events
-            .send(())
-            .await
-            .unwrap_or_else(|error| panic!("blocked event failed: {error}"));
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while state.sync_attempts.load(Ordering::Acquire) == 0 {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("retention blocked file-event admission"));
-        blocker
-            .rollback()
-            .await
-            .unwrap_or_else(|error| panic!("blocked row release failed: {error}"));
-        tokio::time::timeout(Duration::from_secs(15), async {
-            while runtime
-                .database()
-                .terminal_generation_backlog(&first.project_id)
-                .await
-                .unwrap_or_else(|error| panic!("blocked backlog failed: {error}"))
-                != 0
-            {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("blocked retention did not recover"));
-        cancel
-            .send(true)
-            .unwrap_or_else(|error| panic!("blocked cancellation failed: {error}"));
-        tokio::time::timeout(Duration::from_secs(5), task)
-            .await
-            .unwrap_or_else(|_| panic!("watcher task did not reap"))
-            .unwrap_or_else(|error| panic!("watcher task failed: {error}"));
-        drop(runtime);
-        pool.close().await;
-        guard
-            .cleanup()
-            .await
-            .unwrap_or_else(|error| panic!("blocked cleanup failed: {error}"));
     }
 
     use super::*;
@@ -1687,6 +1530,22 @@ mod tests {
     }
 
     #[test]
+    fn recovery_preserves_bounded_failure_history_and_clears_retry_state() {
+        let state = AutoSyncState::default();
+        for timestamp in 1..=20 {
+            state.record_unknown_failure(&ProjectError::StatusFailed.into(), timestamp);
+            state.record_index_success();
+            assert_eq!(state.failure_status(), AutoSyncFailureStatus::default());
+        }
+        let history = state.recent_failures();
+        assert_eq!(history.len(), 16);
+        assert_eq!(history.first().map(|event| event.at), Some(5));
+        assert_eq!(history.last().map(|event| event.at), Some(20));
+        assert!(history.iter().all(|event| event.code == "status_failed"));
+        assert_eq!(state.errors.load(Ordering::Acquire), 20);
+    }
+
+    #[test]
     fn a_failed_cleanup_is_reported_beside_the_latest_failure_code_only() {
         let state = AutoSyncState::default();
         let revision = ContentDigest::from_bytes([1; 32]);
@@ -1722,176 +1581,13 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn automatic_sync_reports_its_failed_cleanup_beside_the_primary_code() {
-        use crate::tests::index_cleanup_fixture::{HeldSchemaMaintenance, reject_staging_failure};
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|error| panic!("test database: {error}"));
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|error| panic!("clock: {error}"))
-            .as_nanos();
-        let schema = format!("cg_watcher_cleanup_{}_{stamp}", process::id());
-        let guard = cartograph_test_support::TestSchemaGuard::new(&url, &schema)
-            .unwrap_or_else(|error| panic!("guard: {error}"));
-        let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("settings: {error}"));
-        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project: {error}"));
-        let source = project.path().join("lib.rs");
-        std::fs::write(&source, "pub fn original() {}\n")
-            .unwrap_or_else(|error| panic!("source: {error}"));
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("runtime: {error}"));
-        runtime
-            .index(IndexOptions::automatic())
-            .await
-            .unwrap_or_else(|error| panic!("initial generation: {error}"));
-        std::fs::write(&source, "pub fn replacement() {}\n")
-            .unwrap_or_else(|error| panic!("edit: {error}"));
-
-        // Schema maintenance refuses the lease after the attempt reserved its
-        // generation, and the fixture makes that generation's cleanup fail.
-        reject_staging_failure(&settings, &schema).await;
-        let maintenance = HeldSchemaMaintenance::hold(&settings, &schema).await;
-        let state = AutoSyncState::default();
-        synchronize(&runtime, &state, None).await;
-        maintenance.release().await;
-
-        let status = state.failure_status();
-        assert_eq!(status.last_error_code, Some("lease_busy"));
-        assert_eq!(
-            status.last_cleanup_failure_code,
-            Some("index_cleanup_failed"),
-            "automatic sync dropped its failed cleanup"
-        );
-        runtime.close().await;
-        guard
-            .cleanup()
-            .await
-            .unwrap_or_else(|error| panic!("cleanup: {error}"));
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-    async fn watcher_recovers_after_a_competing_writer_without_another_edit() {
-        use cartograph_db::{LeaseOwner, LeaseRequest, LeaseTarget};
-        use cartograph_domain::ProjectOperation;
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|error| panic!("test database: {error}"));
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|error| panic!("clock: {error}"))
-            .as_nanos();
-        let schema = format!("cg_watcher_busy_{}_{stamp}", process::id());
-        let guard = cartograph_test_support::TestSchemaGuard::new(&url, &schema)
-            .unwrap_or_else(|error| panic!("guard: {error}"));
-        let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("settings: {error}"));
-        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project: {error}"));
-        let source = project.path().join("lib.rs");
-        std::fs::write(&source, "pub fn original() {}\n")
-            .unwrap_or_else(|error| panic!("source: {error}"));
-        let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
-                .await
-                .unwrap_or_else(|error| panic!("runtime: {error}")),
-        );
-        let initial = runtime
-            .index(IndexOptions::automatic())
-            .await
-            .unwrap_or_else(|error| panic!("initial generation: {error}"));
-        let lease = runtime
-            .database()
-            .acquire_lease(LeaseRequest::new(
-                LeaseTarget::new(
-                    initial.project_id.clone(),
-                    ProjectOperation::Migration,
-                    None,
-                ),
-                LeaseOwner::new(process::id(), "watcher-recovery-test"),
-                Duration::from_secs(60),
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("competing lease: {error}"));
-        let watcher = ProjectAutoSync::start(runtime.clone(), false)
-            .unwrap_or_else(|error| panic!("watcher: {error}"));
-        std::fs::write(&source, "pub fn replacement() {}\n")
-            .unwrap_or_else(|error| panic!("edit: {error}"));
-        tokio::time::timeout(Duration::from_secs(15), async {
-            while watcher.status().last_error_code != Some("lease_busy") {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|error| panic!("watcher must report live contention: {error}"));
-        assert!(
-            !runtime
-                .status()
-                .await
-                .unwrap_or_else(|error| panic!("stale status: {error}"))
-                .fresh
-        );
-        runtime
-            .database()
-            .release_lease(&lease)
-            .await
-            .unwrap_or_else(|error| panic!("release competitor: {error}"));
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while watcher.status().publications == 0 {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|error| {
-            panic!("retry timer must recover before the 30 second reconciliation: {error}")
-        });
-        let status = runtime
-            .status()
-            .await
-            .unwrap_or_else(|error| panic!("recovered status: {error}"));
-        assert!(status.fresh);
-        assert_ne!(
-            status
-                .snapshot
-                .unwrap_or_else(|| panic!("snapshot"))
-                .current
-                .unwrap_or_else(|| panic!("current"))
-                .generation_id,
-            initial.generation_id
-        );
-        assert_eq!(watcher.status().last_error_code, None);
-        drop(watcher);
-        drop(runtime);
-        guard
-            .cleanup()
-            .await
-            .unwrap_or_else(|error| panic!("cleanup: {error}"));
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
     async fn native_watcher_debounces_an_edit_and_publishes_a_fresh_generation() {
-        let url = env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("live watcher database is not configured"));
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_watcher_{}_{}", process::id(), nanos);
-        let _schema_guard = cartograph_test_support::TestSchemaGuard::new(&url, schema.clone())
-            .unwrap_or_else(|error| panic!("watcher schema guard failed: {error}"));
-        let settings = DatabaseSettings::parse(&url, Some("8"), Some("10000"))
-            .and_then(|settings| settings.with_schema(&schema))
-            .unwrap_or_else(|error| panic!("watcher settings failed: {error}"));
         let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
         let source = project.path().join("service.rs");
         std::fs::write(&source, "pub fn value() -> u32 { 1 }\n")
             .unwrap_or_else(|error| panic!("watcher fixture failed: {error}"));
         let runtime = Arc::new(
-            ProjectRuntime::connect(project.path(), &settings)
+            ProjectRuntime::open(project.path())
                 .await
                 .unwrap_or_else(|error| panic!("watcher runtime failed: {error}")),
         );
@@ -1946,18 +1642,10 @@ mod tests {
             "watcher did not record its publication: {watcher_status:?}"
         );
         assert_eq!(watcher_status.errors, 0);
-        drop(watcher);
-        drop(runtime);
-
-        let pool = cartograph_db::connect(&settings)
+        watcher.shutdown().await;
+        runtime
+            .shutdown()
             .await
-            .unwrap_or_else(|error| panic!("watcher cleanup connection failed: {error}"));
-        query(AssertSqlSafe(format!(
-            "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-        )))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|_| panic!("watcher cleanup failed"));
-        pool.close().await;
+            .unwrap_or_else(|error| panic!("native runtime close: {error}"));
     }
 }

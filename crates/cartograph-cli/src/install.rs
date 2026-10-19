@@ -35,8 +35,8 @@ const INSTRUCTIONS: &str = r"<!-- CARTOGRAPH_START -->
 ## Cartograph
 
 Cartograph v2 is this workspace's native Rust code-intelligence MCP server. Its
-graph is stored in PostgreSQL 18 with ParadeDB and pgvector; SQLite is not a
-supported runtime or fallback.
+graph is stored in per-project RocksDB with bounded native workers; SQLite is
+not a supported runtime or fallback.
 
 When Cartograph is initialized, call `cartograph_status` before trusting graph
 evidence. Start coding tasks with `cartograph_context`, narrow with
@@ -46,9 +46,9 @@ freshness explicit, and run the repository's real quality gates before claiming
 completion. If MCP transport is unavailable, say so and use the native CLI as a
 control path; a CLI result does not prove an already-open host restarted MCP.
 
-If Cartograph is not initialized, ask before running `cartograph db start`,
-`cartograph doctor`, and `cartograph index`. Never print or commit a PostgreSQL
-URL. Use the narrowest MCP profile that supports the task.
+If Cartograph is not initialized, ask before running `cartograph index`, then
+verify the current graph with `cartograph doctor` and `cartograph status`.
+Use the narrowest MCP profile that supports the task.
 <!-- CARTOGRAPH_END -->";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -333,7 +333,6 @@ pub(crate) struct InstallRequest {
     location: InstallLocation,
     home: PathBuf,
     command_override: Option<String>,
-    managed_database_port: Option<u16>,
     permissions: bool,
     use_environment: bool,
 }
@@ -370,7 +369,6 @@ impl InstallRequest {
             location,
             home,
             command_override,
-            managed_database_port: None,
             permissions,
             use_environment: true,
         })
@@ -405,11 +403,6 @@ impl InstallRequest {
         config.path.exists() || config.path.parent().is_some_and(std::path::Path::exists)
     }
 
-    pub(crate) const fn with_managed_database_port(mut self, port: u16) -> Self {
-        self.managed_database_port = Some(port);
-        self
-    }
-
     /// The command written into the registration: the `--command` override,
     /// or the stable launcher of the absolute native executable.
     pub(crate) fn command(&self) -> &str {
@@ -425,10 +418,6 @@ impl InstallRequest {
         if self.local() {
             args.push("--project-path".to_owned());
             args.push(path_text(&self.project_root)?.to_owned());
-            if let Some(port) = self.managed_database_port {
-                args.push("--managed-database-port".to_owned());
-                args.push(port.to_string());
-            }
         }
         Ok(args)
     }
@@ -2237,39 +2226,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    #[test]
-    fn local_managed_port_is_a_portable_server_argument() {
-        let project = tempfile::tempdir().unwrap_or_else(|error| panic!("project failed: {error}"));
-        let home = tempfile::tempdir().unwrap_or_else(|error| panic!("home failed: {error}"));
-        let executable = fake_executable(project.path());
-        for target in [
-            InstallTarget::Codex,
-            InstallTarget::Claude,
-            InstallTarget::Kimi,
-        ] {
-            let request = request(
-                project.path(),
-                home.path(),
-                &executable,
-                target,
-                InstallLocation::Local,
-            )
-            .with_managed_database_port(55_435);
-            let arguments = request
-                .server_args()
-                .unwrap_or_else(|error| panic!("{} arguments failed: {error}", target.label()));
-            assert_eq!(
-                arguments[arguments.len() - 2..],
-                ["--managed-database-port", "55435"]
-            );
-            let rendered = print_config(&request)
-                .unwrap_or_else(|error| panic!("{} print failed: {error}", target.label()));
-            assert!(rendered.contains("--managed-database-port"));
-            assert!(rendered.contains("55435"));
-            assert!(!rendered.contains("CARTOGRAPH_DATABASE_URL"));
         }
     }
 

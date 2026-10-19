@@ -11,21 +11,24 @@ use cartograph_domain as _;
 use cartograph_llm as _;
 use cartograph_mcp as _;
 use cartograph_search as _;
-use cartograph_test_support as _;
 use clap as _;
 use futures_util as _;
 use notify as _;
 use num_traits as _;
 use regex as _;
 use reqwest as _;
+#[cfg(unix)]
+use rustix as _;
 use serde as _;
 use serde_json as _;
 use sha2 as _;
 #[cfg(unix)]
 use signal_hook as _;
-use sqlx_core as _;
 use tempfile as _;
 use thiserror as _;
 use tokio as _;
 use toml_edit as _;
 use url as _;
+
+#[cfg(unix)]
+use getrandom as _;

@@ -16,7 +16,7 @@ if [[ "$VERSION" != "$EXPECTED_VERSION" ]]; then
 fi
 
 HELP="$("$BINARY" --help)"
-for COMMAND in index status find context graph affected review install uninstall serve doctor db; do
+for COMMAND in index status find context graph affected review install uninstall serve watch service doctor db; do
   if ! grep -Eq "^[[:space:]]+$COMMAND([[:space:]]|$)" <<<"$HELP"; then
     echo "release binary help is missing '$COMMAND'" >&2
     exit 1

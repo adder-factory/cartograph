@@ -1,29 +1,18 @@
-//! Generation-fenced PostgreSQL execution for field-qualified symbol search.
+//! Generation-fenced native storage execution for field-qualified symbol search.
 
 use std::time::Duration;
 
 use cartograph_domain::{GenerationId, ProjectId};
 use serde::Serialize;
-use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
-
-use crate::{
-    CartographDatabase, CurrentSymbolRecord, StorageError,
-    retrieval::{
-        CurrentGenerationLookup, begin_bounded_read, commit_bounded_read, decode_symbol,
-        require_expected_current_generation,
-    },
-};
 
 const MAXIMUM_QUERY_BYTES: usize = 1_024;
+mod native;
 const MAXIMUM_FILTER_BYTES: usize = 4_096;
 const MAXIMUM_FILTER_VALUES: usize = 64;
 const MAXIMUM_RESULT_LIMIT: u16 = 100;
 const DEFAULT_QUALIFIED_SEARCH_TIMEOUT: Duration = Duration::from_secs(30);
-const CENTRALITY_COLUMN: usize = 16;
-const LEXICAL_SCORE_COLUMN: usize = 17;
-const TOTAL_COLUMN: usize = 18;
 
-/// SQL-level centrality comparison with v1-compatible unranked-symbol semantics.
+/// Generation-scoped centrality comparison with v1-compatible unranked-symbol semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QualifiedCentralityComparator {
     /// Require a non-null score strictly above the threshold.
@@ -36,21 +25,12 @@ pub enum QualifiedCentralityComparator {
     LessThanOrEqual,
 }
 
-impl QualifiedCentralityComparator {
-    const fn as_sql_parameter(self) -> &'static str {
-        match self {
-            Self::GreaterThan => "gt",
-            Self::GreaterThanOrEqual => "ge",
-            Self::LessThan => "lt",
-            Self::LessThanOrEqual => "le",
-        }
-    }
-}
+impl QualifiedCentralityComparator {}
 
 /// Stable qualified-query ordering.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum QualifiedSymbolSort {
-    /// `ParadeDB` relevance first, then deterministic declaration order.
+    /// Deterministic declaration name, path, and stable identity order.
     #[default]
     Relevance,
     /// Directed `PageRank` descending, with unranked symbols last.
@@ -246,243 +226,6 @@ impl QualifiedSymbolPage {
     }
 }
 
-impl CartographDatabase {
-    /// Execute all field-qualified predicates in PostgreSQL before applying the response limit.
-    /// # Errors
-    ///
-    /// Returns an error if text/filter/result bounds are invalid, the expected
-    /// generation is not current, or qualified symbol rows cannot be read.
-    pub async fn qualified_current_symbols(
-        &self,
-        input: QualifiedSymbolQuery<'_>,
-    ) -> Result<QualifiedSymbolPage, StorageError> {
-        self.qualified_current_symbols_bounded(input, DEFAULT_QUALIFIED_SEARCH_TIMEOUT)
-            .await
-    }
-
-    /// Execute field-qualified search under an explicit PostgreSQL statement timeout.
-    /// # Errors
-    ///
-    /// Returns an error if the explicit deadline or query fields are invalid,
-    /// the generation fence fails, or a qualified result cannot be decoded.
-    pub async fn qualified_current_symbols_bounded(
-        &self,
-        input: QualifiedSymbolQuery<'_>,
-        statement_timeout: Duration,
-    ) -> Result<QualifiedSymbolPage, StorageError> {
-        validate_query(&input)?;
-        let mut transaction = begin_bounded_read(self, statement_timeout).await?;
-        require_expected_current_generation(
-            &mut transaction,
-            &self.schema,
-            CurrentGenerationLookup::new(input.project_id, input.expected_generation_id),
-        )
-        .await?;
-        let schema = crate::database::quoted_schema(&self.schema);
-        let has_text = !input.text.is_empty();
-        // Exact-name mode is an identity operation. Keep its free text on ordinary bound SQL
-        // equality so prefix, substring, and tokenizer-adjacent names cannot enter the page.
-        let (document_join, text_predicate, lexical_score, exact_name_rank) = if has_text {
-            (
-                String::new(),
-                "AND (lower(symbols.simple_name) = lower($15) OR lower(symbols.qualified_name) = lower($15))",
-                "NULL::double precision",
-                "",
-            )
-        } else {
-            (String::new(), "", "NULL::double precision", "")
-        };
-        let primary_order = match input.sort {
-            QualifiedSymbolSort::Relevance => format!(
-                "{exact_name_rank} lexical_score DESC NULLS LAST, symbols.simple_name, files.normalized_path, symbols.start_line, symbols.symbol_id"
-            ),
-            QualifiedSymbolSort::Centrality => format!(
-                "symbols.pagerank DESC NULLS LAST, {exact_name_rank} lexical_score DESC NULLS LAST, symbols.simple_name, files.normalized_path, symbols.start_line, symbols.symbol_id"
-            ),
-        };
-        let sql = qualified_symbol_sql(QualifiedSymbolSql {
-            schema: &schema,
-            document_join: &document_join,
-            text_predicate,
-            lexical_score,
-            primary_order: &primary_order,
-        });
-        let (centrality_operator, centrality_threshold) = input
-            .centrality
-            .map_or((None, None), |(operator, threshold)| {
-                (Some(operator.as_sql_parameter()), Some(threshold))
-            });
-        let mut statement = query(AssertSqlSafe(sql))
-            .bind(input.project_id.as_str())
-            .bind(input.expected_generation_id.as_str())
-            .bind(input.kinds)
-            .bind(input.languages)
-            .bind(input.path_prefixes)
-            .bind(input.path_filters)
-            .bind(input.name_filters)
-            .bind(input.signature_filters)
-            .bind(input.callers_of)
-            .bind(input.callees_of)
-            .bind(input.depends_on)
-            .bind(centrality_operator)
-            .bind(centrality_threshold)
-            .bind(i64::from(input.limit));
-        if has_text {
-            statement = statement.bind(input.text);
-        }
-        let rows = statement.fetch_all(&mut *transaction).await.map_err(|_| {
-            StorageError::DatabaseOperation {
-                operation: "qualified-symbol-search",
-            }
-        })?;
-        commit_bounded_read(transaction, "qualified-symbol-search-commit").await?;
-        decode_page(&rows)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct QualifiedSymbolSql<'a> {
-    schema: &'a str,
-    document_join: &'a str,
-    text_predicate: &'a str,
-    lexical_score: &'a str,
-    primary_order: &'a str,
-}
-
-const QUALIFIED_SYMBOL_SQL_TEMPLATE: &str = r#"SELECT symbols.generation_id::text, symbols.symbol_id::text,
-           symbols.file_id::text, files.normalized_path, files.language,
-           symbols.symbol_kind, symbols.qualified_name, symbols.signature,
-           symbols.start_line, symbols.end_line,
-           symbols.visibility, symbols.exported, symbols.default_export,
-           symbols.async_symbol, symbols.static_member, symbols.declaration_only,
-           symbols.pagerank, {lexical_score} AS lexical_score,
-           count(*) OVER ()::bigint AS exact_total
-    FROM {schema}."symbols" AS symbols
-    INNER JOIN {schema}."files" AS files
-        ON files.project_id = symbols.project_id
-       AND files.generation_id = symbols.generation_id
-       AND files.file_id = symbols.file_id
-    {document_join}
-    WHERE symbols.project_id = CAST($1 AS uuid)
-      AND symbols.generation_id = CAST($2 AS uuid)
-      AND (cardinality(CAST($3 AS text[])) = 0 OR symbols.symbol_kind = ANY(CAST($3 AS text[])))
-      AND (cardinality(CAST($4 AS text[])) = 0 OR files.language = ANY(CAST($4 AS text[])))
-      AND (
-            cardinality(CAST($5 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1 FROM unnest(CAST($5 AS text[])) AS prefix(value)
-                WHERE files.normalized_path = prefix.value
-                   OR starts_with(files.normalized_path, prefix.value || '/')
-            )
-          )
-      AND (
-            cardinality(CAST($6 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1 FROM unnest(CAST($6 AS text[])) AS path_filter(value)
-                WHERE strpos(lower(files.normalized_path), lower(path_filter.value)) > 0
-            )
-          )
-      AND (
-            cardinality(CAST($7 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1 FROM unnest(CAST($7 AS text[])) AS name_filter(value)
-                WHERE strpos(lower(symbols.simple_name), lower(name_filter.value)) > 0
-            )
-          )
-      AND (
-            cardinality(CAST($8 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1 FROM unnest(CAST($8 AS text[])) AS signature_filter(value)
-                WHERE strpos(lower(symbols.signature), lower(signature_filter.value)) > 0
-            )
-          )
-      AND (
-            cardinality(CAST($9 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1
-                FROM {schema}."edges" AS caller_edge
-                INNER JOIN {schema}."symbols" AS call_target
-                    ON call_target.project_id = caller_edge.project_id
-                   AND call_target.generation_id = caller_edge.generation_id
-                   AND call_target.symbol_id = caller_edge.target_symbol_id
-                WHERE caller_edge.project_id = symbols.project_id
-                  AND caller_edge.generation_id = symbols.generation_id
-                  AND caller_edge.source_symbol_id = symbols.symbol_id
-                  AND caller_edge.edge_kind = 'calls'
-                  AND (
-                        call_target.simple_name = ANY(CAST($9 AS text[]))
-                        OR call_target.qualified_name = ANY(CAST($9 AS text[]))
-                      )
-            )
-          )
-      AND (
-            cardinality(CAST($10 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1
-                FROM {schema}."edges" AS callee_edge
-                INNER JOIN {schema}."symbols" AS call_source
-                    ON call_source.project_id = callee_edge.project_id
-                   AND call_source.generation_id = callee_edge.generation_id
-                   AND call_source.symbol_id = callee_edge.source_symbol_id
-                WHERE callee_edge.project_id = symbols.project_id
-                  AND callee_edge.generation_id = symbols.generation_id
-                  AND callee_edge.target_symbol_id = symbols.symbol_id
-                  AND callee_edge.edge_kind = 'calls'
-                  AND (
-                        call_source.simple_name = ANY(CAST($10 AS text[]))
-                        OR call_source.qualified_name = ANY(CAST($10 AS text[]))
-                      )
-            )
-          )
-      AND (
-            cardinality(CAST($11 AS text[])) = 0
-            OR EXISTS (
-                SELECT 1
-                FROM {schema}."edges" AS dependency_edge
-                INNER JOIN {schema}."symbols" AS dependency_target
-                    ON dependency_target.project_id = dependency_edge.project_id
-                   AND dependency_target.generation_id = dependency_edge.generation_id
-                   AND dependency_target.symbol_id = dependency_edge.target_symbol_id
-                WHERE dependency_edge.project_id = symbols.project_id
-                  AND dependency_edge.generation_id = symbols.generation_id
-                  AND dependency_edge.source_symbol_id = symbols.symbol_id
-                  AND dependency_edge.edge_kind = ANY(ARRAY[
-                        'calls', 'imports', 'extends', 'implements', 'type_of',
-                        'returns', 'instantiates', 'overrides'
-                      ]::text[])
-                  AND (
-                        dependency_target.simple_name = ANY(CAST($11 AS text[]))
-                        OR dependency_target.qualified_name = ANY(CAST($11 AS text[]))
-                      )
-            )
-          )
-      AND (
-            CAST($12 AS text) IS NULL
-            OR (CAST($12 AS text) = 'gt' AND symbols.pagerank > CAST($13 AS double precision))
-            OR (CAST($12 AS text) = 'ge' AND symbols.pagerank >= CAST($13 AS double precision))
-            OR (CAST($12 AS text) = 'lt' AND (symbols.pagerank IS NULL OR symbols.pagerank < CAST($13 AS double precision)))
-            OR (CAST($12 AS text) = 'le' AND (symbols.pagerank IS NULL OR symbols.pagerank <= CAST($13 AS double precision)))
-          )
-      {text_predicate}
-    ORDER BY {primary_order}
-    LIMIT $14"#;
-
-fn qualified_symbol_sql(input: QualifiedSymbolSql<'_>) -> String {
-    let QualifiedSymbolSql {
-        schema,
-        document_join,
-        text_predicate,
-        lexical_score,
-        primary_order,
-    } = input;
-    QUALIFIED_SYMBOL_SQL_TEMPLATE
-        .replace("{schema}", schema)
-        .replace("{document_join}", document_join)
-        .replace("{text_predicate}", text_predicate)
-        .replace("{lexical_score}", lexical_score)
-        .replace("{primary_order}", primary_order)
-}
-
 fn validate_query(input: &QualifiedSymbolQuery<'_>) -> Result<(), StorageError> {
     validate_query_text(input.text)?;
     validate_query_limit(input.limit)?;
@@ -602,47 +345,13 @@ fn has_graph_filter_constraint(input: &QualifiedSymbolQuery<'_>) -> bool {
     .any(std::convert::identity)
 }
 
-fn decode_page(rows: &[sqlx_postgres::PgRow]) -> Result<QualifiedSymbolPage, StorageError> {
-    let total = match rows.first() {
-        Some(row) => u64::try_from(
-            row.try_get::<i64, _>(TOTAL_COLUMN)
-                .map_err(|_| corrupt("qualified_total"))?,
-        )
-        .map_err(|_| corrupt("qualified_total"))?,
-        None => 0,
-    };
-    let hits = rows
-        .iter()
-        .map(|row| {
-            let centrality = row
-                .try_get::<Option<f64>, _>(CENTRALITY_COLUMN)
-                .map_err(|_| corrupt("centrality"))?;
-            if centrality.is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value)) {
-                return Err(corrupt("centrality"));
-            }
-            let lexical_score = row
-                .try_get::<Option<f64>, _>(LEXICAL_SCORE_COLUMN)
-                .map_err(|_| corrupt("lexical_score"))?;
-            if lexical_score.is_some_and(|value| !value.is_finite() || value < 0.0) {
-                return Err(corrupt("lexical_score"));
-            }
-            Ok(QualifiedSymbolHit {
-                symbol: decode_symbol(row)?,
-                centrality,
-                lexical_score,
-            })
-        })
-        .collect::<Result<Vec<_>, StorageError>>()?;
-    Ok(QualifiedSymbolPage { total, hits })
-}
-
 const fn invalid(field: &'static str) -> StorageError {
     StorageError::InvalidInput { field }
 }
 
-const fn corrupt(field: &'static str) -> StorageError {
-    StorageError::CorruptStoredValue { field }
-}
+use crate::StorageError;
+
+use crate::{CurrentGenerationLookup, CurrentSymbolRecord};
 
 #[cfg(test)]
 mod tests {
@@ -680,32 +389,5 @@ mod tests {
             )),
             Err(StorageError::InvalidInput { field: "query" })
         );
-    }
-
-    #[test]
-    fn generated_sql_pushes_every_filter_before_limit() {
-        let sql = qualified_symbol_sql(QualifiedSymbolSql {
-            schema: "\"cartograph\"",
-            document_join: "INNER JOIN docs",
-            text_predicate: "AND documents.qualified_name ||| $15",
-            lexical_score: "pdb.score(documents.id)::double precision",
-            primary_order: "lexical_score DESC",
-        });
-        let limit = sql.find("LIMIT $14").unwrap_or(0);
-        for predicate in [
-            "symbols.symbol_kind",
-            "files.language",
-            "path_filter",
-            "name_filter",
-            "signature_filter",
-            "caller_edge",
-            "callee_edge",
-            "dependency_edge",
-            "symbols.pagerank",
-            "documents.qualified_name ||| $15",
-        ] {
-            let offset = sql.find(predicate).unwrap_or(usize::MAX);
-            assert!(offset < limit, "{predicate} was not pushed before LIMIT");
-        }
     }
 }
