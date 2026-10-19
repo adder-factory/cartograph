@@ -78,6 +78,14 @@ change before returning evidence. Per-file source hashes and source-policy
 identity remain authoritative; concurrent requests still perform independent
 validation. No time-based freshness cache is introduced.
 
+The strict source-batch API rejects publication changes. Optional MCP context
+windows distinguish that outcome from storage, capture, budget, and cancellation
+failures, which remain errors. When publication invalidates optional windows,
+the response keeps the original graph generation, discards all code windows,
+and marks both the response and packet stale with low confidence and abstention.
+`sourceWindowStatus` reports `unavailable` with reason `generation_changed`;
+successful capture and skipped capture report `available` and `not_requested`.
+
 ### Model transport admission
 
 Embedding and rerank clients share a process-bounded transport registry, keyed

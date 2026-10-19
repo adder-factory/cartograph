@@ -1609,6 +1609,36 @@ struct ContextSourceRequest<'context, 'input> {
     packet: &'context ContextPacket,
 }
 
+enum ContextSourceWindows {
+    NotRequested,
+    Captured(Vec<SymbolSourceContext>),
+    GenerationChanged,
+}
+
+impl ContextSourceWindows {
+    fn contexts(&self) -> &[SymbolSourceContext] {
+        match self {
+            Self::Captured(contexts) => contexts,
+            Self::NotRequested | Self::GenerationChanged => &[],
+        }
+    }
+
+    fn is_stale(&self) -> bool {
+        matches!(self, Self::GenerationChanged)
+            || self.contexts().iter().any(|source| !source.fresh())
+    }
+
+    fn status(&self) -> Value {
+        match self {
+            Self::NotRequested => json!({"state": "not_requested"}),
+            Self::Captured(_) => json!({"state": "available"}),
+            Self::GenerationChanged => {
+                json!({"state": "unavailable", "reason": "generation_changed"})
+            }
+        }
+    }
+}
+
 struct ContextResponse<'context, 'input> {
     project_id: &'context ProjectId,
     freshness: IndexFreshness,
@@ -1616,7 +1646,7 @@ struct ContextResponse<'context, 'input> {
     parsed: &'context ParsedContext<'input>,
     intent: TaskIntent,
     packet: ContextPacket,
-    source_windows: Vec<SymbolSourceContext>,
+    source_windows: ContextSourceWindows,
 }
 
 #[derive(Clone, Copy)]
@@ -1624,7 +1654,7 @@ struct ContextEvidence<'context, 'input> {
     freshness: IndexFreshness,
     parsed: &'context ParsedContext<'input>,
     packet: &'context ContextPacket,
-    source_windows: &'context [SymbolSourceContext],
+    source_windows: &'context ContextSourceWindows,
     next_calls: &'context [&'static str],
     local_usage: Option<&'context McpTraceUsage>,
 }
@@ -6154,13 +6184,13 @@ impl ContextTools<'_> {
     async fn context_source_windows(
         &self,
         request: ContextSourceRequest<'_, '_>,
-    ) -> Result<Vec<SymbolSourceContext>, ToolError> {
+    ) -> Result<ContextSourceWindows, ToolError> {
         if !request.parsed.presentation.include_code || request.freshness != IndexFreshness::Current
         {
-            return Ok(Vec::new());
+            return Ok(ContextSourceWindows::NotRequested);
         }
         let Some(generation) = request.packet.generation() else {
-            return Ok(Vec::new());
+            return Ok(ContextSourceWindows::NotRequested);
         };
         let mut source_requests = Vec::new();
         let mut paths = BTreeSet::new();
@@ -6200,12 +6230,18 @@ impl ContextTools<'_> {
             source_requests.push(SourceContextRequest::new(symbol_id.clone(), options));
         }
         self.runtime
-            .source_context_batch_with_cancellation(
+            .source_context_batch_if_current_with_cancellation(
                 generation.generation_id(),
                 source_requests,
                 request.cancellation.clone(),
             )
             .await
+            .map(|contexts| {
+                contexts.map_or(
+                    ContextSourceWindows::GenerationChanged,
+                    ContextSourceWindows::Captured,
+                )
+            })
             .map_err(|error| project_error(&error))
     }
 
@@ -6213,7 +6249,7 @@ impl ContextTools<'_> {
         &self,
         mut response: ContextResponse<'_, '_>,
     ) -> Result<ToolResult, ToolError> {
-        if response.source_windows.iter().any(|source| !source.fresh()) {
+        if response.source_windows.is_stale() {
             response.freshness = IndexFreshness::Stale;
             response.packet = response.packet.with_stale_source();
         }
@@ -22072,7 +22108,8 @@ fn context_handoff_result(input: ContextHandoffEvidence<'_, '_>) -> Result<ToolR
             "intent": intent,
             "preserveWorkingTree": true,
             "packet": evidence.packet,
-            "sourceWindows": evidence.source_windows,
+            "sourceWindows": evidence.source_windows.contexts(),
+            "sourceWindowStatus": evidence.source_windows.status(),
             "explain": evidence.parsed.presentation.explain,
             "verification": verification,
             "nextCalls": evidence.next_calls,
@@ -22113,7 +22150,8 @@ fn context_plan_result(evidence: ContextEvidence<'_, '_>) -> Result<ToolResult, 
             "decisionRank": evidence.packet.decision_rank(),
             "evidence": evidence_preview,
             "affectedTests": test_preview,
-            "sourceWindows": evidence.source_windows,
+            "sourceWindows": evidence.source_windows.contexts(),
+            "sourceWindowStatus": evidence.source_windows.status(),
             "explain": evidence.parsed.presentation.explain,
             "workingTree": evidence.packet.working_tree_overlay(),
             "truncated": evidence.packet.truncated(),
@@ -22154,6 +22192,7 @@ fn compact_context_plan(evidence: ContextEvidence<'_, '_>) -> Result<Value, Tool
         "decisionRank": packet.decision_rank(),
         "evidence": evidence_preview,
         "affectedTests": test_preview,
+        "sourceWindowStatus": evidence.source_windows.status(),
         "explain": evidence.parsed.presentation.explain,
         "workingTree": packet.working_tree_overlay(),
         "truncated": packet.truncated(),
@@ -22163,9 +22202,9 @@ fn compact_context_plan(evidence: ContextEvidence<'_, '_>) -> Result<Value, Tool
         projection["projectToolUsage"] =
             serde_json::to_value(local_usage).map_err(|_| ToolError::internal())?;
     }
-    if !evidence.source_windows.is_empty() {
-        projection["sourceWindows"] =
-            serde_json::to_value(evidence.source_windows).map_err(|_| ToolError::internal())?;
+    if !evidence.source_windows.contexts().is_empty() {
+        projection["sourceWindows"] = serde_json::to_value(evidence.source_windows.contexts())
+            .map_err(|_| ToolError::internal())?;
     }
     Ok(projection)
 }
@@ -22276,7 +22315,8 @@ fn context_markdown_result(evidence: ContextEvidence<'_, '_>) -> Result<ToolResu
         &json!({
             "format": "markdown",
             "packet": evidence.packet,
-            "sourceWindows": evidence.source_windows,
+            "sourceWindows": evidence.source_windows.contexts(),
+            "sourceWindowStatus": evidence.source_windows.status(),
             "explain": evidence.parsed.presentation.explain,
             "nextCalls": evidence.next_calls,
         }),
@@ -22289,7 +22329,8 @@ fn context_json_result(evidence: ContextEvidence<'_, '_>) -> Result<ToolResult, 
         &json!({
             "format": "json",
             "packet": evidence.packet,
-            "sourceWindows": evidence.source_windows,
+            "sourceWindows": evidence.source_windows.contexts(),
+            "sourceWindowStatus": evidence.source_windows.status(),
             "includeCode": evidence.parsed.presentation.include_code,
             "explain": evidence.parsed.presentation.explain,
             "nextCalls": evidence.next_calls,
@@ -30108,8 +30149,8 @@ pub fn target(value: u32) -> u32 {
                 packet: &packet,
             })
             .await?;
-        assert_eq!(source_windows.len(), 1);
-        assert!(!source_windows[0].fresh());
+        assert_eq!(source_windows.contexts().len(), 1);
+        assert!(!source_windows.contexts()[0].fresh());
         let response = tools
             .context_response(ContextResponse {
                 project_id: &project_id,
@@ -30127,11 +30168,151 @@ pub fn target(value: u32) -> u32 {
         assert_eq!(evidence["packet"]["freshness"], "stale");
         assert_eq!(evidence["packet"]["confidence"], "low");
         assert_eq!(evidence["packet"]["abstention"], "stale_index");
+        assert_eq!(evidence["sourceWindowStatus"]["state"], "available");
         assert_eq!(evidence["sourceWindows"][0]["fresh"], false);
         assert!(evidence["sourceWindows"][0]["excerpt"].is_null());
         drop(handler);
         Arc::into_inner(runtime)
             .ok_or("source fixture retained an unexpected runtime reference")?
+            .close()
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn context_publication_preserves_stale_graph_without_unverified_code()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let project = tempfile::tempdir()?;
+        let path = project.path().join("lib.rs");
+        std::fs::write(&path, "pub fn source_window() -> u64 { 1 }\n")?;
+        let runtime = Arc::new(ProjectRuntime::open(project.path()).await?);
+        let first = runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await?;
+        let handler = CartographMcpHandler::new(runtime.clone())?;
+        let arguments = Map::from_iter([
+            ("task".to_owned(), json!("source_window")),
+            ("exactName".to_owned(), json!("source_window")),
+            ("mode".to_owned(), json!("deterministic")),
+            ("format".to_owned(), json!("json")),
+            ("workingTree".to_owned(), json!("indexed")),
+            ("allowStale".to_owned(), json!(true)),
+        ]);
+        let parsed = parse_context_arguments(&arguments)?;
+        let cancellation = ProjectCancellation::new();
+        let (project_id, freshness) = current_project(&handler, cancellation.clone()).await?;
+        let tools = ContextTools(&handler);
+        let (intent, packet) = tools
+            .build_context_packet(ContextBuild {
+                project_id: &project_id,
+                freshness,
+                arguments: &arguments,
+                cancellation: &cancellation,
+                parsed: &parsed,
+            })
+            .await?;
+        assert_eq!(packet.freshness(), IndexFreshness::Current);
+        verify_context_source_failures(&handler, &parsed, &packet).await?;
+        let symbol = packet.evidence()[0]
+            .symbol_id()
+            .ok_or("source window symbol missing")?
+            .clone();
+        std::fs::write(&path, "pub fn source_window() -> u64 { 2 }\n")?;
+        let second = runtime
+            .index(IndexOptions::default().with_history_refresh(false))
+            .await?;
+        assert_ne!(first.generation_id, second.generation_id);
+        assert_matches!(
+            runtime
+                .source_context_batch_with_cancellation(
+                    &first.generation_id,
+                    vec![SourceContextRequest::new(
+                        symbol,
+                        SourceContextOptions::default()
+                    )],
+                    cancellation.clone(),
+                )
+                .await,
+            Err(ProjectError::SourceContextUnavailable)
+        );
+        let source_windows = tools
+            .context_source_windows(ContextSourceRequest {
+                freshness,
+                cancellation: &cancellation,
+                parsed: &parsed,
+                packet: &packet,
+            })
+            .await?;
+        let response = tools
+            .context_response(ContextResponse {
+                project_id: &project_id,
+                freshness,
+                cancellation,
+                parsed: &parsed,
+                intent,
+                packet,
+                source_windows,
+            })
+            .await?;
+        let value = serde_json::to_value(response)?;
+        assert_eq!(value["structuredContent"]["freshness"], "stale");
+        let evidence = &value["structuredContent"]["evidence"];
+        assert_eq!(
+            evidence["packet"]["generation"]["generation_id"],
+            json!(first.generation_id)
+        );
+        assert_eq!(evidence["packet"]["freshness"], "stale");
+        assert_eq!(evidence["packet"]["confidence"], "low");
+        assert_eq!(evidence["packet"]["abstention"], "stale_index");
+        assert_eq!(evidence["sourceWindows"], json!([]));
+        assert_eq!(evidence["sourceWindowStatus"]["state"], "unavailable");
+        assert_eq!(
+            evidence["sourceWindowStatus"]["reason"],
+            "generation_changed"
+        );
+        drop(handler);
+        Arc::into_inner(runtime)
+            .ok_or("source fixture retained an unexpected runtime reference")?
+            .close()
+            .await?;
+        Ok(())
+    }
+
+    async fn verify_context_source_failures(
+        handler: &CartographMcpHandler,
+        parsed: &ParsedContext<'_>,
+        packet: &ContextPacket,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cancelled = ProjectCancellation::new();
+        cancelled.cancel();
+        assert!(
+            ContextTools(handler)
+                .context_source_windows(ContextSourceRequest {
+                    freshness: IndexFreshness::Current,
+                    cancellation: &cancelled,
+                    parsed,
+                    packet,
+                })
+                .await
+                .is_err_and(|error| error.code() == ToolErrorCode::Unavailable)
+        );
+        let unindexed = tempfile::tempdir()?;
+        let runtime = Arc::new(ProjectRuntime::open(unindexed.path()).await?);
+        let handler = CartographMcpHandler::new(runtime.clone())?;
+        assert!(
+            ContextTools(&handler)
+                .context_source_windows(ContextSourceRequest {
+                    freshness: IndexFreshness::Current,
+                    cancellation: &ProjectCancellation::new(),
+                    parsed,
+                    packet,
+                })
+                .await
+                .is_err_and(|error| error.code() == ToolErrorCode::NotReady)
+        );
+        drop(handler);
+        Arc::into_inner(runtime)
+            .ok_or("unindexed fixture retained an unexpected runtime reference")?
             .close()
             .await?;
         Ok(())
