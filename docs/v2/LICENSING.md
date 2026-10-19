@@ -1,6 +1,6 @@
 # Native storage distribution notices
 
-This notice describes Cartograph `v3.0.0` and its native RocksDB backend.
+This notice describes Cartograph `v3.0.1` and its native RocksDB backend.
 Cartograph code remains MIT licensed. The executable now includes native
 RocksDB and compression libraries; their upstream terms remain in force.
 
@@ -16,7 +16,8 @@ Each release archive contains exactly:
 The storage license bundle reproduces the pinned upstream texts for
 `rust-rocksdb` (Apache-2.0), RocksDB 11.8.1 (Apache-2.0 selected), LevelDB
 portions (BSD-3-Clause), LZ4 1.10.0 library (BSD-2-Clause), and Zstandard 1.5.7
-library (BSD-3-Clause). Disabled Snappy/bzip2/zlib features are not part of this
+library (BSD-3-Clause), plus lz4_flex 0.14.0 (MIT) for publication blocks.
+Disabled Snappy/bzip2/zlib features are not part of this
 storage build. Other Rust dependencies retain their declared licenses and
 remain subject to the strict dependency license/advisory gate.
 
@@ -37,4 +38,5 @@ Upstream sources:
 - [RocksDB](https://github.com/facebook/rocksdb)
 - [LevelDB](https://github.com/google/leveldb)
 - [LZ4](https://github.com/lz4/lz4)
+- [lz4_flex](https://github.com/PSeitz/lz4_flex)
 - [Zstandard](https://github.com/facebook/zstd)

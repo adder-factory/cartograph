@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-agent"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "cartograph-config",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-cli"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "cartograph-agent",
@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-config"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "cartograph-domain",
  "libc",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-db"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "cartograph-domain",
@@ -686,6 +686,7 @@ dependencies = [
  "itoa",
  "jiff",
  "libc",
+ "lz4_flex",
  "num-traits",
  "regex",
  "rust-rocksdb",
@@ -699,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-domain"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "serde",
@@ -708,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-extract"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "arborium-bash",
  "arborium-c",
@@ -784,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-indexer"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "cartograph-config",
@@ -802,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-llm"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "cartograph-config",
@@ -823,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-mcp"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -832,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-scip"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "blake3",
  "cartograph-db",
@@ -844,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-search"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "cartograph-db",
  "cartograph-domain",
@@ -1699,6 +1700,12 @@ dependencies = [
  "cc",
  "libc",
 ]
+
+[[package]]
+name = "lz4_flex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 
 [[package]]
 name = "memchr"

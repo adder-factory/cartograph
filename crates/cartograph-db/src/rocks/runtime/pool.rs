@@ -38,13 +38,36 @@ struct QueueState {
 
 struct Admission {
     _slot: OwnedSemaphorePermit,
-    _bytes: OwnedSemaphorePermit,
+    bytes: OwnedSemaphorePermit,
     _writer: Option<OwnedSemaphorePermit>,
 }
 
 struct Reply<T> {
     result: Result<T>,
     _admission: Admission,
+}
+
+/// Only destroyed input allocations may be returned from the original permit.
+pub(super) struct ByteReclamation<'a> {
+    permit: &'a mut OwnedSemaphorePermit,
+    remaining: u32,
+}
+
+impl ByteReclamation<'_> {
+    pub(super) fn release(&mut self, bytes: usize) -> Result<()> {
+        let bytes = u32::try_from(bytes).map_err(|_| operation("worker_reclamation"))?;
+        let remaining = self
+            .remaining
+            .checked_sub(bytes)
+            .ok_or_else(|| operation("worker_reclamation"))?;
+        let released = self
+            .permit
+            .split(usize::try_from(bytes).map_err(|_| operation("worker_reclamation"))?)
+            .ok_or_else(|| operation("worker_reclamation"))?;
+        drop(released);
+        self.remaining = remaining;
+        Ok(())
+    }
 }
 
 struct CancelOnDrop {
@@ -117,6 +140,27 @@ impl StoragePool {
         T: Send + 'static,
         F: FnOnce(StorageRequest) -> Result<T> + Send + 'static,
     {
+        self.run_reclaiming(request, reservation, mutation, 0, move |control, _| {
+            operation(control)
+        })
+        .await
+    }
+
+    pub(super) async fn run_reclaiming<T, F>(
+        &self,
+        request: &StorageRequest,
+        reservation: u32,
+        mutation: bool,
+        maximum_reclamation: u32,
+        operation: F,
+    ) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(StorageRequest, &mut ByteReclamation<'_>) -> Result<T> + Send + 'static,
+    {
+        if maximum_reclamation > reservation {
+            return Err(crate::rocks::operation("worker_reclamation"));
+        }
         let control = request.child(self.queue.closing.clone());
         let mut cancel_on_drop = CancelOnDrop {
             cancellation: control.cancellation.clone(),
@@ -124,13 +168,21 @@ impl StoragePool {
             job_id: None,
         };
         control.check()?;
-        let admission = self.admit(&control, reservation, mutation).await?;
+        let mut admission = self.admit(&control, reservation, mutation).await?;
         let (send, mut receive) = oneshot::channel();
         let work_control = control.clone();
         let job = Box::new(move |admitted: Result<()>| {
             let result = admitted.and_then(|()| work_control.check()).and_then(|()| {
-                catch_unwind(AssertUnwindSafe(|| operation(work_control)))
-                    .map_err(|_| crate::rocks::operation("worker_panicked"))?
+                catch_unwind(AssertUnwindSafe(|| {
+                    operation(
+                        work_control,
+                        &mut ByteReclamation {
+                            permit: &mut admission.bytes,
+                            remaining: maximum_reclamation,
+                        },
+                    )
+                }))
+                .map_err(|_| crate::rocks::operation("worker_panicked"))?
             });
             // Reply retains byte admission until the result is consumed or its
             // receiver is dropped, including when the caller stops polling.
@@ -189,7 +241,7 @@ impl StoragePool {
                 .map_err(|_| RocksError::Closed)?;
             Ok(Admission {
                 _slot: slot,
-                _bytes: bytes,
+                bytes,
                 _writer: writer,
             })
         };

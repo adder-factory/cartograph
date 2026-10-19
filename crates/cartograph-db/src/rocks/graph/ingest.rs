@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
+pub(super) mod adjacency;
 mod file_changes;
 mod lexical_index;
 pub(super) use file_changes::FileChanges;
@@ -14,7 +15,7 @@ use super::super::{
     Collection, ReadBudget, RecordChange, RecordKey, RevisionSnapshot, RevisionWriter,
 };
 use super::{
-    DOCUMENT, EDGE, FILE, GraphBase, GraphInfo, GraphPublication, GraphPublicationError,
+    DOCUMENT, EDGE, FILE, GraphBase, GraphPublication, GraphPublicationError,
     GraphPublicationInput, GraphRetention, GraphWriteReport, INCOMING, MANIFEST, NUMERICAL,
     OUTGOING, ProjectStore, REFERENCE, Result, RocksError, SYMBOL, StorageRequest, check_workspace,
     codec, count,
@@ -28,7 +29,7 @@ pub(super) struct EdgeProperties {
 }
 
 #[derive(Clone, Copy)]
-enum Row<'a> {
+pub(super) enum Row<'a> {
     File(&'a FileInput),
     Symbol(&'a SymbolInput),
     Edge(&'a EdgeInput),
@@ -87,6 +88,14 @@ fn row_at<'a>(
 }
 
 impl Row<'_> {
+    pub(super) fn canonical_encode(self) -> Result<Vec<u8>> {
+        if let Self::Edge(row) = self {
+            codec::encode(row)
+        } else {
+            self.encode()
+        }
+    }
+
     fn encode(self) -> Result<Vec<u8>> {
         match self {
             Self::File(row) => codec::encode(row),
@@ -107,6 +116,7 @@ pub(super) fn publish(
     store: &ProjectStore,
     mut input: GraphPublicationInput,
     request: &StorageRequest,
+    mut reclaim: impl FnMut(usize) -> Result<()>,
 ) -> std::result::Result<GraphPublication, GraphPublicationError> {
     request.check()?;
     let previous = match store.current_snapshot(None) {
@@ -123,7 +133,14 @@ pub(super) fn publish(
         input.identity.source_revision.clone(),
         super::Duration::from_secs(300),
     )?;
-    let result = prepare_and_publish(store, &writer, &mut input, previous.as_ref(), request);
+    let result = prepare_and_publish(
+        store,
+        &writer,
+        &mut input,
+        previous.as_ref(),
+        request,
+        &mut reclaim,
+    );
     drop(input);
     match result {
         Ok((revision, report)) => {
@@ -172,6 +189,7 @@ fn prepare_and_publish(
     input: &mut GraphPublicationInput,
     previous: Option<&RevisionSnapshot<'_>>,
     request: &StorageRequest,
+    reclaim: &mut impl FnMut(usize) -> Result<()>,
 ) -> Result<(super::StoredRevision, GraphWriteReport)> {
     // A writer may have published between taking the old view and reserving.
     let current = match store.current_snapshot(None) {
@@ -197,6 +215,11 @@ fn prepare_and_publish(
         lexical_statistics: lexical.unwrap_or_default(),
         lexical_working_bytes: input.policy.maximum_working_bytes,
     };
+    let info = input.info()?;
+    let digest_version = match &input.payload {
+        super::GraphPayload::Resident(facts) => facts.digest_version(),
+        super::GraphPayload::Packed(graph) => graph.digest_version,
+    };
     if let Some(changes) = changes {
         delta.lexical_working_bytes = delta
             .policy
@@ -207,11 +230,28 @@ fn prepare_and_publish(
         drop(changes);
         delta.lexical_working_bytes = delta.policy.maximum_working_bytes;
     } else {
-        replace_tables(&mut delta, &input.facts)?;
-        replace_adjacency(&mut delta, input.facts.edges(), false)?;
-        replace_adjacency(&mut delta, input.facts.edges(), true)?;
+        match &mut input.payload {
+            super::GraphPayload::Resident(facts) => {
+                replace_tables(&mut delta, facts)?;
+                replace_adjacency(&mut delta, facts.edges(), false)?;
+                replace_adjacency(&mut delta, facts.edges(), true)?;
+            }
+            super::GraphPayload::Packed(graph) => graph.replay(
+                |collection, prefix, rows| {
+                    let mut old = PreviousRows::new(previous, collection, prefix, request);
+                    rows.visit(request, |key, value| delta.row(&mut old, key, value))?;
+                    delta.finish_rows(&mut old)
+                },
+                request,
+                reclaim,
+            )?,
+        }
+        if let super::GraphPayload::Packed(graph) = &input.payload {
+            delta.report.adjacency_blocks = graph.adjacency_blocks;
+            delta.report.maximum_degree = graph.maximum_degree;
+        }
     }
-    let name_index_version = super::names::version(&input.facts, input.policy);
+    let name_index_version = info.name_index_version;
     let previous_name_version = previous
         .map(|snapshot| {
             snapshot
@@ -220,21 +260,12 @@ fn prepare_and_publish(
         })
         .transpose()?
         .unwrap_or(0);
-    if !sparse || previous_name_version != name_index_version {
-        replace_names(&mut delta, &input.facts, name_index_version != 0)?;
+    if (!sparse || previous_name_version != name_index_version)
+        && let super::GraphPayload::Resident(facts) = &input.payload
+    {
+        replace_names(&mut delta, facts, name_index_version != 0)?;
     }
-    delta.finish_lexical(count(input.facts.documents().len())?)?;
-    let info = GraphInfo {
-        format_version: 1,
-        name_index_version,
-        content_digest: input.facts.digest().clone(),
-        files: count(input.facts.files().len())?,
-        symbols: count(input.facts.symbols().len())?,
-        edges: count(input.facts.edges().len())?,
-        references: count(input.facts.references().len())?,
-        numerical_sites: count(input.facts.numerical_sites().len())?,
-        documents: count(input.facts.documents().len())?,
-    };
+    delta.finish_lexical(info.documents)?;
     let mut old = PreviousRows::new(previous, Collection::Graph, MANIFEST, request);
     delta.row(&mut old, codec::key(MANIFEST, &[])?, codec::encode(&info)?)?;
     delta.finish_rows(&mut old)?;
@@ -242,8 +273,8 @@ fn prepare_and_publish(
     request.check()?;
     store.seal_with_admission(
         writer,
-        input.facts.digest().clone(),
-        input.facts.digest_version(),
+        info.content_digest,
+        digest_version,
         input.run_excludes.clone(),
         input.maximum_file_bytes,
     )?;
@@ -267,6 +298,7 @@ fn replace_names(
             .ok_or_else(super::limit)?;
         check_workspace::<[u8; names::SUFFIX_BYTES]>(count, 0, delta.policy)?;
         keys.try_reserve_exact(count).map_err(|_| super::limit())?;
+        check_workspace::<[u8; names::SUFFIX_BYTES]>(keys.capacity(), 0, delta.policy)?;
         for symbol in facts.symbols() {
             delta.request.check()?;
             keys.push(names::suffix(
@@ -308,30 +340,22 @@ fn replace_tables(
     ];
     for (collection, prefix, length) in tables {
         delta.request.check()?;
-        check_workspace::<TableOrder>(length, 0, delta.policy)?;
-        let mut rows = Vec::with_capacity(length);
-        delta.lexical_working_bytes = delta
-            .policy
-            .maximum_working_bytes
-            .checked_sub(rows.capacity().saturating_mul(size_of::<TableOrder>()))
-            .ok_or_else(super::limit)?;
-        for index in 0..length {
-            delta.request.check()?;
-            let (key, _) = table_row(facts, prefix, index)?;
-            rows.push(TableOrder::new(&key, prefix, index)?);
-        }
-        rows.sort_unstable_by(|left, right| left.bytes().cmp(right.bytes()));
-        delta.request.check()?;
         let mut old = PreviousRows::new(delta.previous, collection, prefix, delta.request);
-        for ordered in rows {
-            let index = usize::try_from(ordered.index).map_err(|_| super::limit())?;
-            let row = row_at(facts, prefix, index)?;
-            delta.row(
-                &mut old,
-                codec::key(prefix, ordered.bytes())?,
-                row.encode()?,
-            )?;
-        }
+        visit_table_rows(
+            facts,
+            prefix,
+            length,
+            delta.policy,
+            delta.request,
+            |key, row, workspace| {
+                delta.lexical_working_bytes = delta
+                    .policy
+                    .maximum_working_bytes
+                    .checked_sub(workspace)
+                    .ok_or_else(super::limit)?;
+                delta.row(&mut old, key, row.encode()?)
+            },
+        )?;
         delta.lexical_working_bytes = delta.policy.maximum_working_bytes;
         delta.finish_rows(&mut old)?;
     }
@@ -341,6 +365,7 @@ fn replace_tables(
 pub(super) fn validate_workspace(
     facts: &crate::CanonicalGenerationFacts,
     policy: super::GraphPolicy,
+    request: &StorageRequest,
 ) -> Result<()> {
     for length in [
         facts.files().len(),
@@ -350,10 +375,113 @@ pub(super) fn validate_workspace(
         facts.numerical_sites().len(),
         facts.documents().len(),
     ] {
-        check_workspace::<TableOrder>(length, 0, policy)?;
         u32::try_from(length).map_err(|_| super::limit())?;
     }
-    check_workspace::<Adjacent>(facts.edges().len(), 0, policy)
+    for prefix in [EDGE, REFERENCE] {
+        let length = if prefix == EDGE {
+            facts.edges().len()
+        } else {
+            facts.references().len()
+        };
+        for group in table_groups(facts, prefix, length, || request.check()) {
+            let group = group?;
+            check_workspace::<TableOrder>(group.len(), 0, policy)?;
+        }
+    }
+    check_workspace::<usize>(facts.edges().len(), 0, policy)
+}
+
+// UUID text order is identical to its canonical binary key order. Only hashes
+// and the stored edge-kind discriminant need sorting, and their preceding UUID
+// fields already partition canonical rows into contiguous groups.
+fn table_groups<'a>(
+    facts: &'a crate::CanonicalGenerationFacts,
+    prefix: &'a [u8],
+    length: usize,
+    mut check: impl FnMut() -> Result<()> + 'a,
+) -> impl Iterator<Item = Result<std::ops::Range<usize>>> + 'a {
+    let mut offset = 0;
+    std::iter::from_fn(move || {
+        if offset == length {
+            return None;
+        }
+        if let Err(error) = check() {
+            offset = length;
+            return Some(Err(error));
+        }
+        let start = offset;
+        offset += 1;
+        while offset < length
+            && match prefix {
+                REFERENCE => {
+                    facts.references()[start].file_id == facts.references()[offset].file_id
+                }
+                EDGE => {
+                    let left = &facts.edges()[start];
+                    let right = &facts.edges()[offset];
+                    left.source_symbol_id == right.source_symbol_id
+                        && left.target_symbol_id == right.target_symbol_id
+                }
+                _ => false,
+            }
+        {
+            if let Err(error) = check() {
+                offset = length;
+                return Some(Err(error));
+            }
+            offset += 1;
+        }
+        Some(Ok(start..offset))
+    })
+}
+
+pub(super) fn visit_table_rows<'a>(
+    facts: &'a crate::CanonicalGenerationFacts,
+    prefix: &[u8],
+    length: usize,
+    policy: super::GraphPolicy,
+    request: &StorageRequest,
+    mut visit: impl FnMut(RecordKey, Row<'a>, usize) -> Result<()>,
+) -> Result<()> {
+    if prefix != EDGE && prefix != REFERENCE {
+        for index in 0..length {
+            request.check()?;
+            let (key, row) = table_row(facts, prefix, index)?;
+            visit(key, row, 0)?;
+        }
+        return Ok(());
+    }
+    for group in table_groups(facts, prefix, length, || request.check()) {
+        let group = group?;
+        request.check()?;
+        check_workspace::<TableOrder>(group.len(), 0, policy)?;
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(group.len())
+            .map_err(|_| super::limit())?;
+        let workspace = rows
+            .capacity()
+            .checked_mul(size_of::<TableOrder>())
+            .ok_or_else(super::limit)?;
+        if workspace > policy.maximum_working_bytes {
+            return Err(super::limit());
+        }
+        for index in group {
+            request.check()?;
+            let (key, _) = table_row(facts, prefix, index)?;
+            rows.push(TableOrder::new(&key, prefix, index)?);
+        }
+        rows.sort_unstable_by(|left, right| left.bytes().cmp(right.bytes()));
+        request.check()?;
+        for ordered in rows {
+            let index = usize::try_from(ordered.index).map_err(|_| super::limit())?;
+            visit(
+                codec::key(prefix, ordered.bytes())?,
+                row_at(facts, prefix, index)?,
+                workspace,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn table_row<'a>(
@@ -408,86 +536,23 @@ fn table_row<'a>(
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct Adjacent {
-    node: [u8; codec::ID_BYTES],
-    entry: [u8; codec::ENTRY_BYTES],
-}
-
 fn replace_adjacency(delta: &mut Delta<'_, '_>, edges: &[EdgeInput], incoming: bool) -> Result<()> {
-    check_workspace::<Adjacent>(edges.len(), 0, delta.policy)?;
-    let mut rows = Vec::with_capacity(edges.len());
-    for edge in edges {
-        delta.request.check()?;
-        let (node, neighbor) = if incoming {
-            (&edge.target_symbol_id, &edge.source_symbol_id)
-        } else {
-            (&edge.source_symbol_id, &edge.target_symbol_id)
-        };
-        rows.push(Adjacent {
-            node: codec::uuid(node.as_str())?,
-            entry: codec::entry(neighbor, edge.kind, &edge.provenance)?,
-        });
-    }
-    rows.sort_unstable();
-    delta.request.check()?;
     let prefix = if incoming { INCOMING } else { OUTGOING };
     let mut old = PreviousRows::new(delta.previous, Collection::Graph, prefix, delta.request);
-    let mut offset = 0;
-    while offset < rows.len() {
-        delta.request.check()?;
-        let node = rows[offset].node;
-        let end = offset + rows[offset..].partition_point(|row| row.node == node);
-        delta.report.maximum_degree = delta.report.maximum_degree.max(count(end - offset)?);
-        let node_key = codec::key(prefix, &node)?;
-        pack_blocks(delta, &mut old, &rows[offset..end], node_key.as_bytes(), 0)?;
-        offset = end;
-    }
+    let report = adjacency::visit(
+        edges,
+        incoming,
+        delta.policy,
+        delta.request,
+        |key, value| delta.row(&mut old, key, value),
+    )?;
+    delta.report.adjacency_blocks = delta
+        .report
+        .adjacency_blocks
+        .checked_add(report.blocks)
+        .ok_or_else(super::limit)?;
+    delta.report.maximum_degree = delta.report.maximum_degree.max(report.maximum_degree);
     delta.finish_rows(&mut old)
-}
-
-fn pack_blocks(
-    delta: &mut Delta<'_, '_>,
-    old: &mut PreviousRows<'_, '_>,
-    rows: &[Adjacent],
-    node: &[u8],
-    depth: usize,
-) -> Result<()> {
-    delta.request.check()?;
-    if rows.len() <= codec::BLOCK_CAPACITY {
-        let suffix = codec::radix_prefix(&rows[0].entry, depth)?;
-        let key = codec::key(node, if depth == 0 { &[] } else { &suffix })?;
-        let mut value = codec::BLOCK_HEADER.to_vec();
-        value.extend_from_slice(
-            &u16::try_from(depth)
-                .map_err(|_| codec::corrupt())?
-                .to_be_bytes(),
-        );
-        for row in rows {
-            value.extend_from_slice(&row.entry);
-        }
-        delta.report.adjacency_blocks += 1;
-        return delta.row(old, key, value);
-    }
-    let first = &rows[0].entry;
-    let last = &rows[rows.len() - 1].entry;
-    let Some(byte) = first
-        .iter()
-        .zip(last)
-        .position(|(first, last)| first != last)
-    else {
-        return Err(codec::corrupt());
-    };
-    let bit = usize::try_from((first[byte] ^ last[byte]).leading_zeros())
-        .map_err(|_| codec::corrupt())?;
-    let split = byte * 8 + bit;
-    if split < depth {
-        return Err(codec::corrupt());
-    }
-    let middle = rows.partition_point(|row| row.entry[byte] & (0x80 >> bit) == 0);
-    pack_blocks(delta, old, &rows[..middle], node, split + 1)?;
-    pack_blocks(delta, old, &rows[middle..], node, split + 1)?;
-    Ok(())
 }
 
 struct Delta<'a, 'store> {
@@ -563,17 +628,28 @@ impl Delta<'_, '_> {
             .saturating_mul(3)
             .saturating_add(value.as_ref().map_or(0, Vec::len))
             .saturating_add(128);
-        if bytes > self.policy.maximum_batch_bytes {
+        let store_policy = self.store.batch_policy();
+        // Native validation reserves this fixed metadata allowance. Retain it
+        // when the store's byte ceiling is tighter than the graph's ceiling.
+        let maximum_bytes = self
+            .policy
+            .maximum_batch_bytes
+            .min(store_policy.maximum_batch_bytes.saturating_sub(4_096));
+        if bytes > maximum_bytes {
             return Err(RocksError::Limit {
                 resource: "graph_batch_bytes",
             });
         }
-        if self.pending.len() >= 256
-            || self.pending_bytes.saturating_add(bytes) > self.policy.maximum_batch_bytes
+        if self.pending.len() >= store_policy.maximum_batch_rows
+            || self.pending_bytes.saturating_add(bytes) > maximum_bytes
         {
             self.flush()?;
         }
         self.pending_bytes += bytes;
+        // The 128-byte per-row allowance also bounds retained Vec capacity:
+        // geometric spare capacity for RecordChange is below one batch allowance.
+        // Key/value payloads and native staging copies retain the existing four
+        // batch allowances charged by storage-job admission.
         self.pending.push(match value {
             Some(value) => RecordChange::put(collection, key, value),
             None => RecordChange::delete(collection, key),

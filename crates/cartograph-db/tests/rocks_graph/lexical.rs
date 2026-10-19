@@ -187,12 +187,12 @@ fn document(raw: &GenerationFacts, id: u64, code: String) -> TestResult<SearchDo
 }
 
 #[test]
-fn table_sort_and_optional_vocabulary_share_the_working_budget() -> TestResult {
+fn uuid_table_streaming_leaves_workspace_for_lexical_postings() -> TestResult {
     let root = tempfile::tempdir()?;
     let store = ProjectStore::open(root.path(), &digest(1), StorePolicy::default())?;
     let mut raw = raw_facts(1, Vec::new());
-    // 14,560 inline 72-byte sort entries occupy all but 256 bytes of 1 MiB.
-    // Even the declaration vocabulary must therefore use the scan fallback.
+    // The UUID-ordered document table must stream without a second sort array,
+    // leaving the complete 1 MiB allowance for its bounded lexical vocabulary.
     for id in 1..=14_560 {
         raw.documents
             .push(document(&raw, id, "raretabletoken".into())?);
@@ -217,7 +217,7 @@ fn table_sort_and_optional_vocabulary_share_the_working_budget() -> TestResult {
         .lexical_statistics(&mut budget()?)?
         .ok_or("statistics missing")?;
     assert_eq!(statistics.documents, 14_560);
-    assert_eq!(statistics.scan_documents, 14_560);
+    assert_eq!(statistics.scan_documents, 0);
     assert_eq!(
         graph
             .search_code("raretabletoken", 1, &mut budget()?)?

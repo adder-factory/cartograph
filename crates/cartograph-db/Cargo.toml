@@ -15,6 +15,7 @@ cartograph-domain.workspace = true
 getrandom.workspace = true
 itoa.workspace = true
 jiff.workspace = true
+lz4_flex.workspace = true
 num-traits.workspace = true
 rocksdb.workspace = true
 regex.workspace = true

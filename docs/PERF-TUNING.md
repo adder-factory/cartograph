@@ -1,6 +1,6 @@
 # Performance and freshness tuning
 
-This guide applies to Cartograph `v3.0.0` and its native RocksDB backend.
+This guide applies to Cartograph `v3.0.1` and its native RocksDB backend.
 Published PostgreSQL benchmarks remain historical; they do not prove native
 performance. See [storage](STORAGE-BACKENDS.md) for exact limits and commands.
 
@@ -66,6 +66,15 @@ all parse, resolve, and reduction stages against that custom ceiling.
 A new owner has no warm graph until its first complete build. Neither the
 150 ms debounce nor the local replacement guarantees sub-second publication
 for every edit or project size.
+
+Large graphs can prepare lossless 64 KiB publication blocks under the existing
+native task reservation. This reduces retained storage input without changing
+the canonical digest, extraction ceiling, 32 MiB sorting workspace, 4 MiB staging
+batches or 512 MiB pending pool. Rows can span blocks and keep their independent
+record/batch limits. Packed inputs release their full canonical tables before
+storage admission and do not warm the sparse local-edit cache; subsequent
+changes use complete reconciliation. Preparation is included in the supervised
+`copy` stage, with the original cancellation signals and deadline policy.
 
 Every publication still fences the exact base generation and digest and checks
 the complete live source before/after publication. Query freshness uses live

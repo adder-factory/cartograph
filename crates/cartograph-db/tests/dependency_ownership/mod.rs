@@ -11,6 +11,7 @@ use itoa as _;
 use jiff as _;
 #[cfg(unix)]
 use libc as _;
+use lz4_flex as _;
 use num_traits as _;
 use regex as _;
 use rocksdb as _;

@@ -8,7 +8,7 @@ use std::{
 };
 
 use cartograph_domain::{ContentDigest, GenerationDigestVersion, GenerationId};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use super::{
     ProjectStore, PruneReport, ReadBudget, RecordChange, Result, RevisionSnapshot, RevisionWriter,
@@ -93,6 +93,7 @@ pub struct StorageRequest {
     cancellation: Cancellation,
     parent: Option<Cancellation>,
     closing: Option<Cancellation>,
+    signals: Option<[watch::Receiver<bool>; 2]>,
 }
 
 impl StorageRequest {
@@ -115,6 +116,7 @@ impl StorageRequest {
             cancellation: Cancellation::default(),
             parent: None,
             closing: None,
+            signals: None,
         })
     }
 
@@ -131,6 +133,32 @@ impl StorageRequest {
         let bound = Self::new(timeout)?;
         let mut request = self.clone();
         request.deadline = request.deadline.min(bound.deadline);
+        Ok(request)
+    }
+
+    /// Bind a CPU stage's monotonic parent/stage cancellation signals and deadline.
+    /// Existing cancellation, owner closure and the earlier deadline remain effective.
+    /// Signals must transition only from false to true.
+    /// # Errors
+    /// Rejects stopped requests and rebinding an already controlled request.
+    pub fn with_cancellation_signals(
+        &self,
+        signals: [watch::Receiver<bool>; 2],
+        deadline: Instant,
+    ) -> Result<Self> {
+        self.check()?;
+        if self.signals.is_some() {
+            return Err(RocksError::InvalidInput {
+                field: "request_cancellation_signals",
+            });
+        }
+        let mut request = self.clone();
+        request.deadline = request.deadline.min(deadline);
+        if signals.iter().any(|signal| *signal.borrow()) {
+            return Err(RocksError::Cancelled);
+        }
+        request.signals = Some(signals);
+        request.check()?;
         Ok(request)
     }
 
@@ -159,6 +187,11 @@ impl StorageRequest {
         }
         if self.cancellation.is_cancelled()
             || self.parent.as_ref().is_some_and(Cancellation::is_cancelled)
+            || self.signals.as_ref().is_some_and(|signals| {
+                signals
+                    .iter()
+                    .any(|signal| signal.has_changed().unwrap_or_else(|_| *signal.borrow()))
+            })
         {
             return Err(RocksError::Cancelled);
         }
@@ -176,6 +209,7 @@ impl StorageRequest {
             cancellation: Cancellation::default(),
             parent: Some(self.cancellation.clone()),
             closing: Some(closing),
+            signals: self.signals.clone(),
         }
     }
 
@@ -186,9 +220,31 @@ impl StorageRequest {
             () = self.cancellation.cancelled() => {},
             () = optional_cancelled(self.parent.as_ref()) => {},
             () = optional_cancelled(self.closing.as_ref()) => {},
+            () = optional_signals(self.signals.clone()) => {},
             () = tokio::time::sleep_until(tokio::time::Instant::from_std(self.deadline)) => {},
         }
         self.check().err().unwrap_or(RocksError::Cancelled)
+    }
+}
+
+async fn optional_signals(signals: Option<[watch::Receiver<bool>; 2]>) {
+    let Some([mut parent, mut stage]) = signals else {
+        return std::future::pending().await;
+    };
+    tokio::select! {
+        () = watch_stopped(&mut parent) => {},
+        () = watch_stopped(&mut stage) => {},
+    }
+}
+
+async fn watch_stopped(signal: &mut watch::Receiver<bool>) {
+    loop {
+        if *signal.borrow() {
+            return;
+        }
+        if signal.changed().await.is_err() {
+            return std::future::pending().await;
+        }
     }
 }
 
@@ -211,6 +267,31 @@ pub struct AsyncProjectStore {
     pool: Arc<StoragePool>,
     #[cfg(test)]
     pub(crate) state_gate: Arc<std::sync::Mutex<Option<StateTestGate>>>,
+    #[cfg(test)]
+    pub(crate) graph_reclaim_gate: Arc<std::sync::Mutex<Option<GraphReclaimTestGate>>>,
+}
+
+#[cfg(test)]
+pub(crate) struct GraphReclaimTestGate {
+    pub(crate) entered: tokio::sync::oneshot::Sender<()>,
+    pub(crate) reclaim: std::sync::mpsc::Receiver<()>,
+    pub(crate) reclaimed: tokio::sync::oneshot::Sender<()>,
+    pub(crate) finish: std::sync::mpsc::Receiver<()>,
+}
+
+#[cfg(test)]
+impl GraphReclaimTestGate {
+    fn wait(self, reclaim: impl FnOnce() -> Result<()>) -> Result<()> {
+        let _entered = self.entered.send(());
+        self.reclaim
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| super::operation("fixture-gate"))?;
+        reclaim()?;
+        let _reclaimed = self.reclaimed.send(());
+        self.finish
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| super::operation("fixture-gate"))
+    }
 }
 
 #[cfg(test)]
@@ -393,11 +474,36 @@ impl AsyncProjectStore {
         request: &StorageRequest,
     ) -> std::result::Result<super::GraphPublication, super::GraphPublicationError> {
         let bytes = input.reservation_bytes()?;
+        let maximum_reclamation = input.reclaimable_bytes()?;
         let project = self.project.clone();
+        #[cfg(test)]
+        let graph_reclaim_gate = self.graph_reclaim_gate.clone();
         self.pool
-            .run(request, bytes, true, move |control| {
-                project.run(&control, |store| Ok(store.publish_graph(input, &control)))
-            })
+            .run_reclaiming(
+                request,
+                bytes,
+                true,
+                maximum_reclamation,
+                move |control, credit| {
+                    #[cfg(test)]
+                    let mut gate = graph_reclaim_gate
+                        .lock()
+                        .map_err(|_| super::operation("fixture-gate"))?
+                        .take();
+                    project.run(&control, |store| {
+                        Ok(store.publish_graph_reclaiming(input, &control, |bytes| {
+                            if bytes == 0 {
+                                return Ok(());
+                            }
+                            #[cfg(test)]
+                            if let Some(gate) = gate.take() {
+                                return gate.wait(|| credit.release(bytes));
+                            }
+                            credit.release(bytes)
+                        }))
+                    })
+                },
+            )
             .await?
     }
 
@@ -424,6 +530,8 @@ impl AsyncProjectStore {
             pool,
             #[cfg(test)]
             state_gate: Arc::default(),
+            #[cfg(test)]
+            graph_reclaim_gate: Arc::default(),
         })
     }
 

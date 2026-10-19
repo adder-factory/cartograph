@@ -5,6 +5,68 @@ use crate::rocks::{Collection, RecordKey};
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+mod reclamation;
+
+#[tokio::test]
+async fn stage_signals_preserve_request_controls_and_reject_rebinding() -> TestResult {
+    let original = request()?;
+    let (parent, parent_signal) = watch::channel(false);
+    let (stage, stage_signal) = watch::channel(false);
+    let controlled = original.with_cancellation_signals(
+        [parent_signal.clone(), stage_signal.clone()],
+        Instant::now() + Duration::from_secs(30),
+    )?;
+    assert_eq!(controlled.deadline, original.deadline);
+    assert!(
+        controlled
+            .with_cancellation_signals(
+                [parent_signal, stage_signal],
+                Instant::now() + Duration::from_secs(30)
+            )
+            .is_err()
+    );
+    parent.send(true)?;
+    assert_eq!(controlled.check(), Err(RocksError::Cancelled));
+    assert_eq!(controlled.stopped().await, RocksError::Cancelled);
+    assert!(original.check().is_ok());
+    drop(stage);
+    let (parent, parent_signal) = watch::channel(false);
+    let (stage, stage_signal) = watch::channel(false);
+    let child = original.with_cancellation_signals(
+        [parent_signal, stage_signal],
+        Instant::now() + Duration::from_secs(30),
+    )?;
+    original.cancel();
+    assert_eq!(child.check(), Err(RocksError::Cancelled));
+    drop((parent, stage));
+    Ok(())
+}
+
+#[test]
+fn initially_stopped_stage_does_not_cancel_the_original_and_expiry_stays_distinct() -> TestResult {
+    let original = request()?;
+    let (_parent, parent_signal) = watch::channel(true);
+    let (_stage, stage_signal) = watch::channel(false);
+    assert!(matches!(
+        original.with_cancellation_signals(
+            [parent_signal, stage_signal],
+            Instant::now() + Duration::from_secs(30)
+        ),
+        Err(RocksError::Cancelled)
+    ));
+    assert!(original.check().is_ok());
+    let (_parent, parent_signal) = watch::channel(false);
+    let (_stage, stage_signal) = watch::channel(false);
+    assert!(matches!(
+        original.with_cancellation_signals([parent_signal, stage_signal], Instant::now()),
+        Err(RocksError::Limit {
+            resource: "operation_deadline"
+        })
+    ));
+    assert!(original.check().is_ok());
+    Ok(())
+}
+
 fn request() -> Result<StorageRequest> {
     StorageRequest::new(Duration::from_secs(10))
 }

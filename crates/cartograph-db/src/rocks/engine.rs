@@ -668,6 +668,10 @@ impl ProjectStore {
         self.write(&batch)
     }
 
+    pub(in crate::rocks) fn batch_policy(&self) -> StorePolicy {
+        self.inner.policy
+    }
+
     fn validate_changes(&self, changes: &[RecordChange]) -> Result<()> {
         if changes.len() > self.inner.policy.maximum_batch_rows {
             return Err(RocksError::Limit {

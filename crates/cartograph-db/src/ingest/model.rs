@@ -301,6 +301,10 @@ pub struct CanonicalGenerationFacts {
 }
 
 impl CanonicalGenerationFacts {
+    pub(crate) fn into_source_manifest(self) -> Vec<FileInput> {
+        self.tables.files
+    }
+
     /// Canonical logical digest covering every persisted field.
     #[must_use]
     pub const fn digest(&self) -> &ContentDigest {

@@ -24,6 +24,7 @@ provenance live on GitHub Releases.
 
 | Version | Date | Schema · Contract | Headline |
 | --- | --- | --- | --- |
+| [v3.0.1](releases/v3.0.1.md) | 2026-10-19 | Rocks v1 · V23 | Lossless bounded publication for large graphs and native installer guidance |
 | [v3.0.0](releases/v3.0.0.md) | 2026-10-19 | Rocks v1 · V23 | Embedded per-project RocksDB, persistent autosync, bounded async storage, and cached Jev decisions |
 | [v2.1.44](releases/v2.1.44.md) | 2026-10-13 | 50 · V23 | Async idle retention, backlog backpressure, cleanup diagnostics, and bounded process probes |
 | [v2.1.43](releases/v2.1.43.md) | 2026-10-13 | 50 · V23 | ParadeDB 0.26.1; Rust dependency, artifact-action, and build-image refresh |

@@ -18,6 +18,9 @@ use cartograph_domain::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+mod tests;
+
 impl NativeDatabase {
     /// Publish a summary only if its echoed structural digest remains current.
     /// # Errors
@@ -383,17 +386,30 @@ pub(crate) fn documentation_lengths(
 ) -> Result<BTreeMap<SymbolId, usize>, RocksError> {
     let mut output = BTreeMap::new();
     visit_documents(graph, budget, |document, _| {
-        if document.kind == DocumentKind::Symbol
-            && let Some(id) = document.symbol_id
-        {
-            output.insert(id, document.natural_text.chars().count());
-            if output.len() > 131_072 {
-                return Err(workspace());
-            }
-        }
-        Ok(())
+        record_documentation_length(&mut output, document)
     })?;
     Ok(output)
+}
+
+fn record_documentation_length(
+    output: &mut BTreeMap<SymbolId, usize>,
+    document: CanonicalSearchDocument,
+) -> Result<(), RocksError> {
+    if document.kind == DocumentKind::Symbol
+        && let Some(id) = document.symbol_id
+    {
+        // Absent documentation is already interpreted as zero by eligibility.
+        // Later documents for the same symbol still replace earlier lengths.
+        if document.natural_text.is_empty() {
+            output.remove(&id);
+        } else {
+            output.insert(id, document.natural_text.chars().count());
+        }
+        if output.len() > 131_072 {
+            return Err(workspace());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn eligible(

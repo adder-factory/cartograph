@@ -173,6 +173,16 @@ pub struct StageCancellation {
 }
 
 impl StageCancellation {
+    pub(crate) fn storage_request(
+        &self,
+        request: &cartograph_db::rocks::StorageRequest,
+    ) -> Result<cartograph_db::rocks::StorageRequest, cartograph_db::rocks::RocksError> {
+        request.with_cancellation_signals(
+            [self.parent.clone(), self.stage.clone()],
+            self.deadline.into_std(),
+        )
+    }
+
     fn new(parent: watch::Receiver<bool>, stage: watch::Receiver<bool>, deadline: Instant) -> Self {
         let initially_cancelled = *parent.borrow() || *stage.borrow();
         Self {
@@ -1511,6 +1521,23 @@ mod tests {
     use super::*;
 
     const TEST_WORKERS: usize = 2;
+
+    #[test]
+    fn preparation_control_preserves_expired_deadline_category()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_parent, parent) = watch::channel(false);
+        let (_stage, stage) = watch::channel(false);
+        let control = StageCancellation::new(parent, stage, Instant::now());
+        let request = cartograph_db::rocks::StorageRequest::new(Duration::from_secs(10))?;
+        assert!(matches!(
+            control.storage_request(&request),
+            Err(cartograph_db::rocks::RocksError::Limit {
+                resource: "operation_deadline"
+            })
+        ));
+        assert!(request.check().is_ok());
+        Ok(())
+    }
     const TEST_QUEUE: usize = 3;
     const TEST_ITEMS: usize = 10;
     const TEST_SCOPE_BYTES: u64 = 128;

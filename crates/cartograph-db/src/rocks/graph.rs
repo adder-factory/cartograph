@@ -13,6 +13,7 @@ mod codec;
 mod ingest;
 mod lexical;
 mod names;
+mod packed;
 mod read;
 
 pub use lexical::{LexicalPosting, LexicalStatistics};
@@ -92,7 +93,7 @@ impl GraphPolicy {
 /// admission nor measurement performs database I/O.
 pub struct GraphPublicationInput {
     identity: GraphRevision,
-    facts: Arc<CanonicalGenerationFacts>,
+    payload: GraphPayload,
     changes: Option<ingest::FileChanges>,
     policy: GraphPolicy,
     retained_bytes: u64,
@@ -100,12 +101,35 @@ pub struct GraphPublicationInput {
     maximum_file_bytes: Option<usize>,
 }
 
+enum GraphPayload {
+    Resident(Arc<CanonicalGenerationFacts>),
+    Packed(packed::PackedGraph),
+}
+
 impl GraphPublicationInput {
+    /// Actual retained input reservation, including source-admission allocations.
+    #[must_use]
+    pub fn retained_input_bytes(&self) -> u64 {
+        self.retained_bytes
+    }
+
+    pub(in crate::rocks) fn reclaimable_bytes(&self) -> Result<u32> {
+        match &self.payload {
+            GraphPayload::Resident(_) => Ok(0),
+            GraphPayload::Packed(graph) => {
+                u32::try_from(graph.reclaimable_bytes()?).map_err(|_| limit())
+            }
+        }
+    }
+
     /// Retain the already admitted canonical payload in the same project owner.
     /// No second copy of the file, reference, or document tables is allocated.
     #[must_use]
-    pub fn shared_facts(&self) -> Arc<CanonicalGenerationFacts> {
-        self.facts.clone()
+    pub fn shared_facts(&self) -> Option<Arc<CanonicalGenerationFacts>> {
+        match &self.payload {
+            GraphPayload::Resident(facts) => Some(facts.clone()),
+            GraphPayload::Packed(_) => None,
+        }
     }
 
     /// Validate a file-local replacement against an exact canonical base.
@@ -169,23 +193,93 @@ impl GraphPublicationInput {
     /// # Errors
     /// Rejects a count that cannot be represented in the durable manifest.
     pub fn info(&self) -> Result<GraphInfo> {
+        let facts = match &self.payload {
+            GraphPayload::Resident(facts) => facts,
+            GraphPayload::Packed(graph) => return Ok(graph.info.clone()),
+        };
         Ok(GraphInfo {
             format_version: 1,
-            name_index_version: names::version(&self.facts, self.policy),
-            content_digest: self.facts.digest().clone(),
-            files: count(self.facts.files().len())?,
-            symbols: count(self.facts.symbols().len())?,
-            edges: count(self.facts.edges().len())?,
-            references: count(self.facts.references().len())?,
-            numerical_sites: count(self.facts.numerical_sites().len())?,
-            documents: count(self.facts.documents().len())?,
+            name_index_version: names::version(facts, self.policy),
+            content_digest: facts.digest().clone(),
+            files: count(facts.files().len())?,
+            symbols: count(facts.symbols().len())?,
+            edges: count(facts.edges().len())?,
+            references: count(facts.references().len())?,
+            numerical_sites: count(facts.numerical_sites().len())?,
+            documents: count(facts.documents().len())?,
         })
     }
 
     /// Canonical source manifest for the owner's pre-publication source fence.
     #[must_use]
     pub fn files(&self) -> &[crate::FileInput] {
-        self.facts.files()
+        match &self.payload {
+            GraphPayload::Resident(facts) => facts.files(),
+            GraphPayload::Packed(graph) => &graph.files,
+        }
+    }
+
+    /// Prepare a validated generation inside the caller's existing CPU reservation.
+    ///
+    /// Large canonical tables are consumed into lossless bounded blocks before
+    /// storage admission. Their original validation measurement and digest stay
+    /// unchanged. Packed inputs do not retain a warm canonical allocation.
+    /// # Errors
+    /// Rejects preparation or retained-input bounds, invalid workspace,
+    /// cancellation, and expired requests. No database I/O occurs here.
+    pub fn prepare(
+        identity: GraphRevision,
+        facts: CanonicalGenerationFacts,
+        policy: GraphPolicy,
+        maximum_preparation_bytes: u64,
+        request: &StorageRequest,
+    ) -> Result<Self> {
+        request.check()?;
+        let policy = policy.validate()?;
+        let measurement = facts
+            .admission_measurement(maximum_preparation_bytes, || request.check().is_err())
+            .map_err(|error| match error {
+                GenerationMemoryModelError::Cancelled => {
+                    request.check().err().unwrap_or(RocksError::Cancelled)
+                }
+                GenerationMemoryModelError::RetainedLimit => RocksError::Limit {
+                    resource: "graph_preparation_bytes",
+                },
+                GenerationMemoryModelError::MetadataDepth => RocksError::Corrupt {
+                    field: "graph_metadata",
+                },
+            })?;
+        ingest::validate_workspace(&facts, policy, request)?;
+        if measurement.retained_bytes() <= policy.maximum_input_bytes {
+            return Self::new(identity, facts, policy, request);
+        }
+        let peak = measurement
+            .retained_bytes()
+            .checked_add(policy.maximum_input_bytes)
+            .and_then(|bytes| bytes.checked_add(u64::try_from(policy.maximum_working_bytes).ok()?))
+            .and_then(|bytes| bytes.checked_add(96 * 1_048_576))
+            .ok_or_else(limit)?;
+        if peak > maximum_preparation_bytes {
+            return Err(RocksError::Limit {
+                resource: "graph_preparation_bytes",
+            });
+        }
+        let graph = packed::PackedGraph::build(facts, policy, request)?;
+        let retained_bytes = graph.retained_bytes()?;
+        if retained_bytes > policy.maximum_input_bytes {
+            return Err(RocksError::Limit {
+                resource: "graph_input_bytes",
+            });
+        }
+        Ok(Self {
+            identity,
+            payload: GraphPayload::Packed(graph),
+            changes: None,
+            policy,
+            retained_bytes,
+            run_excludes: Vec::new(),
+            maximum_file_bytes: None,
+        })
     }
 
     /// Validate policy and use the immutable retained-size proof before async admission.
@@ -214,10 +308,10 @@ impl GraphPublicationInput {
                 },
             })?;
         request.check()?;
-        ingest::validate_workspace(&facts, policy)?;
+        ingest::validate_workspace(&facts, policy, request)?;
         Ok(Self {
             identity,
-            facts: Arc::new(facts),
+            payload: GraphPayload::Resident(Arc::new(facts)),
             changes: None,
             policy,
             retained_bytes: measurement.retained_bytes(),
@@ -404,6 +498,15 @@ impl ProjectStore {
         input: GraphPublicationInput,
         request: &StorageRequest,
     ) -> std::result::Result<GraphPublication, GraphPublicationError> {
-        ingest::publish(self, input, request)
+        self.publish_graph_reclaiming(input, request, |_| Ok(()))
+    }
+
+    pub(in crate::rocks) fn publish_graph_reclaiming(
+        &self,
+        input: GraphPublicationInput,
+        request: &StorageRequest,
+        reclaim: impl FnMut(usize) -> Result<()>,
+    ) -> std::result::Result<GraphPublication, GraphPublicationError> {
+        ingest::publish(self, input, request, reclaim)
     }
 }

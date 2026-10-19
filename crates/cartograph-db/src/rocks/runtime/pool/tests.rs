@@ -7,6 +7,8 @@ use super::*;
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+mod reclamation;
+
 fn request() -> Result<StorageRequest> {
     StorageRequest::new(Duration::from_secs(10))
 }

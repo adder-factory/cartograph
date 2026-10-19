@@ -392,6 +392,15 @@ pub struct NativePipelineDeadlines {
 }
 
 impl NativePipelineDeadlines {
+    pub(crate) fn publication_policy(self) -> (StageDeadlinePolicy, Instant) {
+        let now = Instant::now();
+        let deadline = now.checked_add(self.stage_timeout).unwrap_or(now);
+        (
+            StageDeadlinePolicy::new(deadline, self.cleanup_grace),
+            planned_item_deadline(self.item_timeout, deadline),
+        )
+    }
+
     /// Validate independent work, stage, and cleanup durations.
     /// # Errors
     ///
@@ -1041,6 +1050,10 @@ pub struct NativeGenerationBuild {
 }
 
 impl NativeGenerationBuild {
+    pub(crate) fn publication_deadlines(&self) -> NativePipelineDeadlines {
+        self.config.deadlines
+    }
+
     pub(crate) fn maximum_stage_reservation_bytes(&self) -> Result<u64, NativePipelineConfigError> {
         self.config.maximum_stage_reservation_bytes()
     }
