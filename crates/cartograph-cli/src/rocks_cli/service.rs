@@ -27,10 +27,12 @@ struct Project {
     format: crate::OutputFormat,
 }
 
-pub(crate) async fn run(arguments: ServiceArguments) -> Result<ExitCode, String> {
+pub(crate) fn run(
+    arguments: ServiceArguments,
+) -> impl std::future::Future<Output = Result<ExitCode, String>> {
     #[cfg(target_os = "macos")]
     {
-        macos::run(arguments.action).await
+        macos::run(arguments.action)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -38,7 +40,7 @@ pub(crate) async fn run(arguments: ServiceArguments) -> Result<ExitCode, String>
             Action::Start(project) | Action::Stop(project) | Action::Status(project) => project,
         };
         let _ = (project.project_path, project.format);
-        Err("login service management currently requires macOS; run cartograph watch under your user service manager".to_owned())
+        std::future::ready(Err("login service management currently requires macOS; run cartograph watch under your user service manager".to_owned()))
     }
 }
 
