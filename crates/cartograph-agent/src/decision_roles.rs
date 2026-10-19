@@ -109,6 +109,8 @@ pub struct RoleJudgement {
     pub verdicts: Vec<RoleVerdict>,
     /// Provider unavailability that ended judging early.
     pub stopped: Option<JevError>,
+    /// Accounting for validated responses in the returned batch prefix.
+    pub requests: Vec<cartograph_domain::DecisionRequestMetrics>,
 }
 
 impl RoleJudgement {
@@ -116,6 +118,7 @@ impl RoleJudgement {
         Self {
             verdicts: vec![RoleVerdict::Abstained; count],
             stopped: None,
+            requests: Vec::new(),
         }
     }
 }
@@ -136,11 +139,15 @@ impl ProjectRuntime {
         match JevSettings::try_from_project(&self.root)
             .and_then(|settings| settings.map(JevClient::new).transpose())
         {
-            Ok(Some(client)) => judge_with(&client, candidates, cancellation).await,
+            Ok(Some(client)) => {
+                let client = client.for_background();
+                judge_with(&client, candidates, cancellation).await
+            }
             Ok(None) => Ok(RoleJudgement::abstained(candidates.len())),
             Err(error) => Ok(RoleJudgement {
                 verdicts: Vec::new(),
                 stopped: Some(error),
+                requests: Vec::new(),
             }),
         }
     }
@@ -186,6 +193,7 @@ async fn judge_batches(
         return RoleJudgement {
             verdicts: Vec::new(),
             stopped: outcomes.stopped.or(Some(error)),
+            requests: outcomes.requests,
         };
     }
     let verdicts = outcomes
@@ -196,6 +204,7 @@ async fn judge_batches(
     RoleJudgement {
         verdicts,
         stopped: outcomes.stopped,
+        requests: outcomes.requests,
     }
 }
 
@@ -325,6 +334,8 @@ mod tests {
             })
             .collect();
         JevDecision {
+            usage: None,
+            metrics: Some(crate::decision_batch::fixture_request_metrics()),
             model: JEV_MODEL.to_owned(),
             answers,
         }
@@ -405,6 +416,15 @@ mod tests {
             .unwrap_or_else(|error| panic!("role judgement failed: {error}"));
         assert_eq!(judged.stopped, None);
         assert_eq!(judged.verdicts.len(), 30);
+        assert_eq!(judged.requests.len(), 2);
+        assert_eq!(
+            judged
+                .requests
+                .iter()
+                .filter_map(|metrics| metrics.input_tokens)
+                .sum::<u64>(),
+            240
+        );
         assert_eq!(
             judged.verdicts[0],
             RoleVerdict::Abstained,

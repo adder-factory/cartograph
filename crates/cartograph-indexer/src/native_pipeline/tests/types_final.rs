@@ -261,130 +261,13 @@ fn assert_return_chain(
     types_track::assert_abstains(facts, (path, &caller, "commit"));
 }
 
-fn extracted_returns() -> NativeFactAccumulator {
-    let limits = SourceLimits::new(TEST_SOURCE_BYTES)
-        .unwrap_or_else(|error| panic!("return source limits: {error}"));
-    let mut accumulator = NativeFactAccumulator::new(TEST_GENERATION_BYTES);
-    for (path, source) in RETURN_FIXTURES {
-        let snapshot =
-            SourceSnapshot::from_bytes_for_capability_validation(path, source.as_bytes(), limits)
-                .unwrap_or_else(|error| panic!("return source: {error}"));
-        let file = NativeExtractor::new_for_capability_validation(snapshot.language())
-            .and_then(|mut extractor| extractor.extract(&snapshot))
-            .unwrap_or_else(|error| panic!("return extraction: {error}"));
-        accumulator
-            .push(file)
-            .unwrap_or_else(|_| panic!("return extraction capacity"));
-    }
-    accumulator
-}
-
-fn spill_preparation(
-    extracted: &NativeFactAccumulator,
-    root: &SourceRoot,
-    cancellation: &StageCancellation,
-) -> SpilledResolutionPreparation {
-    let mut state = SpilledResolutionPreparation {
-        compact: NativeFactAccumulator::new(TEST_GENERATION_BYTES),
-        index: ResolutionIndex::default(),
-        budget: ResolveBudget::new(0, TEST_SCOPE_BYTES).unwrap_or_else(|_| panic!("return budget")),
-    };
-    let mut cancelled = || cancellation.is_cancelled();
-    for file in &extracted.files {
-        index_resolution_file_metadata(ResolutionIndexFileInput {
-            index: &mut state.index,
-            file,
-            budget: &mut state.budget,
-            cancelled: &mut cancelled,
-        })
-        .unwrap_or_else(|_| panic!("return metadata"));
-        let mut context = ResolutionIndexContext {
-            source_root: root,
-            budget: &mut state.budget,
-            cancelled: &mut cancelled,
-        };
-        qualtype_resolution::index_syntax(&mut state.index, file, &mut context)
-            .unwrap_or_else(|_| panic!("return syntax"));
-        index_typescript_alias_file(&mut state.index.modules, file, &mut context)
-            .unwrap_or_else(|_| panic!("return aliases"));
-    }
-    for file in &extracted.files {
-        index_resolution_file_symbols(ResolutionIndexFileInput {
-            index: &mut state.index,
-            file,
-            budget: &mut state.budget,
-            cancelled: &mut cancelled,
-        })
-        .unwrap_or_else(|_| panic!("return symbols"));
-    }
-    for file in extracted_returns().files {
-        state
-            .compact
-            .push_compact_clone(compact_clone_file(file), 0)
-            .unwrap_or_else(|_| panic!("return clone capacity"));
-    }
-    state
-        .budget
-        .charge(state.compact.retained_bytes)
-        .unwrap_or_else(|_| panic!("return clone budget"));
-    state
-}
-
-fn assert_spilled_returns(
-    root: &SourceRoot,
-    runner: &StageRunner,
-    cancellation: &StageCancellation,
-) {
-    let memory = build_capability_generation(RETURN_FIXTURES, false);
-    let extracted = extracted_returns();
-    let (_, index, _) = finish_spilled_resolution_preparation(
-        spill_preparation(&extracted, root, cancellation),
-        root,
-        ResolutionPreparationRequest {
-            policy: NativeClonePolicy {
-                wider_partial_band: false,
-            },
-            maximum_bytes: TEST_GENERATION_BYTES,
-            cancellation,
-            progress: runner,
-        },
-    )
-    .unwrap_or_else(|_| panic!("return spill preparation"));
-    let spilled = resolve_spilled_returns(extracted, &index, cancellation);
-    assert_return_chains(&memory);
-    assert_spilled_calls(&memory, &spilled);
-}
-
-fn resolve_spilled_returns(
-    extracted: NativeFactAccumulator,
-    index: &ResolutionIndex,
-    cancellation: &StageCancellation,
-) -> GenerationFacts {
-    let mut facts = GenerationFacts::default();
-    for (sequence, file) in extracted.files.into_iter().enumerate() {
-        let resolved = resolve_file_facts(
-            usize_to_u64(sequence),
-            file,
-            SpilledFileResolution {
-                index,
-                config: config(SERIAL_WORKERS),
-                cancellation,
-            },
-        )
-        .unwrap_or_else(|_| panic!("return spill resolution"));
-        facts.references.extend(resolved.facts.references);
-        facts.edges.extend(resolved.facts.edges);
-    }
-    facts
-}
-
-fn assert_spilled_calls(memory: &CanonicalGenerationFacts, spilled: &GenerationFacts) {
+fn assert_native_calls(memory: &CanonicalGenerationFacts, spilled: &CanonicalGenerationFacts) {
     for &(path, owner, _, _) in RETURN_CALLS {
         for method in ["run", "unresolved"] {
             let caller = format!("{owner}::{method}");
             let expected = call(memory, (path, &caller, "commit"));
             let actual = spilled
-                .references
+                .references()
                 .iter()
                 .find(|actual| {
                     actual.file_id == expected.file_id
@@ -395,10 +278,15 @@ fn assert_spilled_calls(memory: &CanonicalGenerationFacts, spilled: &GenerationF
                 .unwrap_or_else(|| panic!("spilled terminal call exists"));
             assert_eq!(actual, expected);
             if let Some(target) = &actual.target_symbol_id {
-                assert!(spilled.edges.iter().any(|edge| edge.kind == EdgeKind::Calls
-                    && Some(&edge.source_symbol_id) == actual.owner_symbol_id.as_ref()
-                    && &edge.target_symbol_id == target
-                    && edge.provenance == actual.resolution_provenance));
+                assert!(
+                    spilled
+                        .edges()
+                        .iter()
+                        .any(|edge| edge.kind == EdgeKind::Calls
+                            && Some(&edge.source_symbol_id) == actual.owner_symbol_id.as_ref()
+                            && &edge.target_symbol_id == target
+                            && edge.provenance == actual.resolution_provenance)
+                );
             }
         }
     }
@@ -413,59 +301,14 @@ fn write_returns(root: &std::path::Path) {
     }
 }
 
-fn spill_input(root: &std::path::Path, deadline: Instant) -> StageEnvelope<(), std::path::PathBuf> {
-    StageEnvelope::new(
-        StageItemMeta::new(
-            StageSequence::new(0),
-            (),
-            StageItemBudget::new(TEST_GENERATION_BYTES, 0, deadline),
-        ),
-        root.to_path_buf(),
-    )
-}
-
-async fn run_spill(root: &std::path::Path, runner: &StageRunner) {
-    let deadline = Instant::now() + TEST_TIMEOUT;
-    let progress = runner.clone();
-    let input = spill_input(root, deadline);
-    runner
-        .execute(StageExecution::new(
-            StageRunConfig::new(
-                PipelineStage::Resolve,
-                StageCapacity::new(SERIAL_WORKERS, 0),
-                StageDeadlinePolicy::new(deadline, CLEANUP_GRACE),
-            ),
-            StageWorkload::new(
-                [input],
-                move |item: StageWorkItem<(), std::path::PathBuf>| {
-                    let progress = progress.clone();
-                    async move {
-                        let cancellation = item.cancellation();
-                        let (_, (), path) = item.into_parts();
-                        let root = SourceRoot::open(&path)
-                            .unwrap_or_else(|error| panic!("return root: {error}"));
-                        block_in_place(|| assert_spilled_returns(&root, &progress, &cancellation));
-                        Ok::<_, StageItemFailure>(())
-                    }
-                },
-            ),
-            StageFold::new((), |(): &mut (), _: StageOutput<(), ()>| Ok(())),
-        ))
-        .await
-        .unwrap_or_else(|error| panic!("return stage: {error}"));
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn imported_return_chains_use_the_spill_preparation_order() {
+async fn imported_return_chains_survive_native_pipeline_parallelism() {
     let directory = tempdir().unwrap_or_else(|error| panic!("return directory: {error}"));
     write_returns(directory.path());
-    let (runner, tasks, cancellation) = test_stage_runner(SERIAL_WORKERS, TEST_SCOPE_BYTES).await;
-    run_spill(directory.path(), &runner).await;
-    drop(cancellation);
-    let report = tasks
-        .close_abort_and_reap(Instant::now() + TEST_TIMEOUT)
-        .await;
-    assert!(report.all_joined);
-    assert!(!report.worker_failed);
-    assert!(!report.unobserved_results);
+    let expected = build_capability_generation(RETURN_FIXTURES, false);
+    for workers in [1, 2, 4, 8, 16] {
+        let actual = build_with_config(directory.path(), workers, config(workers)).await;
+        assert_return_chains(actual.facts());
+        assert_native_calls(&expected, actual.facts());
+    }
 }

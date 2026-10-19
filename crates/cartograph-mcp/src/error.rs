@@ -248,6 +248,8 @@ impl Error for ConfigError {}
 pub enum ToolContractError {
     /// The canonical tool name is invalid.
     InvalidName,
+    /// A forwarded authorization ceiling exceeds its bounded name count.
+    InvalidToolCeiling,
     /// The tool description or title is invalid.
     InvalidDescription,
     /// The tool input schema is not a JSON object schema.

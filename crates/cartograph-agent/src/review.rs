@@ -392,6 +392,7 @@ pub async fn discover_git_comparison(
             &base_commit,
             "--",
             ".",
+            ":(exclude).cartograph",
         ],
     )
     .await?;
@@ -407,6 +408,7 @@ pub async fn discover_git_comparison(
             "-z",
             "--",
             ".",
+            ":(exclude).cartograph",
         ],
     )
     .await?;
@@ -422,6 +424,7 @@ pub async fn discover_git_comparison(
             "--untracked-files=normal",
             "--",
             ".",
+            ":(exclude).cartograph",
         ],
     )
     .await?;
@@ -582,7 +585,15 @@ async fn terminate(child: &mut Child) {
 async fn git_worktree_is_dirty(root: &Path) -> bool {
     run_git_bounded(
         root,
-        &["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+        &[
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=normal",
+            "--",
+            ".",
+            ":(exclude).cartograph",
+        ],
         GitCommandBounds::new(1, Duration::from_secs(2)),
     )
     .await

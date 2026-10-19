@@ -44,10 +44,11 @@ fi
 "$ROOT/scripts/pull-pinned-image.sh" "$RUNTIME_IMAGE"
 
 docker run --rm --pull never \
-  --user "$(id -u):$(id -g)" \
   --volume "$ROOT:/workspace" \
   --workdir /workspace \
   --env HOME=/tmp/cartograph-home \
+  --env CARTOGRAPH_BUILD_UID="$(id -u)" \
+  --env CARTOGRAPH_BUILD_GID="$(id -g)" \
   --env CARGO_HOME=/tmp/cartograph-cargo \
   --env RUSTUP_HOME=/tmp/cartograph-rustup \
   --env CARTOGRAPH_RELEASE_TOOLCHAIN="$BUILD_TOOLCHAIN" \
@@ -57,6 +58,10 @@ docker run --rm --pull never \
   --env CARTOGRAPH_RELEASE_MACHINE="$EXPECTED_MACHINE" \
   "$BUILD_IMAGE" \
   bash -c '
+    set -euo pipefail
+    apt-get update
+    apt-get install -y --no-install-recommends clang libclang-dev util-linux
+    exec setpriv --reuid "$CARTOGRAPH_BUILD_UID" --regid "$CARTOGRAPH_BUILD_GID" --clear-groups bash -c '\''
     set -euo pipefail
     mkdir -p "$HOME" "$CARGO_HOME" "$CARGO_TARGET_DIR" "$RUSTUP_HOME"
     machine="$(uname -m)"
@@ -74,7 +79,7 @@ docker run --rm --pull never \
       exit 1
     fi
     scripts/build-rust-release.sh "$CARTOGRAPH_RELEASE_TARGET" "$CARTOGRAPH_RELEASE_ASSET_TARGET"
-  '
+  '\'''
 
 VERSION="$(
   sed -n '/^\[workspace\.package\]$/,/^\[/ {

@@ -1,6 +1,8 @@
 use std::{collections::BTreeSet, fmt};
 
-use cartograph_domain::{ContentDigest, GenerationId, NormalizedPath, ProjectId};
+use cartograph_domain::{
+    ContentDigest, DecisionRequestMetrics, GenerationId, NormalizedPath, ProjectId,
+};
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 
 use super::{
@@ -449,6 +451,8 @@ pub struct DecisionRankEvidence {
     judged: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     provider_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_metrics: Option<DecisionRequestMetrics>,
 }
 
 impl DecisionRankEvidence {
@@ -460,6 +464,7 @@ impl DecisionRankEvidence {
             state,
             judged,
             provider_error: None,
+            request_metrics: None,
         }
     }
 
@@ -468,6 +473,13 @@ impl DecisionRankEvidence {
     #[must_use]
     pub fn with_provider_error(mut self, provider_error: Option<String>) -> Self {
         self.provider_error = provider_error;
+        self
+    }
+
+    /// Attach locally measured request accounting, never provider-supplied metrics.
+    #[must_use]
+    pub const fn with_request_metrics(mut self, metrics: Option<DecisionRequestMetrics>) -> Self {
+        self.request_metrics = metrics;
         self
     }
 
@@ -481,6 +493,12 @@ impl DecisionRankEvidence {
     #[must_use]
     pub const fn judged(&self) -> usize {
         self.judged
+    }
+
+    /// Locally measured accounting for the successful provider decision.
+    #[must_use]
+    pub const fn request_metrics(&self) -> Option<&DecisionRequestMetrics> {
+        self.request_metrics.as_ref()
     }
 }
 

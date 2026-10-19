@@ -38,12 +38,12 @@ toml_edit.workspace = true
 url.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+getrandom.workspace = true
 signal-hook.workspace = true
+rustix.workspace = true
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-cartograph-test-support.workspace = true
-sqlx-core.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

@@ -1,12 +1,12 @@
 ---
 name: cartograph
-description: Explore a codebase through Cartograph v2's PostgreSQL code graph: intent-aware context, exact/BM25/hybrid search, callers/callees/impact, affected tests, live source, review, freshness, and bounded index administration.
+description: Explore a codebase through Cartograph v2's native RocksDB code graph: intent-aware context, exact/BM25/hybrid search, callers/callees/impact, affected tests, live source, review, freshness, and bounded index administration.
 ---
 
 # Cartograph v2
 
 Cartograph is a native Rust MCP server for coding agents. Its durable graph lives
-only in PostgreSQL 18 with ParadeDB `pg_search` and pgvector. There is no SQLite
+in each project's `.cartograph/data` RocksDB database. There is no SQLite
 runtime, fallback, migration target, or optional feature.
 
 ## Existing project
@@ -54,31 +54,24 @@ hot-restarted its MCP process.
 If no Cartograph setup exists, ask:
 
 > I notice this project does not have Cartograph initialized. Would you like me
-> to start its PostgreSQL/ParadeDB database, index it, and add project-local MCP
-> configuration?
-
-For a managed macOS/Linux setup:
+> to run `cartograph admin init -i` to build a code knowledge graph?
 
 ```sh
-cartograph db start --project-path .
-cartograph doctor .
 cartograph index .
+cartograph doctor .
+cartograph status .
+cartograph context 'explain the primary request flow' --project-path .
 cartograph install --yes --target codex --location local --project-path .
 ```
 
-For external PostgreSQL, require PostgreSQL 18.4 or newer within major version
-18, `pg_search` 0.26.1, and pgvector 0.8.4 or newer. Create pgvector before
-`pg_search`, then pass the secret URL only through `CARTOGRAPH_DATABASE_URL` and
-select the schema with `CARTOGRAPH_DATABASE_SCHEMA`. Never write or echo the URL
-in committed project files.
-
 Setup is ready only after doctor, index, status/freshness, and one real context
 or find query pass. Restart the agent host after writing MCP configuration.
+One primary owns a project; on Unix other CLI/MCP clients reuse that owner.
+Never remove database locks or files while an owner is alive.
 
-## V1 cutover
+## Earlier database cutover
 
-V2 imports only a v1.1.33 PostgreSQL schema through `cartograph db import-v1`.
-It never reads SQLite. If the only v1 graph is SQLite, either rebuild v2 from
-source or first use v1.1.33 to migrate that graph to PostgreSQL. Always run the
-v2 importer with `--dry-run` before the exact `--confirm import-v1-postgres`
-mutation.
+`cartograph db migrate --to rocksdb --project-path .` rebuilds and verifies
+source facts, then records migration completion. Legacy PostgreSQL data remains
+untouched. Notes, sessions, embeddings, and other legacy-only state are not
+imported. No PostgreSQL runtime or SQL query tool remains in this checkout.

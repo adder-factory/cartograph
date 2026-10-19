@@ -7,7 +7,6 @@ mod fixture;
 
 use std::time::Duration;
 
-use cartograph_indexer::SupervisorConfig;
 use fixture::{
     BENCHMARK_CONFIG, BenchmarkDeadlines, EXPECTED_FIXTURE_FINGERPRINT, EXPECTED_SOURCE_DIGEST,
     FrozenFixture, SamplePlan, ValidationBudget, WorkloadSize, fixture_fingerprint,
@@ -130,7 +129,7 @@ fn sample_planning_consumes_the_fixture_configuration() {
 }
 
 #[test]
-fn default_timing_values_and_supervisor_policy_match_the_committed_benchmark() {
+fn default_timing_values_match_the_committed_benchmark() {
     let deadlines = BENCHMARK_CONFIG.deadlines;
     assert_eq!(deadlines.operation, Duration::from_secs(60));
     assert_eq!(deadlines.stage, Duration::from_secs(30));
@@ -141,16 +140,4 @@ fn default_timing_values_and_supervisor_policy_match_the_committed_benchmark() {
     assert_eq!(deadlines.heartbeat_timeout, Duration::from_millis(500));
     assert_eq!(deadlines.cleanup_grace, Duration::from_secs(5));
     assert_eq!(deadlines.lease, Duration::from_secs(60));
-    let expected = SupervisorConfig::new(Duration::from_secs(60))
-        .with_heartbeat_interval(Duration::from_secs(1))
-        .with_heartbeat_timeout(Duration::from_millis(500))
-        .with_progress_timeout(Duration::from_secs(20))
-        .with_cancellation_grace(Duration::from_secs(5))
-        .with_copy_timeout(Duration::from_secs(20))
-        .with_max_worker_tasks(4)
-        .with_max_worker_bytes(8 * 1024 * 1024);
-    assert_eq!(
-        BENCHMARK_CONFIG.supervisor_config(4, 8 * 1024 * 1024),
-        expected
-    );
 }

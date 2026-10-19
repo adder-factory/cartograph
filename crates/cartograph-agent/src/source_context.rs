@@ -254,6 +254,30 @@ impl ProjectRuntime {
         requests: Vec<SourceContextRequest>,
         cancellation: ProjectCancellation,
     ) -> Result<Vec<SymbolSourceContext>, ProjectError> {
+        self.source_context_batch_if_current_with_cancellation(
+            expected_generation,
+            requests,
+            cancellation,
+        )
+        .await?
+        .ok_or(ProjectError::SourceContextUnavailable)
+    }
+
+    /// Capture optional source windows only while `expected_generation` is current.
+    ///
+    /// `None` means a published generation changed before or during the batch.
+    /// No partial batch is returned. Other failures remain errors so callers can
+    /// distinguish publication from unavailable or invalid source evidence.
+    /// # Errors
+    ///
+    /// Returns an error for excessive requests, cancellation, a missing index,
+    /// storage failure, or source admission/capture failure.
+    pub async fn source_context_batch_if_current_with_cancellation(
+        &self,
+        expected_generation: &GenerationId,
+        requests: Vec<SourceContextRequest>,
+        cancellation: ProjectCancellation,
+    ) -> Result<Option<Vec<SymbolSourceContext>>, ProjectError> {
         if requests.len() > MAXIMUM_CONTEXT_BATCH {
             return Err(ProjectError::InvalidOptions);
         }
@@ -261,35 +285,46 @@ impl ProjectRuntime {
             return Err(ProjectError::RequestCancelled);
         }
         if requests.is_empty() {
-            return Ok(Vec::new());
+            return Ok(Some(Vec::new()));
         }
         let before =
             crate::cancellable_project_read(&cancellation, self.source_context_snapshot()).await?;
         let current = before
             .current
             .as_ref()
-            .filter(|current| &current.generation_id == expected_generation)
             .ok_or(ProjectError::SourceContextUnavailable)?;
+        if &current.generation_id != expected_generation {
+            return Ok(None);
+        }
         let ids = requests
             .iter()
             .map(|request| request.symbol_id.clone())
             .collect::<Vec<_>>();
         let symbols = crate::cancellable_project_read(&cancellation, async {
-            self.database()
+            match self
+                .database()
                 .current_symbols_by_ids(CurrentSymbolSetLookup::new(
                     &before.project_id,
                     expected_generation,
                     &ids,
                 ))
                 .await
-                .map_err(|_| ProjectError::SourceContextUnavailable)
+            {
+                Ok(symbols) => Ok(Some(symbols)),
+                Err(StorageError::CurrentGenerationChanged) => Ok(None),
+                Err(_) => Err(ProjectError::SourceContextUnavailable),
+            }
         })
         .await?;
+        let Some(symbols) = symbols else {
+            return Ok(None);
+        };
         let paths = symbols.iter().map(|symbol| symbol.path().clone()).collect();
         let source = self
             .scan_source_batch(
                 paths,
                 current.source_admission.run_excludes(),
+                current.source_admission.maximum_file_bytes(),
                 cancellation.clone(),
             )
             .await?;
@@ -309,18 +344,15 @@ impl ProjectRuntime {
             else {
                 continue;
             };
-            let file = crate::cancellable_project_read(&cancellation, async {
-                self.database()
-                    .exact_current_file_by_path(CurrentFileLookup::new(
-                        &before.project_id,
-                        expected_generation,
-                        symbol.path(),
-                    ))
-                    .await
-                    .map_err(|_| ProjectError::SourceContextUnavailable)
-            })
-            .await?
-            .ok_or(ProjectError::SourceContextUnavailable)?;
+            let file = self
+                .source_context_batch_file_if_current(
+                    CurrentFileLookup::new(&before.project_id, expected_generation, symbol.path()),
+                    &cancellation,
+                )
+                .await?;
+            let Some(file) = file else {
+                return Ok(None);
+            };
             contexts.push(build_symbol_source_context(SymbolSourceContextInput {
                 symbol: symbol.clone(),
                 indexed_file: &file,
@@ -332,9 +364,24 @@ impl ProjectRuntime {
         if !crate::cancellable_project_read(&cancellation, self.generation_is_current(&before))
             .await?
         {
-            return Err(ProjectError::SourceContextUnavailable);
+            return Ok(None);
         }
-        Ok(contexts)
+        Ok(Some(contexts))
+    }
+
+    async fn source_context_batch_file_if_current(
+        &self,
+        lookup: CurrentFileLookup<'_>,
+        cancellation: &ProjectCancellation,
+    ) -> Result<Option<CurrentFileRecord>, ProjectError> {
+        crate::cancellable_project_read(cancellation, async {
+            match self.database().exact_current_file_by_path(lookup).await {
+                Ok(Some(file)) => Ok(Some(file)),
+                Err(StorageError::CurrentGenerationChanged) => Ok(None),
+                Ok(None) | Err(_) => Err(ProjectError::SourceContextUnavailable),
+            }
+        })
+        .await
     }
 
     /// Resolve one exact current-generation symbol and return bounded source only

@@ -54,6 +54,21 @@ pub(crate) fn assemble_packet(input: PacketAssembly<'_>) -> ContextPacket {
     }
 }
 
+impl ContextPacket {
+    /// Downgrade freshness when a later exact source observation differs.
+    /// Confidence and abstention are recomputed from the same evidence.
+    #[must_use]
+    pub fn with_stale_source(mut self) -> Self {
+        self.details.freshness = IndexFreshness::Stale;
+        (self.details.confidence, self.details.abstention) = classify_packet(
+            self.details.generation.as_ref(),
+            IndexFreshness::Stale,
+            &self.details.evidence,
+        );
+        self
+    }
+}
+
 #[derive(Default)]
 struct EditCandidateAccumulator {
     matched_term_count: u16,

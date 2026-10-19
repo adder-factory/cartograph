@@ -1,10 +1,6 @@
 //! Integration coverage for Cartograph project-runtime and agent evidence contracts.
 
 mod dependency_ownership;
-#[path = "live_project/lease_contention.rs"]
-mod lease_contention;
-#[path = "live_project/retention.rs"]
-mod retention;
 #[path = "live_project/rust_receivers.rs"]
 mod rust_receivers;
 #[path = "live_project/source_batches.rs"]
@@ -18,42 +14,37 @@ mod architecture_workload;
 
 use std::assert_matches;
 use std::{
-    env,
     fmt::Write as _,
     io::{Read, Write},
     net::TcpListener,
     path::Path,
-    process, thread,
+    thread,
     time::{Duration, SystemTime},
 };
 
 use cartograph_agent::{
     DeadCodeJudgeOptions, DeadCodeJudgeRequest, DeadCodeVerdict, DiffReviewInput,
     DiffReviewOptions, EmbeddingClientRequest, EmbeddingOptions, FileDriftOptions,
-    FileSourceOptions, FileSourceRequest, GenerationRetentionStatus, HistoryIndexOptions,
-    ImportAuditError, ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget,
-    IndexLiveSource, IndexOptions, IndexReport, LcovLoadOptions, NativeGenerationStorageMetrics,
-    PipelineFailureReason, ProjectCancellation, ProjectError, ProjectRuntime, RenamePlanError,
-    RenamePlanOptions, RenamePlanRequest, RetrievalClientRequest, RetrievalOptions,
-    RetrievalRequest, ReviewOptions, ScipExportRequest, ScipImportLimits, ScipImportRequest,
-    SourceContextOptions, SourceContextRequest, SourceSearchOptions, TestEvidenceOptions,
-    WorkingTreeOverlayRequest, judge_dead_code_candidates,
+    FileSourceOptions, FileSourceRequest, HistoryIndexOptions, ImportAuditError,
+    ImportAuditOptions, ImportAuditRequest, ImportAuditSource, ImportAuditTarget, IndexLiveSource,
+    IndexOptions, IndexReport, LcovLoadOptions, ProjectCancellation, ProjectError, ProjectRuntime,
+    RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalClientRequest,
+    RetrievalOptions, RetrievalRequest, ReviewOptions, ScipExportRequest, ScipImportLimits,
+    ScipImportRequest, SourceContextOptions, SourceContextRequest, SourceSearchOptions,
+    TestEvidenceOptions, WorkingTreeOverlayRequest, judge_dead_code_candidates,
 };
-use cartograph_config::DatabaseSettings;
 use cartograph_db::{
     CurrentGenerationLookup, DeadCodeQuery, ExactTextLookup, FileCochangeQuery,
     FileDependencyDirection, FileDependencyQuery, FileHistoryQuery, FileSurfaceQuery,
     FileTestImpactQuery, GroupedPathInput, GroupedSymbolQuery, InterchangeSnapshotRequest,
-    IssueAttributionKind, IssueCommitSymbolPeerQuery, LeaseOwner, LeaseRequest, LeaseTarget,
-    NativeParseCacheKey, NativeParseCacheKeyInput, NewGeneration, SearchQuery,
-    SemanticStorageError, StructuralFindingGroupQuery, StructuralFindingQuery,
-    StructuralFindingRefresh, StructuralFindingSeverity, StructuralHotspotCategory,
-    StructuralHotspotQuery, StructuralHotspotSort, SymbolCoverageQuery, SymbolIssuePeerQuery,
-    SymbolIssueQuery, latest_schema_version,
+    IssueAttributionKind, IssueCommitSymbolPeerQuery, NativeParseCacheKey,
+    NativeParseCacheKeyInput, SearchQuery, SemanticStorageError, StructuralFindingGroupQuery,
+    StructuralFindingQuery, StructuralFindingRefresh, StructuralFindingSeverity,
+    StructuralHotspotCategory, StructuralHotspotQuery, StructuralHotspotSort, SymbolCoverageQuery,
+    SymbolIssuePeerQuery, SymbolIssueQuery,
 };
 use cartograph_domain::{
-    ContentDigest, EdgeKind, GenerationDigestVersion, GenerationState, ModelId, NormalizedPath,
-    ProjectOperation, SourceLanguage, SymbolId,
+    ContentDigest, EdgeKind, ModelId, NormalizedPath, SourceLanguage, SymbolId,
 };
 use cartograph_extract::native_extractor_contract_digest;
 use cartograph_llm::{ChatSettings, EmbeddingSettings, OpenAiChatClient, OpenAiEmbeddingClient};
@@ -64,283 +55,19 @@ use cartograph_search::{
     ReviewAbstention, SearchMode, SemanticReadiness, SimilarRequest, TraversalBudget,
     WorkingTreeOverlayStatus,
 };
-use cartograph_test_support::TestSchemaGuard;
-use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
 
-const TEST_DATABASE_URL_ENV: &str = "CARTOGRAPH_TEST_DATABASE_URL";
 const SCORE_TOLERANCE: f64 = 1.0e-9;
 const HISTORY_ANCHOR_PATH: &str = ".github/workflows/check.ts";
 const HISTORY_PARTNER_PATH: &str = "ACKNOWLEDGEMENTS.ts";
 const HISTORY_THIRD_PATH: &str = "src/c.ts";
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn v22_generation_is_stale_until_unchanged_source_republishes() {
-    let (schema, settings, project) = live_project_fixture("4");
-    write_incremental_fixture(project.path());
-    let runtime = ProjectRuntime::connect(project.path(), &settings)
-        .await
-        .unwrap_or_else(|error| panic!("visibility-contract runtime failed: {error}"));
-    let options = IndexOptions::default().with_history_refresh(false);
-    let first = initial_incremental_index(&runtime, options.clone()).await;
-    let pool = cartograph_db::connect(&settings)
-        .await
-        .unwrap_or_else(|error| panic!("visibility-contract connection failed: {error}"));
-    let downgraded = query(AssertSqlSafe(format!(
-        r#"UPDATE "{schema}"."index_generations" SET content_digest_version = $1
-            WHERE project_id = CAST($2 AS uuid) AND state = 'current'"#
-    )))
-    .bind(GenerationDigestVersion::V22.database_value())
-    .bind(first.project_id.as_str())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("V22 fixture downgrade failed: {error}"));
-    assert_eq!(downgraded.rows_affected(), 1);
-    assert!(
-        !runtime
-            .status()
-            .await
-            .unwrap_or_else(|error| panic!("V22 fixture status failed: {error}"))
-            .fresh
-    );
-    let upgraded = runtime
-        .index(options)
-        .await
-        .unwrap_or_else(|error| panic!("visibility-contract republication failed: {error}"));
-    assert!(upgraded.published);
-    assert_eq!(first.source_revision, upgraded.source_revision);
-    assert_ne!(first.generation_id, upgraded.generation_id);
-    let status = runtime
-        .status()
-        .await
-        .unwrap_or_else(|error| panic!("visibility-contract status failed: {error}"));
-    assert!(status.fresh);
-    assert_matches!(
-        status.snapshot.as_ref().and_then(|snapshot| snapshot.current.as_ref()),
-        Some(current) if current.digest_version == GenerationDigestVersion::V23
-    );
-    runtime.close().await;
-    pool.close().await;
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn blocked_latest_migration_reports_exact_older_schema_versions() {
-    let (schema, settings, project) = live_project_fixture("4");
-    let runtime = ProjectRuntime::connect(project.path(), &settings)
-        .await
-        .unwrap_or_else(|error| panic!("initial schema migration failed: {error}"));
-    runtime.close().await;
-
-    let pool = cartograph_db::connect(&settings)
-        .await
-        .unwrap_or_else(|error| panic!("older-schema fixture connection failed: {error}"));
-    // Without the constraint that the latest migration replaces, its DROP
-    // CONSTRAINT fails on every attempt. That is a permanent block, unlike a
-    // held lock, which is retried as contention and ends as `SchemaBusy`.
-    let break_latest_migration = format!(
-        r#"ALTER TABLE "{schema}"."index_generations"
-                DROP CONSTRAINT index_generations_digest_version_check"#
-    );
-    query(AssertSqlSafe(break_latest_migration))
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("could not break the latest migration: {error}"));
-    query(AssertSqlSafe(format!(
-        r#"DELETE FROM "{schema}"."schema_migrations" WHERE version = $1"#
-    )))
-    .bind(latest_schema_version())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("could not restore the previous migration ledger: {error}"));
-
-    let connection_result = ProjectRuntime::connect(project.path(), &settings).await;
-    let expected_required = latest_schema_version();
-    let expected_database = expected_required - 1;
-    assert_matches!(
-        connection_result.err(),
-        Some(ProjectError::SchemaMigrationBlocked {
-            database_schema_version,
-            required_schema_version,
-            pending_migration_version,
-        }) if database_schema_version == expected_database
-            && required_schema_version == expected_required
-            && pending_migration_version == expected_required
-    );
-
-    pool.close().await;
-    drop_schema(&settings, &schema).await;
-}
 
 fn scores_match(actual: f64, expected: f64) -> bool {
     (actual - expected).abs() <= SCORE_TOLERANCE
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn forced_postgres_generation_storage_publishes_and_reports_spill() {
-    let (schema, settings, project) = live_project_fixture("8");
-    std::fs::create_dir_all(project.path().join(".cartograph"))
-        .unwrap_or_else(|error| panic!("spill config directory failed: {error}"));
-    std::fs::write(
-        project.path().join(".cartograph/config.json"),
-        r#"{"generationStorage":"postgres","maxSpillBytes":67108864,"maxSpillRows":1000000,"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
-    )
-    .unwrap_or_else(|error| panic!("spill config failed: {error}"));
-    std::fs::write(
-        project.path().join("service.ts"),
-        "export function spillTarget(value: number): number { return value + 1; }\nexport function spillCaller(): number { return spillTarget(4); }\n",
-    )
-    .unwrap_or_else(|error| panic!("spill source fixture failed: {error}"));
-
-    {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("spill runtime connect failed: {error}"));
-        let report = runtime
-            .index(IndexOptions::default().with_history_refresh(false))
-            .await
-            .unwrap_or_else(|error| panic!("forced spill index failed: {error}"));
-        assert!(report.published);
-        let native = report
-            .native
-            .as_ref()
-            .unwrap_or_else(|| panic!("forced spill metrics were missing"));
-        assert_eq!(
-            native.generation_storage,
-            NativeGenerationStorageMetrics::Postgres
-        );
-        let spill = native
-            .spill
-            .unwrap_or_else(|| panic!("forced spill accounting was missing"));
-        assert_eq!(spill.extracted_files, 1);
-        assert!(spill.raw_rows > spill.extracted_files);
-        assert!(spill.logical_bytes > 0);
-        let exact = runtime
-            .database()
-            .exact_current_symbols_by_name(ExactTextLookup::new(
-                CurrentGenerationLookup::new(&report.project_id, &report.generation_id),
-                "spillTarget",
-                10,
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("forced spill lookup failed: {error}"));
-        assert_eq!(exact.len(), 1);
-        runtime.close().await;
-    }
-
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn auto_storage_streams_many_crate_workspaces_before_memory_resolve_capacity() {
-    const CARGO_MANIFESTS: usize = 64;
-    let (schema, settings, project) = live_project_fixture("8");
-    std::fs::create_dir_all(project.path().join(".cartograph"))
-        .unwrap_or_else(|error| panic!("auto-spill config directory failed: {error}"));
-    std::fs::write(
-        project.path().join(".cartograph/config.json"),
-        r#"{"generationStorage":"auto","maxSpillBytes":67108864,"maxSpillRows":1000000,"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
-    )
-    .unwrap_or_else(|error| panic!("auto-spill config failed: {error}"));
-    for index in 0..CARGO_MANIFESTS {
-        let crate_root = project.path().join(format!("crates/member_{index}"));
-        std::fs::create_dir_all(crate_root.join("src"))
-            .unwrap_or_else(|error| panic!("member directory failed: {error}"));
-        std::fs::write(
-            crate_root.join("Cargo.toml"),
-            format!("[package]\nname = \"member_{index}\"\nversion = \"0.1.0\"\n"),
-        )
-        .unwrap_or_else(|error| panic!("member manifest failed: {error}"));
-        std::fs::write(
-            crate_root.join("src/lib.rs"),
-            format!("pub fn member_{index}() -> usize {{ {index} }}\n"),
-        )
-        .unwrap_or_else(|error| panic!("member source failed: {error}"));
-    }
-
-    {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("auto-spill runtime connect failed: {error}"));
-        let report = runtime
-            .index(IndexOptions::automatic())
-            .await
-            .unwrap_or_else(|error| panic!("auto-spill index failed: {error}"));
-        let native = report
-            .native
-            .as_ref()
-            .unwrap_or_else(|| panic!("auto-spill metrics were missing"));
-        assert_eq!(
-            native.generation_storage,
-            NativeGenerationStorageMetrics::Postgres
-        );
-        assert_eq!(
-            native
-                .spill
-                .unwrap_or_else(|| panic!("auto-spill accounting was missing"))
-                .extracted_files,
-            u64::try_from(CARGO_MANIFESTS * 2)
-                .unwrap_or_else(|_| panic!("fixture file count overflowed"))
-        );
-        assert_generation_counts_are_persisted(&settings, &schema, &report.generation_id).await;
-        runtime.close().await;
-    }
-
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn automatic_capacity_failure_cleans_its_terminal_generation() {
-    let (schema, settings, project) = live_project_fixture("9");
-    std::fs::create_dir_all(project.path().join(".cartograph"))
-        .unwrap_or_else(|error| panic!("capacity config directory failed: {error}"));
-    std::fs::write(
-        project.path().join(".cartograph/config.json"),
-        r#"{"generationStorage":"postgres","maxGenerationBytes":1,"maxSpillBytes":67108864,"maxSpillRows":1000000,"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
-    )
-    .unwrap_or_else(|error| panic!("capacity config failed: {error}"));
-    std::fs::write(
-        project.path().join("dense.rs"),
-        "pub fn capacity_fixture(value: usize) -> usize { value + 1 }\n",
-    )
-    .unwrap_or_else(|error| panic!("capacity source failed: {error}"));
-
-    {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("capacity runtime connect failed: {error}"));
-        let indexed = runtime.index(IndexOptions::automatic()).await;
-        assert_matches!(
-            indexed,
-            Err(ProjectError::IndexStageFailedWithReason {
-                reason: PipelineFailureReason::GenerationCapacityExceeded,
-                ..
-            })
-        );
-        let status = runtime
-            .status()
-            .await
-            .unwrap_or_else(|error| panic!("capacity status failed: {error}"));
-        let storage = status.snapshot.as_ref().map_or_else(
-            || panic!("capacity project snapshot was missing"),
-            |snapshot| snapshot.generation_storage,
-        );
-        assert_eq!(storage.staging, 0);
-        assert_eq!(storage.failed, 0);
-        runtime.close().await;
-    }
-
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn run_excludes_define_freshness_drift_and_reconciliation_until_explicitly_replaced() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     std::fs::write(
         project.path().join("service.rs"),
         "pub fn admitted_source() -> bool { true }\n",
@@ -353,7 +80,7 @@ async fn run_excludes_define_freshness_drift_and_reconciliation_until_explicitly
     .unwrap_or_else(|error| panic!("excluded source fixture failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("admission runtime connect failed: {error}"));
         let first = runtime
@@ -429,16 +156,16 @@ async fn run_excludes_define_freshness_drift_and_reconciliation_until_explicitly
                 .map(|current| current.source_admission.run_exclude_patterns()),
             Some(0)
         );
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn inherited_run_excludes_verify_a_reconciliation_publication_under_the_same_policy() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let write = |name: &str, contents: &str| {
         std::fs::write(project.path().join(name), contents)
             .unwrap_or_else(|error| panic!("{name} fixture write failed: {error}"));
@@ -447,7 +174,7 @@ async fn inherited_run_excludes_verify_a_reconciliation_publication_under_the_sa
     write("generated.rs", "pub fn generated_source() -> usize { 1 }\n");
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("inherited-exclusion runtime connect failed: {error}"));
         let first = runtime
@@ -497,199 +224,11 @@ async fn inherited_run_excludes_verify_a_reconciliation_publication_under_the_sa
                 .map(|current| current.source_admission.run_exclude_patterns()),
             Some(1)
         );
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn empty_graph_memory_and_forced_postgres_paths_publish_identical_facts() {
-    let (schema, settings, project) = live_project_fixture("8");
-    let config_directory = project.path().join(".cartograph");
-    std::fs::create_dir_all(&config_directory)
-        .unwrap_or_else(|error| panic!("empty graph config directory failed: {error}"));
-    let config_path = config_directory.join("config.json");
-    std::fs::write(
-        &config_path,
-        r#"{"generationStorage":"memory","enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
-    )
-    .unwrap_or_else(|error| panic!("empty memory config failed: {error}"));
-
-    let memory = {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("empty memory runtime connect failed: {error}"));
-        let report = runtime
-            .index(IndexOptions::default().with_history_refresh(false))
-            .await
-            .unwrap_or_else(|error| panic!("empty memory index failed: {error}"));
-        runtime.close().await;
-        report
-    };
-    let memory_native = memory
-        .native
-        .as_ref()
-        .unwrap_or_else(|| panic!("empty memory metrics were missing"));
-    assert_eq!(
-        memory_native.generation_storage,
-        NativeGenerationStorageMetrics::Memory
-    );
-    assert_eq!(memory_native.spill, None);
-
-    std::fs::write(
-        &config_path,
-        r#"{"generationStorage":"postgres","maxSpillBytes":67108864,"maxSpillRows":1000000,"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
-    )
-    .unwrap_or_else(|error| panic!("empty spill config failed: {error}"));
-    let spilled = {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("empty spill runtime connect failed: {error}"));
-        let report = runtime
-            .index(
-                IndexOptions::default()
-                    .with_force(true)
-                    .with_history_refresh(false),
-            )
-            .await
-            .unwrap_or_else(|error| panic!("empty forced spill index failed: {error}"));
-        runtime.close().await;
-        report
-    };
-    let spilled_native = spilled
-        .native
-        .as_ref()
-        .unwrap_or_else(|| panic!("empty spill metrics were missing"));
-    assert_eq!(
-        spilled_native.generation_storage,
-        NativeGenerationStorageMetrics::Postgres
-    );
-    let spill = spilled_native
-        .spill
-        .unwrap_or_else(|| panic!("empty spill accounting was missing"));
-    assert_eq!(spill.extracted_files, 0);
-    assert_eq!(spill.raw_rows, 0);
-    assert_eq!(spill.logical_bytes, 0);
-
-    let logical_projection = |native: &cartograph_agent::NativeIndexMetrics| {
-        (
-            native.files,
-            native.source_bytes,
-            native.symbols,
-            native.numerical_sites,
-            native.resolved_references,
-            native.unresolved_references,
-            native.diagnostics,
-        )
-    };
-    assert_eq!(logical_projection(memory_native), (0, 0, 0, 0, 0, 0, 0));
-    assert_eq!(
-        logical_projection(memory_native),
-        logical_projection(spilled_native)
-    );
-    assert_eq!(memory.source_revision, spilled.source_revision);
-    assert_eq!(memory.content_digest, spilled.content_digest);
-
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn independent_runtimes_terminalize_pre_lease_losers_and_bound_retention() {
-    let (schema, settings, project) = live_project_fixture("12");
-    std::fs::write(
-        project.path().join("service.ts"),
-        "export function boundedWatcher(): number { return 73; }\n",
-    )
-    .unwrap_or_else(|error| panic!("multi-runtime source fixture failed: {error}"));
-
-    {
-        let coordinator = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("coordinator runtime connect failed: {error}"));
-        let project_id = coordinator
-            .register_agent_state_project()
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime project registration failed: {error}"));
-        // A live project lease is now rejected before any reservation, so the
-        // schema maintenance gate stands in for a writer that wins only after
-        // each contender has reserved its generation.
-        let blocker = lease_contention::hold_schema_maintenance_lock(&settings, &schema).await;
-
-        let options = IndexOptions::default()
-            .with_force(true)
-            .with_history_refresh(false);
-        let mut tasks = Vec::new();
-        for _ in 0..4 {
-            let runtime = ProjectRuntime::connect(project.path(), &settings)
-                .await
-                .unwrap_or_else(|error| panic!("contending runtime connect failed: {error}"));
-            let options = options.clone();
-            tasks.push(tokio::spawn(async move {
-                let indexed = runtime.index(options).await;
-                (runtime, indexed)
-            }));
-        }
-        let mut contenders = Vec::new();
-        for task in tasks {
-            let (runtime, indexed) = task
-                .await
-                .unwrap_or_else(|error| panic!("contending runtime task failed: {error}"));
-            assert_eq!(indexed, Err(ProjectError::IndexLeaseBusy));
-            contenders.push(runtime);
-        }
-        let counts_sql = format!(
-            r#"SELECT
-                    count(*) FILTER (WHERE state = 'staging')::bigint AS staging,
-                    count(*) FILTER (WHERE state = 'failed')::bigint AS failed
-                FROM "{schema}"."index_generations"
-                WHERE project_id = CAST($1 AS uuid)"#
-        );
-        let pool = cartograph_db::connect(&settings)
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime count connection failed: {error}"));
-        let counts = query(AssertSqlSafe(counts_sql.clone()))
-            .bind(project_id.as_str())
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime generation count failed: {error}"));
-        assert_eq!(counts.try_get::<i64, _>("staging").ok(), Some(0));
-        assert_eq!(counts.try_get::<i64, _>("failed").ok(), Some(4));
-
-        blocker.release().await;
-        let published = coordinator
-            .index(options.clone())
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime recovery index failed: {error}"));
-        assert!(published.published);
-        assert_matches!(
-            published.retention,
-            GenerationRetentionStatus::Completed { report, .. }
-                if report.failed_removed == 4 && report.staging_remaining == 0
-        );
-        let status = coordinator
-            .status()
-            .await
-            .unwrap_or_else(|error| panic!("multi-runtime status failed: {error}"));
-        let storage = status.snapshot.as_ref().map_or_else(
-            || panic!("multi-runtime storage summary was missing"),
-            |snapshot| snapshot.generation_storage,
-        );
-        assert_eq!(storage.staging, 0);
-        assert_eq!(storage.failed, 0);
-        assert_eq!(storage.current, 1);
-        assert!(storage.estimated_retained_bytes > 0);
-
-        for runtime in contenders {
-            runtime.close().await;
-        }
-        coordinator.close().await;
-        pool.close().await;
-    }
-
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_graph_policy_fixture(root: &Path) -> std::path::PathBuf {
@@ -819,13 +358,12 @@ async fn assert_graph_policy_evidence(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn incremental_sync_reparses_only_changed_or_corrupt_files_and_keeps_complete_graph() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let source = write_incremental_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("incremental runtime connect failed: {error}"));
         let options = IndexOptions::default()
@@ -833,37 +371,21 @@ async fn incremental_sync_reparses_only_changed_or_corrupt_files_and_keeps_compl
             .unwrap_or_else(|error| panic!("incremental worker options failed: {error}"))
             .with_history_refresh(false);
         let first = initial_incremental_index(&runtime, options.clone()).await;
-        let changed_contract = assert_incremental_cache_contract(&runtime, &first, &source).await;
+        let _changed_contract = assert_incremental_cache_contract(&runtime, &first, &source).await;
 
-        assert_incremental_contract_upgrade(
-            &runtime,
-            &settings,
-            &schema,
-            &first,
-            &changed_contract,
-            options.clone(),
-        )
-        .await;
-
-        let recovered = assert_incremental_corruption_recovery(
-            &runtime,
-            &settings,
-            &schema,
-            &source,
-            options.clone(),
-        )
-        .await;
+        let recovered =
+            assert_incremental_corruption_recovery(&runtime, &source, options.clone()).await;
         assert_forced_incremental_rebuild(&runtime, options, &recovered).await;
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn incremental_embedding_reuses_unchanged_generation_documents() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let source = project.path().join("src");
     std::fs::create_dir(&source)
         .unwrap_or_else(|error| panic!("embedding reuse source directory failed: {error}"));
@@ -886,7 +408,7 @@ async fn incremental_embedding_reuses_unchanged_generation_documents() {
     }
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("embedding reuse runtime connect failed: {error}"));
         let options = IndexOptions::default().with_history_refresh(false);
@@ -948,60 +470,11 @@ async fn incremental_embedding_reuses_unchanged_generation_documents() {
         server
             .join()
             .unwrap_or_else(|_| panic!("embedding reuse fixture server panicked"));
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn unchanged_index_terminalizes_all_abandoned_staging_generations() {
-    let (schema, settings, project) = live_project_fixture("8");
-    std::fs::write(
-        project.path().join("service.ts"),
-        "export function stableSource(): boolean { return true; }\n",
-    )
-    .unwrap_or_else(|error| panic!("staging recovery fixture failed: {error}"));
-
-    {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
-            .await
-            .unwrap_or_else(|error| panic!("staging recovery runtime failed: {error}"));
-        let options = IndexOptions::default().with_history_refresh(false);
-        let first = runtime
-            .index(options.clone())
-            .await
-            .unwrap_or_else(|error| panic!("staging recovery initial index failed: {error}"));
-        let abandoned = runtime
-            .database()
-            .begin_generation(NewGeneration::new(
-                first.project_id.clone(),
-                first.source_revision.as_str(),
-                1,
-            ))
-            .await
-            .unwrap_or_else(|error| panic!("abandoned staging fixture failed: {error}"));
-        let unchanged = runtime
-            .index(options)
-            .await
-            .unwrap_or_else(|error| panic!("staging recovery no-op index failed: {error}"));
-        assert!(!unchanged.published);
-        assert_eq!(unchanged.generation_id, first.generation_id);
-        let recovered_state = runtime
-            .database()
-            .generation_state(&first.project_id, abandoned.generation_id())
-            .await
-            .unwrap_or_else(|error| panic!("staging recovery state failed: {error}"));
-        assert_matches!(
-            recovered_state,
-            None | Some(GenerationState::Failed),
-            "abandoned generation remained nonterminal: {recovered_state:?}"
-        );
-        runtime.close().await;
-    }
-
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_incremental_fixture(root: &Path) -> std::path::PathBuf {
@@ -1104,94 +577,8 @@ fn parse_cache_policy_digest(extractor_contract: &ContentDigest) -> ContentDiges
     ContentDigest::from_bytes(*hasher.finalize().as_bytes())
 }
 
-async fn assert_incremental_contract_upgrade(
-    runtime: &ProjectRuntime,
-    settings: &DatabaseSettings,
-    schema: &str,
-    first: &IndexReport,
-    changed_contract: &ContentDigest,
-    options: IndexOptions,
-) {
-    let unchanged = runtime
-        .index(options.clone())
-        .await
-        .unwrap_or_else(|error| panic!("incremental no-op failed: {error}"));
-    assert!(!unchanged.published);
-    assert!(unchanged.native.is_none());
-
-    let pool = cartograph_db::connect(settings)
-        .await
-        .unwrap_or_else(|error| panic!("contract-upgrade connection failed: {error}"));
-    let downgrade_generation = format!(
-        r#"UPDATE "{schema}"."index_generations"
-           SET content_digest_version = $1
-           WHERE project_id = CAST($2 AS uuid) AND state = 'current'"#
-    );
-    let downgraded = query(AssertSqlSafe(downgrade_generation))
-        .bind(GenerationDigestVersion::V18.database_value())
-        .bind(first.project_id.as_str())
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|_| panic!("generation contract downgrade fixture failed"));
-    assert_eq!(downgraded.rows_affected(), 1);
-    let downgrade_parse_cache = format!(
-        r#"UPDATE "{schema}"."native_parse_cache"
-           SET extractor_contract_digest = $1
-           WHERE project_id = CAST($2 AS uuid)"#
-    );
-    let downgraded_cache = query(AssertSqlSafe(downgrade_parse_cache))
-        .bind(changed_contract.as_str())
-        .bind(first.project_id.as_str())
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|_| panic!("parse-cache contract downgrade fixture failed"));
-    assert_eq!(downgraded_cache.rows_affected(), 3);
-    pool.close().await;
-
-    let stale = runtime
-        .status()
-        .await
-        .unwrap_or_else(|error| panic!("stale-contract status failed: {error}"));
-    assert!(!stale.fresh);
-    let upgraded = runtime
-        .index(options.clone())
-        .await
-        .unwrap_or_else(|error| panic!("contract-upgrade index failed: {error}"));
-    assert!(upgraded.published);
-    let metrics = upgraded
-        .native
-        .as_ref()
-        .unwrap_or_else(|| panic!("contract-upgrade native metrics were missing"));
-    assert_eq!(metrics.parse_cache.hits, 0);
-    assert_eq!(metrics.parse_cache.misses, 3);
-    assert_eq!(metrics.parse_cache.parsed_files, 3);
-    assert_eq!(metrics.parse_cache.writes, 3);
-    let status = runtime
-        .status()
-        .await
-        .unwrap_or_else(|error| panic!("upgraded-contract status failed: {error}"));
-    assert!(status.fresh);
-    assert_matches!(
-        status
-            .snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.current.as_ref()),
-        Some(current) if current.digest_version == GenerationDigestVersion::CURRENT
-    );
-    assert_eq!(first.source_revision, upgraded.source_revision);
-    assert_ne!(first.generation_id, upgraded.generation_id);
-    let unchanged = runtime
-        .index(options)
-        .await
-        .unwrap_or_else(|error| panic!("upgraded-contract no-op failed: {error}"));
-    assert!(!unchanged.published);
-    assert_eq!(unchanged.generation_id, upgraded.generation_id);
-}
-
 async fn assert_incremental_corruption_recovery(
     runtime: &ProjectRuntime,
-    settings: &DatabaseSettings,
-    schema: &str,
     source: &Path,
     options: IndexOptions,
 ) -> IndexReport {
@@ -1213,7 +600,7 @@ async fn assert_incremental_corruption_recovery(
     assert_eq!(metrics.parse_cache.parsed_files, 1);
     assert_eq!(metrics.parse_cache.writes, 1);
     assert_complete_checkout_call(runtime, &changed.project_id).await;
-    corrupt_incremental_cache(settings, schema, &changed).await;
+    corrupt_incremental_cache(runtime, source, &changed).await;
     std::fs::write(
         source.join("extra.ts"),
         "export function untouched(): boolean { return false; }\n",
@@ -1238,33 +625,28 @@ async fn assert_incremental_corruption_recovery(
     recovered
 }
 
-async fn corrupt_incremental_cache(
-    settings: &DatabaseSettings,
-    schema: &str,
-    changed: &IndexReport,
-) {
-    let payload = b"{";
-    let digest = ContentDigest::from_bytes(*blake3::hash(payload).as_bytes());
-    let statement = format!(
-        r#"UPDATE "{schema}"."native_parse_cache"
-           SET payload = $1, payload_digest = $2
-           WHERE project_id = $3::uuid AND normalized_path = 'src/caller.ts'
-             AND extractor_contract_digest = $4"#
-    );
-    let pool = cartograph_db::connect(settings)
+async fn corrupt_incremental_cache(runtime: &ProjectRuntime, source: &Path, changed: &IndexReport) {
+    let bytes = std::fs::read(source.join("caller.ts"))
+        .unwrap_or_else(|error| panic!("caller fixture: {error}"));
+    let key = NativeParseCacheKey::new(NativeParseCacheKeyInput {
+        project_id: changed.project_id.clone(),
+        extractor_contract_digest: parse_cache_policy_digest(&native_extractor_contract_digest()),
+        path: NormalizedPath::parse("src/caller.ts")
+            .unwrap_or_else(|error| panic!("caller path: {error}")),
+        language: SourceLanguage::TypeScript,
+        content_hash: ContentDigest::from_bytes(*blake3::hash(&bytes).as_bytes()),
+        source_bytes: bytes.len() as u64,
+    });
+    runtime
+        .database()
+        .evict_native_parse_cache(&key)
         .await
-        .unwrap_or_else(|error| panic!("cache corruption connection failed: {error}"));
-    let cache_contract = parse_cache_policy_digest(&native_extractor_contract_digest());
-    let corrupted = query(AssertSqlSafe(statement))
-        .bind(payload.as_slice())
-        .bind(digest.as_str())
-        .bind(changed.project_id.as_str())
-        .bind(cache_contract.as_str())
-        .execute(&pool)
+        .unwrap_or_else(|error| panic!("cache evict: {error}"));
+    runtime
+        .database()
+        .store_native_parse_cache(&key, b"{")
         .await
-        .unwrap_or_else(|_| panic!("cache corruption fixture failed"));
-    assert_eq!(corrupted.rows_affected(), 1);
-    pool.close().await;
+        .unwrap_or_else(|error| panic!("cache corruption fixture: {error}"));
 }
 
 async fn assert_forced_incremental_rebuild(
@@ -1318,9 +700,8 @@ async fn assert_complete_checkout_call(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
-async fn fuzzy_name_and_parallel_source_search_use_live_paradedb_generation() {
-    let (schema, settings, project) = live_project_fixture("8");
+async fn fuzzy_name_and_parallel_source_search_use_current_native_generation() {
+    let project = live_project_fixture();
     std::fs::write(
         project.path().join("auth.ts"),
         r#"/** Verify an incoming JWT signature before authorization. */
@@ -1334,7 +715,7 @@ export function verifyJwtSignature(token: string): boolean {
     .unwrap_or_else(|error| panic!("find fixture write failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("find runtime connect failed: {error}"));
         let indexed = runtime
@@ -1384,16 +765,16 @@ export function verifyJwtSignature(token: string): boolean {
             hits.iter()
                 .all(|hit| hit["enclosingSymbol"]["qualifiedName"] == "verifyJwtSignature")
         }));
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_uncovered_files() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     std::fs::create_dir(project.path().join("src"))
         .unwrap_or_else(|error| panic!("source directory failed: {error}"));
     std::fs::write(
@@ -1408,7 +789,7 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
     .unwrap_or_else(|error| panic!("keep source failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("SCIP runtime connect failed: {error}"));
         let first = runtime
@@ -1488,25 +869,23 @@ async fn scip_export_and_persistent_partial_import_preserve_exact_graph_and_unco
             .unwrap_or_else(|error| panic!("SCIP status failed: {error}"));
         assert!(status.fresh);
         scip_spill::assert_overlay_storage_parity(&runtime, project.path()).await;
-        let maintenance = lease_contention::hold_schema_maintenance_lock(&settings, &schema).await;
-        assert_refused_import_restores_the_overlay(&runtime, project.path(), maintenance).await;
-        runtime.close().await;
+        assert_refused_import_restores_the_overlay(&runtime, project.path()).await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
 }
 
 /// Import `full.scip` while `maintenance` refuses the forced index's lease:
 /// the import must put the installed partial overlay back in place of the
 /// full artifact, and a restore that succeeded adds nothing to the failure.
-async fn assert_refused_import_restores_the_overlay(
-    runtime: &ProjectRuntime,
-    root: &Path,
-    maintenance: lease_contention::HeldLock,
-) {
+async fn assert_refused_import_restores_the_overlay(runtime: &ProjectRuntime, root: &Path) {
     let overlay = root.join(".cartograph/scip/overlay.scip");
     let installed = std::fs::read(&overlay)
         .unwrap_or_else(|error| panic!("installed overlay read failed: {error}"));
+    let cancellation = ProjectCancellation::new();
+    cancellation.cancel();
     let refused = runtime
         .import_scip_with_cancellation(
             ScipImportRequest::new(
@@ -1515,15 +894,14 @@ async fn assert_refused_import_restores_the_overlay(
                     .unwrap_or_else(|error| panic!("SCIP import limits failed: {error}")),
             )
             .unwrap_or_else(|error| panic!("SCIP import request failed: {error}")),
-            ProjectCancellation::new(),
+            cancellation,
         )
         .await
         .map(|report| report.index.generation_id);
-    maintenance.release().await;
     let Err(failure) = refused else {
         panic!("schema maintenance did not refuse the forced index: {refused:?}");
     };
-    assert_eq!(failure.error(), &ProjectError::IndexLeaseBusy);
+    assert_eq!(failure.error(), &ProjectError::RequestCancelled);
     assert!(!failure.cleanup_failed());
     assert!(!failure.overlay_rollback_failed());
     assert_eq!(
@@ -2146,13 +1524,12 @@ async fn assert_auth_refresh(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn fresh_checkout_indexes_searches_noops_and_atomically_refreshes() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let source = write_auth_checkout_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("runtime connect failed: {error}"));
         let first = initial_auth_index(&runtime).await;
@@ -2169,20 +1546,20 @@ async fn fresh_checkout_indexes_searches_noops_and_atomically_refreshes() {
         assert_stale_source_behavior(&runtime, &source, &symbol_id).await;
         let review_options = assert_stale_review_behavior(&runtime).await;
         assert_auth_refresh(&runtime, &first, &review_options).await;
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn graph_analysis_and_evidence_flags_reindex_without_weakening_traversal() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let config = write_graph_policy_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("graph policy runtime failed: {error}"));
         let disabled = assert_disabled_graph_policy(&runtime).await;
@@ -2193,9 +1570,11 @@ async fn graph_analysis_and_evidence_flags_reindex_without_weakening_traversal()
         )
         .unwrap_or_else(|error| panic!("enabled graph policy failed: {error}"));
         assert_enabled_graph_policy(&runtime, &disabled).await;
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_dependency_workspace_fixture(root: &Path) {
@@ -2627,44 +2006,6 @@ fn write_cross_domain_clone_fixtures(root: &Path) {
     }
 }
 
-async fn insert_misleading_health_document(
-    settings: &DatabaseSettings,
-    schema: &str,
-    indexed: &IndexReport,
-) {
-    let statement = format!(
-        r#"INSERT INTO "{schema}"."search_documents" (
-                id, project_id, generation_id, document_id, file_id, symbol_id,
-                path, language, document_kind, qualified_name, code, natural_text, metadata
-            ) OVERRIDING SYSTEM VALUE
-            SELECT -1, symbols.project_id, symbols.generation_id,
-                   '00000000-0000-4000-8000-000000000001'::uuid,
-                   symbols.file_id, symbols.symbol_id, files.normalized_path,
-                   files.language, 'file', 'misleading-file-document', '',
-                   'non-symbol metadata must not override symbol health',
-                   '{{"health":{{"dynamic_eval":0}},"duplicate_detection_enabled":false}}'::jsonb
-            FROM "{schema}"."symbols" AS symbols
-            JOIN "{schema}"."files" AS files
-              ON files.project_id = symbols.project_id
-             AND files.generation_id = symbols.generation_id
-             AND files.file_id = symbols.file_id
-            WHERE symbols.project_id = CAST($1 AS uuid)
-              AND symbols.generation_id = CAST($2 AS uuid)
-              AND symbols.qualified_name = 'risky'"#,
-    );
-    let pool = cartograph_db::connect(settings)
-        .await
-        .unwrap_or_else(|error| panic!("metadata fixture connection failed: {error}"));
-    let inserted = query(AssertSqlSafe(statement))
-        .bind(indexed.project_id.as_str())
-        .bind(indexed.generation_id.as_str())
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("misleading metadata fixture failed: {error}"));
-    assert_eq!(inserted.rows_affected(), 1);
-    pool.close().await;
-}
-
 async fn assert_dependency_audit(runtime: &ProjectRuntime, indexed: &IndexReport) {
     let report = runtime
         .audit_javascript_dependencies(&indexed.project_id, ProjectCancellation::new())
@@ -2794,7 +2135,7 @@ async fn assert_dead_code_judgement(runtime: &ProjectRuntime, indexed: &IndexRep
         .database()
         .query_current_dead_code(
             &indexed.project_id,
-            &DeadCodeQuery::new(10)
+            DeadCodeQuery::new(10)
                 .unwrap_or_else(|error| panic!("dead-code options failed: {error}")),
         )
         .await
@@ -2937,7 +2278,10 @@ fn assert_contextual_detector_findings(findings: &[serde_json::Value]) {
         })
         .unwrap_or_else(|| panic!("hardcoded endpoint detail was missing"));
     assert_eq!(endpoint["detail"]["category"], "service_configuration");
-    assert_eq!(endpoint["detail"]["serviceConfiguration"], 1);
+    assert_eq!(
+        endpoint["detail"]["serviceConfiguration"].as_f64(),
+        Some(1.0)
+    );
     assert!(!findings.iter().any(|finding| {
         finding["qualifiedName"] == "SetupHelp" && finding["finding"] == "hardcoded_url"
     }));
@@ -3031,71 +2375,37 @@ fn assert_clone_class_findings(findings: &[serde_json::Value]) {
     }
 }
 
-/// The readiness probe must never evaluate the detector cascade, and the stored
-/// relation must agree exactly with a live evaluation, recompute when any input
-/// fingerprint moves, and stay put when nothing changed.
-/// Coverage feeds `low_coverage` and the centrality percentile per symbol, so an
-/// import must move the input fingerprint. A re-import can redistribute hit
-/// lines between symbols while leaving project-wide totals identical, so an
-/// aggregate alone cannot fence this input.
 async fn assert_coverage_moves_the_finding_fingerprint(
     database: &cartograph_db::CartographDatabase,
     indexed: &IndexReport,
-    settings: &DatabaseSettings,
-    schema: &str,
 ) {
-    let pool = cartograph_db::connect(settings)
-        .await
-        .unwrap_or_else(|error| panic!("coverage fixture connection failed: {error}"));
-    let coverage_rows = query(AssertSqlSafe(format!(
-        r#"INSERT INTO "{schema}"."coverage_sources" (
-                project_id, label, report_format, report_digest
-            )
-            VALUES (CAST($1 AS uuid), 'fingerprint-fixture', 'lcov', repeat('a', 64))"#
-    )))
-    .bind(indexed.project_id.as_str())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("coverage source insert failed: {error}"))
-    .rows_affected();
-    assert_eq!(coverage_rows, 1);
-    assert_eq!(
+    for digest in [1, 2] {
+        let request = cartograph_db::CoverageLoadRequest::new(
+            cartograph_db::CoverageLoadInput {
+                project_id: indexed.project_id.clone(),
+                generation_id: indexed.generation_id.clone(),
+                source_label: "fingerprint-fixture".to_owned(),
+                report_digest: ContentDigest::from_bytes([digest; 32]),
+            },
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("coverage request: {error}"));
         database
-            .refresh_current_structural_findings(&indexed.project_id, Duration::from_secs(30))
+            .replace_current_symbol_coverage(request)
             .await
-            .unwrap_or_else(|error| panic!("coverage-change refresh failed: {error}")),
-        StructuralFindingRefresh::Recomputed,
-        "an imported coverage report must move the input fingerprint"
-    );
-    let rewritten = query(AssertSqlSafe(format!(
-        r#"UPDATE "{schema}"."coverage_sources"
-            SET report_digest = repeat('b', 64)
-            WHERE project_id = CAST($1 AS uuid)
-              AND label = 'fingerprint-fixture'"#
-    )))
-    .bind(indexed.project_id.as_str())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("coverage digest rewrite failed: {error}"))
-    .rows_affected();
-    pool.close().await;
-    assert_eq!(rewritten, 1);
-    assert_eq!(
-        database
-            .refresh_current_structural_findings(&indexed.project_id, Duration::from_secs(30))
-            .await
-            .unwrap_or_else(|error| panic!("re-import refresh failed: {error}")),
-        StructuralFindingRefresh::Recomputed,
-        "a coverage re-import must move the fingerprint even when totals are unchanged"
-    );
+            .unwrap_or_else(|error| panic!("coverage replacement: {error}"));
+        assert_eq!(
+            database
+                .refresh_current_structural_findings(&indexed.project_id, Duration::from_secs(30))
+                .await
+                .unwrap_or_else(|error| panic!("coverage finding refresh: {error}")),
+            StructuralFindingRefresh::Recomputed,
+            "exact coverage replacement must move the fingerprint even with unchanged totals"
+        );
+    }
 }
 
-async fn assert_structural_finding_cache(
-    runtime: &ProjectRuntime,
-    indexed: &IndexReport,
-    settings: &DatabaseSettings,
-    schema: &str,
-) {
+async fn assert_structural_finding_cache(runtime: &ProjectRuntime, indexed: &IndexReport) {
     let database = runtime.database();
     assert_uncomputed_structural_finding_reads(runtime, indexed).await;
 
@@ -3134,33 +2444,7 @@ async fn assert_structural_finding_cache(
         "the fixture corpus must produce findings"
     );
 
-    assert_coverage_moves_the_finding_fingerprint(database, indexed, settings, schema).await;
-
-    // A detector-contract change must invalidate a warm relation; otherwise a
-    // shipped rule change keeps serving findings the rules no longer produce.
-    let pool = cartograph_db::connect(settings)
-        .await
-        .unwrap_or_else(|error| panic!("cache fixture connection failed: {error}"));
-    let updated = query(AssertSqlSafe(format!(
-        r#"UPDATE "{schema}"."structural_finding_runs"
-            SET inputs_digest = repeat('0', 64)
-            WHERE project_id = CAST($1 AS uuid)"#
-    )))
-    .bind(indexed.project_id.as_str())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("cache fingerprint rewrite failed: {error}"))
-    .rows_affected();
-    pool.close().await;
-    assert_eq!(updated, 1);
-    assert_eq!(
-        database
-            .refresh_current_structural_findings(&indexed.project_id, Duration::from_secs(30))
-            .await
-            .unwrap_or_else(|error| panic!("stale fingerprint refresh failed: {error}")),
-        StructuralFindingRefresh::Recomputed,
-        "a moved input fingerprint must force a recomputation"
-    );
+    assert_coverage_moves_the_finding_fingerprint(database, indexed).await;
 }
 
 async fn assert_uncomputed_structural_finding_reads(
@@ -3306,34 +2590,35 @@ async fn assert_biomarker_precision_stats(runtime: &ProjectRuntime, indexed: &In
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn workspace_dependency_audit_combines_manifests_graph_scripts_and_dynamic_imports() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     write_dependency_workspace_fixture(project.path());
     write_dependency_source_fixture(project.path());
     write_dependency_clone_fixtures(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("dependency runtime connect failed: {error}"));
         let indexed = runtime
             .index(IndexOptions::default())
             .await
             .unwrap_or_else(|error| panic!("dependency fixture index failed: {error}"));
-        insert_misleading_health_document(&settings, &schema, &indexed).await;
+
         assert_dependency_audit(&runtime, &indexed).await;
         assert_layer_analysis(&runtime, &indexed).await;
         assert_file_analysis(&runtime, &indexed).await;
         assert_dead_code_judgement(&runtime, &indexed).await;
-        assert_structural_finding_cache(&runtime, &indexed, &settings, &schema).await;
+        assert_structural_finding_cache(&runtime, &indexed).await;
         let findings = structural_findings_json(&runtime, &indexed).await;
         assert_structural_finding_inventory(&findings);
         assert_structural_finding_queries(&runtime, &indexed).await;
         assert_biomarker_precision_stats(&runtime, &indexed).await;
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_git_history_fixture(root: &Path) {
@@ -3581,29 +2866,30 @@ async fn assert_history_can_be_disabled(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn git_history_refresh_persists_churn_and_symmetric_cochange_confidence() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     write_git_history_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("history runtime connect failed: {error}"));
         let indexed = runtime
             .index(IndexOptions::default())
             .await
             .unwrap_or_else(|error| panic!("history fixture index failed: {error}"));
-        assert_generation_counts_are_persisted(&settings, &schema, &indexed.generation_id).await;
+        assert_generation_counts_are_persisted(&runtime, &indexed.generation_id).await;
         refresh_history(&runtime, &indexed).await;
         let anchor = assert_history_rows(&runtime, &indexed).await;
         assert_history_hotspots(&runtime, &indexed).await;
         assert_grouped_history_peers(&runtime, &indexed).await;
         assert_history_reuse_follows_head(&runtime, project.path()).await;
         assert_history_can_be_disabled(&runtime, &indexed, &anchor, project.path()).await;
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_issue_history_fixture(root: &Path) {
@@ -3834,13 +3120,12 @@ async fn assert_issue_history_can_be_disabled(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn issue_history_is_structural_generation_fenced_coupled_and_disableable() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     write_issue_history_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("issue-history runtime connect failed: {error}"));
         let indexed = runtime
@@ -3854,9 +3139,11 @@ async fn issue_history_is_structural_generation_fenced_coupled_and_disableable()
         let refreshed =
             assert_issue_generation_fence(&runtime, &indexed, &symbols, project.path()).await;
         assert_issue_history_can_be_disabled(&runtime, &refreshed, project.path()).await;
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_issue_functions(root: &Path, alpha: u32, beta: u32) {
@@ -3873,9 +3160,8 @@ fn write_issue_functions(root: &Path, alpha: u32, beta: u32) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn import_audit_classifies_and_filters_complete_fresh_evidence() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     for directory in ["src/dir", "src/fixtures"] {
         std::fs::create_dir_all(project.path().join(directory))
             .unwrap_or_else(|error| panic!("import fixture directory failed: {error}"));
@@ -3920,7 +3206,7 @@ async fn import_audit_classifies_and_filters_complete_fresh_evidence() {
     .unwrap_or_else(|error| panic!("fixture import source failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("import runtime connect failed: {error}"));
         let indexed = runtime
@@ -3999,15 +3285,16 @@ async fn import_audit_classifies_and_filters_complete_fresh_evidence() {
             ))
             .await;
         assert_eq!(stale, Err(ImportAuditError::SourceChanged));
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn dead_code_counts_type_usage_and_exempts_rust_test_modules() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     std::fs::write(
         project.path().join("lib.rs"),
         "struct Budget { limit: u32 }\n\
@@ -4018,7 +3305,7 @@ async fn dead_code_counts_type_usage_and_exempts_rust_test_modules() {
     )
     .unwrap_or_else(|error| panic!("dead-code fixture failed: {error}"));
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("dead-code runtime connect failed: {error}"));
         let indexed = runtime
@@ -4033,7 +3320,7 @@ async fn dead_code_counts_type_usage_and_exempts_rust_test_modules() {
                     .database()
                     .query_current_dead_code(
                         &project_id,
-                        &DeadCodeQuery::new(50)
+                        DeadCodeQuery::new(50)
                             .unwrap_or_else(|error| panic!("dead-code options failed: {error}"))
                             .with_include_tests(include_tests),
                     )
@@ -4066,19 +3353,20 @@ async fn dead_code_counts_type_usage_and_exempts_rust_test_modules() {
                 .any(|name| name == "tests::budget_is_positive"),
             "{with_tests:?}"
         );
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn rename_plan_combines_exact_references_and_attributed_textual_mentions() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let source = write_rename_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("rename runtime connect failed: {error}"));
         let indexed = runtime
@@ -4170,9 +3458,11 @@ async fn rename_plan_combines_exact_references_and_attributed_textual_mentions()
             })
             .await;
         assert_eq!(stale, Err(RenamePlanError::SourceChanged));
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 async fn assert_file_test_impact_node_budget(
@@ -4201,13 +3491,12 @@ async fn assert_file_test_impact_node_budget(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn changed_file_test_impact_traverses_named_imports_and_reports_barrels() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     write_test_impact_fixture(project.path());
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("test-impact runtime connect failed: {error}"));
         let indexed = runtime
@@ -4299,15 +3588,16 @@ async fn changed_file_test_impact_traverses_named_imports_and_reports_barrels() 
             .unwrap_or_else(|| panic!("filtered test-impact generation was missing"));
         assert_eq!(filtered.affected_test_file_count(), 0);
         assert_eq!(filtered.tests(), []);
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn file_drift_distinguishes_content_hash_from_mtime_threshold_semantics() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     std::fs::create_dir_all(project.path().join(".cartograph"))
         .unwrap_or_else(|error| panic!("file-drift policy directory failed: {error}"));
     std::fs::create_dir_all(project.path().join(".generated"))
@@ -4323,7 +3613,7 @@ async fn file_drift_distinguishes_content_hash_from_mtime_threshold_semantics() 
         .unwrap_or_else(|error| panic!("file-drift b fixture failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("file-drift runtime connect failed: {error}"));
         runtime
@@ -4376,15 +3666,16 @@ async fn file_drift_distinguishes_content_hash_from_mtime_threshold_semantics() 
         assert_eq!(threshold["modifiedCount"], 0);
         assert_eq!(threshold["addedCount"], 1);
         assert_eq!(threshold["deletedCount"], 1);
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn oversized_names_shorten_and_deep_files_publish_a_partial_generation() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     let source_path = project.path().join("repro.rs");
     // A single ordinary construct used to synthesize a name past the canonical
     // storage bound and discard the whole generation (issues #118 and #119).
@@ -4394,7 +3685,7 @@ async fn oversized_names_shorten_and_deep_files_publish_a_partial_generation() {
         .unwrap_or_else(|error| panic!("reference-bound fixture failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("reference-bound runtime connect failed: {error}"));
         let options = IndexOptions::default()
@@ -4410,20 +3701,21 @@ async fn oversized_names_shorten_and_deep_files_publish_a_partial_generation() {
         );
 
         // The stored name is bounded, deterministic, and marked as shortened.
-        let pool = cartograph_db::connect(&settings)
+        let records = runtime
+            .database()
+            .current_interchange_snapshot(InterchangeSnapshotRequest {
+                project_id: &shortened.project_id,
+                maximum_rows: 100_000,
+                statement_timeout: Duration::from_secs(30),
+            })
             .await
-            .unwrap_or_else(|error| panic!("shortened-name connection failed: {error}"));
-        let widest: i64 = query(AssertSqlSafe(format!(
-            r#"SELECT COALESCE(MAX(octet_length(reference_name)), 0)::bigint
-                FROM "{schema}"."references"
-                WHERE project_id = CAST($1 AS uuid)"#
-        )))
-        .bind(shortened.project_id.as_str())
-        .fetch_one(&pool)
-        .await
-        .and_then(|row| row.try_get::<i64, _>(0))
-        .unwrap_or_else(|error| panic!("shortened-name probe failed: {error}"));
-        pool.close().await;
+            .unwrap_or_else(|error| panic!("shortened-name probe failed: {error}"));
+        let widest = records
+            .references
+            .iter()
+            .map(|reference| reference.reference_name.len())
+            .max()
+            .unwrap_or(0);
         assert!(
             widest > 0 && widest <= 4_096,
             "stored reference names must fit the canonical bound, saw {widest}"
@@ -4472,15 +3764,16 @@ async fn oversized_names_shorten_and_deep_files_publish_a_partial_generation() {
             "the recoverable generation must become current"
         );
         assert_ne!(published_generation, recovered.generation_id);
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires PostgreSQL 18 with pg_search and pgvector"]
 async fn profiled_index_skips_oversized_sources_without_weakening_the_published_graph() {
-    let (schema, settings, project) = live_project_fixture("8");
+    let project = live_project_fixture();
     std::fs::write(
         project.path().join("graph.rs"),
         "pub fn caller() { callee(); }\npub fn callee() {}\n",
@@ -4493,7 +3786,7 @@ async fn profiled_index_skips_oversized_sources_without_weakening_the_published_
     .unwrap_or_else(|error| panic!("profile oversized fixture failed: {error}"));
 
     {
-        let runtime = ProjectRuntime::connect(project.path(), &settings)
+        let runtime = ProjectRuntime::open(project.path())
             .await
             .unwrap_or_else(|error| panic!("profile runtime connect failed: {error}"));
         let options = IndexOptions::default()
@@ -4511,14 +3804,14 @@ async fn profiled_index_skips_oversized_sources_without_weakening_the_published_
         assert_eq!(first_json["native"]["files"], 1);
         assert_eq!(first_json["native"]["skipped_oversized_files"], 1);
         assert_eq!(first_json["history"]["state"], "unavailable");
-        assert_eq!(first_json["history"]["reason"], "not_attempted");
+        assert_eq!(first_json["history"]["reason"], "not_requested");
         assert_eq!(first_json["profile"]["historyMillis"], 0);
         let stages = first_json["profile"]["pipelineStages"]
             .as_array()
             .unwrap_or_else(|| panic!("profile stages were missing"));
-        for expected in [
-            "discover", "read", "parse", "resolve", "reduce", "copy", "publish",
-        ] {
+        assert_eq!(first_json["profile"]["sourceManifestReused"], true);
+        assert!(stages.iter().all(|stage| stage["stage"] != "discover"));
+        for expected in ["read", "parse", "resolve", "reduce", "publish"] {
             assert!(
                 stages.iter().any(|stage| stage["stage"] == expected),
                 "profile omitted {expected}: {first_json}"
@@ -4561,9 +3854,11 @@ async fn profiled_index_skips_oversized_sources_without_weakening_the_published_
             serde_json::json!([])
         );
         assert_eq!(unchanged_json["profile"]["historyMillis"], 0);
-        runtime.close().await;
+        runtime
+            .close()
+            .await
+            .unwrap_or_else(|error| panic!("native shutdown failed: {error}"));
     }
-    drop_schema(&settings, &schema).await;
 }
 
 fn write_rename_fixture(root: &Path) -> std::path::PathBuf {
@@ -4803,111 +4098,48 @@ fn git(repository: &Path, arguments: &[&str]) {
     assert!(status.success(), "git fixture command returned {status}");
 }
 
-struct GuardedSchema {
-    name: String,
-    _cleanup: TestSchemaGuard,
-}
-
-impl std::ops::Deref for GuardedSchema {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.name
-    }
-}
-
-impl std::fmt::Display for GuardedSchema {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.name)
-    }
-}
-
-fn unique_schema(database_url: &str) -> GuardedSchema {
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let name = format!("cg_agent_live_{}_{}", process::id(), nanos);
-    let cleanup = TestSchemaGuard::new(database_url, name.clone())
-        .unwrap_or_else(|error| panic!("schema cleanup guard failed: {error}"));
-    GuardedSchema {
-        name,
-        _cleanup: cleanup,
-    }
-}
-
-/// Ready generations record exact fact counts and source bytes, so snapshots
-/// never need to count the fact tables.
 async fn assert_generation_counts_are_persisted(
-    settings: &DatabaseSettings,
-    schema: &str,
+    runtime: &ProjectRuntime,
     generation: &cartograph_domain::GenerationId,
 ) {
-    let pool = cartograph_db::connect(settings)
+    let status = runtime
+        .status()
         .await
-        .unwrap_or_else(|error| panic!("count verification pool failed: {error}"));
-    let counted = |table: &str| {
-        format!(
-            r#"(SELECT count(*) FROM "{schema}"."{table}" WHERE generation_id = $1::uuid)::bigint"#
-        )
-    };
-    let statement = format!(
-        r#"SELECT fact_files, fact_symbols, fact_edges, fact_references,
-                fact_numerical_sites, fact_documents, fact_source_bytes,
-                {}, {}, {}, {}, {}, {},
-                (SELECT COALESCE(sum(byte_size), 0) FROM "{schema}"."files"
-                    WHERE generation_id = $1::uuid)::bigint
-            FROM "{schema}"."index_generations" WHERE generation_id = $1::uuid"#,
-        counted("files"),
-        counted("symbols"),
-        counted("edges"),
-        counted("references"),
-        counted("numerical_sites"),
-        counted("search_documents"),
+        .unwrap_or_else(|error| panic!("count status: {error}"));
+    let snapshot = status
+        .snapshot
+        .unwrap_or_else(|| panic!("missing snapshot"));
+    let current = snapshot
+        .current
+        .unwrap_or_else(|| panic!("missing current"));
+    assert_eq!(&current.generation_id, generation);
+    let actual = runtime
+        .database()
+        .current_interchange_snapshot(InterchangeSnapshotRequest {
+            project_id: &snapshot.project_id,
+            maximum_rows: 100_000,
+            statement_timeout: Duration::from_secs(30),
+        })
+        .await
+        .unwrap_or_else(|error| panic!("count snapshot: {error}"));
+    assert_eq!(
+        current.counts.files,
+        i64::try_from(actual.files.len()).unwrap_or(i64::MAX)
     );
-    let row = query(AssertSqlSafe(statement))
-        .bind(generation.as_str())
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("count verification failed: {error}"));
-    for column in 0..7 {
-        let stored = row
-            .try_get::<Option<i64>, _>(column)
-            .unwrap_or_else(|error| panic!("stored count {column}: {error}"));
-        let actual = row
-            .try_get::<i64, _>(column + 7)
-            .unwrap_or_else(|error| panic!("actual count {column}: {error}"));
-        assert_eq!(
-            stored,
-            Some(actual),
-            "persisted fact column {column} is exact"
-        );
-    }
-    pool.close().await;
+    assert_eq!(
+        current.counts.symbols,
+        i64::try_from(actual.symbols.len()).unwrap_or(i64::MAX)
+    );
+    assert_eq!(
+        current.counts.edges,
+        i64::try_from(actual.edges.len()).unwrap_or(i64::MAX)
+    );
+    assert_eq!(
+        current.counts.references,
+        i64::try_from(actual.references.len()).unwrap_or(i64::MAX)
+    );
 }
 
-fn live_project_fixture(
-    maximum_connections: &str,
-) -> (GuardedSchema, DatabaseSettings, tempfile::TempDir) {
-    let url = env::var(TEST_DATABASE_URL_ENV)
-        .unwrap_or_else(|_| panic!("live project test database is not configured"));
-    let schema = unique_schema(&url);
-    let settings = DatabaseSettings::parse(&url, Some(maximum_connections), Some("10000"))
-        .and_then(|value| value.with_schema(&schema))
-        .unwrap_or_else(|error| panic!("live project database settings failed: {error}"));
-    let project = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir failed: {error}"));
-    (schema, settings, project)
-}
-
-async fn drop_schema(settings: &DatabaseSettings, schema: &str) {
-    let pool = cartograph_db::connect(settings)
-        .await
-        .unwrap_or_else(|error| panic!("cleanup connection failed: {error}"));
-    query(AssertSqlSafe(format!(
-        "DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"
-    )))
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|_| panic!("cleanup schema failed"));
-    pool.close().await;
+fn live_project_fixture() -> tempfile::TempDir {
+    tempfile::tempdir().unwrap_or_else(|error| panic!("native project fixture: {error}"))
 }

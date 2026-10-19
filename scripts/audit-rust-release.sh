@@ -9,7 +9,7 @@ if [[ -z "$STAGE" || -z "$BINARY" || ! -d "$STAGE" || ! -f "$BINARY" ]]; then
   exit 2
 fi
 
-EXPECTED_FILES=$'ACKNOWLEDGEMENTS.md\nLICENSE\nREADME.md\nbin/cartograph\nshare/cartograph/PARADEDB-NOTICE.md'
+EXPECTED_FILES=$'ACKNOWLEDGEMENTS.md\nLICENSE\nREADME.md\nbin/cartograph\nshare/cartograph/NATIVE-STORAGE-NOTICE.md\nshare/cartograph/THIRD-PARTY-STORAGE-LICENSES.txt'
 ACTUAL_FILES="$(cd "$STAGE" && find . -type f -print | sed 's#^./##' | LC_ALL=C sort)"
 if [[ "$ACTUAL_FILES" != "$EXPECTED_FILES" ]]; then
   echo "release archive allowlist mismatch" >&2
@@ -56,6 +56,11 @@ if grep -Eiq '(^|[-_ ])(sqlite|libsqlite)' <<<"$DEPENDENCY_TREE"; then
   echo "Cartograph v2 release dependency graph contains SQLite" >&2
   exit 1
 fi
+if grep -Eq '(sqlx|tokio-postgres|postgres-protocol) v[0-9]' <<<"$DEPENDENCY_TREE"; then
+  echo "Native release dependency graph contains a PostgreSQL runtime" >&2
+  exit 1
+fi
+grep -Eq 'rust-rocksdb v0\.53\.0' <<<"$DEPENDENCY_TREE"
 if grep -Eq 'aws-lc-(rs|sys) v[0-9]' <<<"$DEPENDENCY_TREE"; then
   echo "Cartograph release dependency graph contains the duplicate AWS-LC Rustls provider" >&2
   exit 1
@@ -86,4 +91,4 @@ if git ls-files 'src/**' '__tests__/**' 'bench/**' | grep -q .; then
   exit 1
 fi
 
-echo "[rust-release] archive allowlist, privacy, license, native-runtime, PostgreSQL-only, and ring-only checks passed"
+echo "[rust-release] archive allowlist, privacy, license, native-runtime, RocksDB-only, and ring-only checks passed"

@@ -93,7 +93,6 @@ ARCHITECTURE_BOUNDARIES = {
     "cartograph-domain": set(),
     "cartograph-config": {"cartograph-domain"},
     "cartograph-mcp": set(),
-    "cartograph-test-support": set(),
     "cartograph-extract": {"cartograph-domain"},
     "cartograph-db": {"cartograph-config", "cartograph-domain"},
     "cartograph-scip": {"cartograph-db", "cartograph-domain"},
@@ -146,17 +145,18 @@ def run_architecture_regressions() -> None:
         {"name": "cartograph-db", "dependencies": []},
         {"name": "cartograph-test-support", "dependencies": []},
     ]
-    if architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+    fixture_boundaries = {**ARCHITECTURE_BOUNDARIES, "cartograph-test-support": set()}
+    if architecture_violations(fixture, fixture_boundaries):
         fail("the acyclic independent-crate fixture was rejected")
     for kind in (None, "build"):
         fixture[0]["dependencies"] = [{"name": "cartograph-db", "rename": "store", "kind": kind, "target": "cfg(windows)"}]
-        if not architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+        if not architecture_violations(fixture, fixture_boundaries):
             fail("an aliased target-specific forbidden dependency bypassed architecture checks")
     fixture[0]["dependencies"] = [{"name": "cartograph-test-support", "kind": "dev"}]
-    if architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+    if architecture_violations(fixture, fixture_boundaries):
         fail("test-only support was rejected")
     fixture[0]["dependencies"][0]["kind"] = None
-    if not architecture_violations(fixture, ARCHITECTURE_BOUNDARIES):
+    if not architecture_violations(fixture, fixture_boundaries):
         fail("test support entered the production dependency graph")
     cycle = [{"name": "a", "dependencies": [{"name": "b"}]}, {"name": "b", "dependencies": [{"name": "a"}]}]
     if not architecture_violations(cycle, {"a": {"b"}, "b": {"a"}}):

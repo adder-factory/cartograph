@@ -67,8 +67,10 @@ workspace_version="$(
 sonar_project_version="$(sed -n 's/^sonar\.projectVersion=//p' "$SONAR_CONFIG")"
 [[ "$sonar_project_version" == "$workspace_version" ]] || \
   fail 'the Sonar project version does not match the Cargo workspace version'
-ruby - "$VALIDATION" <<'RUBY'
+ruby - "$VALIDATION" "$RELEASE" <<'RUBY'
 require "yaml"
+require "open3"
+require "json"
 
 def contract_failure(message)
   abort("release workflow contract failed: #{message}")
@@ -160,6 +162,63 @@ validation_path = ARGV.fetch(0)
 if nonblocking_quality?(File.read(validation_path), "validation workflow")
   contract_failure("quality job and its required steps may not continue on error")
 end
+document = parse_workflow(File.read(validation_path), "validation workflow")
+quality, quality_steps = quality_job(document, "validation workflow")
+unit = document.fetch("jobs")["unit-tests"]
+contract_failure("ordinary tests must have a separate required job") unless unit.is_a?(Hash)
+contract_failure("unit tests must depend only on classification") unless unit["needs"] == "classify"
+contract_failure("unit tests must run for every full gate") unless \
+  unit["if"] == "needs.classify.outputs.full == 'true'"
+contract_failure("ordinary test and quality time limits must stay at 25 minutes") unless \
+  unit["timeout-minutes"] == 25 && quality["timeout-minutes"] == 25
+contract_failure("quality must require the ordinary test result") unless \
+  quality["needs"] == ["classify", "unit-tests"] && quality["if"] == "always()"
+unit_steps = unit.fetch("steps")
+contract_failure("unit tests may not change test concurrency or continue on error") if \
+  unit.key?("continue-on-error") || unit.key?("env") || unit_steps.any? do |step|
+    step.key?("continue-on-error") || step.key?("env")
+  end
+test_steps = unit_steps.select { |step| step["name"] == "Unit tests" }
+contract_failure("ordinary tests must run the complete unfiltered workspace suite") unless \
+  test_steps == [{"name" => "Unit tests", "run" => "cargo test --locked --workspace --all-features"}]
+contract_failure("ordinary tests need native binding prerequisites") unless unit_steps.any? do |step|
+  step["run"] == "sudo apt-get update && sudo apt-get install -y clang libclang-dev"
+end
+prerequisite = quality_steps.first
+contract_failure("quality must bind the actual unit job result") unless \
+  prerequisite.fetch("env")["UNIT_RESULT"] == '${{ needs.unit-tests.result }}'
+guard = prerequisite.fetch("run")
+[
+  ["success", "true", "false", "success", true],
+  ["success", "false", "true", "skipped", true],
+  ["failure", "true", "false", "success", false],
+  ["success", "true", "false", "failure", false],
+  ["success", "true", "false", "cancelled", false],
+  ["success", "true", "false", "skipped", false],
+  ["success", "false", "true", "success", false],
+  ["success", "true", "true", "success", false],
+  ["success", "false", "false", "skipped", false]
+].each do |classify, full, docs, result, expected|
+  environment = {
+    "CLASSIFY_RESULT" => classify, "FULL_GATE" => full,
+    "DOCS_ONLY" => docs, "UNIT_RESULT" => result
+  }
+  _stdout, _stderr, status = Open3.capture3(environment, "bash", "-eu", "-c", guard)
+  contract_failure("quality result guard accepted an invalid prerequisite state") unless \
+    status.success? == expected
+end
+contract_failure("attestation must require every validation job directly") unless \
+  document.fetch("jobs").fetch("attest-main-gate").fetch("needs") == \
+    ["classify", "quality", "unit-tests", "windows-portability", "macos-portability",
+     "linux-release-portability", "rocksdb"]
+expected_jobs = ["quality", "unit-tests", "windows-portability", "macos-portability",
+                 "linux-release-portability", "rocksdb/database", "rocksdb/runtime",
+                 "rocksdb/operations"]
+ARGV.each do |path|
+  arrays = File.read(path).scan(/requiredJobs\s*(?::|==)\s*(\[[^\]]*\])/).flatten
+  contract_failure("gate provenance must bind all eight validation jobs") unless \
+    arrays.length == 1 && JSON.parse(arrays.first) == expected_jobs
+end
 RUBY
 
 grep -Fq 'attest-main-gate:' "$VALIDATION" || fail 'main-gate attestation job is missing'
@@ -207,7 +266,7 @@ job_ids="$(awk '
     print job
   }
 ' "$VALIDATION")"
-expected_job_ids=$'classify\nquality\nwindows-portability\nmacos-portability\nlinux-release-portability\nparadedb\nattest-main-gate'
+expected_job_ids=$'classify\nunit-tests\nquality\nwindows-portability\nmacos-portability\nlinux-release-portability\nrocksdb\nattest-main-gate'
 [[ "$job_ids" == "$expected_job_ids" ]] || \
   fail 'validation jobs changed without an explicit documentation-scope contract'
 
@@ -268,7 +327,7 @@ workspace_contract_run_count="$(awk '
 ' "$VALIDATION")"
 [[ "$workspace_contract_run_count" == 1 ]] || \
   fail 'workspace dependency contract command must appear exactly once'
-grep -Fq 'needs: classify' <<<"$quality_block" || \
+grep -Fq 'needs: [classify, unit-tests]' <<<"$quality_block" || \
   fail 'required quality result does not depend on change classification'
 if grep -Eq '^    (container|services):' <<<"$quality_block"; then
   fail 'documentation-only quality job cannot allocate a container or service'
@@ -316,7 +375,7 @@ while IFS= read -r line; do
 done <<<"$quality_block"
 validate_quality_step "$quality_step"
 
-for parallel_job in windows-portability macos-portability linux-release-portability paradedb; do
+for parallel_job in windows-portability macos-portability linux-release-portability rocksdb; do
   if job_block "$VALIDATION" "$parallel_job" | grep -Fq 'needs: quality'; then
     fail "independent gate $parallel_job is serialized behind quality"
   fi
@@ -328,56 +387,52 @@ for skipped_job in windows-portability macos-portability linux-release-portabili
   grep -Fq "if: needs.classify.outputs.full == 'true'" <<<"$skipped_block" || \
     fail "documentation-only scope does not skip $skipped_job"
 done
-paradedb_block="$(job_block "$VALIDATION" paradedb)"
-grep -Fq 'needs: classify' <<<"$paradedb_block" || \
-  fail 'live PostgreSQL matrix does not depend on change classification'
-if grep -Eq '^    (container|services):' <<<"$paradedb_block"; then
-  fail 'documentation-only PostgreSQL contexts cannot allocate a container or service'
+rocksdb_block="$(job_block "$VALIDATION" rocksdb)"
+grep -Fq 'needs: classify' <<<"$rocksdb_block" || \
+  fail 'native RocksDB matrix does not depend on change classification'
+if grep -Eq '^    (container|services):' <<<"$rocksdb_block"; then
+  fail 'documentation-only RocksDB contexts cannot allocate a container or service'
 fi
-grep -Fq 'name: Documentation-only required-check fast path' <<<"$paradedb_block" || \
-  fail 'live PostgreSQL required contexts disappear for documentation-only changes'
-grep -Fq "if: needs.classify.outputs.docs_only == 'true'" <<<"$paradedb_block" || \
-  fail 'live PostgreSQL documentation fast path is not scope-gated'
+grep -Fq 'name: Documentation-only required-check fast path' <<<"$rocksdb_block" || \
+  fail 'native RocksDB required contexts disappear for documentation-only changes'
+grep -Fq "if: needs.classify.outputs.docs_only == 'true'" <<<"$rocksdb_block" || \
+  fail 'native RocksDB documentation fast path is not scope-gated'
 
-validate_paradedb_step() {
+validate_rocksdb_step() {
   local step="$1"
   [[ -n "$step" ]] || return 0
   if grep -Fq 'name: Documentation-only required-check fast path' <<<"$step"; then
     grep -Fq "needs.classify.outputs.docs_only == 'true'" <<<"$step" || \
-      fail 'live PostgreSQL documentation fast path lost its docs-only condition'
+      fail 'native RocksDB documentation fast path lost its docs-only condition'
   elif ! grep -Fq "needs.classify.outputs.full == 'true'" <<<"$step"; then
-    fail "live PostgreSQL step is not full-gate scoped: $(head -n 1 <<<"$step")"
+    fail "native RocksDB step is not full-gate scoped: $(head -n 1 <<<"$step")"
   fi
 }
 
-in_paradedb_steps=false
-paradedb_step=''
+in_rocksdb_steps=false
+rocksdb_step=''
 while IFS= read -r line; do
   if [[ "$line" == '    steps:' ]]; then
-    in_paradedb_steps=true
+    in_rocksdb_steps=true
     continue
   fi
-  [[ "$in_paradedb_steps" == true ]] || continue
+  [[ "$in_rocksdb_steps" == true ]] || continue
   if [[ "$line" == '      - '* ]]; then
-    validate_paradedb_step "$paradedb_step"
-    paradedb_step="$line"$'\n'
+    validate_rocksdb_step "$rocksdb_step"
+    rocksdb_step="$line"$'\n'
   else
-    paradedb_step+="$line"$'\n'
+    rocksdb_step+="$line"$'\n'
   fi
-done <<<"$paradedb_block"
-validate_paradedb_step "$paradedb_step"
-for database_policy in \
-  '--memory 2147483648' \
-  '--memory-reservation 1073741824' \
-  '--cpus 4' \
-  '--pids-limit 256' \
-  '-c checkpoint_timeout=15min' \
-  '-c max_wal_size=4GB' \
-  '-c min_wal_size=512MB' \
-  '-c max_connections=96' \
-  '-c max_parallel_workers=4'; do
-  grep -Fq -- "$database_policy" <<<"$paradedb_block" || \
-    fail "live PostgreSQL matrix does not prove managed database policy: $database_policy"
+done <<<"$rocksdb_block"
+validate_rocksdb_step "$rocksdb_step"
+for native_contract in \
+  '--test rocks_state --test rocks_project --test rocks_graph -- --include-ignored' \
+  '--test live_supervisor -- --include-ignored' \
+  '--test rocks_cli --test rocks_owner --test live_cli_surface --test live_supervised_index --test index_startup' \
+  'cargo bench --locked -p cartograph-indexer --bench index_scaling' \
+  'DOCKER_HOST: unix:///nonexistent-cartograph-docker.sock'; do
+  grep -Fq -- "$native_contract" <<<"$rocksdb_block" || \
+    fail "native RocksDB matrix omitted required proof: $native_contract"
 done
 
 attestation_block="$(job_block "$VALIDATION" attest-main-gate)"
@@ -435,7 +490,7 @@ fi
 if grep -Eiq 'nightly|miri|sanitizer|cargo[- ]fuzz' "$STABLE_CANARY"; then
   fail 'production compatibility canary must use stable Rust only'
 fi
-grep -Fq 'strategy:' "$VALIDATION" || fail 'live PostgreSQL shards are missing'
+grep -Fq 'strategy:' "$VALIDATION" || fail 'native RocksDB shards are missing'
 for shard in database runtime operations; do
   grep -Fq -- "- $shard" "$VALIDATION" || fail "live shard $shard is missing"
 done
@@ -540,7 +595,7 @@ if grep -Fq 'Swatinem/rust-cache@' "$VALIDATION" "$RELEASE"; then
 fi
 CACHE_ACTION_SHA='55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
 restore_count="$(literal_count "actions/cache/restore@$CACHE_ACTION_SHA")"
-[[ "$restore_count" == 5 ]] || fail 'every Rust cache restore must use pinned actions/cache v6.1.0'
+[[ "$restore_count" == 6 ]] || fail 'every Rust cache restore must use pinned actions/cache v6.1.0'
 save_count="$(literal_count "actions/cache/save@$CACHE_ACTION_SHA")"
 [[ "$save_count" == 4 ]] || fail 'bounded main, Windows, macOS, and release cache saves are missing'
 for cache_path in \
@@ -548,18 +603,16 @@ for cache_path in \
   '.cargo/registry/cache/' \
   '.cargo/git/db/' \
   'target/'; do
-  path_count="$(literal_count "$cache_path")"
-  [[ "$path_count" == 9 ]] || fail "Rust cache path coverage changed for $cache_path"
+  path_count="$(awk -v expected="$cache_path" '{ $1=$1; if ($0 == expected || $0 == "~/" expected) n++ } END { print n+0 }' "$VALIDATION" "$RELEASE")"
+  [[ "$path_count" == 10 ]] || fail "Rust cache path coverage changed for $cache_path"
 done
 grep -Fq 'steps.rust-cache.outputs.cache-primary-key' "$VALIDATION" || \
   fail 'main cache saves are not bound to their exact restored primary key'
 grep -Fq 'steps.rust-cache.outputs.cache-primary-key' "$RELEASE" || \
   fail 'release cache saves are not bound to their exact restored primary key'
-grep -Fq 'scripts/pull-pinned-image.sh' "$VALIDATION" || fail 'ParadeDB pulls do not use bounded retries'
-grep -Fq 'PostgreSQL init process complete; ready for start up.' "$VALIDATION" || \
-  fail 'ParadeDB readiness can accept the temporary bootstrap server'
-grep -Fq -- "--command 'SELECT 1;'" "$VALIDATION" || \
-  fail 'ParadeDB readiness does not prove a live SQL connection'
+grep -Fq 'scripts/pull-pinned-image.sh' "$ROOT/scripts/build-linux-rust-release.sh" || fail 'Linux build pulls do not use bounded retries'
+grep -Fq 'capabilitiesReady == true' "$VALIDATION" || \
+  fail 'native live workflow does not prove actual storage capabilities'
 grep -Fq -- '-v2-ubuntu-' "$VALIDATION" || \
   fail 'live shards do not reuse the compiled Ubuntu workspace cache'
 
@@ -694,6 +747,8 @@ case "${1:-}" in
   install
   uninstall
   serve
+  watch
+  service
   doctor
   db
 HELP

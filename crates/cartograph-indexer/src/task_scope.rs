@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     future::Future,
     sync::{
         Arc, Mutex,
@@ -9,8 +10,8 @@ use std::{
 use thiserror::Error;
 use tokio::{
     sync::oneshot,
-    task::{AbortHandle, JoinSet},
-    time::{Instant, timeout_at},
+    task::{AbortHandle, Id, JoinSet},
+    time::Instant,
 };
 
 use crate::{PipelineFailure, PipelineStage};
@@ -118,6 +119,7 @@ struct TaskRegistry {
     max_bytes: u64,
     reserved_bytes: u64,
     workers: JoinSet<WorkerCompletion>,
+    worker_controls: BTreeMap<Id, AbortHandle>,
     pending_observations: Vec<PendingObservation>,
     worker_failed: bool,
     unobserved_results: bool,
@@ -129,6 +131,7 @@ struct PendingObservation {
 }
 
 struct WorkerCompletion {
+    worker_id: Id,
     outcome: WorkerOutcome,
     delivered: bool,
     observed: Arc<AtomicBool>,
@@ -158,6 +161,15 @@ pub(crate) struct ReapReport {
 }
 
 impl TaskScope {
+    pub(crate) fn close_and_abort(&self) {
+        if let Ok(mut registry) = self.registry.lock() {
+            registry.closed = true;
+            for control in registry.worker_controls.values() {
+                control.abort();
+            }
+        }
+    }
+
     pub(crate) fn new(max_tasks: usize, max_bytes: u64) -> Self {
         Self {
             registry: Arc::new(Mutex::new(TaskRegistry {
@@ -166,6 +178,7 @@ impl TaskScope {
                 max_bytes,
                 reserved_bytes: 0,
                 workers: JoinSet::new(),
+                worker_controls: BTreeMap::new(),
                 pending_observations: Vec::new(),
                 worker_failed: false,
                 unobserved_results: false,
@@ -193,8 +206,10 @@ impl TaskScope {
         let observed = Arc::new(AtomicBool::new(false));
         let worker_observed = observed.clone();
         let worker = tokio::spawn(work);
+        let worker_id = worker.id();
         let abort = worker.abort_handle();
         let worker_abort = abort.clone();
+        registry.worker_controls.insert(worker_id, abort.clone());
         registry.workers.spawn(async move {
             let abort_on_drop = AbortOnDrop(worker_abort);
             let joined = worker.await;
@@ -214,6 +229,7 @@ impl TaskScope {
             };
             let delivered = sender.send(result).is_ok();
             WorkerCompletion {
+                worker_id,
                 outcome,
                 delivered,
                 observed: worker_observed,
@@ -253,46 +269,35 @@ impl TaskScope {
             .map(|registry| registry.max_tasks)
     }
 
-    pub(crate) async fn close_abort_and_reap(&self, deadline: Instant) -> ReapReport {
-        let (mut workers, pending, mut summary, active_tasks) = match self.registry.lock() {
-            Ok(mut registry) => {
+    /// Close admission and reap without moving handles out of their owner.
+    /// A timed-out or dropped drain therefore retains running blocking work.
+    pub(crate) async fn close_abort_and_reap_retained(&self, deadline: Instant) -> ReapReport {
+        self.close_and_abort();
+        loop {
+            if let Ok(mut registry) = self.registry.lock() {
                 registry.reap_finished();
-                registry.closed = true;
-                let active_tasks = registry.workers.len();
-                let workers = std::mem::take(&mut registry.workers);
-                let pending = std::mem::take(&mut registry.pending_observations);
-                let summary = CompletionSummary {
-                    worker_failed: registry.worker_failed,
-                    unobserved_results: registry.unobserved_results,
-                };
-                (workers, pending, summary, active_tasks)
-            }
-            Err(_) => {
+                let all_joined = registry.workers.is_empty();
+                if all_joined || Instant::now() >= deadline {
+                    return ReapReport {
+                        active_tasks: registry.workers.len(),
+                        all_joined,
+                        worker_failed: registry.worker_failed,
+                        unobserved_results: registry.unobserved_results
+                            || registry
+                                .pending_observations
+                                .iter()
+                                .any(|pending| !pending.observed.load(Ordering::Acquire)),
+                    };
+                }
+            } else {
                 return ReapReport {
                     active_tasks: 0,
                     all_joined: false,
-                    worker_failed: false,
+                    worker_failed: true,
                     unobserved_results: false,
                 };
             }
-        };
-        workers.abort_all();
-        let joined = timeout_at(deadline, async {
-            while let Some(joined) = workers.join_next().await {
-                summary.record_joined(joined);
-            }
-        })
-        .await;
-        for observation in pending {
-            if !observation.observed.load(Ordering::Acquire) {
-                summary.unobserved_results = true;
-            }
-        }
-        ReapReport {
-            active_tasks,
-            all_joined: joined.is_ok(),
-            worker_failed: summary.worker_failed,
-            unobserved_results: summary.unobserved_results,
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
 }
@@ -335,6 +340,7 @@ impl TaskRegistry {
     }
 
     fn record_completion(&mut self, completion: WorkerCompletion) {
+        self.worker_controls.remove(&completion.worker_id);
         match completion.outcome {
             WorkerOutcome::Failed => {
                 self.worker_failed = true;
@@ -380,29 +386,6 @@ impl TaskRegistry {
     }
 }
 
-struct CompletionSummary {
-    worker_failed: bool,
-    unobserved_results: bool,
-}
-
-impl CompletionSummary {
-    fn record_joined(&mut self, joined: Result<WorkerCompletion, tokio::task::JoinError>) {
-        match joined {
-            Ok(completion) => match completion.outcome {
-                WorkerOutcome::Failed => self.worker_failed = true,
-                WorkerOutcome::Succeeded
-                    if !completion.delivered || !completion.observed.load(Ordering::Acquire) =>
-                {
-                    self.unobserved_results = true;
-                }
-                WorkerOutcome::Cancelled | WorkerOutcome::Succeeded => {}
-            },
-            Err(error) if error.is_cancelled() => {}
-            Err(_) => self.worker_failed = true,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::assert_matches;
@@ -438,6 +421,37 @@ mod tests {
         }
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retained_drain_waits_for_actual_blocking_worker_after_cancellation() {
+        let scope = TaskScope::new(TEST_TASK_CAPACITY, LARGE_TEST_BYTE_CAPACITY);
+        let (started, receiver) = oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        let task = scope
+            .spawn(ONE_BYTE, async move {
+                let released = tokio::task::block_in_place(|| {
+                    let _ = started.send(());
+                    blocked.recv_timeout(Duration::from_secs(10)).is_ok()
+                });
+                assert!(released, "blocking worker release was not delivered");
+                tokio::task::yield_now().await;
+                Ok::<(), PipelineFailure>(())
+            })
+            .unwrap_or_else(|error| panic!("worker admission failed: {error}"));
+        assert!(tokio::time::timeout(REAP_TIMEOUT, receiver).await.is_ok());
+        let incomplete = scope
+            .close_abort_and_reap_retained(Instant::now() + Duration::from_millis(25))
+            .await;
+        assert!(!incomplete.all_joined);
+        assert_eq!(incomplete.active_tasks, 1);
+        assert!(release.send(()).is_ok());
+        let complete = scope
+            .close_abort_and_reap_retained(Instant::now() + REAP_TIMEOUT)
+            .await;
+        assert!(complete.all_joined);
+        assert!(!complete.worker_failed);
+        assert_eq!(task.join().await, Err(ScopedTaskError::Cancelled));
+    }
+
     #[tokio::test]
     async fn closing_scope_aborts_and_joins_a_detached_registered_worker() {
         let scope = TaskScope::new(TEST_TASK_CAPACITY, LARGE_TEST_BYTE_CAPACITY);
@@ -454,9 +468,9 @@ mod tests {
         };
         assert!(started_receiver.await.is_ok());
         let report = scope
-            .close_abort_and_reap(Instant::now() + REAP_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + REAP_TIMEOUT)
             .await;
-        assert_eq!(report.active_tasks, 1);
+        assert_eq!(report.active_tasks, 0);
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         assert!(!report.unobserved_results);
@@ -482,7 +496,7 @@ mod tests {
             Some(ScopedTaskError::TaskCapacityExceeded)
         );
         let report = task_limited
-            .close_abort_and_reap(Instant::now() + REAP_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + REAP_TIMEOUT)
             .await;
         assert!(report.all_joined);
 
@@ -502,7 +516,7 @@ mod tests {
             Some(ScopedTaskError::InvalidByteReservation)
         );
         let report = byte_limited
-            .close_abort_and_reap(Instant::now() + REAP_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + REAP_TIMEOUT)
             .await;
         assert!(report.all_joined);
     }
@@ -519,7 +533,7 @@ mod tests {
         drop(task);
         tokio::task::yield_now().await;
         let report = scope
-            .close_abort_and_reap(Instant::now() + REAP_TIMEOUT)
+            .close_abort_and_reap_retained(Instant::now() + REAP_TIMEOUT)
             .await;
         assert!(report.all_joined);
         assert!(report.worker_failed);

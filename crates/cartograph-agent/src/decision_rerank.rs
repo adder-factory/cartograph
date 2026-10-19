@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 
+use cartograph_domain::DecisionRequestMetrics;
 use cartograph_llm::{
     JEV_MODEL, JevAnswer, JevClient, JevError, JevFeature, JevQuestion, JevSettings, NoulCriteria,
     jev_feature_enabled,
@@ -20,6 +21,10 @@ use crate::{ProjectCancellation, ProjectError, ProjectRuntime, navigation::Decis
 /// 64-question bound. Evaluated as a whole: the measured gains came from
 /// reordering the first two dozen retrieval hits.
 const MAXIMUM_JUDGED: usize = 24;
+type JudgedCandidates = (Vec<f64>, Option<DecisionRequestMetrics>);
+
+#[cfg(test)]
+mod evaluation;
 
 impl ProjectRuntime {
     /// Whether context retrieval should defer candidate ranking to Jev: the
@@ -83,18 +88,17 @@ impl<P: DecisionProvider> ContextRanker<'_, P> {
             )));
         }
         let state = state(task, &packet, &indices);
-        let scores = match self.judge(&state, indices.len()).await? {
-            Ok(scores) => scores,
+        let (scores, metrics) = match self.judge(&state, indices.len()).await? {
+            Ok(judged) => judged,
             Err(error) => return Ok(packet.with_decision_rank(unavailable(indices.len(), &error))),
         };
         let ranked = indices.iter().copied().zip(scores).collect::<Vec<_>>();
         // Validation cannot fail for scores `judge` admitted; stay fail-open anyway.
         match packet.clone().with_decision_relevance(task, &ranked) {
-            Ok(ranked_packet) => Ok(ranked_packet.with_decision_rank(DecisionRankEvidence::new(
-                JEV_MODEL,
-                DecisionRankState::Applied,
-                ranked.len(),
-            ))),
+            Ok(ranked_packet) => Ok(ranked_packet.with_decision_rank(
+                DecisionRankEvidence::new(JEV_MODEL, DecisionRankState::Applied, ranked.len())
+                    .with_request_metrics(metrics),
+            )),
             Err(_) => Ok(
                 packet.with_decision_rank(unavailable(ranked.len(), &JevError::InvalidResponse))
             ),
@@ -108,15 +112,18 @@ impl<P: DecisionProvider> ContextRanker<'_, P> {
         &self,
         state: &Value,
         count: usize,
-    ) -> Result<Result<Vec<f64>, JevError>, ProjectError> {
+    ) -> Result<Result<JudgedCandidates, JevError>, ProjectError> {
         let questions = questions(count);
         let decision = tokio::select! {
             biased;
             () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
             decision = self.provider.decide(state, &questions) => decision,
         };
-        Ok(decision
-            .and_then(|decision| scores(&decision.answers, count).ok_or(JevError::InvalidResponse)))
+        Ok(decision.and_then(|decision| {
+            scores(&decision.answers, count)
+                .map(|scores| (scores, decision.metrics))
+                .ok_or(JevError::InvalidResponse)
+        }))
     }
 }
 
@@ -143,7 +150,8 @@ fn state(task: &str, packet: &ContextPacket, indices: &[usize]) -> Value {
             })
         })
         .collect::<Vec<_>>();
-    json!({ "task": task, "candidates": candidates })
+    json!({ "task": task, "candidates": candidates,
+        "generationId": packet.generation().map(cartograph_search::GenerationEvidence::generation_id) })
 }
 
 fn question_key(index: usize) -> String {
@@ -177,15 +185,12 @@ fn scores(answers: &BTreeMap<String, JevAnswer>, count: usize) -> Option<Vec<f64
 
 #[cfg(test)]
 mod tests {
-    use std::time::SystemTime;
 
-    use cartograph_config::DatabaseSettings;
     use cartograph_llm::JevDecision;
     use cartograph_search::{
         ContextBudget, ContextRequest, ContextRequestOptions, DeterministicRetriever,
         IndexFreshness,
     };
-    use cartograph_test_support::TestSchemaGuard;
 
     use super::*;
 
@@ -217,6 +222,8 @@ mod tests {
                 })
                 .collect();
             std::future::ready(Ok(JevDecision {
+                usage: None,
+                metrics: Some(crate::decision_batch::fixture_request_metrics()),
                 model: cartograph_llm::JEV_MODEL.to_owned(),
                 answers,
             }))
@@ -235,31 +242,19 @@ mod tests {
     }
 
     struct Fixture {
-        guard: TestSchemaGuard,
         runtime: ProjectRuntime,
         packet: ContextPacket,
         _root: tempfile::TempDir,
     }
 
     async fn ledger_fixture() -> Fixture {
-        let url = std::env::var("CARTOGRAPH_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| panic!("test database not configured"));
-        let stamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let schema = format!("cg_decision_rank_{}_{}", std::process::id(), stamp);
-        let guard = TestSchemaGuard::new(&url, &schema).unwrap_or_else(|e| panic!("guard: {e}"));
-        let settings = DatabaseSettings::parse(&url, Some("4"), Some("10000"))
-            .and_then(|s| s.with_schema(&schema))
-            .unwrap_or_else(|e| panic!("settings: {e}"));
         let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
         std::fs::write(
             root.path().join("lib.rs"),
             "pub fn parse_ledger_entry() {}\npub fn render_ledger_entry() {}\npub fn ledger_entry_total() -> u32 { 0 }\n",
         )
         .unwrap_or_else(|e| panic!("source: {e}"));
-        let runtime = ProjectRuntime::connect(root.path(), &settings)
+        let runtime = ProjectRuntime::open(root.path())
             .await
             .unwrap_or_else(|e| panic!("runtime: {e}"));
         runtime
@@ -284,7 +279,6 @@ mod tests {
             .await
             .unwrap_or_else(|e| panic!("packet: {e}"));
         Fixture {
-            guard,
             runtime,
             packet,
             _root: root,
@@ -299,6 +293,8 @@ mod tests {
             _: &BTreeMap<String, JevQuestion>,
         ) -> impl Future<Output = Result<JevDecision, JevError>> {
             std::future::ready(Ok(JevDecision {
+                usage: None,
+                metrics: None,
                 model: cartograph_llm::JEV_MODEL.to_owned(),
                 answers: self.0.clone(),
             }))
@@ -337,7 +333,7 @@ mod tests {
         ]));
         assert_eq!(
             ranker(&valid, &cancellation).judge(&state, 2).await,
-            Ok(Ok(vec![0.2, 0.9]))
+            Ok(Ok((vec![0.2, 0.9], None)))
         );
         for answers in [
             BTreeMap::from([(question_key(0), noul(0.2))]),
@@ -377,10 +373,8 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires PostgreSQL 18 with pg_search and pgvector; provider decisions are scripted"]
     async fn live_context_ranking_reorders_retrieval_candidates_and_keeps_order_on_outage() {
         let Fixture {
-            guard,
             runtime,
             packet,
             _root,
@@ -406,6 +400,11 @@ mod tests {
             .unwrap_or_else(|| panic!("ranking provenance"));
         assert_eq!(rank.state(), DecisionRankState::Applied);
         assert_eq!(rank.judged(), indices.len());
+        assert_eq!(
+            rank.request_metrics()
+                .and_then(|metrics| metrics.input_tokens),
+            Some(120)
+        );
         let mut expected = before.clone();
         let judged = indices
             .iter()
@@ -447,10 +446,9 @@ mod tests {
             before,
             "provider failure keeps native order"
         );
-        runtime.close().await;
-        guard
-            .cleanup()
+        runtime
+            .close()
             .await
-            .unwrap_or_else(|e| panic!("cleanup: {e}"));
+            .unwrap_or_else(|e| panic!("shutdown: {e}"));
     }
 }

@@ -79,16 +79,16 @@ pub struct ProjectSourceSettings {
     duplicate_code_allowlist: Vec<String>,
 }
 
-/// Project preference for native generation working-set ownership.
+/// Legacy generation-storage preference retained only for configuration compatibility.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectGenerationStorage {
-    /// Select PostgreSQL spill only when the immutable source manifest is large.
+    /// Legacy automatic spill preference; ignored by the native builder.
     #[default]
     Auto,
-    /// Retain the complete canonicalization payload in Rust memory.
+    /// Legacy in-memory preference; ignored by the native builder.
     Memory,
-    /// Use generation-fenced PostgreSQL spill regardless of manifest size.
+    /// Legacy PostgreSQL spill preference; does not select a runtime backend.
     Postgres,
 }
 
@@ -231,19 +231,19 @@ impl ProjectSourceSettings {
         self.maximum_generation_bytes
     }
 
-    /// Requested memory/PostgreSQL working-set strategy.
+    /// Legacy working-set preference; ignored by native generation construction.
     #[must_use]
     pub const fn generation_storage(&self) -> ProjectGenerationStorage {
         self.generation_storage
     }
 
-    /// Explicit logical PostgreSQL spill byte quota.
+    /// Legacy spill byte quota; ignored by native generation construction.
     #[must_use]
     pub const fn maximum_spill_bytes(&self) -> Option<u64> {
         self.maximum_spill_bytes
     }
 
-    /// Explicit unordered PostgreSQL spill row quota.
+    /// Legacy spill row quota; ignored by native generation construction.
     #[must_use]
     pub const fn maximum_spill_rows(&self) -> Option<u64> {
         self.maximum_spill_rows

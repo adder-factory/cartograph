@@ -1,14 +1,31 @@
 use std::{collections::HashMap, mem::size_of, thread};
 
-use cartograph_domain::{EdgeKind, GenerationId, ProjectId, SymbolId};
+use cartograph_domain::{EdgeKind, SymbolId};
 use num_traits::ToPrimitive as _;
 use serde::Serialize;
-use sqlx_core::{query::query, row::Row, sql_str::AssertSqlSafe};
+
+/// A structural bridge score fenced to an immutable generation.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolBetweennessScore {
+    /// Stable structural symbol identity.
+    pub symbol_id: SymbolId,
+    /// Normalized sampled Brandes score, when computed.
+    pub score: Option<f64>,
+}
+/// A structural importance score fenced to an immutable generation.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolPageRankScore {
+    /// Stable structural symbol identity.
+    pub symbol_id: SymbolId,
+    /// Normalized directed `PageRank` score, when computed.
+    pub score: Option<f64>,
+}
 use thiserror::Error;
 
-use crate::{CartographDatabase, GenerationFacts, StorageError, database::quoted_schema};
-
 const DEFAULT_SAMPLE_COUNT: usize = 200;
+mod native;
 const DEFAULT_SEED: u32 = 0xc0de_2026;
 const MAXIMUM_WORKERS: usize = 16;
 const SCRATCH_MEMORY_BUDGET_BYTES: usize = 256 * 1024 * 1024;
@@ -77,159 +94,6 @@ pub enum PageRankError {
     /// A graph dimension or normalized score could not be represented safely.
     #[error("PageRank numeric conversion failed")]
     NumericOverflow,
-}
-
-/// One persisted structural-bridge score fenced to an immutable generation.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SymbolBetweennessScore {
-    /// Stable structural symbol identity.
-    pub symbol_id: SymbolId,
-    /// Normalized directed sampled Brandes score, or `None` for legacy rows
-    /// that have not yet been recomputed.
-    pub score: Option<f64>,
-}
-
-/// One persisted structural-importance score fenced to an immutable generation.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SymbolPageRankScore {
-    /// Stable symbol ID for this record.
-    pub symbol_id: SymbolId,
-    /// Optional score, when available.
-    pub score: Option<f64>,
-}
-
-trait CentralityRecord: Sized {
-    const COLUMN: &'static str;
-    const OPERATION: &'static str;
-    const SCORE_FIELD: &'static str;
-
-    fn new(symbol_id: SymbolId, score: Option<f64>) -> Self;
-}
-
-impl CentralityRecord for SymbolBetweennessScore {
-    const COLUMN: &'static str = "betweenness";
-    const OPERATION: &'static str = "symbol-betweenness-read";
-    const SCORE_FIELD: &'static str = "betweenness";
-
-    fn new(symbol_id: SymbolId, score: Option<f64>) -> Self {
-        Self { symbol_id, score }
-    }
-}
-
-impl CentralityRecord for SymbolPageRankScore {
-    const COLUMN: &'static str = "pagerank";
-    const OPERATION: &'static str = "symbol-pagerank-read";
-    const SCORE_FIELD: &'static str = "pagerank";
-
-    fn new(symbol_id: SymbolId, score: Option<f64>) -> Self {
-        Self { symbol_id, score }
-    }
-}
-
-impl CartographDatabase {
-    /// Read persisted sampled Brandes scores for a small exact symbol set under
-    /// the project's current-generation fence.
-    /// # Errors
-    ///
-    /// Returns an error if the symbol set exceeds its bound, the expected
-    /// generation is no longer current, or score rows cannot be read or decoded.
-    pub async fn current_symbol_betweenness(
-        &self,
-        project_id: &ProjectId,
-        expected_generation_id: &GenerationId,
-        symbol_ids: &[SymbolId],
-    ) -> Result<Vec<SymbolBetweennessScore>, StorageError> {
-        self.current_centrality(project_id, expected_generation_id, symbol_ids)
-            .await
-    }
-
-    /// Read persisted `PageRank` scores for a small exact current-generation symbol set.
-    /// # Errors
-    ///
-    /// Returns an error if the symbol set exceeds its bound, the expected
-    /// generation is no longer current, or score rows cannot be read or decoded.
-    pub async fn current_symbol_pagerank(
-        &self,
-        project_id: &ProjectId,
-        expected_generation_id: &GenerationId,
-        symbol_ids: &[SymbolId],
-    ) -> Result<Vec<SymbolPageRankScore>, StorageError> {
-        self.current_centrality(project_id, expected_generation_id, symbol_ids)
-            .await
-    }
-
-    async fn current_centrality<Record>(
-        &self,
-        project_id: &ProjectId,
-        expected_generation_id: &GenerationId,
-        symbol_ids: &[SymbolId],
-    ) -> Result<Vec<Record>, StorageError>
-    where
-        Record: CentralityRecord,
-    {
-        if symbol_ids.len() > 500 {
-            return Err(StorageError::InvalidInput {
-                field: "symbol_ids",
-            });
-        }
-        if symbol_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let schema = quoted_schema(&self.schema);
-        let column = Record::COLUMN;
-        let sql = format!(
-            r#"SELECT symbols.symbol_id::text, symbols.{column}
-                FROM {schema}."projects" AS projects
-                JOIN {schema}."symbols" AS symbols
-                  ON symbols.project_id = projects.project_id
-                 AND symbols.generation_id = projects.current_generation_id
-                WHERE projects.project_id = CAST($1 AS uuid)
-                  AND projects.current_generation_id = CAST($2 AS uuid)
-                  AND symbols.symbol_id = ANY(CAST($3 AS uuid[]))
-                ORDER BY symbols.symbol_id"#
-        );
-        let ids = symbol_ids
-            .iter()
-            .map(|symbol_id| symbol_id.as_str().to_owned())
-            .collect::<Vec<_>>();
-        let rows = query(AssertSqlSafe(sql))
-            .bind(project_id.as_str())
-            .bind(expected_generation_id.as_str())
-            .bind(ids)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|_| StorageError::DatabaseOperation {
-                operation: Record::OPERATION,
-            })?;
-        if rows.len() != symbol_ids.len() {
-            return Err(StorageError::CurrentGenerationChanged);
-        }
-        rows.iter().map(decode_centrality_row::<Record>).collect()
-    }
-}
-
-/// Decode one score only after the query's complete current-generation fence has passed.
-fn decode_centrality_row<Record: CentralityRecord>(
-    row: &sqlx_postgres::PgRow,
-) -> Result<Record, StorageError> {
-    let raw_id = row
-        .try_get::<String, _>(0)
-        .map_err(|_| StorageError::CorruptStoredValue { field: "symbol_id" })?;
-    let symbol_id = SymbolId::parse(&raw_id)
-        .map_err(|_| StorageError::CorruptStoredValue { field: "symbol_id" })?;
-    let score = row
-        .try_get::<Option<f64>, _>(1)
-        .map_err(|_| StorageError::CorruptStoredValue {
-            field: Record::SCORE_FIELD,
-        })?;
-    if score.is_some_and(|score| !score.is_finite() || !(0.0..=1.0).contains(&score)) {
-        return Err(StorageError::CorruptStoredValue {
-            field: Record::SCORE_FIELD,
-        });
-    }
-    Ok(Record::new(symbol_id, score))
 }
 
 /// Compute directed `PageRank` over calls and references and attach a
@@ -749,6 +613,8 @@ impl Mulberry32 {
         value ^ (value >> MULBERRY_FINAL_SHIFT)
     }
 }
+
+use crate::GenerationFacts;
 
 #[cfg(test)]
 mod tests {

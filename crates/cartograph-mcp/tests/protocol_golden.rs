@@ -24,6 +24,9 @@ type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
 #[derive(Clone)]
 struct FixtureHandler {
+    cooperative: bool,
+    slow_cancelled: Arc<Notify>,
+    slow_release: Arc<Notify>,
     slow_started: Arc<Notify>,
     slow_dropped: Arc<Notify>,
 }
@@ -31,6 +34,9 @@ struct FixtureHandler {
 impl FixtureHandler {
     fn new() -> Self {
         Self {
+            cooperative: false,
+            slow_cancelled: Arc::new(Notify::new()),
+            slow_release: Arc::new(Notify::new()),
             slow_started: Arc::new(Notify::new()),
             slow_dropped: Arc::new(Notify::new()),
         }
@@ -60,6 +66,9 @@ impl Drop for SlowDrop {
 }
 
 impl ToolHandler for FixtureHandler {
+    fn drain_cancelled_calls(&self) -> bool {
+        self.cooperative
+    }
     fn tools(&self) -> Vec<ToolDefinition> {
         vec![
             definition(
@@ -147,6 +156,11 @@ impl ToolHandler for FixtureHandler {
                     let _drop = SlowDrop(self.slow_dropped.clone());
                     self.slow_started.notify_one();
                     context.cancellation().cancelled().await;
+                    if self.cooperative {
+                        self.slow_cancelled.notify_one();
+                        self.slow_release.notified().await;
+                        return Ok(ToolResult::text("actual native completion"));
+                    }
                     std::future::pending::<Result<ToolResult, ToolError>>().await
                 }
                 "cartograph_core" | "cartograph_read" | "z_review" => {
@@ -1209,4 +1223,37 @@ fn tool_names(response: &Value) -> Vec<&str> {
 fn assert_error(response: &Value, numeric_code: i64, stable_code: &str) {
     assert_eq!(response["error"]["code"], numeric_code);
     assert_eq!(response["error"]["data"]["code"], stable_code);
+}
+
+#[tokio::test]
+async fn cooperative_cancellation_retains_admission_until_actual_completion_and_keeps_ping_responsive()
+-> TestResult {
+    let mut handler = FixtureHandler::new();
+    handler.cooperative = true;
+    let observer = handler.clone();
+    let server = test_server(ToolProfile::Core, ServerLimits::default(), handler)?;
+    let mut connection = Connection::open(server);
+    connection.initialize().await?;
+    connection.send(&json!({"jsonrpc":"2.0", "id":"native", "method":"tools/call", "params":{"name":"cartograph_slow", "arguments":{}}})).await?;
+    observer.wait_for_slow_call().await?;
+    connection.send(&json!({"jsonrpc":"2.0", "method":"notifications/cancelled", "params":{"requestId":"native"}})).await?;
+    timeout(Duration::from_secs(2), observer.slow_cancelled.notified()).await?;
+    connection
+        .send(&json!({"jsonrpc":"2.0", "id":77, "method":"ping"}))
+        .await?;
+    let ping = connection.read_value().await?;
+    assert_eq!(ping["id"], 77);
+    assert_eq!(ping["result"], json!({}));
+    connection.send(&json!({"jsonrpc":"2.0", "id":"native", "method":"tools/call", "params":{"name":"cartograph_slow", "arguments":{}}})).await?;
+    let duplicate = connection.read_value().await?;
+    assert!(duplicate.get("error").is_some());
+    observer.slow_release.notify_one();
+    let completion = connection.read_value().await?;
+    assert_eq!(completion["id"], "native");
+    assert_eq!(
+        completion["result"]["content"][0]["text"],
+        "actual native completion"
+    );
+    observer.wait_for_slow_drop().await?;
+    connection.finish().await
 }

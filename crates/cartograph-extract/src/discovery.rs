@@ -418,6 +418,11 @@ impl<'a> SourceCollector<'a> {
                 return Err(SourceDiscoveryError::Cancelled);
             }
             let raw = prefixed_path(prefix, Path::new(&local))?;
+            // The walk already admitted this exact path under this collector's
+            // policy. A duplicate never updates its row or exclusion evidence.
+            if self.sources.contains_key(&raw) {
+                continue;
+            }
             let actual = repository_root.join(&local);
             let metadata = match fs::symlink_metadata(actual) {
                 Ok(metadata) if metadata.file_type().is_file() => metadata,

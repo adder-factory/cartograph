@@ -6,10 +6,12 @@ pub(super) async fn assert_overlay_storage_parity(
 ) {
     let mut expected = None;
     let mut expected_centrality = None;
-    for storage in ["memory", "postgres"] {
-        std::fs::write(root.join(".cartograph/config.json"), format!(
-            r#"{{"generationStorage":"{storage}","enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}}"#
-        )).unwrap_or_else(|error| panic!("SCIP storage policy failed: {error}"));
+    for storage in ["rocksdb"] {
+        std::fs::write(
+            root.join(".cartograph/config.json"),
+            r#"{"enableChurn":false,"enableCoChange":false,"enableIssueHistory":false}"#,
+        )
+        .unwrap_or_else(|error| panic!("SCIP storage policy failed: {error}"));
         for workers in [1, 2, 4, 8, 16] {
             let report = runtime
                 .index(

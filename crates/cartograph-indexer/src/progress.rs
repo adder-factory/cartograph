@@ -1,25 +1,10 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
-use cartograph_db::{
-    GenerationContents, NativeGenerationSpill, NativeGenerationSpillPolicy, ReadyGeneration,
-    SpilledGenerationContents, StagedGeneration, StorageError,
-};
 use serde::Serialize;
 use thiserror::Error;
 use tokio::{
     sync::{RwLock, watch},
     time::Instant,
-};
-
-use crate::{
-    ScopedTask, ScopedTaskError, SupervisedPrepareError, prepare_scope::PrepareScope,
-    task_scope::TaskScope,
 };
 
 /// Ordered stages in the v2 indexing and publication pipeline.
@@ -231,9 +216,6 @@ struct ProgressRecord {
 #[derive(Clone)]
 pub(crate) struct SharedProgress {
     record: Arc<RwLock<ProgressRecord>>,
-    /// Successful lease renewals, kept outside the record lock so the lease
-    /// keeper never waits on (or is woken by) pipeline progress updates.
-    heartbeats: Arc<AtomicU64>,
 }
 
 impl SharedProgress {
@@ -257,7 +239,6 @@ impl SharedProgress {
                 operation_started: None,
                 stage_started: None,
             })),
-            heartbeats: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -274,7 +255,6 @@ impl SharedProgress {
     pub(crate) async fn status(&self) -> SupervisorStatus {
         let record = self.record.read().await;
         let mut status = record.status.clone();
-        status.heartbeat_count = self.heartbeats.load(Ordering::Acquire);
         status.progress_idle_millis = millis(record.last_progress.elapsed());
         if let Some(started) = record.operation_started {
             status.total_elapsed_millis = millis(started.elapsed());
@@ -294,23 +274,6 @@ impl SharedProgress {
         record.operation_started = Some(now);
         record.stage_started = None;
         record.last_progress = now;
-    }
-
-    pub(crate) fn mark_heartbeat(&self) {
-        self.heartbeats
-            .update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                count.saturating_add(1)
-            });
-    }
-
-    pub(crate) async fn mark_cancelling(&self, reason: CancellationReason) {
-        let mut record = self.record.write().await;
-        record.status.state = if reason == CancellationReason::ProgressStalled {
-            SupervisorState::Wedged
-        } else {
-            SupervisorState::Cancelling
-        };
-        record.status.cancellation_reason = Some(reason);
     }
 
     pub(crate) async fn mark_completed(&self) {
@@ -337,10 +300,6 @@ impl SharedProgress {
         };
         record.status.cancellation_reason = Some(reason);
         record.status.grace_exceeded = grace_exceeded;
-    }
-
-    pub(crate) async fn last_progress(&self) -> Instant {
-        self.record.read().await.last_progress
     }
 
     pub(crate) async fn begin_stage(&self, stage: PipelineStage) -> Result<(), ProgressError> {
@@ -460,123 +419,6 @@ impl CancellationSignal {
                 return;
             }
         }
-    }
-}
-
-/// Context inherited by the supervised indexing future.
-#[derive(Clone)]
-pub struct SupervisorContext {
-    progress: ProgressReporter,
-    cancellation: CancellationSignal,
-    tasks: TaskScope,
-    prepares: PrepareScope,
-}
-
-pub(crate) struct SupervisorContextParts {
-    pub(crate) shared: SharedProgress,
-    pub(crate) receiver: watch::Receiver<bool>,
-    pub(crate) tasks: TaskScope,
-    pub(crate) prepares: PrepareScope,
-}
-
-impl SupervisorContext {
-    pub(crate) fn new(parts: SupervisorContextParts) -> Self {
-        Self {
-            progress: ProgressReporter {
-                shared: parts.shared,
-            },
-            cancellation: CancellationSignal {
-                receiver: parts.receiver,
-            },
-            tasks: parts.tasks,
-            prepares: parts.prepares,
-        }
-    }
-
-    /// Clone the controlled progress reporter.
-    #[must_use]
-    pub fn progress(&self) -> ProgressReporter {
-        self.progress.clone()
-    }
-
-    /// Clone the cooperative cancellation receiver.
-    #[must_use]
-    pub fn cancellation(&self) -> CancellationSignal {
-        self.cancellation.clone()
-    }
-
-    /// Build a bounded deterministic stage runner bound to this supervisor.
-    #[must_use]
-    pub fn stages(&self) -> crate::StageRunner {
-        crate::StageRunner::new(
-            self.progress.shared.clone(),
-            self.cancellation.receiver.clone(),
-            self.tasks.clone(),
-        )
-    }
-
-    /// Create spill-only authority for the exact generation owned by this supervisor.
-    ///
-    /// The returned capability rechecks the live lease and staging state on every
-    /// database transaction and cannot publish or terminalize the generation.
-    /// # Errors
-    ///
-    /// Returns an error when the staging token does not match this operation's fence.
-    pub fn generation_spill(
-        &self,
-        generation: &StagedGeneration,
-        policy: NativeGenerationSpillPolicy,
-    ) -> Result<NativeGenerationSpill, StorageError> {
-        self.prepares.spill(generation, policy)
-    }
-
-    /// Run the operation's one retained, server-bounded prepare/COPY task.
-    ///
-    /// Publication and cleanup authority are deliberately absent from this
-    /// context; only the supervisor lifecycle gate can perform terminal
-    /// generation transitions.
-    /// # Errors
-    ///
-    /// Returns an error if the lease fence is lost, canonical facts fail
-    /// storage validation, or transactional COPY/ready transition fails.
-    pub async fn prepare_generation(
-        &self,
-        contents: GenerationContents,
-    ) -> Result<ReadyGeneration, SupervisedPrepareError> {
-        self.prepares.prepare(contents).await
-    }
-
-    /// Run the operation's one retained finalization task for database-spilled facts.
-    /// # Errors
-    ///
-    /// Returns an error if the lease fence is lost, canonical database facts fail
-    /// relation/digest validation, or the ready transition fails.
-    pub async fn prepare_spilled_generation(
-        &self,
-        contents: SpilledGenerationContents,
-    ) -> Result<ReadyGeneration, SupervisedPrepareError> {
-        self.prepares.prepare_spilled(contents).await
-    }
-
-    /// Spawn an admitted supervisor-owned worker with an explicit byte reservation.
-    ///
-    /// The future must return a stage-scoped [`crate::PipelineFailure`]. The
-    /// supervisor records that outcome independently of this result handle, so
-    /// dropping a failed child cannot permit publication.
-    /// # Errors
-    ///
-    /// Returns an error if the task scope is poisoned/closed or the explicit
-    /// byte reservation exceeds bounded task capacity.
-    pub fn spawn<T, Work>(
-        &self,
-        reserved_bytes: u64,
-        work: Work,
-    ) -> Result<ScopedTask<T>, ScopedTaskError>
-    where
-        T: Send + 'static,
-        Work: std::future::Future<Output = Result<T, crate::PipelineFailure>> + Send + 'static,
-    {
-        self.tasks.spawn(reserved_bytes, work)
     }
 }
 

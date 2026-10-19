@@ -459,7 +459,7 @@ mod tests {
             Some(NativeExtractionStageError::Runtime)
         );
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
     }
@@ -534,7 +534,7 @@ mod tests {
         assert!(snapshot.peak_items() <= workers.saturating_mul(WINDOW_MULTIPLIER));
         assert!(snapshot.peak_reserved_bytes() <= TEST_SCOPE_BYTES);
         drop(cancellation);
-        let report = tasks.close_abort_and_reap(deadline).await;
+        let report = tasks.close_abort_and_reap_retained(deadline).await;
         assert!(report.all_joined);
         assert!(!report.worker_failed);
         let (report, observer) = completed.into_parts();

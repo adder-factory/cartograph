@@ -1,3 +1,4 @@
+use secrecy::SecretString;
 use std::assert_matches;
 use std::{
     io::{Read as _, Write as _},
@@ -221,8 +222,11 @@ fn settings_for(endpoint: Url, credential: TierCredential) -> JevSettings {
         credential,
         timeout: Duration::from_secs(2),
         features: BTreeSet::from([JevFeature::Explore]),
+        cache_scope: None,
     }
 }
+
+mod accounting;
 
 fn fixture(status: &str, body: &str, headers: &str) -> (JevClient, thread::JoinHandle<String>) {
     let (endpoint, server) = sequence_fixture(vec![http_response(status, body, headers)]);
@@ -559,6 +563,10 @@ async fn command_credential_runs_on_first_use_and_once_more_after_a_rejection() 
         ]
     );
     assert_eq!(helper_runs(root.path(), name), 2);
+    assert_eq!(
+        decision.metrics.map(|metrics| metrics.provider_requests),
+        Some(2)
+    );
 }
 
 #[cfg(unix)]

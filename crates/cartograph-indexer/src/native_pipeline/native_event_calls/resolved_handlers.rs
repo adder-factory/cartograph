@@ -85,26 +85,6 @@ impl HandlerIndex {
         Ok(())
     }
 
-    pub(in crate::native_pipeline) fn merge<Cancel>(
-        &mut self,
-        input: (Self, &mut ResolveBudget),
-        cancelled: &mut Cancel,
-    ) -> Result<(), StageItemFailure>
-    where
-        Cancel: FnMut() -> bool,
-    {
-        let (other, budget) = input;
-        for (owner, targets) in other.targets {
-            for target in targets {
-                if cancelled() {
-                    return Err(StageItemFailure);
-                }
-                self.insert((&owner, &target), budget)?;
-            }
-        }
-        Ok(())
-    }
-
     fn insert(
         &mut self,
         (owner, target): (&SymbolId, &SymbolId),

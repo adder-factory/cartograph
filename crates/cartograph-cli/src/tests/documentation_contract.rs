@@ -102,9 +102,9 @@ fn public_mcp_inventory_and_bundled_skill_track_current_contracts() {
         "<!-- CARTOGRAPH_MCP_TOOLS_END -->",
     ));
     assert_eq!(documented_tools, expected_tools);
-    assert_eq!(expected_tools.len(), 36);
+    assert_eq!(expected_tools.len(), 35);
     assert!(MCP_USAGE.contains("Selected high-use tools"));
-    assert!(MCP_USAGE.contains("full profile advertises 36 tools"));
+    assert!(MCP_USAGE.contains("full profile advertises 35 tools"));
 
     for profile in McpProfile::value_variants() {
         let spelling = profile
@@ -119,34 +119,13 @@ fn public_mcp_inventory_and_bundled_skill_track_current_contracts() {
 }
 
 #[test]
-fn managed_paradedb_image_pin_tracks_the_actual_extension_contract() {
-    const MANAGED_IMAGE: &str = concat!(
-        "paradedb/paradedb:0.26.1@sha256:",
-        "29bd8cc90a89ff15f8350f89b4849c2ef807aa9381c79febd1afb1a8a25fb706"
-    );
-    const VALIDATION_WORKFLOW: &str = include_str!("../../../../.github/workflows/v2-rust.yml");
-    const DEVELOPMENT_COMPOSE: &str =
-        include_str!("../../../../deploy/paradedb/docker-compose.yml");
-    const README: &str = include_str!("../../../../README.md");
-    const AGENT_GUIDE: &str = include_str!("../../../../AGENTS.md");
-    const INSTALL_GUIDE: &str = include_str!("../../../../docs/AGENT-INSTALL.md");
-    const STORAGE_GUIDE: &str = include_str!("../../../../docs/STORAGE-BACKENDS.md");
-    const TROUBLESHOOTING: &str = include_str!("../../../../docs/TROUBLESHOOTING.md");
-
-    assert_eq!(cartograph_db::MANAGED_DATABASE_IMAGE, MANAGED_IMAGE);
-    assert!(VALIDATION_WORKFLOW.contains(MANAGED_IMAGE));
-    assert!(DEVELOPMENT_COMPOSE.contains(MANAGED_IMAGE));
-    for document in [
-        README,
-        AGENT_GUIDE,
-        INSTALL_GUIDE,
-        STORAGE_GUIDE,
-        TROUBLESHOOTING,
-    ] {
-        assert!(document.contains("ParadeDB 0.26.1 image"));
-        assert!(document.contains("`pg_search` 0.26.1"));
-        assert!(document.contains("pgvector 0.8.6"));
-    }
+fn rocksdb_pin_tracks_the_actual_native_engine_contract() {
+    const MANIFEST: &str = include_str!("../../../../Cargo.toml");
+    const STORAGE: &str = include_str!("../../../../docs/STORAGE-BACKENDS.md");
+    assert_eq!(cartograph_db::rocks::ENGINE_VERSION, "11.8.1");
+    assert!(MANIFEST.contains("rocksdb ="));
+    assert!(STORAGE.contains("RocksDB"));
+    assert!(STORAGE.contains(cartograph_db::rocks::ENGINE_VERSION));
 }
 
 #[test]
@@ -186,14 +165,14 @@ fn release_docs_identify_current_audit_and_historical_benchmarks() {
     }
 
     for document in [README, AGENT_INSTALL] {
-        assert!(document.contains("generationStorage"));
-        assert!(document.contains("10,000 supported files"));
-        assert!(document.contains("64 MiB"));
+        assert!(document.contains("RocksDB"));
         assert!(document.contains("LARGE-PUBLIC-CORPUS-STREAMING.md"));
+        assert!(document.contains("v3"));
+        assert!(!document.contains("unreleased"));
     }
-    assert!(CONFIGURATION.contains("`generationStorage` only chooses"));
-    assert!(!CONFIGURATION.contains("Storage selection is not a project-config option"));
-    assert!(PERFORMANCE.contains("reported final count can therefore be intermediate"));
+    assert!(CONFIGURATION.contains("## Native storage"));
+    assert!(CONFIGURATION.contains("legacy configuration compatibility"));
+    assert!(PERFORMANCE.contains("source edit to current-query latency"));
     assert!(LARGE_CORPUS_BENCHMARK.contains("Status: published `v2.1.11` benchmark record"));
     assert!(!LARGE_CORPUS_BENCHMARK.contains("release-candidate evidence"));
     assert!(LARGE_CORPUS_BENCHMARK.contains("not an exact tagged-binary rerun"));

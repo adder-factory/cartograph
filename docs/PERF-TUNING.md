@@ -1,307 +1,223 @@
-# Performance tuning
+# Performance and freshness tuning
 
-[Documentation home](README.md) · [Project overview](../README.md) ·
-[Configuration](CONFIGURATION.md) · [Benchmark evidence](v2/benchmarks/README.md)
+This guide applies to Cartograph `v3.0.0` and its native RocksDB backend.
+Published PostgreSQL benchmarks remain historical; they do not prove native
+performance. See [storage](STORAGE-BACKENDS.md) for exact limits and commands.
 
-Cartograph v2 chooses bounded parallelism from supported-file count, exact
-indexed source bytes, hardware, and the caller cap. The corpus selector requests
-the tiers 1, 2, 4, 8, and 16, then applies caller and detected-hardware caps; the
-reported final count can therefore be intermediate, such as 14 on a 14-core
-host. A deterministic reducer must produce identical logical facts, digests,
-and ordered retrieval evidence at every admitted count. The release identity
-matrix explicitly exercises 1, 2, 4, 8, and 16 workers; faster output is never
-allowed to change meaning.
+## Measure the user-visible result
 
-> [!IMPORTANT]
-> Tune only after measuring the failing phase. More workers, connections,
-> memory, or time cannot repair a stale fence, lost lease, blocked database,
-> unsupported source boundary, or unhealthy derived index; use
-> [Troubleshooting](TROUBLESHOOTING.md) for those states first.
+Measure source edit to current-query latency, not only initial indexing time.
+Record source size, admitted files/facts, dirty-file count, workers, build
+profile, machine, sample count, median/p95/max, peak memory, WAL/SST bytes, and
+compaction backlog. Verify each query's generation and exact freshness.
 
-**On this page:** [Operator controls](#operator-controls) ·
-[Worker selection](#worker-selection) ·
-[Generation storage and spill](#generation-storage-and-spill) ·
-[Database pool and WAL](#database-pool-and-wal) ·
-[Auto-sync watcher](#auto-sync-watcher) ·
-[Automatic failure handling](#automatic-failure-handling) ·
-[Backend log cleanup](#backend-log-cleanup) ·
-[Measurement gates](#measurement-gates)
+Run cold initial indexing, unchanged no-op indexing, one-file edits, batched
+edits, deletes, concurrent readers/writers, and repeated replacement/retention.
+Include common-term BM25 and semantic queries at real document/vector counts.
+A failed or stale sample stays a failure; do not time only successful requests.
+Use the same corpus and operations for PostgreSQL/RocksDB comparisons.
 
-## Operator controls
+## Workers and storage admission
 
-```sh
-cartograph index . --workers 8
+`cartograph index . --workers 4` selects extraction parallelism (1..16).
+Begin with defaults; extra workers can increase memory, I/O, and compaction
+pressure without improving latency. Canonical counts and digests must remain
+identical across worker counts.
 
-# External database only (CARTOGRAPH_DATABASE_URL set):
-export CARTOGRAPH_DATABASE_MAX_CONNECTIONS=8
-export CARTOGRAPH_DATABASE_ACQUIRE_TIMEOUT_MS=5000
-export CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS=120000
-```
+Storage uses four dedicated foreground workers and finite task/byte admission.
+Writes leave worker capacity for reads. Native caches and memtables are shared
+across column families, not multiplied by each family. Admission reservations
+are not a process RSS cap. Raising `maxGenerationBytes` does not raise every
+independent native storage budget or eliminate global extraction working sets.
 
-- More parse workers help only when corpus size and CPU justify them. Database
-  COPY, derived-index build, and publication remain bounded phases.
-- Do not increase timeouts to hide a lost lease, stale fence, blocked database,
-  or oversized corpus. Inspect task/lease status and the failing phase first.
-- Semantic HNSW indexes are per model; unused model generations should be
-  audited and cleaned with explicit semantic-maintenance commands.
-- ParadeDB BM25 is generation-local derived state. Inspect/rebuild it through
-  `cartograph db derived-index`, not ad-hoc DDL.
+Native state reads derive their time budget from the caller's remaining original
+request deadline before admission. Queue time counts against that deadline;
+nested requests can shorten it and cannot renew it. Default state requests keep
+their thirty-second limit, while explicitly longer operations retain their
+accepted bound of at most five minutes. Cancellation and row, byte, workspace,
+and write limits remain enforced independently.
 
-### Worker selection
+## Freshness
 
-The adaptive selector promotes above 8/16/32/128 supported files or above
-128 KiB/512 KiB/1 MiB/4 MiB indexed source bytes, using whichever dimension
-requests more parallelism, then applying caller and hardware caps.
+Keep the source watcher enabled on the project owner. Its default 150 ms quiet window coalesces
+bursts, with a two-second maximum coalescing interval; indexing failures retain backoff and diagnostic state. `sync-if-dirty`
+provides an explicit hook/CLI reconciliation. Require fresh status and real
+find/context evidence after editing; server liveness alone is insufficient.
+Keep benchmark output outside the indexed checkout so evidence files do not
+continuously invalidate the graph being measured.
 
-| Workers requested | By supported files | By indexed source bytes |
-| ---: | --- | --- |
-| 1 | Up to 8 | Up to 128 KiB |
-| 2 | Up to 16 | Up to 512 KiB |
-| 4 | Up to 32 | Up to 1 MiB |
-| 8 | Up to 128 | Up to 4 MiB |
-| 16 | More than 128 | More than 4 MiB |
+The existing project writer retains one bounded canonical graph after a complete
+build. For up to 16 changed supported-language files of at most 256 KiB each, it tries a
+conservative local replacement. It re-extracts changed files and compares all
+resolution inputs, declaration identities and source spans. An accepted edit
+reuses unchanged topology and centrality, validates all replacement relations,
+recomputes the complete canonical digest, and stages only changed file records.
+`incremental_files` reports how many files used this path; zero means a full
+build or an unchanged index. The retained graph shares the admitted canonical
+allocation and is released before a full rebuild.
 
-Files and bytes each request a tier independently; the larger request wins.
-For example, 5 files totalling 10 MiB request 16 workers.
+This path currently covers edits such as literals, numerical evidence and
+same-span documentation when they preserve call resolution and clone analysis.
+New/deleted files or declarations, changed calls/imports, shifted spans,
+ambiguous clone changes, SCIP overlays, extraction-policy changes, forced
+rebuilds and missing/corrupt extraction cache entries use full reconciliation.
+A configured `maxGenerationBytes` selects the complete builder, which measures
+all parse, resolve, and reduction stages against that custom ceiling.
+A new owner has no warm graph until its first complete build. Neither the
+150 ms debounce nor the local replacement guarantees sub-second publication
+for every edit or project size.
 
-The measured 34-file/1.05 MiB native corpus selects eight workers; the
-256-file/5.86 MiB synthetic corpus selects 16. Automatic structural indexing is
-capped at four native workers (see [Auto-sync watcher](#auto-sync-watcher)).
+Every publication still fences the exact base generation and digest and checks
+the complete live source before/after publication. Query freshness uses live
+source checks; it has no freshness TTL. Optional post-index model and structural
+enrichment has a separate completion time from the base graph. Measure the
+watcher's structural edit-to-current-query latency separately from an explicit
+admin job's enrichment completion.
 
-### Generation storage and spill
+A file disappearing during discovery or reading can restart the complete source
+observation at most twice, under the original deadline and cancellation. Each
+attempt discards incomplete manifests and captured source. If a later code
+window observation finds an edit, context downgrades both packet and response
+freshness and confidence; it omits code whose indexed content hash differs.
 
-Native generation storage defaults to `auto`. It selects PostgreSQL spill at
-64 Cargo manifests, 10,000 supported files, 64 MiB of indexed source, or when
-a conservative 16x expansion estimate reaches `maxGenerationBytes`.
+## Space and reclamation
 
-| Setting | Use it when |
-| --- | --- |
-| `generationStorage: "memory"` | Only when measured headroom favors the faster in-memory reducer |
-| `generationStorage: "postgres"` | To force the durable path for a known dense corpus |
+Use `cartograph db usage --project-path . --format json` before attributing
+space to records. Logical graph bytes, native allocated bytes, SSTs, WAL,
+memtables, and pending compaction represent different quantities. Repeated
+revisions store record changes and retain snapshot-visible versions. Bounded
+pruning removes obsolete versions; LSM compaction reclaims physical files later.
+Inspect deferred maintenance and phase failures before repeating a batch.
 
-> [!WARNING]
-> PostgreSQL spill trades database I/O, WAL, heap/index allocation, and
-> temporary-sort space for a much smaller Rust payload. `maxSpillBytes` is
-> logical accounting, not physical disk reservation. Measure `db usage`, free
-> space, temporary-file behavior, and stage timings before raising its 128 GiB
-> default.
+## Current retrieval limits
 
-| Spill bound | Value |
-| --- | --- |
-| Files per parse work item | At most 64 |
-| Combined source per parse work item | At most 64 MiB, whichever boundary is reached first |
-| Per-file ceiling | `maxFileSize`, at most 32 MiB; a single file is never split across items |
-| Reduction partitions | 64 deterministic UUID partitions for each of six relations |
-| Partitions committed per transaction | Four contiguous partitions |
-| Embedding carry-forward page | 4,096 documents |
+Exact symbol-name lookup uses generation-scoped postings when their workspace
+fits the admitted budget; older or oversized graphs use bounded scans. Exact
+file lookup currently scans file records. Packed graph adjacency uses keyed
+native records. BM25 persists field-aware term postings and exact corpus
+statistics in the same publication as its documents. Forward records remove
+obsolete terms on replacement or deletion. Legacy generations and documents
+whose vocabulary exceeds the optional workspace select complete bounded corpus
+search. Common terms still require reading all matching postings; the candidate
+workspace remains 32 MiB. The canonical graph digest is unchanged by this
+optional index.
 
-> [!CAUTION]
-> Exact retries resume from the durable reduction cursor. Do not manually delete
-> raw rows or advance it.
+Vocabulary maps share the configured workspace with live table sort entries or
+sparse replacement data. Old vocabulary keys stream from the bounded encoded
+record, including after lowering the workspace policy; only the new vocabulary
+map allocates. Insufficient remaining workspace selects the complete scan.
 
-<details>
-<summary>Details: parse items, resolver COPY groups, reduction, and publication</summary>
+Semantic readiness and a packed vector corpus are cached by exact generation,
+model identity, vector epoch, and summary epoch from the same native snapshot.
+The owner retains at most one optional 64 MiB corpus, with one builder. Native
+MultiGet loads vector batches under that snapshot, with a native soft value
+limit and an 8 MiB limit on copied values. Warm queries retain exact cosine
+scoring and stable ID ties. A busy or oversized cache uses the bounded exact
+streaming path. Model, summary, vector, and generation changes invalidate the
+corresponding evidence; there is no readiness TTL or HNSW claim.
 
-- The PostgreSQL path lazily admits at most 64 files and 64 MiB of combined
-  source per parse work item, whichever boundary is reached first. A single
-  file is never split; the per-file ceiling is 32 MiB. Later item deadlines
-  start only when the bounded scheduler admits them.
-  Each item reuses one tree-sitter extractor per encountered language instead
-  of rebuilding parser/query state for every file. Cooperative cancellation
-  still checks parent, sibling, and item-deadline state at every requested poll;
-  monotonic watch signals use their atomic version rather than a read lock.
-  Cacheable extraction payloads are written once to the immutable parse cache
-  and the staging generation retains a foreign-key-protected reference; an
-  inline payload is the bounded fallback when a cache write fails.
-- Resolver workers publish validated typed rows through bounded COPY groups.
-  A group is capped by rows, logical bytes, and retained Rust bytes, so faster
-  publication cannot become a hidden whole-generation allocation.
-- Spill reduction retains 64 deterministic UUID partitions for each of six
-  relations and commits four contiguous partitions per transaction. It runs
-  `ANALYZE` on each raw spill table before the first partition group of its
-  relation checks it, and on each canonical table after the group that finishes
-  filling it, so the planner sees statistics that include this generation. It
-  checks conflicts and cross-relation integrity before deleting those raw rows
-  and advancing the durable cursor. Exact retries resume from that cursor. A
-  reduce statement that outlives its timeout reports
-  `reduce_deadline_exceeded`.
-- Document conflict detection probes the typed reduction index for another row
-  with the same document identity. Large code/natural-text fields are compared
-  exactly only for an actual duplicate identity; unique documents are never
-  materialized into a generation-wide `DISTINCT` hash merely for validation.
-- Publication carries unchanged documents' embeddings forward in keyset pages
-  of 4,096 documents and advances prepare progress after each page, which lets
-  fully embedded large projects re-index within the prepare timeout.
+Readiness retains an eligible packed corpus during its existing validation pass,
+then publishes the complete report and corpus under the same input fence. The
+first vector query can reuse those validated values. Incomplete, corrupt,
+cancelled, or exhausted validation discards the partial allocation and releases
+the single builder permit; the 64 MiB cache bound is unchanged.
 
-</details>
+Source-only freshness scans can hash four files concurrently, with at most four
+8 MiB source buffers and bounded observation queues. Reduction preserves the
+original path order and manifest digest. Captured source windows and larger
+files use serial hashing. A complete index can reuse a bounded manifest from its
+initial hash scan instead of repeating discovery and source reads. Parsing and
+publication still verify source identities and the complete source fences.
 
-### Database pool and WAL
+## Persistent autosync and longer workloads
 
-The pool and timeout variables apply only to an external database, that is,
-when `CARTOGRAPH_DATABASE_URL` is set; that variable also takes precedence over
-a managed database. Keep the database pool large enough for the selected
-operation but below the 64-connection hard cap. Local agent use normally needs
-no manual change.
+`cartograph watch --project-path .` runs the existing native owner independently
+of MCP stdin on Unix. On macOS, `cartograph service start --project-path .`
+installs that executable as a private project-scoped login service. Additional
+CLI/MCP processes use its existing owner transport. `service status` reports
+registration, launchd state, and owner availability separately; `service stop`
+stops only the owned service and removes its registration. An existing owner
+retains the primary; the login service retries after it exits.
 
-| Setting | External database | Managed database |
-| --- | --- | --- |
-| Pool size | `CARTOGRAPH_DATABASE_MAX_CONNECTIONS`, default 8, hard cap 64 | Fixed 8 connections |
-| Acquire timeout | `CARTOGRAPH_DATABASE_ACQUIRE_TIMEOUT_MS`, default 5000 ms | Fixed 10,000 ms |
-| Query timeout | `CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS`, default 120000 ms | Default 120,000 ms |
-| TLS | `CARTOGRAPH_DATABASE_REQUIRE_SSL`, default false | Not forced |
+The macOS registration uses launchd's `Interactive` process type because CLI
+and editor response times depend on this Unix-socket service. The default
+process type throttles CPU and I/O, and XPC-based adaptive scheduling cannot
+infer these socket requests. See Apple's
+[launchd process-type contract](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5).
 
-Newly created managed databases keep synchronous durability while using these
-WAL settings:
+`autoSync.recentFailures` retains the latest 16 redacted failure events even
+after recovery. `failureActive` distinguishes a current retry condition from
+historical `lastErrorCode`, `lastCleanupFailureCode`, and `lastFailureAt`.
+`lastIndexProfile` retains preparation, pipeline, per-stage, history, and total
+timings from the latest successful index/no-op. These exclude debounce and the
+subsequent query's source verification and transport time.
+When `sourceManifestReused` is true, preparation includes complete discovery
+and byte hashing; the pipeline starts with admission of those observations in
+the read stage and does not report a second discover stage. XML declaration-role
+hints remain global resolver inputs, so changing a MyBatis template role selects
+complete reconciliation.
 
-| Managed setting | Value |
-| --- | --- |
-| Checkpoint interval | 15 minutes |
-| Soft `max_wal_size` | 2 GiB |
-| `min_wal_size` | 256 MiB |
-| `wal_compression` | `lz4` |
-
-`cartograph doctor` warns when a container predates these settings;
-`cartograph db upgrade --confirm upgrade-managed-database` recreates it on the
-same data volume. `db usage` and free-space checks remain the operator boundary.
-
-<details>
-<summary>Details: why the WAL ceiling is 2 GiB</summary>
-
-Immutable-generation COPY and BM25 publication can exhaust PostgreSQL's 1 GiB
-default repeatedly during rapid editor bursts, forcing overlapping checkpoints
-and increasing foreground latency, so the ceiling stays above it. It is also
-each project's steady-state WAL footprint: WAL left after a busy period is kept
-up to the ceiling, and an idle database does not checkpoint it away. The earlier
-4 GiB ceiling left 4.1 GiB of WAL in each recently busy project on a shared
-Docker disk. On this repository, a forced re-index wrote 440-480 MiB of WAL at
-4 GiB and 510-770 MiB at 2 GiB with lz4 (570-920 MiB without it), because more
-checkpoints fall inside the run.
-
-</details>
-
-### Auto-sync watcher
-
-Native MCP auto-sync uses a recursive OS watcher where available, debounces
-bursts, and periodically reconciles missed events. If native watching cannot be
-established it uses the bounded polling watcher. Status exposes watcher events,
-reconciliations, attempts, publications, and errors without project paths.
-
-| Watcher bound | Value |
-| --- | --- |
-| Quiet window | 750 ms default; `CARTOGRAPH_WATCH_DEBOUNCE_MS` accepts 50 through 60,000 ms |
-| Hard coalescing deadline | Two seconds, so a continuous stream of editor writes cannot postpone the next attempt forever |
-| Quiet window above two seconds | That explicit quiet window is also the hard minimum latency bound |
-| Automatic structural indexing | Capped at four native workers |
-
-Watcher admission uses the same default/project include, exclude, and language
-policy as indexing, reloads after `config.json` changes, and ignores access-only,
-build-output, dependency-cache, and private `.cartograph` churn. Configuration
-and SCIP-overlay events remain explicit reconciliation triggers.
-
-<details>
-<summary>Details: what an automatic index skips and reuses</summary>
-
-An admitted filesystem event goes directly through the indexer's own complete
-manifest/no-op fence instead of performing a second full status manifest scan
-first. Automatic structural indexing is capped at four native workers and skips
-the independent Git churn, co-change, and issue-history refreshes. An explicit
-`cartograph index` retains the normal corpus-aware worker ceiling and refreshes
-those auxiliary Git channels. When HEAD, shallowness, the number of reachable
-commits within the bound, the commit bound, the enabled channels and the mining
-version all match the last stored refresh, churn and co-change
-evidence is reused without rescanning Git or rewriting its rows, and the index
-report marks the history `reused: true`. `cartograph history --mode refresh` always
-rescans.
-
-Ready generations record their exact fact counts and source bytes, so status,
-freshness and storage summaries read them instead of counting every fact table
-on each call. Generations published before schema 45 fall back to counting
-until the next unchanged index records their counts once. Periodic missed-event
-reconciliation still uses a complete status scan as its correctness boundary.
-
-</details>
-
-### Automatic failure handling
-
-An unchanged source revision that fails automatic indexing is not retried in a
-tight loop. Auto-sync records its stable stage code and retries according to
-the failure class:
-
-| Failure class | Retry delay | Circuit behavior |
-| --- | --- | --- |
-| Transient: `lease_busy`, `retention_backlog`, and source-changed failures | 2 seconds, doubling to 30 seconds | Does not count toward the persistent per-revision limit or the repeated-failure circuit |
-| Persistent failure of a known revision | 30 seconds, doubling to a 15-minute cap | After five failed automatic attempts, the revision is suppressed until the supported source revision changes |
-| Same stable failure code, any revision | Persistent delay | Five consecutive occurrences trip a cross-revision circuit, even if editor changes keep producing new source revisions |
-| Generation capacity | Persistent delay | Independent cross-revision circuit breaker after five capacity failures |
-| Indexing and status both unavailable | Same backoff, applied to subsequent watcher events | A typed unknown-revision failure bucket keeps one bounded recovery probe at the capped interval instead of suppressing database recovery forever |
-
-**Backlog drain before admission.** An automatic attempt whose project already
-has more than one failed or partially retired generation first runs one bounded
-retention pass. While that drain makes progress but the backlog stays over the
-bound, the attempt is deferred with `retention_backlog` (a transient failure).
-A drain that commits nothing needs operator action, so the attempt proceeds
-instead of freezing automatic indexing. Explicit requests are never deferred.
-
-Automatic failures run the same bounded terminal-generation retention path
-before returning, so a failing watcher does not leave one new failed spill
-generation per attempt.
-
-**Recovering from a capacity failure.** Select PostgreSQL spill when
-appropriate; `maxGenerationBytes` cannot exceed 8 GiB, so at that ceiling
-exclude generated/compiled artifacts and then run an explicit
-`cartograph index`. The next fresh status clears the circuit.
-
-Explicit/manual index requests remain available. A new source revision clears
-ordinary revision suppression but never bypasses an unresolved repeated-failure
-or capacity circuit. A successful manual or automatic index clears both
-circuits.
-
-Structured status exposes these fields:
-
-| Field | Meaning |
-| --- | --- |
-| `lastErrorCode` | Stable code of the latest failed automatic index |
-| `lastCleanupFailureCode` | `index_cleanup_failed` when bounded cleanup of that attempt's own staging generation also failed; `lastErrorCode` keeps the primary code |
-| `lastFailureAt` | Unix-millisecond time of the latest failed automatic index |
-| `nextRetryAt` | Unix-millisecond deadline for the next automatic retry |
-| `failedRevisionAttempts` | Automatic failures recorded for the current known or unavailable-revision bucket |
-| `retrySuppressed` | The current revision, or a cross-revision circuit, is exhausted |
-| `repeatedFailureAttempts` | Consecutive automatic failures with the same stable code across revisions |
-| `repeatedFailureRetrySuppressed` | The repeated-failure circuit is tripped |
-| `capacityFailureAttempts` | Generation-capacity failures since the last successful automatic index |
-| `capacityRetrySuppressed` | The capacity circuit is tripped |
-| `capacityLimit`, `capacityScope`, `capacityNextAction` | The capacity limit/scope/next action of an unresolved capacity failure |
-
-### Recovery host
-
-Start a recovery host with `cartograph serve --mcp --no-auto-sync` when an
-operator needs filesystem watching and periodic reconciliation fully paused
-while an explicit prune drains a historical backlog. `--no-startup-sync`
-continues to suppress only the initial catch-up.
-
-### Backend log cleanup
-
-Managed local LLM logs rotate at 32 MiB and retain one `.1` file. Inspect stale
-rotated logs and invalid PID state without mutation, then apply only a bounded
-age-qualified batch with the exact confirmation:
+Run the sustained native workload explicitly:
 
 ```sh
-cartograph backend cleanup . --json
-cartograph backend cleanup . --apply --confirm cleanup-backend-junk --json
+cargo test --locked --release -p cartograph-cli --test rocks_owner \
+  sustained_headless_owner_mixed_edits_and_mcp_readers -- --ignored --nocapture
 ```
 
-Cleanup never removes current logs, valid process state, or any active backend.
+Its default duration is 30 minutes. It mixes literal and Python body edits,
+file/declaration additions, deletion, renames, and call-topology changes, with
+three real MCP readers. It samples storage and failure history every minute,
+measures edit-to-current MCP evidence, verifies each added/deleted declaration,
+rename path and changed call target, and fences every cycle by changed generation,
+source revision and content digest after completed autosync. It drains the owner
+and compares the final graph with a forced cold rebuild. `CARTOGRAPH_MIXED_SOAK_SECONDS` accepts
+10..7200 seconds for explicit harness validation or longer runs. A short harness
+run does not count as sustained performance or storage evidence.
 
-## Measurement gates
+The frozen worker matrix and concurrent freshness tests are correctness and
+workload-specific performance evidence. They are not proof of a universal
+speedup or of unlimited graph capacity.
 
-Committed reports under `docs/v2/benchmarks/` cover synthetic COPY/index
-scaling, native corpus 1/2/4/8/16-worker identity, patch-task retrieval, and
-the [large public corpus streaming run](v2/benchmarks/LARGE-PUBLIC-CORPUS-STREAMING.md).
-The benchmark executables live under `crates/cartograph-indexer/benches/` and
-Rust integration tests. Measure a representative corpus before changing
-defaults, and retain raw bounds/digests with the report.
+Direct `cartograph index` and `sync-if-dirty` publish the base graph and requested
+history through one native owner. Their behavior is the same when a project service already owns
+RocksDB. The owner request explicitly sets `baseOnly: true`; it does not start a
+summary or classification sweep. MCP admin index/sync keeps its existing
+structural enrichment by default. `enrich: false` skips configured model work;
+`baseOnly: true` explicitly skips both structural and model enrichment. Optional
+phase failures remain visible in the admin job, and a direct CLI cannot silently
+render such a failed tail as a complete index report.
 
-The live release workflow also verifies cancellation, timeout, panic, caller
-drop, database fault, lease takeover, rollback, and zero staged residue. A
-throughput improvement is not releasable if any cleanup or deterministic-output
-gate regresses.
+Structural file and module summaries save in atomic batches of at most sixteen
+scopes with a combined 1 MiB input bound. Each batch streams the graph once,
+collecting selected-scope inventory and bounded evidence together, then checks every
+digest and preserves current model summaries before committing. A stale member
+rejects the complete batch. Job status and cancellation bypass durable trace
+initialization and recording so an unrelated state writer cannot hold their
+acknowledgements behind trace I/O.
+
+Structural role rules stream at most 320 declarations per native cursor page.
+They read declaration metadata without loading source documents. The cursor is
+pinned to its generation and producer model, advances through cached pages,
+and rejects continuation after a publication. Saves from these pages require
+the same generation and preserve a current judged role saved after page selection.
+The rules commit at most sixteen roles per atomic native batch, with a combined
+1 MiB input bound; one invalid member rejects the batch before publication.
+Model-backed role sweeps retain their priority-ordered,
+source-rich candidate API.
+
+`cartograph admin status` returns one observation of a running or terminal job.
+It does not wait for completion or cancel the observed job when the observer
+exits. Commands that start jobs keep their polling and cancellation ownership;
+`admin cancel` waits for the requested cancellation to drain.
+
+Project status reads inventory and language totals together, and summary and role
+counts together, each pinned to the observed generation. Artifact scope and value
+lookups use native batches of at most 32 keys, with the existing physical read,
+workspace and response-byte bounds. This avoids repeated scans and reduces the
+number of large storage reservations waiting for admission. A failed aggregate
+names its static phase, elapsed time and redacted failure category; a changed
+generation cannot be reported with counts from a different publication. After
+all aggregates and rollups finish, a bounded current-pointer read checks the
+original generation under the original request deadline and cancellation. A
+concurrent publication rejects the response with a conflict instead of mixing
+generations or restarting the request.

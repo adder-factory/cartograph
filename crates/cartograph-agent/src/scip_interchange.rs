@@ -694,9 +694,9 @@ fn artifact_path(raw: &str) -> Result<NormalizedPath, ProjectError> {
 
 const fn interchange_error(error: InterchangeSnapshotError) -> ProjectError {
     match error {
-        InterchangeSnapshotError::InvalidBounds | InterchangeSnapshotError::RowBoundExceeded => {
-            ProjectError::InvalidOptions
-        }
+        InterchangeSnapshotError::InvalidBounds
+        | InterchangeSnapshotError::RowBoundExceeded
+        | InterchangeSnapshotError::ByteBoundExceeded => ProjectError::InvalidOptions,
         InterchangeSnapshotError::CurrentGenerationUnavailable => ProjectError::StatusFailed,
         InterchangeSnapshotError::CorruptStoredValue
         | InterchangeSnapshotError::DatabaseOperation => ProjectError::IndexFailed,

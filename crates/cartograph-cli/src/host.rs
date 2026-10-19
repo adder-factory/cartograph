@@ -280,6 +280,13 @@ pub(crate) enum DiagnosticLocation {
     Both,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ServerArgumentState {
+    Current,
+    RetiredDatabaseOptions,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InstallTargetDetection {
@@ -297,6 +304,10 @@ pub(crate) struct InstallTargetDetection {
     pub(crate) wrapped_executable_state: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) managed_database_port: Option<u16>,
+    /// A retired database option remains in the recognized server suffix.
+    /// This also admits repair when the executable is already current or
+    /// deliberately resolved through PATH.
+    pub(crate) server_arguments: ServerArgumentState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) repin_command: Option<String>,
     /// Where the configured Cartograph executable sits in the entry. It is not
@@ -312,6 +323,10 @@ impl InstallTargetDetection {
     pub(crate) fn needs_repin(&self) -> bool {
         self.command_state == STALE_ABSOLUTE
             || self.wrapped_executable_state == Some(STALE_ABSOLUTE)
+    }
+
+    pub(crate) fn needs_registration_repair(&self) -> bool {
+        self.needs_repin() || self.server_arguments == ServerArgumentState::RetiredDatabaseOptions
     }
 }
 
@@ -633,8 +648,21 @@ impl RegistrationLaunch {
 
 fn registration_detection(input: &RegistrationDetectionInput<'_>) -> InstallTargetDetection {
     let launch = registration_launch(input);
-    let managed_database_port =
-        managed_database_port_from_args(input.configured_args.iter().filter_map(|arg| *arg));
+    let server_start = launch
+        .executable
+        .as_ref()
+        .and_then(|executable| executable.argument_index)
+        .map_or(0, |index| index + 1);
+    let server_args = input
+        .configured_args
+        .iter()
+        .skip(server_start)
+        .filter_map(|arg| *arg);
+    let retired_database_options = launch.executable.is_some()
+        && server_args.clone().any(|arg| {
+            arg == "--managed-database-port" || arg.starts_with("--managed-database-port=")
+        });
+    let managed_database_port = managed_database_port_from_args(server_args);
     let mut detection = InstallTargetDetection {
         target: input.target,
         location: input.location,
@@ -645,15 +673,17 @@ fn registration_detection(input: &RegistrationDetectionInput<'_>) -> InstallTarg
         command_state: launch.state,
         wrapped_executable_state: launch.wrapped_executable_state,
         managed_database_port,
+        server_arguments: if retired_database_options {
+            ServerArgumentState::RetiredDatabaseOptions
+        } else {
+            ServerArgumentState::Current
+        },
         repin_command: None,
         executable: launch.executable,
     };
-    detection.repin_command = detection.needs_repin().then(|| {
-        let managed_port = managed_database_port.map_or_else(String::new, |port| {
-            format!(" --managed-database-port {port}")
-        });
+    detection.repin_command = detection.needs_registration_repair().then(|| {
         format!(
-            "cartograph install --yes --target {} --location {}{managed_port} --project-path <path>",
+            "cartograph install --yes --target {} --location {} --project-path <path>",
             input.target, input.location,
         )
     });
@@ -990,6 +1020,43 @@ mod tests {
             },
             Some(selected),
         )
+    }
+
+    #[test]
+    fn current_and_path_pins_still_need_retired_database_option_repair()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempfile::tempdir()?;
+        let config = root.path().join("mcp.json");
+        let selected = Path::new("/selected/bin/cartograph");
+        for command in ["cartograph", "/selected/bin/cartograph"] {
+            let detection = cursor_detection(
+                &config,
+                &serde_json::json!({
+                    "command": command,
+                    "args": ["serve", "--mcp", "--managed-database-port=invalid"]
+                }),
+                selected,
+            );
+            assert!(!detection.needs_repin());
+            assert_eq!(
+                detection.server_arguments,
+                ServerArgumentState::RetiredDatabaseOptions
+            );
+            assert!(detection.needs_registration_repair());
+            assert!(detection.repin_command.is_some());
+        }
+        let wrapper = cursor_detection(
+            &config,
+            &serde_json::json!({
+                "command": "credential-helper",
+                "args": ["--managed-database-port=wrapper-value", "cartograph", "serve", "--mcp"]
+            }),
+            selected,
+        );
+        assert_eq!(wrapper.server_arguments, ServerArgumentState::Current);
+        assert!(!wrapper.needs_registration_repair());
+        assert_eq!(wrapper.managed_database_port, None);
+        Ok(())
     }
 
     #[test]

@@ -2,9 +2,9 @@
 
 # Cartograph
 
-**Generation-safe code intelligence for AI coding agents.**
+**Cartograph 3.0 — current code intelligence, stored with your project.**
 
-Native Rust CLI and MCP server · PostgreSQL 18 · code-aware BM25 · typed code graph
+Native Rust CLI and MCP server · per-project RocksDB · code-aware BM25 · typed code graph
 
 [![Release](https://img.shields.io/github/v/release/adder-factory/cartograph?display_name=tag&sort=semver)](https://github.com/adder-factory/cartograph/releases/latest)
 [![v2 Rust](https://github.com/adder-factory/cartograph/actions/workflows/v2-rust.yml/badge.svg?branch=main)](https://github.com/adder-factory/cartograph/actions/workflows/v2-rust.yml)
@@ -29,11 +29,9 @@ generation provenance, freshness, confidence, truncation, and explicit
 abstention instead of presenting stale or incomplete data as certainty.
 
 > [!IMPORTANT]
-> Cartograph v2 is PostgreSQL-only. It requires PostgreSQL 18.4 or newer within
-> major version 18, ParadeDB `pg_search` 0.26.1, and pgvector 0.8.4 or newer
-> (0.8.7 recommended for external PostgreSQL).
-> There is no SQLite runtime, compatibility mode, importer, optional feature,
-> or fallback.
+> Version 3.0 replaces PostgreSQL with embedded RocksDB. Each project owns its
+> database, and a persistent native service keeps its graph current. Existing
+> v2 projects need a source rebuild and host restart; see [Upgrade](#upgrade).
 
 ## Start here
 
@@ -44,7 +42,7 @@ abstention instead of presenting stale or incomplete data as certainty.
 | Connect Codex, Claude Code, Cursor, or another host | [MCP usage](docs/MCP-USAGE.md) |
 | Look up a command, flag, or JSON field | [CLI reference](docs/CLI-REFERENCE.md) |
 | Check a language, extension, or framework | [Language support matrix](docs/SUPPORT-MATRIX.md) |
-| Operate, back up, or recover PostgreSQL | [Storage and operations](docs/STORAGE-BACKENDS.md) |
+| Inspect and maintain native storage | [Storage and operations](docs/STORAGE-BACKENDS.md) |
 | Fix a failed setup, error code, or stale graph | [Troubleshooting](docs/TROUBLESHOOTING.md) |
 | See what changed in each release | [Changelog](docs/RELEASES.md) |
 | Browse every guide by task | [Documentation home](docs/README.md) |
@@ -74,58 +72,46 @@ and deterministic task-intent routing.
 
 ### 1. Install the native executable
 
-**macOS and Linux**
+macOS (Apple Silicon, macOS 26+) or Linux (ARM64/x64, glibc 2.41+):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/adder-factory/cartograph/main/install.sh | sh
 cartograph --version
 ```
 
-**Windows PowerShell**
+Windows (x64), in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/adder-factory/cartograph/main/install.ps1 | iex
 cartograph --version
 ```
 
-The installers select the native archive for the host and verify it against the
-release `SHA256SUMS`. `install.sh` links `cartograph` into `~/.local/bin` (or
-`CARTOGRAPH_BIN_DIR`) and prints the `PATH` line to add if that directory is
-missing; `install.ps1` adds its install directory to the user `PATH`.
+The installer verifies the archive against the release's `SHA256SUMS`. To build
+from source, use the pinned Rust toolchain, a C/C++ compiler, and libclang:
+
+```sh
+cargo build --locked --release -p cartograph-cli
+```
 
 ### 2. Build the first graph
 
-On macOS or Linux with a local Docker daemon:
-
 ```sh
 cd /path/to/project
-cartograph db start --project-path .    # project-owned, loopback-only PostgreSQL
-cartograph doctor .                     # fails closed unless every capability passes
-cartograph index .                      # publishes one complete generation
-cartograph status .                     # must report that generation as fresh
+cartograph index .
+cartograph doctor . --format json
+cartograph status . --format json
 cartograph context 'explain the primary request flow' --project-path .
 ```
 
-On Windows, or to use your own server, see
-[External PostgreSQL](#external-postgresql).
+Each project owns `.cartograph/data`; no server or Docker bootstrap is needed.
+An unchanged second index skips publication. Require a fresh generation and
+real retrieval evidence before calling setup ready. Doctor reports native
+capabilities separately from freshness, models, registration, and transport.
 
-<details>
-<summary>What <code>db start</code> and <code>doctor</code> check</summary>
-
-`db start` creates project-owned, loopback-only resources and pulls the pinned
-upstream ParadeDB 0.26.1 image, which contains `pg_search` 0.26.1 and
-pgvector 0.8.6. `doctor` fails closed unless PostgreSQL, pg_search, pgvector, preload,
-BM25, migrations, and code tokenization all pass.
-
-`doctor --json` retains `ready` as the backward-compatible hard-capability
-result and mirrors it as `capabilitiesReady`. Its separate `projectReadiness`
-object reports database, index, freshness, deterministic retrieval, optional
-semantic retrieval, on-disk registration, live MCP transport, and overall
-onboarding states. Checks that `doctor` does not perform are `not_checked`,
-never inferred from another successful layer; `nextActions` contains only
-path-safe follow-up commands.
-
-</details>
+For a previously indexed PostgreSQL project, run
+`cartograph db migrate --to rocksdb --project-path .` to rebuild and verify the
+native destination while preserving legacy data. See the
+[migration guide](docs/v2/ROCKSDB-MIGRATION.md) for the scope of that rebuild.
 
 ### 3. Connect a coding agent
 
@@ -143,20 +129,7 @@ The installer supports 19 hosts in total; see the
 [CLI reference](docs/CLI-REFERENCE.md#mcp-and-agent-configuration) for every
 target ID.
 
-<details>
-<summary>Using a non-default database port</summary>
 
-If the default managed database port is occupied, start the database with
-`db start --port <PORT>`. A local install without `CARTOGRAPH_DATABASE_URL`
-discovers the project-owned container's published port and writes that
-non-secret loopback port into the portable `serve` arguments for the selected
-host; pass `install --managed-database-port <PORT>` only to pin a port before
-the container exists. Direct project commands discover an existing
-project-owned container's published port when neither the flag nor
-`CARTOGRAPH_MANAGED_DATABASE_PORT` is set; an explicit wrong port fails with
-the discovered port instead of a generic connection error.
-
-</details>
 
 ### 4. Verify the live integration
 
@@ -173,71 +146,66 @@ Until that happens, `doctor` deliberately reports `liveTransport` as
 `not_checked`; an on-disk registration never proves which child process an
 already-running host loaded.
 
-### Upgrade
+### Keep the graph current
 
-Versioned native installs register the stable
-`~/.cartograph-cli/current/bin/cartograph` launcher. A normal version-to-version
-upgrade is one resumable command from the project root:
+On macOS, start a project service that stays alive when an MCP client
+disconnects:
 
 ```sh
-cartograph upgrade --apply --project-path .
+cartograph service start --project-path . --format json
+cartograph service status --project-path . --format json
 ```
 
-Require `completed: true` in the report, and reopen an agent host only when
-`restartRequired` is true.
+Filesystem events use a 150 ms quiet window and incremental file parsing.
+Continuous edits are coalesced for at most two seconds, and a periodic source
+check catches missed events. These are scheduling bounds; end-to-end freshness
+also includes extraction, publication, and the query. Check `autoSync` and
+generation freshness instead of assuming every repository updates in a second.
+On Linux, run `cartograph watch --project-path .` under your user service
+manager, or in the foreground. Automatic service registration currently uses
+macOS launchd. On Windows, the serving MCP primary owns the watcher.
 
-<details>
-<summary>What the upgrade does and how to read its report</summary>
+### Upgrade
 
-It verifies and smoke-tests the release, switches the stable launcher, applies
-safe migrations, refreshes the current generation, runs `doctor`, proves a
-next-process status from the installed binary, and repairs stale owned host
-pins. Require `completed: true`; `projectReconciliation.state: source_changed`
-is a completed upgrade whose checkout kept changing, so index again once edits
-pause. If managed-database replacement is necessary, follow only
-the exact backup and confirmation commands in the report, then rerun the same
-upgrade command to resume. Reopen an agent host only when `restartRequired` is
-true; an attached MCP child cannot hot-load a new binary.
+For an existing v2 installation, install v3 with the installer above, then run
+the v3 executable:
 
-See [Agent-assisted installation](docs/AGENT-INSTALL.md#upgrade-an-existing-installation)
-for the complete recovery boundaries.
+```sh
+cartograph db migrate --to rocksdb --project-path . --format json
+cartograph upgrade --apply --project-path . --json
+```
 
-</details>
+Migration rebuilds the graph from current source and verifies retrieval before
+recording completion. It preserves the old PostgreSQL database. Legacy notes,
+sessions, embeddings, and artifacts are not imported; keep the old data if you
+need them. The upgrade repairs recognized host pins and reports any remaining
+manual steps. Reopen attached coding hosts to load v3, then verify live MCP
+status and a real query. Future native upgrades use the same `upgrade --apply`
+command after stopping the existing owner. For a macOS native service:
+
+```sh
+cartograph service stop --project-path . --format json
+cartograph upgrade --apply --project-path . --json
+cartograph service start --project-path . --format json
+cartograph status . --format json
+```
+
+For a manually managed owner, stop that project's `watch` or serving process
+cooperatively, upgrade, then start it again through its service manager. Start
+the new owner before reconnecting MCP hosts. Verify the status report's version
+as well as the client's `--version`; a new client can still proxy to an older
+owner. See the [migration guide](docs/v2/ROCKSDB-MIGRATION.md).
 
 ## Platform and database support
 
-| Host | Native release | Managed local database | External PostgreSQL |
-| --- | :---: | :---: | :---: |
-| macOS 26 on Apple Silicon | ✅ | ✅ with local Docker | ✅ |
-| Current 64-bit Linux, glibc 2.41+ (arm64 / x64) | ✅ | ✅ with local Docker | ✅ |
-| Windows 11 25H2+ / Server 2025 x64 | ✅ | — not enabled | ✅ |
+RocksDB is compiled into the Rust executable on macOS, Linux, and Windows.
+One primary owns each project's database. macOS/Linux clients can reuse a
+running MCP owner through private same-user Unix IPC. Windows currently requires
+closing the existing primary before another process opens that project.
+PostgreSQL connection flags and managed-container operations are retired.
 
-Only current 64-bit operating-system generations are release targets. Intel
-macOS and every 32-bit architecture are unsupported. Linux release binaries
-target Debian 13's glibc 2.41 baseline or newer. Every Linux archive is built
-in a pinned Rust/Trixie container and executed in a separate pinned Debian 13
-runtime container before publication.
-
-### External PostgreSQL
-
-For an external deployment, the database administrator installs PostgreSQL 18.4
-or newer within major version 18, `pg_search` 0.26.1, and pgvector 0.8.4 or
-newer, and creates pgvector before `pg_search`. Load the connection URL from the
-shell or a secret manager rather than a committed file:
-
-```sh
-export CARTOGRAPH_DATABASE_SCHEMA='cartograph_project'
-# CARTOGRAPH_DATABASE_URL must already be present in the environment.
-
-cartograph doctor /absolute/path/to/project
-cartograph index /absolute/path/to/project
-cartograph status /absolute/path/to/project
-```
-
-> [!WARNING]
-> Database URLs are secrets. Public errors, debug output, MCP responses,
-> archives, and project records are required to omit credentials and absolute
-> checkout paths. See [PostgreSQL storage and operations](docs/STORAGE-BACKENDS.md).
+See [storage operations](docs/STORAGE-BACKENDS.md) for concurrency, maintenance,
+source-rebuild migration, and current capacity limits.
 
 ## Agent workflow
 
@@ -311,92 +279,45 @@ automation surface where exposed by command help.
 
 </details>
 
-## Large codebases and streaming indexing
+## Large codebases and indexing
 
-No special command is required for a large first index. With the default
-`generationStorage: "auto"`, Cartograph selects its PostgreSQL spill path at
-64 Cargo manifests, 10,000 supported files, 64 MiB of indexed source, or when a
-conservative 16x source-expansion estimate reaches `maxGenerationBytes`. A
-dense smaller corpus can opt in explicitly through `.cartograph/config.json`:
+Extraction uses bounded native workers and deterministic reduction. The
+`maxGenerationBytes` policy and storage admission reject oversized work safely;
+RocksDB does not remove the whole-generation extraction working-set limit.
+Legacy `generationStorage` and spill settings do not select another backend.
+Measure a representative corpus before raising limits or worker counts.
 
-```json
-{
-  "version": 2,
-  "generationStorage": "postgres"
-}
-```
-
-Readers continue to see the prior complete generation until the new canonical
-generation passes validation and publishes. In the published
-[VS Code streaming benchmark](docs/v2/benchmarks/LARGE-PUBLIC-CORPUS-STREAMING.md)
-(14,693 files, about 171 MB of source, measured on the v2.1.11 pre-release
-candidate), extraction took 23.04 seconds and the complete cold index 467.42
-seconds at 2.90 GiB maximum RSS; an unchanged-source reconciliation took 3.19
-seconds.
-
-<details>
-<summary>How the spill path stays bounded</summary>
-
-The spill path lazily admits at most 64 files and 64 MiB of combined source per
-parse work item, reuses one parser per encountered language, and writes
-file-local extraction plus resolved typed facts in bounded batches. PostgreSQL
-then performs deterministic partitioned reduction behind the staging
-generation's lease and fence.
-
-This bounds the bulky per-file working set; it does not make every native
-structure unlimited. Compact project-wide resolution, clone, and centrality
-indexes remain bounded by `maxGenerationBytes`, while `maxSpillBytes` and
-`maxSpillRows` bound the durable unordered payload. Cartograph fails closed at
-either boundary rather than lowering extraction or graph quality.
-
-Parse time and complete-index time are separate measurements. The benchmark
-records the final pre-release candidate retained with v2.1.11; it is not an
-exact tagged-binary rerun. That candidate extracted 14,693 files / 171,015,058
-source bytes in 23.04 seconds. The full cold request, including resolution,
-reduction, exact digest, BM25 construction, and atomic publication, completed
-in 467.42 seconds at 2.90 GiB maximum RSS. A qualified error such as
-`resolve_progress_stalled` means the watchdog observed no durable work
-checkpoint; it does not merely mean that a large stage ran for a long time.
-
-</details>
-
-See [configuration](docs/CONFIGURATION.md),
-[performance tuning](docs/PERF-TUNING.md), and
-[capacity troubleshooting](docs/TROUBLESHOOTING.md#native-generation-reaches-its-capacity-bound)
-for the complete limits and operator guidance.
+The [large-corpus PostgreSQL record](docs/v2/benchmarks/LARGE-PUBLIC-CORPUS-STREAMING.md)
+and other frozen benchmark reports remain historical. Native freshness, storage,
+read/write contention, and retrieval timings need their own measured evidence.
+See [performance tuning](docs/PERF-TUNING.md).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[Source checkout] --> B[Bounded Rust discovery]
-    B --> C{Generation storage selector}
-    C -->|memory| D[Parallel parse and memory reduction]
-    C -->|PostgreSQL spill| E[Lazy parse batches and fenced staging rows]
-    E --> F[Deterministic partitioned reduction]
-    D --> G[Canonical facts]
-    F --> G
-    G --> H[(PostgreSQL 18 canonical generation)]
-    H --> I[ParadeDB BM25]
-    H --> J[Typed graph and impact]
-    H --> K[Optional pgvector semantic retrieval]
-    I --> L[Evidence packet]
-    J --> L
-    K --> L
-    L --> M[Native CLI]
-    L --> N[MCP server]
+  Source[Source checkout] --> Extract[Bounded native extraction]
+  Extract --> Reduce[Deterministic facts and digest]
+  Reduce --> Owner[Project owner and storage workers]
+  Owner --> Rocks[(Per-project RocksDB)]
+  Rocks --> Evidence[Exact / BM25 / graph / semantic evidence]
+  Evidence --> Agent[CLI and MCP]
 ```
 
-| Boundary | Guarantee |
-| --- | --- |
-| **Native runtime** | Rust owns discovery, parsing, resolution, bounded parallel indexing, retrieval, CLI, and MCP. No Bun, Node.js, or TypeScript runtime is shipped. |
-| **One durable store** | PostgreSQL 18 owns canonical project and generation state. ParadeDB BM25 and model-scoped HNSW are rebuildable derived indexes. |
-| **Atomic publication** | Incomplete or unhealthy generations never become current. Readers query one verified immutable generation. Large builds can use generation-fenced PostgreSQL spill and deterministic partitioned reduction without exposing staging rows. |
-| **Deterministic concurrency** | 1, 2, 4, 8, and 16-worker builds reduce to the same logical digest and ordered evidence. |
-| **Optional generation** | Exact lookup, BM25, graph, review, freshness, and affected tests work without an LLM. Generative output cannot replace structural truth. |
+Atomic revisions, synchronous WAL durability, snapshot readers, changed-record
+writes, packed adjacency, and bounded maintenance support concurrent indexing
+and queries. Source freshness remains explicit. BM25 uses generation-scoped
+postings and corpus statistics, with a bounded scan fallback when the optional
+lexical index is unavailable. Semantic retrieval uses exact cosine scanning;
+capacity limits and fallback state remain explicit.
 
-For crate ownership, schemas, leases, retrieval, MCP boundaries, and failure
-semantics, read the [v2 architecture](docs/v2/ARCHITECTURE.md).
+The storage API is async Rust with bounded dedicated workers for blocking
+RocksDB calls. Reads retain complete immutable snapshots while a writer
+publishes the next generation atomically. Optional Jev decisions can guide
+navigation and ranking; validated responses use a bounded process-local cache,
+and provider failures preserve native evidence and explicit fallback state.
+
+Read the [architecture](docs/v2/ARCHITECTURE.md) for crate ownership and limits.
 
 ## Language support
 
@@ -408,7 +329,7 @@ grammars; 65 mixed-markup, configuration, domain-specific, and game-scripting
 modes use bounded Rust structural scanners.
 
 Every admitted mode must prove deterministic facts, cancellation, literal
-safety, parallel-worker identity, and live PostgreSQL/ParadeDB publication.
+safety, parallel-worker identity, and live native RocksDB publication.
 Unknown extensions are excluded rather than represented as a misleading empty
 graph. For each of the 73 v1 modes, a per-language
 [v1 parity oracle](docs/LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle) checks
@@ -421,114 +342,35 @@ a pending or intentional ledger entry.
 [Native extraction architecture](docs/v2/EXTRACTION.md) ·
 [Add or extend a language](docs/EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-## Managed database operations
-
-Common read-only or idempotent lifecycle commands:
+## Native database operations
 
 ```sh
-cartograph db status --project-path .
-cartograph db logs --project-path . --tail 200
 cartograph db usage --project-path . --format json
-cartograph db compact --project-path . --format json  # dry-run plan
-cartograph db derived-index --project-path .
-cartograph db backup ./cartograph.backup --project-path .
-cartograph db stop --project-path .
+cartograph db prune --project-path . --keep-superseded 2 \
+  --maximum-deletions 4 --confirm prune-old-generations --format json
 ```
 
-> [!CAUTION]
-> Restore, upgrade, derived-index rebuild, removal, import, and prune can replace
-> or delete state. Each requires its exact confirmation phrase (listed in
-> [Storage and operations](docs/STORAGE-BACKENDS.md#destructive-operations-and-confirmation-phrases))
-> and is never implied by a diagnostic request.
+Usage distinguishes logical records from allocated files, WAL, memtables, and
+pending compaction. Cleanup is bounded and resumable; physical disk reclamation
+can lag logical deletions. See [storage operations](docs/STORAGE-BACKENDS.md).
 
-<details>
-<summary>Container limits, storage reporting, compaction, and housekeeping</summary>
+## Migrating earlier graphs
 
-New or confirmed-replacement managed containers have explicit 2 GiB memory,
-four-CPU, and 256-process ceilings plus bounded PostgreSQL memory and worker
-settings. A 15-minute checkpoint interval, 2 GiB soft `max_wal_size`, 256 MiB
-`min_wal_size`, and `wal_compression=lz4` absorb rapid generation COPY/BM25
-bursts without weakening synchronous durability. `db status` reports the observed Docker
-limits and compatibility; an older owned container is never silently replaced
-and uses the normal backup-gated, confirmed `db upgrade` path; `db status`
-reports `postgres_settings: current | outdated | absent`.
-
-Default `status` output includes compact database/schema/heap/index/TOAST
-allocation in readable IEC units such as MiB and GiB. JSON and MCP retain the
-exact `*Bytes` integers and add a `databaseStorage.humanReadable` projection for
-display. `db usage` remains the detailed bounded report and separates schema
-heap/index/TOAST, generation, and parse-cache allocations. Parse-cache evidence
-distinguishes uncompressed logical payload, live compressed storage,
-whole-schema allocation, and physical overhead so a high-water TOAST file cannot
-masquerade as live cache data.
-
-`db compact` plans bounded one-at-a-time concurrent B-tree rebuilds and remains
-read-only until `--apply --confirm compact-online-indexes`; apply also requires
-verified filesystem headroom. `db compact --heap` measures free-but-allocated
-main and TOAST heaps; its offline apply requires `--confirm compact-heap-relations`,
-no live project operations, and one `ACCESS EXCLUSIVE` `VACUUM FULL` rewrite at a
-time.
-
-Legacy inline LLM keys can be audited with
-`cartograph llm migrate-credentials .` and atomically moved only after an exact
-environment-value match. Local backend logs rotate at 32 MiB. The bounded
-`cartograph backend cleanup .` dry run reports old rotated logs and invalid PID
-state.
-
-</details>
-
-Community ParadeDB BM25 is treated as rebuildable local derived data. Shared,
-hosted, replicated, customer-facing, or paying production use requires a
-separate durability and ParadeDB licensing decision. See
-[PostgreSQL storage and operations](docs/STORAGE-BACKENDS.md) for the full
-lifecycle.
-
-## Migrating from v1.1.33
-
-V2 imports only from a v1.1.33 PostgreSQL schema. It never opens or inspects a
-SQLite graph.
-
-<details>
-<summary>Import steps</summary>
-
-If the only v1 index is SQLite, either rebuild v2 from the source checkout or
-use the v1.1.33 binary to migrate SQLite to PostgreSQL first. The PostgreSQL v1
-source and v2 destination must be distinct schemas in the same database.
-
-Always back up the database, quiesce project writers, and run the non-mutating
-preflight before the confirmed import:
-
-```sh
-cartograph db import-v1 \
-  --project-path /absolute/path/to/current-project \
-  --source-checkout /absolute/path/to/exact-v1-checkout \
-  --source-schema cartograph_v1 \
-  --dry-run \
-  --format json
-```
-
-</details>
-
-The full resumable workflow, validation rules, and retention constraints are in
-[PostgreSQL storage and operations](docs/STORAGE-BACKENDS.md#import-from-v1133-postgresql).
+`cartograph db migrate --to rocksdb --project-path .` rebuilds source facts and
+verifies the current native graph before recording completion. It preserves
+legacy PostgreSQL data but does not copy notes, sessions, embeddings, or other
+legacy-only state. See the [migration guide](docs/v2/ROCKSDB-MIGRATION.md).
 
 ## Security and release guarantees
 
-- Inputs, rows, bytes, tasks, output, deadlines, and retries have hard caps.
-- User query text is bound data; dynamic schema identifiers use validated
-  quoting paths.
-- Source reads stay within a canonical project root and reject unsupported,
-  oversized, or non-UTF-8 input.
-- Write operations use PostgreSQL-clock leases, fencing tokens, advisory locks,
-  bounded transactions, and rollback on lost ownership.
-- Release archives contain only the native executable, README, license, and
-  allowlisted third-party notices.
-- Every stable release requires strict Rust gates, live PostgreSQL fault tests,
-  deterministic worker benchmarks, Sonar, independent review, four native
-  archive audits, checksums, provenance, and a signed tag at published `main`.
+Project ownership and file permissions protect local storage and Unix IPC.
+Inputs, queues, responses, reads, and mutation batches have explicit bounds.
+Evidence retains freshness, confidence, provenance, truncation, and abstention.
+No credentials or source/query text are included in public debug diagnostics.
 
-Cartograph does not bundle PostgreSQL, ParadeDB, pgvector, an extension package,
-or a container image. See the [distribution and licensing policy](docs/v2/LICENSING.md).
+Stable releases still require independent review, strict Rust gates, native
+fault paths, Sonar, four archive smokes, checksums, and provenance. Local source
+verification is separate from a published release or a restarted attached host.
 
 ## Documentation
 
@@ -562,10 +404,10 @@ cargo deny --all-features check
 <details>
 <summary>CI and release gates</summary>
 
-The complete live PostgreSQL/ParadeDB gate is defined in
+The complete native RocksDB gate is defined in
 [`v2-rust.yml`](.github/workflows/v2-rust.yml). Documentation-only changes run a
-focused documentation contract while the Windows, macOS, Linux release, live
-PostgreSQL, and benchmark work stays skipped. Any source, dependency, workflow,
+focused documentation contract while the Windows, macOS, Linux release, native
+RocksDB, and benchmark work stays skipped. Any source, dependency, workflow,
 release-note, or mixed change fails closed to the complete gate. A manual
 workflow dispatch also runs the complete gate.
 
@@ -583,4 +425,4 @@ validation.
 
 Cartograph is licensed under the [MIT License](LICENSE). Third-party components
 retain their own licenses; see [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) and the
-[ParadeDB distribution boundary](docs/v2/LICENSING.md).
+[native library distribution notices](docs/v2/LICENSING.md).

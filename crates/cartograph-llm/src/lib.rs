@@ -24,7 +24,7 @@ pub use config::{
 pub use credential::{CredentialCommand, CredentialCommandError, CredentialCommandFailure};
 pub use jev::{
     JEV_ENDPOINT, JEV_MODEL, JevAnswer, JevClient, JevDecision, JevError, JevFeature, JevQuestion,
-    JevSettings, NoulCriteria, jev_feature_enabled,
+    JevSettings, JevUsage, NoulCriteria, jev_feature_enabled,
 };
 pub use model::{EmbeddingBatch, EmbeddingError, EmbeddingModelIdentity, EmbeddingVector};
 pub use models::{

@@ -2,17 +2,13 @@ use std::{collections::BTreeMap, time::Duration};
 
 use cartograph_domain::{NormalizedPath, ProjectId, SourceLanguage};
 use serde::Serialize;
-use sqlx_core::row::Row;
-
-use crate::{
-    CartographDatabase, StorageError,
-    database::{PgQuery, RowReadRequest, quoted_schema, read_rows},
-};
 
 const FILE_QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_FILE_ROWS: u16 = 2_000;
 const MAX_FILE_DEPENDENCY_ROWS: u16 = 500;
 const MAX_PATH_REGEX_BYTES: usize = 8_192;
+
+mod native;
 
 /// Database-side file inventory filters applied before the response cap.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,7 +48,7 @@ impl FileSurfaceQuery {
         self
     }
 
-    /// Apply an anchored PostgreSQL regular expression generated from a bounded glob.
+    /// Apply an anchored regular expression generated from a bounded glob.
     /// # Errors
     ///
     /// Returns an error if the optional expression is empty, contains a NUL
@@ -213,15 +209,7 @@ pub enum FileDependencyDirection {
     Both,
 }
 
-impl FileDependencyDirection {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Dependencies => "dependencies",
-            Self::Dependents => "dependents",
-            Self::Both => "both",
-        }
-    }
-}
+impl FileDependencyDirection {}
 
 /// Independently bounded dependency/dependent request for one exact indexed path.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -288,251 +276,6 @@ impl FileDependencyResult {
     }
 }
 
-impl CartographDatabase {
-    /// Return a file inventory whose directory/language/glob filters precede LIMIT.
-    /// # Errors
-    ///
-    /// Returns an error if the row limit is invalid or filtered current-file
-    /// records and their structural counts cannot be queried or decoded.
-    pub async fn current_file_surface(
-        &self,
-        project_id: &ProjectId,
-        request: &FileSurfaceQuery,
-    ) -> Result<FileSurfaceResult, StorageError> {
-        validate_limit(request.limit, MAX_FILE_ROWS, "file_surface_limit")?;
-        let schema = quoted_schema(&self.schema);
-        let statement = format!(
-            r#"WITH current AS (
-                    SELECT current_generation_id AS generation_id
-                    FROM {schema}."projects"
-                    WHERE project_id = CAST($1 AS uuid)
-                ), selected AS (
-                    SELECT files.normalized_path, files.language, files.byte_size,
-                           files.parse_status,
-                           COUNT(symbols.symbol_id) FILTER (
-                               WHERE symbols.symbol_kind <> 'file'
-                           )::bigint AS symbol_count
-                    FROM {schema}."files" AS files
-                    JOIN current ON current.generation_id = files.generation_id
-                    LEFT JOIN {schema}."symbols" AS symbols
-                      ON symbols.project_id = files.project_id
-                     AND symbols.generation_id = files.generation_id
-                     AND symbols.file_id = files.file_id
-                    WHERE files.project_id = CAST($1 AS uuid)
-                      AND ($2::text IS NULL
-                           OR files.normalized_path = $2
-                           OR LEFT(files.normalized_path, LENGTH($2) + 1) = $2 || '/')
-                      AND ($3::text IS NULL OR files.language = $3)
-                      AND ($4::text IS NULL OR files.normalized_path ~ $4)
-                    GROUP BY files.file_id, files.normalized_path, files.language,
-                             files.byte_size, files.parse_status
-                )
-                SELECT normalized_path, language, byte_size, parse_status, symbol_count,
-                       COUNT(*) OVER ()::bigint AS total_files,
-                       SUM(byte_size) OVER ()::bigint AS total_bytes,
-                       SUM(symbol_count) OVER ()::bigint AS total_symbols
-                FROM selected
-                ORDER BY normalized_path
-                LIMIT $5"#,
-        );
-        let rows = self
-            .file_rows(
-                statement,
-                |statement| {
-                    statement
-                        .bind(project_id.as_str())
-                        .bind(request.directory.as_ref().map(NormalizedPath::as_str))
-                        .bind(request.language.map(SourceLanguage::as_str))
-                        .bind(request.path_regex.as_deref())
-                        .bind(i64::from(request.limit))
-                },
-                "current-file-surface",
-            )
-            .await?;
-        let total_files = rows
-            .first()
-            .map(|row| nonnegative_u64(row, 5))
-            .transpose()?
-            .unwrap_or(0);
-        let total_bytes = rows
-            .first()
-            .map(|row| nonnegative_u64(row, 6))
-            .transpose()?
-            .unwrap_or(0);
-        let total_symbols = rows
-            .first()
-            .map(|row| nonnegative_u64(row, 7))
-            .transpose()?
-            .unwrap_or(0);
-        let files = rows
-            .iter()
-            .map(decode_file_surface)
-            .collect::<Result<_, _>>()?;
-        Ok(FileSurfaceResult {
-            files,
-            total_files,
-            total_bytes,
-            total_symbols,
-            truncated: total_files > u64::from(request.limit),
-        })
-    }
-
-    /// Aggregate the complete filtered file set before any directory output cap.
-    /// # Errors
-    ///
-    /// Returns an error if `directory_limit` is invalid or the complete
-    /// filtered aggregate cannot be queried, bounded, or decoded.
-    pub async fn current_file_aggregates(
-        &self,
-        project_id: &ProjectId,
-        request: &FileSurfaceQuery,
-        directory_limit: u16,
-    ) -> Result<FileAggregateResult, StorageError> {
-        validate_limit(directory_limit, MAX_FILE_ROWS, "file_aggregate_limit")?;
-        let schema = quoted_schema(&self.schema);
-        let statement = include_str!("sql/file_aggregates.sql").replace("{schema}", &schema);
-        let rows = self
-            .file_rows(
-                statement,
-                |statement| {
-                    statement
-                        .bind(project_id.as_str())
-                        .bind(request.directory.as_ref().map(NormalizedPath::as_str))
-                        .bind(request.language.map(SourceLanguage::as_str))
-                        .bind(request.path_regex.as_deref())
-                        .bind(i64::from(directory_limit))
-                },
-                "current-file-aggregates",
-            )
-            .await?;
-        let mut languages = Vec::new();
-        let mut directories = Vec::new();
-        let mut total_directories = 0_u64;
-        for row in &rows {
-            match text(row, 0)?.as_str() {
-                "language" => languages.push(FileLanguageAggregate {
-                    language: text(row, 1)?,
-                    files: nonnegative_u64(row, 2)?,
-                    symbols: nonnegative_u64(row, FILE_AGGREGATE_SYMBOLS_COLUMN)?,
-                    bytes: nonnegative_u64(row, FILE_AGGREGATE_BYTES_COLUMN)?,
-                }),
-                "directory" => {
-                    total_directories =
-                        nonnegative_u64(row, FILE_AGGREGATE_DIRECTORY_TOTAL_COLUMN)?;
-                    directories.push(FileDirectoryAggregate {
-                        path: text(row, 1)?,
-                        files: nonnegative_u64(row, 2)?,
-                        symbols: nonnegative_u64(row, FILE_AGGREGATE_SYMBOLS_COLUMN)?,
-                        bytes: nonnegative_u64(row, FILE_AGGREGATE_BYTES_COLUMN)?,
-                    });
-                }
-                _ => return Err(corrupt("file_aggregate_kind")),
-            }
-        }
-        Ok(FileAggregateResult {
-            languages,
-            directories,
-            total_directories,
-            directories_truncated: total_directories > u64::from(directory_limit),
-        })
-    }
-
-    /// Aggregate cross-file structural edges with independent direction caps.
-    /// # Errors
-    ///
-    /// Returns an error if the per-direction bound is invalid or current
-    /// cross-file edges cannot be queried, aggregated, or decoded.
-    pub async fn current_file_dependencies(
-        &self,
-        project_id: &ProjectId,
-        request: &FileDependencyQuery,
-    ) -> Result<FileDependencyResult, StorageError> {
-        validate_limit(
-            request.per_direction_limit,
-            MAX_FILE_DEPENDENCY_ROWS,
-            "file_dependency_limit",
-        )?;
-        let schema = quoted_schema(&self.schema);
-        let statement = include_str!("sql/file_dependencies.sql").replace("{schema}", &schema);
-        let rows = self
-            .file_rows(
-                statement,
-                |statement| {
-                    statement
-                        .bind(project_id.as_str())
-                        .bind(request.path.as_str())
-                        .bind(request.direction.as_str())
-                        .bind(i64::from(request.per_direction_limit))
-                },
-                "current-file-dependencies",
-            )
-            .await?;
-        let mut counts = BTreeMap::from([
-            ("dependencies".to_owned(), 0_u64),
-            ("dependents".to_owned(), 0_u64),
-        ]);
-        let mut output = Vec::with_capacity(rows.len());
-        for row in &rows {
-            counts.insert(text(row, 0)?, nonnegative_u64(row, 6)?);
-            output.push(decode_file_dependency(row)?);
-        }
-        let truncated = counts
-            .iter()
-            .map(|(direction, count)| {
-                (
-                    direction.clone(),
-                    *count > u64::from(request.per_direction_limit),
-                )
-            })
-            .collect();
-        Ok(FileDependencyResult {
-            rows: output,
-            counts,
-            truncated,
-        })
-    }
-
-    async fn file_rows<'query>(
-        &self,
-        statement: String,
-        bind: impl FnOnce(PgQuery<'query>) -> PgQuery<'query>,
-        operation: &'static str,
-    ) -> Result<Vec<sqlx_postgres::PgRow>, StorageError> {
-        let request = RowReadRequest::new(statement, operation, FILE_QUERY_TIMEOUT);
-        read_rows(self, request, bind).await
-    }
-}
-
-fn decode_file_surface(row: &sqlx_postgres::PgRow) -> Result<FileSurfaceRow, StorageError> {
-    Ok(FileSurfaceRow {
-        path: text(row, 0)?,
-        language: text(row, 1)?,
-        byte_size: nonnegative_u64(row, 2)?,
-        parse_status: text(row, 3)?,
-        symbol_count: nonnegative_u64(row, 4)?,
-    })
-}
-
-const FILE_AGGREGATE_SYMBOLS_COLUMN: usize = 3;
-const FILE_AGGREGATE_BYTES_COLUMN: usize = 4;
-const FILE_AGGREGATE_DIRECTORY_TOTAL_COLUMN: usize = 5;
-const FILE_DEPENDENCY_EDGE_COUNT_COLUMN: usize = 3;
-const FILE_DEPENDENCY_SITE_COUNT_COLUMN: usize = 4;
-const FILE_DEPENDENCY_EDGE_KINDS_COLUMN: usize = 5;
-
-fn decode_file_dependency(row: &sqlx_postgres::PgRow) -> Result<FileDependencyRow, StorageError> {
-    Ok(FileDependencyRow {
-        direction: text(row, 0)?,
-        path: text(row, 1)?,
-        language: text(row, 2)?,
-        edge_count: nonnegative_u64(row, FILE_DEPENDENCY_EDGE_COUNT_COLUMN)?,
-        site_count: nonnegative_u64(row, FILE_DEPENDENCY_SITE_COUNT_COLUMN)?,
-        edge_kinds: row
-            .try_get(FILE_DEPENDENCY_EDGE_KINDS_COLUMN)
-            .map_err(|_| corrupt("file_dependency_kinds"))?,
-    })
-}
-
 fn validate_limit(limit: u16, maximum: u16, field: &'static str) -> Result<(), StorageError> {
     if limit == 0 || limit > maximum {
         Err(StorageError::InvalidInput { field })
@@ -541,20 +284,7 @@ fn validate_limit(limit: u16, maximum: u16, field: &'static str) -> Result<(), S
     }
 }
 
-fn text(row: &sqlx_postgres::PgRow, index: usize) -> Result<String, StorageError> {
-    row.try_get(index).map_err(|_| corrupt("file_intelligence"))
-}
-
-fn nonnegative_u64(row: &sqlx_postgres::PgRow, index: usize) -> Result<u64, StorageError> {
-    let value = row
-        .try_get::<i64, _>(index)
-        .map_err(|_| corrupt("file_intelligence"))?;
-    u64::try_from(value).map_err(|_| corrupt("file_intelligence"))
-}
-
-const fn corrupt(field: &'static str) -> StorageError {
-    StorageError::CorruptStoredValue { field }
-}
+use crate::StorageError;
 
 #[cfg(test)]
 mod tests {

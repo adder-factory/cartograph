@@ -4,17 +4,17 @@
 [Storage and operations](STORAGE-BACKENDS.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
 Cartograph keeps non-secret project policy in `.cartograph/config.json`.
-Database URLs and API credentials belong in the process environment or private
+API credentials belong in the process environment or private
 managed state, never in a committed file. This page is the reference for every
 project-configuration key and environment variable; read it before you change
-source admission, capacity limits, database connections, or optional model
+source admission, capacity limits, native storage, or optional model
 tiers.
 
 **On this page:** [Settings at a glance](#settings-at-a-glance) ·
 [Where settings live](#where-settings-live) ·
 [Project configuration example](#project-configuration-example) ·
 [Source and evidence policy](#source-and-evidence-policy) ·
-[PostgreSQL settings](#postgresql-settings) ·
+[Native storage](#native-storage) ·
 [Auto-sync and MCP routing](#auto-sync-and-mcp-routing) ·
 [Optional LLM tiers](#optional-llm-tiers)
 
@@ -33,9 +33,9 @@ Every key is optional. Byte values are plain integers in the file.
 | `maxFileSize` | 32 MiB | 1 byte through 32 MiB | [Source policy](#source-and-evidence-policy) |
 | `maxAstDepth` | `256` | 64 through 1024 | [Source policy](#source-and-evidence-policy) |
 | `maxGenerationBytes` | 1 GiB | 1 byte through 8 GiB | [Generation storage](#generation-storage) |
-| `generationStorage` | `auto` | `auto`, `memory`, `postgres` | [Generation storage](#generation-storage) |
-| `maxSpillBytes` | 128 GiB | through 1 TiB | [Generation storage](#generation-storage) |
-| `maxSpillRows` | 1 billion | through 10 billion | [Generation storage](#generation-storage) |
+| `generationStorage` | legacy input | Accepted for old configuration compatibility; no runtime backend selection | [Generation storage](#generation-storage) |
+| `maxSpillBytes` | legacy input | Retired spill setting; no effect in native generation construction | [Generation storage](#generation-storage) |
+| `maxSpillRows` | legacy input | Retired spill setting; no effect in native generation construction | [Generation storage](#generation-storage) |
 | `extractDocstrings`, `trackCallSites`, `indexSubmodules`, `indexEmbeddedRepos` | `true` | boolean | [Source policy](#source-and-evidence-policy) |
 | `enableCentrality`, `enableBetweenness`, `enableChurn`, `enableCoChange`, `enableBiomarkers`, `enableIssueHistory` | `true` | boolean | [Source policy](#source-and-evidence-policy) |
 | `enableConfigRefs`, `enableSqlRefs`, `enableBuildContextRefs`, `enableStringImports` | `true` | boolean | [Source policy](#source-and-evidence-policy) |
@@ -60,14 +60,7 @@ Every key is optional. Byte values are plain integers in the file.
 
 | Variable | Default | Accepted values | Details |
 | --- | --- | --- | --- |
-| `CARTOGRAPH_DATABASE_URL` | unset (use the managed database) | `postgres`/`postgresql` URL with a host; required for an external database | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_DATABASE_SCHEMA` | `cartograph` | ASCII identifier, 1..63 bytes | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_DATABASE_MAX_CONNECTIONS` | 8 | 1..64; external database only | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_DATABASE_ACQUIRE_TIMEOUT_MS` | 5000 | 1..120000; external database only | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS` | 120000 | 1..600000; external database only | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_DATABASE_REQUIRE_SSL` | false | `true`/`false` or `1`/`0`; external database only | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_MANAGED_DATABASE_PORT` | the project container's port, else `55432` | 1..65535 | [PostgreSQL settings](#postgresql-settings) |
-| `CARTOGRAPH_WATCH_DEBOUNCE_MS` | 750 | 50..60000 ms; an invalid value uses 750 | [Auto-sync and MCP routing](#auto-sync-and-mcp-routing) |
+| `CARTOGRAPH_WATCH_DEBOUNCE_MS` | 150 | 50..60000 ms; an invalid value uses 150 | [Auto-sync and MCP routing](#auto-sync-and-mcp-routing) |
 | `CARTOGRAPH_ALLOWED_PROJECTS` | unset (no extra restriction) | OS path list of project directories | [Auto-sync and MCP routing](#auto-sync-and-mcp-routing) |
 | `CARTOGRAPH_EMBEDDING_ENDPOINT`, `CARTOGRAPH_EMBEDDING_MODEL` | unset | Set both or neither; base URL or complete `/v1/embeddings` URL; model at most 256 bytes | [Environment overrides](#environment-overrides-for-embeddings-and-chat) |
 | `CARTOGRAPH_EMBEDDING_API_KEY` | unset | At most 8 KiB | [Environment overrides](#environment-overrides-for-embeddings-and-chat) |
@@ -89,7 +82,7 @@ Every key is optional. Byte values are plain integers in the file.
 | --- | --- | ---: |
 | Shared source admission, extraction, graph, and capacity policy | `.cartograph/config.json` | Yes, when the team shares the policy |
 | Additional Git-style source exclusions | `.cartographignore` | Yes |
-| Database URL, schema override, pool, and query deadlines | Process environment | No secrets |
+| Native graph and agent state | `.cartograph/data` | No |
 | Optional embedding, reranking, and chat credentials | Process environment or Cartograph-managed private state | No |
 | One-command experiment or recovery override | The exact CLI flag shown by command help | No persistent change unless documented |
 
@@ -106,9 +99,6 @@ The file is optional. A representative v2 configuration is:
   "maxFileSize": 5242880,
   "maxAstDepth": 256,
   "maxGenerationBytes": 1073741824,
-  "generationStorage": "auto",
-  "maxSpillBytes": 137438953472,
-  "maxSpillRows": 1000000000,
   "extractDocstrings": true,
   "trackCallSites": true,
   "enableCentrality": true,
@@ -151,9 +141,9 @@ The file is optional. A representative v2 configuration is:
 | `maxFileSize` | Per-source byte ceiling, 1 byte through 32 MiB | 32 MiB (the maximum) |
 | `maxAstDepth` | Defensive syntax-tree depth ceiling, 64 through 1024; overflow retains a partial file and reports its exact path | `256` |
 | `maxGenerationBytes` | Cartograph-process canonical/resolver ceiling, 1 byte through the hard maximum of 8 GiB; out-of-range errors name this field and range | 1 GiB |
-| `generationStorage` | Native working-set strategy: `auto`, `memory`, or `postgres` | `auto` |
-| `maxSpillBytes` | Logical sort-key/payload quota for one incomplete PostgreSQL spill, through 1 TiB | 128 GiB |
-| `maxSpillRows` | Raw extraction/fact row quota for one incomplete PostgreSQL spill, through 10 billion | 1 billion |
+| `generationStorage` | Legacy compatibility input; ignored by the native builder | retired |
+| `maxSpillBytes` | Legacy compatibility input; no native spill quota is selected | retired |
+| `maxSpillRows` | Legacy compatibility input; no native spill row quota is selected | retired |
 | `extractDocstrings` | Retain safe structural documentation evidence | `true` |
 | `trackCallSites` | Retain reference-site provenance | `true` |
 | `indexSubmodules` | Include Git submodules | `true` |
@@ -219,71 +209,20 @@ that keeps discovery bounded on vendored and generated directories.
 
 ### Generation storage
 
-| `generationStorage` | Working-set strategy |
-| --- | --- |
-| `auto` (default) | Keeps the lower-latency memory path for small manifests and selects PostgreSQL spill when any conservative signal below is reached |
-| `memory` | Forces the memory path |
-| `postgres` | Forces PostgreSQL spill |
+RocksDB is the only durable runtime. `maxGenerationBytes` bounds canonical
+construction; resolve and validation have separate finite working allowances.
+Native queue, request, record, and mutation budgets remain independent, so an
+8 GiB accepted configuration ceiling is not a promise that every such graph
+fits the runtime. Oversized work fails explicitly without replacing current
+published evidence.
 
-`generationStorage: "auto"` selects PostgreSQL spill when any of these
-conservative signals is reached: 64 Cargo manifests, 10,000 supported files,
-64 MiB of indexed source, or a 16x source expansion estimate at or above
-`maxGenerationBytes`. The selected strategy and fixed-size spill accounting are
-returned in native index metrics. This physical working-set choice does not
-change the logical source digest, so changing it does not make an otherwise
-fresh generation stale; use `cartograph index --force` when you want to rebuild
-unchanged source with a different strategy.
+`generationStorage`, `maxSpillBytes`, and `maxSpillRows` are accepted only for
+legacy configuration compatibility. They no longer select PostgreSQL spill or
+change the native generation builder. Remove them from new configurations.
+`storageBackend: "rocksdb"` records a verified migration, not a backend choice.
 
-Persistent SCIP overlays follow the same `auto`/`memory`/`postgres` selection as
-any other generation; storage selection does not depend on whether an overlay
-exists. They use the same source-verified replacement rules in memory and
-PostgreSQL, with bounded compiler-fact batches before spill reduction. The
-overlay's native basis and imported payload remain subject to
-`maxGenerationBytes` working limits.
-
-How the limits apply on each path:
-
-- **Memory path:** `maxGenerationBytes` bounds the reduced canonical
-  generation; resolve and validation have separately measured working
-  allowances of up to four times that value.
-- **PostgreSQL path:** bulky per-file extraction and resolved facts do not
-  accumulate in one Rust generation payload. `maxGenerationBytes` instead
-  remains the independent bound for a file-local batch plus the compact
-  project-wide resolution, clone, and centrality indexes. `maxSpillBytes` and
-  `maxSpillRows` bound the whole durable unordered payload.
-
-> [!WARNING]
-> The `maxSpillBytes` value is logical payload accounting, not a prediction of
-> PostgreSQL heap/index/WAL/temporary-disk use. Keep database storage and
-> temporary-space headroom above it.
-
-Neither strategy removes the compact global resolution/clone/centrality bound;
-extreme symbol or call-graph cardinality can still fail safely with
-`generation_capacity_exceeded`. Auto-sync reports `maxGenerationBytes`, its
-Cartograph-process scope, and the recovery action; after five capacity failures
-across any source revisions it suppresses further automatic attempts until an
-explicit index succeeds.
-
-<details>
-<summary>Details: the spill lifecycle and publication COPY bounds</summary>
-
-The spill is tied to the exact staging generation and live lease. File-local
-parse batches either reference immutable cache payloads or retain a bounded
-inline fallback. Resolved typed relation batches are immutable and
-digest-fenced; exact replay is idempotent, while a different retry fails
-closed. PostgreSQL reduces six relations through 64 deterministic UUID
-partitions each, commits four contiguous partitions at a time, proves
-cross-relations within those transactions, can use its own temporary storage
-for grouping/sorting, and streams exact V23 row bytes from final canonical
-rows. The final ready transaction rechecks the fence, completed-validation
-phase (`canonicalized`), counts, and digest capability before it deletes spill
-state. Only the later short publication transaction changes the current pointer.
-
-The memory path still publishes with bounded COPY statements (100,000 rows or
-64 MiB of encoded data per statement). PostgreSQL spill writes canonical rows
-before ready and therefore skips that redundant COPY payload.
-
-</details>
+See [storage operations](STORAGE-BACKENDS.md) for the per-project directory,
+worker/cache budgets, retention, and current scan-based retrieval limits.
 
 ### Analysis policy
 
@@ -292,55 +231,23 @@ Dependency audit allowlists are read from `dependenciesAllowlist` or
 `layerExceptions`; see command help and emitted validation errors for its
 bounded schema.
 
-## PostgreSQL settings
+## Native storage
 
-Cartograph v2 is PostgreSQL-only. Database ownership, connection, schema, pool,
-and TLS selection are not project-config options; use the environment or
-private managed state. `generationStorage` only chooses the native construction
-working-set strategy. It does not select a different durable database engine.
+Every project uses `.cartograph/data` with one primary owner. There is no SQL
+connection, schema, port, connection pool, or TLS configuration. Retired
+`CARTOGRAPH_DATABASE_*` and `CARTOGRAPH_MANAGED_DATABASE_PORT` variables do not
+select a backend. Old database CLI flags are rejected.
 
-For an external database, set the URL and any overrides in the environment:
-
-```sh
-export CARTOGRAPH_DATABASE_URL='postgresql://<user>:<password>@127.0.0.1:5432/cartograph'
-export CARTOGRAPH_DATABASE_SCHEMA='cartograph_project'
-export CARTOGRAPH_DATABASE_MAX_CONNECTIONS=8
-export CARTOGRAPH_DATABASE_ACQUIRE_TIMEOUT_MS=5000
-export CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS=120000
-export CARTOGRAPH_DATABASE_REQUIRE_SSL=true
-```
-
-> [!IMPORTANT]
-> `CARTOGRAPH_DATABASE_URL` takes precedence over a managed database: when it is
-> set, Cartograph connects to that URL even if the project has a managed
-> database. The pool, acquire-timeout, query-timeout, and TLS variables are read
-> only when `CARTOGRAPH_DATABASE_URL` is set.
-
-When `cartograph db start` owns the database, the runtime resolves the private
-project-local credential instead and uses fixed connection settings:
-
-| Setting | External database (`CARTOGRAPH_DATABASE_URL` set) | Managed database |
-| --- | --- | --- |
-| Connection | The URL | Private project-local credential |
-| Schema | `CARTOGRAPH_DATABASE_SCHEMA`, default `cartograph` | `CARTOGRAPH_DATABASE_SCHEMA`, default `cartograph` (the only `CARTOGRAPH_DATABASE_*` variable honored) |
-| Pool size | `CARTOGRAPH_DATABASE_MAX_CONNECTIONS`, default 8 | Fixed 8 connections |
-| Acquire timeout | `CARTOGRAPH_DATABASE_ACQUIRE_TIMEOUT_MS`, default 5000 ms | Fixed 10,000 ms |
-| Query timeout | `CARTOGRAPH_DATABASE_QUERY_TIMEOUT_MS`, default 120000 ms | Default 120,000 ms |
-| TLS | `CARTOGRAPH_DATABASE_REQUIRE_SSL`, default false | Not forced |
-| Port | Part of the URL | An explicit port option or `CARTOGRAPH_MANAGED_DATABASE_PORT`, else the project container's actual loopback port, else `55432` |
-
-If an explicit port or `CARTOGRAPH_MANAGED_DATABASE_PORT` names a port other than the one the
-existing managed container publishes, the command fails and names the published
-port. See the [environment variable table](#environment-variables) for every
-bound.
-
-There is no SQLite provider, importer, migration target, or pgvector-off mode.
+On Unix, clients reuse a live MCP primary through its private same-user owner
+socket. Windows currently requires one process at a time for a given project.
+Native I/O uses bounded dedicated workers with finite deadlines/cancellation.
+See [storage operations](STORAGE-BACKENDS.md) for policy values and limits.
 
 ## Auto-sync and MCP routing
 
 | Variable | Effect |
 | --- | --- |
-| `CARTOGRAPH_WATCH_DEBOUNCE_MS` | MCP auto-sync quiet window, 50 through 60,000 ms; an unset, unparsable, or out-of-range value uses the 750 ms default. See [Performance tuning](PERF-TUNING.md#auto-sync-watcher) for the coalescing deadline |
+| `CARTOGRAPH_WATCH_DEBOUNCE_MS` | MCP auto-sync quiet window, 50 through 60,000 ms; an unset, unparsable, or out-of-range value uses the 150 ms default. See [Performance tuning](PERF-TUNING.md#auto-sync-watcher) for the coalescing deadline |
 | `CARTOGRAPH_ALLOWED_PROJECTS` | Restricts the MCP `projectPath` argument. When set, it is an OS path list (`:`-separated on Unix, `;` on Windows) of directories; a routed project must be the server's own project, a directory below it, or one of the listed directories or below it. Entries that do not resolve to an existing directory are ignored. Other projects fail with `projectPath is outside CARTOGRAPH_ALLOWED_PROJECTS`. When unset, any initialized project can be routed |
 
 ## Optional LLM tiers
@@ -552,6 +459,63 @@ keeps the `provider_unavailable` outcome, so an outage adds at most the request
 timeout (`timeoutMs`, five seconds by default) to the default ranking.
 
 </details>
+
+### Jev decision reuse and accounting
+
+Project-scoped decision clients share a process-local cache of validated
+responses. It retains at most 256 entries and 4 MiB of response bytes for five
+minutes from insertion; reads do not extend expiry. Nothing is written to the
+project database or disk. Keys privately hash the canonical project scope,
+endpoint, effective credential identity, and complete versioned request,
+including instructions and criteria. Context and navigation requests also
+include their generation identity. Source validation still runs independently
+when cached decisions are used. A changed model, credential, question, or
+supplied evidence cannot match the old key.
+
+At most 32 in-flight producers and 32 coalesced waiters are retained.
+Excess requests bypass reuse and remain subject to ordinary transport admission.
+Failures are not cached. A cancelled producer closes its flight and releases
+waiters to the normal explicit fallback; it never starts detached provider work.
+One request timeout covers credentials, cache waiting, transport queueing and
+HTTP. A coalesced waiter keeps its own deadline. Clients constructed directly
+from `JevSettings::from_config`, without a project scope, bypass the cache;
+the provider smoke continues to make a real request.
+
+Successful responses expose locally measured accounting through
+`decision_rank.request_metrics` for context, `decisionRequests` for navigation,
+`decisionTriage.requests` for rename plans, and `jevUsage.samples` for bulk role
+classification. Each record includes `cache` (`miss`, `hit`, `coalesced`, or
+`bypassed`), `elapsedMs`, `providerRequests`, `inputTokens`, `outputTokens`, and
+`background`. Hits and coalesced waiters report zero provider requests and null
+token counts, so they do not duplicate the producer's billed usage. Missing
+provider token counts remain null. Credential renewal can make two HTTP
+attempts; usage describes the successful response, not an estimated invoice.
+Bulk reports cover validated responses observed in their returned batch prefix;
+cancelled or failed requests have no invented token counts.
+Bulk `jevUsage` retains at most 64 request samples and reports `sampleLimit`
+and `omittedSamples`. Aggregate decision, HTTP-attempt and cache-outcome counts
+cover all observed responses. Input and output token totals separately report
+known tokens, provider responses with and without usage, and any numeric
+saturation; reuse is not counted as an unknown provider response.
+
+Bulk Jev role classification uses background transport admission: at most three
+background requests occupy an origin's four active slots. Interactive decisions
+use foreground admission. Decision reuse and background enrichment do not gate
+native graph publication or structural freshness.
+
+The opt-in Rust test `live_fixed_candidate_context_ranking_pilot` compares Jev
+ordering with the current native ordering on the same retrieval candidate pool
+for 24 frozen repository questions. It requires `CARTOGRAPH_JEV_EVAL_ALLOW_METADATA=1`,
+`CARTOGRAPH_JEV_EVAL_PROJECT`, `CARTOGRAPH_JEV_EVAL_BINARY`, and a new private
+`CARTOGRAPH_JEV_EVAL_OUTPUT` path. Run it with
+`cargo test --locked -p cartograph-agent --lib live_fixed_candidate_context_ranking_pilot -- --ignored --nocapture`.
+The project must be fresh, have Jev configured, and keep `context` decisions
+disabled for its native control. The pilot sends task text and candidate metadata
+under the explicit test opt-in without changing configuration. It records
+generation and case fingerprints, expected implementation ranks, provider usage,
+and cold/warm decision timings. Those timings measure the added decision,
+separately from the complete native query; the pilot does not measure a full
+replacement pipeline or establish thresholds for enabling a default.
 
 ### Jev role classification
 

@@ -11,9 +11,10 @@ to the original detailed notes. Published binaries, signed tags, checksums, and
 provenance live on GitHub Releases.
 
 > [!TIP]
-> Upgrading between any two v2 releases is one resumable command:
+> Upgrading native v3 projects is one resumable command:
 > `cartograph upgrade --apply --project-path <PATH>`. Require `completed: true`
-> and follow any backup or confirmation step it prints.
+> and follow any reported next step. For v2 projects, install v3 first and follow
+> the [RocksDB source-rebuild migration](v2/ROCKSDB-MIGRATION.md).
 
 **On this page:** [Release index](#release-index) ·
 [Reading the index](#reading-the-index) · [Dependency audits](#dependency-audits) ·
@@ -23,6 +24,7 @@ provenance live on GitHub Releases.
 
 | Version | Date | Schema · Contract | Headline |
 | --- | --- | --- | --- |
+| [v3.0.0](releases/v3.0.0.md) | 2026-10-19 | Rocks v1 · V23 | Embedded per-project RocksDB, persistent autosync, bounded async storage, and cached Jev decisions |
 | [v2.1.44](releases/v2.1.44.md) | 2026-10-13 | 50 · V23 | Async idle retention, backlog backpressure, cleanup diagnostics, and bounded process probes |
 | [v2.1.43](releases/v2.1.43.md) | 2026-10-13 | 50 · V23 | ParadeDB 0.26.1; Rust dependency, artifact-action, and build-image refresh |
 | [v2.1.42](releases/v2.1.42.md) | 2026-10-07 | 50 ↑ · V23 ↑ | v1 framework and bridge parity; typed receivers; oracles nearly complete |
@@ -67,8 +69,9 @@ provenance live on GitHub Releases.
 
 ## Reading the index
 
-- **Schema** is the PostgreSQL schema version the release migrates to; an
-  upgrade applies every pending append-only migration in order.
+- **Schema** identifies the native RocksDB format for v3. For historical v2
+  releases it is the PostgreSQL schema version; v2-to-v3 migration rebuilds
+  source facts rather than translating that schema.
 - **Contract** is the generation digest contract. When it changes (↑), existing
   generations report stale and an ordinary index (or `upgrade --apply`)
   republishes them once, even when source is unchanged.
@@ -80,7 +83,7 @@ provenance live on GitHub Releases.
 Release notes are historical records. For the current command surface and
 limits, use the installed `cartograph <command> --help` and the current
 [CLI reference](CLI-REFERENCE.md); confirmation phrases are listed in
-[Storage and operations](STORAGE-BACKENDS.md#destructive-operations-and-confirmation-phrases).
+[Storage and operations](STORAGE-BACKENDS.md#usage-and-bounded-maintenance).
 
 ## Dependency audits
 
@@ -103,9 +106,9 @@ the 2026-09-08 architecture review that shipped alongside the v2.1.28 update.
 ## Earlier releases
 
 Releases before v2.1.4 (v2.0.0–v2.1.3) and the v1.x line keep their notes only
-on [GitHub Releases](https://github.com/adder-factory/cartograph/releases). V2
-imports only from a v1.1.33 PostgreSQL schema; see
-[Import from v1.1.33 PostgreSQL](STORAGE-BACKENDS.md#import-from-v1133-postgresql).
+on [GitHub Releases](https://github.com/adder-factory/cartograph/releases). The
+v2 PostgreSQL importer is historical; v3 rebuilds from source through the
+[RocksDB migration](v2/ROCKSDB-MIGRATION.md).
 
 ## Writing release notes
 
@@ -130,7 +133,7 @@ One sentence saying what this release is about.
 Run `cartograph upgrade --apply --project-path <PATH>`, plus any extra action
 (managed database replacement, re-index, host restart, config change).
 
-**Compatibility:** schema N · contract VN · PostgreSQL / `pg_search` / pgvector requirements.
+**Compatibility:** native storage format · generation contract · platform and migration requirements.
 
 **Full changelog:** [vX.Y.(Z-1)...vX.Y.Z](https://github.com/adder-factory/cartograph/compare/vX.Y.(Z-1)...vX.Y.Z)
 ```

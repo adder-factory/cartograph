@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use cartograph_db::{
     EmbeddingModelRegistration, EmbeddingModelRegistrationInput, EmbeddingModelSelector,
-    EmbeddingNormalization, SemanticReadinessRequest, SemanticReadinessState, SemanticStorageError,
-    StorageError, VectorSearchHit, VectorSearchInput, VectorSearchRequest,
+    EmbeddingNormalization, SemanticReadinessReport, SemanticReadinessRequest,
+    SemanticReadinessState, SemanticStorageError, StorageError, VectorSearchHit, VectorSearchInput,
+    VectorSearchRequest,
 };
 use cartograph_domain::{GenerationId, NormalizedPath, ProjectId, SourceLanguage};
 use cartograph_llm::{
@@ -663,17 +664,21 @@ async fn lexical_channel(
         query,
         cancellation,
     } = input;
-    tokio::select! {
-        biased;
-        () = cancellation.cancelled() => Err(RetrievalStageError::RequestCancelled),
-        result = retriever.lexical_channel_for_generation(GenerationLexicalRequest::new(
-            project_id,
-            expected_generation_id,
-            query,
-        )) => {
-            result.map_err(|error| retrieval_stage_error(&error))
+    crate::cancellable_native_read(
+        &cancellation,
+        async {
+            retriever
+                .lexical_channel_for_generation(GenerationLexicalRequest::new(
+                    project_id,
+                    expected_generation_id,
+                    query,
+                ))
+                .await
+                .map_err(|error| retrieval_stage_error(&error))
         },
-    }
+        || RetrievalStageError::RequestCancelled,
+    )
+    .await
 }
 
 async fn semantic_embedding(
@@ -736,16 +741,10 @@ async fn semantic_channel(
         SEMANTIC_QUERY_TIMEOUT,
     )
     .map_err(|_| RetrievalStageError::Failed)?;
-    let readiness_report = tokio::select! {
-        biased;
-        () = cancellation.cancelled() => return Err(RetrievalStageError::RequestCancelled),
-        result = runtime.database().semantic_readiness(readiness_request) => match result {
-            Ok(report) => report,
-            Err(SemanticStorageError::CurrentGenerationChanged) => {
-                return Err(RetrievalStageError::GenerationChanged);
-            }
-            Err(_) => return semantic_without_candidates(SemanticReadiness::Unavailable, reranker),
-        },
+    let readiness_report =
+        native_semantic_readiness(runtime, readiness_request, &cancellation).await?;
+    let Some(readiness_report) = readiness_report else {
+        return semantic_without_candidates(SemanticReadiness::Unavailable, reranker);
     };
     if readiness_report
         .generation_id()
@@ -768,22 +767,26 @@ async fn semantic_channel(
         statement_timeout: SEMANTIC_QUERY_TIMEOUT,
     })
     .map_err(|_| RetrievalStageError::Failed)?;
-    let hits = tokio::select! {
-        biased;
-        () = cancellation.cancelled() => return Err(RetrievalStageError::RequestCancelled),
-        result = runtime.database().vector_top_k(request) => match result {
-            Ok(hits) => hits,
-            Err(SemanticStorageError::NotReady { state }) => {
-                return semantic_without_candidates(
-                    semantic_readiness_from_database(state),
-                    reranker,
-                );
+    let hits = crate::cancellable_native_read(
+        &cancellation,
+        async {
+            match runtime.database().vector_top_k(request).await {
+                Ok(hits) => Ok(Ok(hits)),
+                Err(SemanticStorageError::NotReady { state }) => {
+                    Ok(Err(semantic_readiness_from_database(state)))
+                }
+                Err(SemanticStorageError::CurrentGenerationChanged) => {
+                    Err(RetrievalStageError::GenerationChanged)
+                }
+                Err(_) => Ok(Err(SemanticReadiness::Unavailable)),
             }
-            Err(SemanticStorageError::CurrentGenerationChanged) => {
-                return Err(RetrievalStageError::GenerationChanged);
-            }
-            Err(_) => return semantic_without_candidates(SemanticReadiness::Unavailable, reranker),
         },
+        || RetrievalStageError::RequestCancelled,
+    )
+    .await?;
+    let hits = match hits {
+        Ok(hits) => hits,
+        Err(readiness) => return semantic_without_candidates(readiness, reranker),
     };
     let channel = semantic_results(&hits).map_err(|_| RetrievalStageError::Failed)?;
     let (channel, rerank) = rerank_semantic_channel(RerankSemanticRequest {
@@ -799,6 +802,27 @@ async fn semantic_channel(
         channel: Some(channel),
         rerank,
     })
+}
+
+async fn native_semantic_readiness(
+    runtime: &ProjectRuntime,
+    request: SemanticReadinessRequest,
+    cancellation: &ProjectCancellation,
+) -> Result<Option<SemanticReadinessReport>, RetrievalStageError> {
+    crate::cancellable_native_read(
+        cancellation,
+        async {
+            match runtime.database().semantic_readiness(request).await {
+                Ok(report) => Ok(Some(report)),
+                Err(SemanticStorageError::CurrentGenerationChanged) => {
+                    Err(RetrievalStageError::GenerationChanged)
+                }
+                Err(_) => Ok(None),
+            }
+        },
+        || RetrievalStageError::RequestCancelled,
+    )
+    .await
 }
 
 struct RerankSemanticRequest<'request> {
@@ -1084,7 +1108,7 @@ pub const fn semantic_readiness_from_database(state: SemanticReadinessState) -> 
         | SemanticReadinessState::NoCurrentGeneration
         | SemanticReadinessState::NoDocuments
         | SemanticReadinessState::CoverageIncomplete
-        | SemanticReadinessState::HnswUnavailable => SemanticReadiness::NotIndexed,
+        | SemanticReadinessState::IndexUnavailable => SemanticReadiness::NotIndexed,
         SemanticReadinessState::ModelMismatch | SemanticReadinessState::ModelRetired => {
             SemanticReadiness::Stale
         }
@@ -1170,7 +1194,7 @@ mod tests {
             SemanticReadinessState::NoCurrentGeneration,
             SemanticReadinessState::NoDocuments,
             SemanticReadinessState::CoverageIncomplete,
-            SemanticReadinessState::HnswUnavailable,
+            SemanticReadinessState::IndexUnavailable,
         ] {
             assert_eq!(
                 semantic_readiness_from_database(state),

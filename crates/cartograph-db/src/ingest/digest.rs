@@ -287,20 +287,8 @@ impl LogicalDigestBuilder {
         self.digest.text(&document.metadata_json);
     }
 
-    pub(crate) fn push_encoded_row(&mut self, row: &[u8]) {
-        self.digest.encoded_bytes = self
-            .digest
-            .encoded_bytes
-            .saturating_add(usize_to_u64(row.len()));
-        self.digest.hasher.update(row);
-    }
-
     pub(crate) fn finish(self) -> ContentDigest {
         self.digest.finish().0
-    }
-
-    pub(crate) fn finish_with_encoded_bytes(self) -> (ContentDigest, u64) {
-        self.digest.finish()
     }
 }
 
@@ -311,6 +299,10 @@ fn usize_to_u64(value: usize) -> u64 {
 struct CanonicalDigest {
     hasher: Hasher,
     encoded_bytes: u64,
+    // Bound the transient stream workspace while letting BLAKE3 process whole
+    // chunks. The logical bytes, domains and row-level cancellation stay exact.
+    buffer: [u8; 8192],
+    buffered: usize,
 }
 
 impl CanonicalDigest {
@@ -320,35 +312,38 @@ impl CanonicalDigest {
         Self {
             hasher,
             encoded_bytes: 0,
+            buffer: [0; 8192],
+            buffered: 0,
         }
     }
 
     fn section(&mut self, name: &str, count: u64) {
         self.text(name);
-        self.text(&count.to_string());
+        self.text(itoa::Buffer::new().format(count));
     }
 
     fn text(&mut self, value: &str) {
-        let length = value.len().to_string();
+        let mut decimal = itoa::Buffer::new();
+        let length = decimal.format(value.len());
         self.encoded_bytes = self
             .encoded_bytes
             .saturating_add(usize_to_u64(length.len()))
             .saturating_add(1)
             .saturating_add(usize_to_u64(value.len()));
-        self.hasher.update(length.as_bytes());
-        self.hasher.update(&[0]);
-        self.hasher.update(value.as_bytes());
+        self.bytes(length.as_bytes());
+        self.bytes(&[0]);
+        self.bytes(value.as_bytes());
     }
 
     fn optional_text(&mut self, value: Option<&str>) {
         self.encoded_bytes = self.encoded_bytes.saturating_add(1);
         match value {
             Some(value) => {
-                self.hasher.update(&[1]);
+                self.bytes(&[1]);
                 self.text(value);
             }
             None => {
-                self.hasher.update(&[0]);
+                self.bytes(&[0]);
             }
         }
     }
@@ -357,25 +352,109 @@ impl CanonicalDigest {
         self.encoded_bytes = self
             .encoded_bytes
             .saturating_add(usize_to_u64(size_of::<u64>()));
-        self.hasher.update(&value.to_be_bytes());
+        self.bytes(&value.to_be_bytes());
     }
 
     fn u32(&mut self, value: u32) {
         self.encoded_bytes = self
             .encoded_bytes
             .saturating_add(usize_to_u64(size_of::<u32>()));
-        self.hasher.update(&value.to_be_bytes());
+        self.bytes(&value.to_be_bytes());
     }
 
     fn boolean(&mut self, value: bool) {
         self.encoded_bytes = self.encoded_bytes.saturating_add(1);
-        self.hasher.update(&[u8::from(value)]);
+        self.bytes(&[u8::from(value)]);
     }
 
-    fn finish(self) -> (ContentDigest, u64) {
+    fn bytes(&mut self, mut bytes: &[u8]) {
+        if bytes.len() > self.buffer.len() - self.buffered {
+            let remaining = self.buffer.len() - self.buffered;
+            self.buffer[self.buffered..].copy_from_slice(&bytes[..remaining]);
+            self.buffered = self.buffer.len();
+            self.flush();
+            bytes = &bytes[remaining..];
+            let whole_buffers = bytes.len() / self.buffer.len() * self.buffer.len();
+            if whole_buffers != 0 {
+                self.hasher.update(&bytes[..whole_buffers]);
+                bytes = &bytes[whole_buffers..];
+            }
+        }
+        let end = self.buffered + bytes.len();
+        self.buffer[self.buffered..end].copy_from_slice(bytes);
+        self.buffered = end;
+    }
+
+    fn flush(&mut self) {
+        self.hasher.update(&self.buffer[..self.buffered]);
+        self.buffered = 0;
+    }
+
+    fn finish(mut self) -> (ContentDigest, u64) {
+        self.flush();
         (
             ContentDigest::from_bytes(*self.hasher.finalize().as_bytes()),
             self.encoded_bytes,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CanonicalDigest;
+    use cartograph_domain::ContentDigest;
+
+    #[test]
+    fn canonical_wire_format_preserves_lengths_markers_and_integer_widths() {
+        let domain = b"canonical-wire-contract";
+        let mut digest = CanonicalDigest::new(domain);
+        digest.section("rows", u64::MAX);
+        digest.text("");
+        digest.text("é🦀");
+        digest.optional_text(None);
+        digest.optional_text(Some(""));
+        digest.optional_text(Some("λ"));
+        digest.u64(u64::MAX);
+        digest.u32(u32::MAX);
+        digest.boolean(true);
+        digest.boolean(false);
+        // This is the existing wire contract, specified independently of the
+        // optimized encoder. Decimal lengths count UTF-8 bytes, not characters.
+        let encoded = b"4\x00rows20\x00184467440737095516150\x006\x00\xc3\xa9\xf0\x9f\xa6\x80\x00\x010\x00\x012\x00\xce\xbb\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01\x00";
+        let mut oracle = blake3::Hasher::new();
+        oracle.update(domain);
+        oracle.update(encoded);
+        let (actual, bytes) = digest.finish();
+        assert_eq!(
+            actual,
+            ContentDigest::from_bytes(*oracle.finalize().as_bytes())
+        );
+        assert_eq!(bytes, u64::try_from(encoded.len()).unwrap_or(u64::MAX));
+    }
+
+    #[test]
+    fn canonical_stream_matches_legacy_encoding_across_buffer_boundaries() {
+        let domain = b"canonical-stream-contract";
+        let mut digest = CanonicalDigest::new(domain);
+        let mut oracle = blake3::Hasher::new();
+        oracle.update(domain);
+        let mut encoded_bytes = 0_u64;
+        let values =
+            [0, 1, 63, 1023, 8191, 8192, 8193, 32769, 7, 8190].map(|length| "x".repeat(length));
+        for value in values.into_iter().chain(["é\0🦀".to_owned()]) {
+            digest.text(&value);
+            // Preserve the original unbuffered decimal framing as the oracle.
+            let prefix = value.len().to_string();
+            oracle.update(prefix.as_bytes());
+            oracle.update(&[0]);
+            oracle.update(value.as_bytes());
+            encoded_bytes += u64::try_from(prefix.len() + 1 + value.len()).unwrap_or(u64::MAX);
+        }
+        let (actual, bytes) = digest.finish();
+        assert_eq!(
+            actual,
+            ContentDigest::from_bytes(*oracle.finalize().as_bytes())
+        );
+        assert_eq!(bytes, encoded_bytes);
     }
 }

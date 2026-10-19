@@ -8,7 +8,10 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
+mod decision;
 mod source;
+
+pub use decision::{DecisionCacheOutcome, DecisionRequestMetrics};
 
 pub use source::{
     FileParseStatus, InvalidNormalizedPath, InvalidSourceSpan, NormalizedPath, ReferenceKind,
@@ -113,6 +116,15 @@ define_id!(DocumentId, "A stable logical search-document identity.");
 define_id!(ModelId, "A registered embedding-model identity.");
 define_id!(TaskId, "A persisted coding-task identity.");
 define_id!(LeaseId, "An observable project-operation lease identity.");
+define_id!(SessionId, "A durable project-owned agent session identity.");
+define_id!(
+    ArtifactId,
+    "A durable project-owned agent artifact identity."
+);
+define_id!(
+    CoverageSourceId,
+    "A project-owned coverage source identity."
+);
 
 /// A deterministic BLAKE3 digest used to compare complete logical generations.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

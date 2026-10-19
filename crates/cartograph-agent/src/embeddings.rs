@@ -184,13 +184,13 @@ impl ProjectRuntime {
             SEMANTIC_STATEMENT_TIMEOUT,
         )
         .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
-        let readiness = tokio::select! {
-            biased;
-            () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.database().semantic_readiness(
-                request,
-            ) => result.map_err(|_| ProjectError::EmbeddingOperationFailed)?,
-        };
+        let readiness = native_embedding_call(&cancellation, async {
+            self.database()
+                .semantic_readiness(request)
+                .await
+                .map_err(|_| ProjectError::EmbeddingOperationFailed)
+        })
+        .await?;
         Ok(EmbeddingStatusReport {
             model,
             dimension: registration.selector().dimension(),
@@ -272,27 +272,26 @@ impl ProjectRuntime {
             return Err(ProjectError::RequestCancelled);
         }
         let project_id = self.current_project_id(&cancellation).await?;
-        let registered = tokio::select! {
-            biased;
-            () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.database().register_embedding_model(
-                registration,
-                SEMANTIC_STATEMENT_TIMEOUT,
-            ) => result.map_err(|_| ProjectError::EmbeddingOperationFailed)?,
-        };
+        let registered = native_embedding_call(&cancellation, async {
+            self.database()
+                .register_embedding_model(registration, SEMANTIC_STATEMENT_TIMEOUT)
+                .await
+                .map_err(|_| ProjectError::EmbeddingOperationFailed)
+        })
+        .await?;
         let readiness_request = SemanticReadinessRequest::new(
             project_id.clone(),
             registered.selector().clone(),
             SEMANTIC_STATEMENT_TIMEOUT,
         )
         .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
-        let preexisting_readiness = tokio::select! {
-            biased;
-            () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.database().semantic_readiness(readiness_request) => {
-                result.map_err(|_| ProjectError::EmbeddingOperationFailed)?
-            }
-        };
+        let preexisting_readiness = native_embedding_call(&cancellation, async {
+            self.database()
+                .semantic_readiness(readiness_request)
+                .await
+                .map_err(|_| ProjectError::EmbeddingOperationFailed)
+        })
+        .await?;
         let page_bytes = pending_page_bytes(&client, options)?;
         Ok(ActiveEmbeddingSweep {
             client,
@@ -375,58 +374,60 @@ impl ProjectRuntime {
                 .with_cursor(cursor)
                 .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
         }
-        tokio::select! {
-            biased;
-            () = sweep.cancellation.cancelled() => Err(ProjectError::RequestCancelled),
-            result = self.database().pending_current_embedding_documents(request) => {
-                result.map_err(|_| ProjectError::EmbeddingOperationFailed)
-            }
-        }
+        native_embedding_call(&sweep.cancellation, async {
+            self.database()
+                .pending_current_embedding_documents(request)
+                .await
+                .map_err(|_| ProjectError::EmbeddingOperationFailed)
+        })
+        .await
     }
 
     async fn finish_embedding_sweep(
         &self,
         sweep: &ActiveEmbeddingSweep,
     ) -> Result<SemanticReadinessReport, ProjectError> {
-        tokio::select! {
-            biased;
-            () = sweep.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.database().ensure_embedding_model_hnsw(
-                sweep.registered.selector(),
-                SEMANTIC_STATEMENT_TIMEOUT,
-            ) => result.map_err(|error| match error {
-                SemanticStorageError::HnswCreateSharedMemoryUnavailable => {
-                    ProjectError::HnswCreateSharedMemoryUnavailable
-                }
-                _ => ProjectError::EmbeddingOperationFailed,
-            })?,
-        };
+        native_embedding_call(&sweep.cancellation, async {
+            self.database()
+                .ensure_embedding_model_index(
+                    sweep.registered.selector(),
+                    SEMANTIC_STATEMENT_TIMEOUT,
+                )
+                .await
+                .map_err(|error| match error {
+                    SemanticStorageError::HnswCreateSharedMemoryUnavailable => {
+                        ProjectError::HnswCreateSharedMemoryUnavailable
+                    }
+                    _ => ProjectError::EmbeddingOperationFailed,
+                })
+        })
+        .await?;
         let request = SemanticReadinessRequest::new(
             sweep.project_id.clone(),
             sweep.registered.selector().clone(),
             SEMANTIC_STATEMENT_TIMEOUT,
         )
         .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
-        tokio::select! {
-            biased;
-            () = sweep.cancellation.cancelled() => Err(ProjectError::RequestCancelled),
-            result = self.database().semantic_readiness(request) => {
-                result.map_err(|_| ProjectError::EmbeddingOperationFailed)
-            }
-        }
+        native_embedding_call(&sweep.cancellation, async {
+            self.database()
+                .semantic_readiness(request)
+                .await
+                .map_err(|_| ProjectError::EmbeddingOperationFailed)
+        })
+        .await
     }
 
     async fn current_project_id(
         &self,
         cancellation: &ProjectCancellation,
     ) -> Result<ProjectId, ProjectError> {
-        let snapshot = tokio::select! {
-            biased;
-            () = cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.database().project_snapshot_by_root(self.root_identity()) => {
-                result.map_err(|_| ProjectError::StatusFailed)?
-            }
-        };
+        let snapshot = native_embedding_call(cancellation, async {
+            self.database()
+                .project_snapshot_by_root(self.root_identity())
+                .await
+                .map_err(|_| ProjectError::StatusFailed)
+        })
+        .await?;
         snapshot
             .filter(|snapshot| snapshot.current.is_some())
             .map(|snapshot| snapshot.project_id)
@@ -579,20 +580,15 @@ async fn run_embedding_batches(
     }
     let mut progress = SweepProgress::default();
     while let Some(result) = tasks.join_next().await {
-        let batch_progress = match result {
-            Ok(Ok(progress)) => progress,
-            Ok(Err(error)) => {
-                tasks.abort_all();
-                while tasks.join_next().await.is_some() {}
-                return Err(error);
-            }
-            Err(_) => {
-                tasks.abort_all();
-                while tasks.join_next().await.is_some() {}
-                return Err(ProjectError::EmbeddingOperationFailed);
-            }
-        };
-        progress.merge(batch_progress)?;
+        let merged = result
+            .map_err(|_| ProjectError::EmbeddingOperationFailed)
+            .and_then(std::convert::identity)
+            .and_then(|batch_progress| progress.merge(batch_progress));
+        if let Err(error) = merged {
+            context.cancellation.cancel();
+            while tasks.join_next().await.is_some() {}
+            return Err(error);
+        }
         if let Some(batch) = context.batches.pop_front() {
             spawn_batch(&mut tasks, &context, batch);
         }
@@ -614,7 +610,11 @@ fn spawn_batch(
         cancellation: context.cancellation.clone(),
         documents,
     };
-    tasks.spawn(task.run());
+    let control = CartographDatabase::request_control(SEMANTIC_STATEMENT_TIMEOUT);
+    tasks.spawn(async move {
+        let control = control.map_err(|_| ProjectError::RequestCancelled)?;
+        Box::pin(CartographDatabase::with_request(control, task.run())).await
+    });
 }
 
 struct EmbeddingBatchTask {
@@ -662,19 +662,39 @@ impl EmbeddingBatchTask {
             statement_timeout: SEMANTIC_STATEMENT_TIMEOUT,
         })
         .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
-        let report = tokio::select! {
-            biased;
-            () = self.cancellation.cancelled() => return Err(ProjectError::RequestCancelled),
-            result = self.database.upsert_current_document_embeddings(request) => {
-                result.map_err(|_| ProjectError::EmbeddingOperationFailed)?
-            }
-        };
+        let report = native_embedding_call(&self.cancellation, async {
+            self.database
+                .upsert_current_document_embeddings(request)
+                .await
+                .map_err(|_| ProjectError::EmbeddingOperationFailed)
+        })
+        .await?;
         Ok(SweepProgress {
             documents: u64::from(report.requested()),
             batches: 1,
             written: u64::from(report.written()),
             unchanged: u64::from(report.unchanged()),
         })
+    }
+}
+
+async fn native_embedding_call<T>(
+    cancellation: &ProjectCancellation,
+    operation: impl std::future::Future<Output = Result<T, ProjectError>>,
+) -> Result<T, ProjectError> {
+    if cancellation.is_cancelled() {
+        return Err(ProjectError::RequestCancelled);
+    }
+    let control = CartographDatabase::request_control(SEMANTIC_STATEMENT_TIMEOUT)
+        .map_err(|_| ProjectError::EmbeddingOperationFailed)?;
+    let operation = CartographDatabase::with_request(control.clone(), operation);
+    tokio::pin!(operation);
+    tokio::select! {
+        result = &mut operation => result,
+        () = cancellation.cancelled() => {
+            control.cancel();
+            operation.await.map_err(|_| ProjectError::RequestCancelled)
+        }
     }
 }
 
@@ -725,3 +745,6 @@ mod tests {
         assert_eq!(parallel, MAXIMUM_PENDING_SOURCE_BYTES);
     }
 }
+
+// Every admitted native feature operation keeps its original control and is
+// awaited after cancellation. A committed batch remains a committed batch.

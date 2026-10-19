@@ -3,18 +3,13 @@ use serde::Serialize;
 
 pub(crate) const GENERATION_CAPACITY_LIMIT: &str = "maxGenerationBytes";
 pub(crate) const GENERATION_CAPACITY_SCOPE: &str = "cartograph_process";
-pub(crate) const GENERATION_CAPACITY_NEXT_ACTION: &str = "use generationStorage=postgres for a dense repository; maxGenerationBytes cannot exceed 8589934592 bytes (8 GiB), so when that ceiling is already selected exclude machine-generated or compiled artifacts with --exclude or project configuration, then run an explicit cartograph index; auto-sync suppresses itself after five capacity failures";
+pub(crate) const GENERATION_CAPACITY_NEXT_ACTION: &str = "inspect native working limits independently of maxGenerationBytes; maxGenerationBytes cannot exceed 8589934592 bytes (8 GiB), so when that ceiling is already selected exclude machine-generated or compiled artifacts with --exclude or project configuration, then run an explicit cartograph index; legacy spill settings have no effect; auto-sync suppresses itself after five capacity failures";
 /// Stable code for a failed bounded cleanup of index staging state.
 pub(crate) const INDEX_CLEANUP_FAILED_CODE: &str = "index_cleanup_failed";
 /// Stable code for a schema migration that another session's PostgreSQL locks
 /// kept from applying for its whole lock-contention budget. Like `lease_busy`,
 /// it is retryable contention: nothing was applied.
 pub(crate) const SCHEMA_BUSY_CODE: &str = "schema_busy";
-/// Exit status of `db start` when its schema migration ends as
-/// [`SCHEMA_BUSY_CODE`] (`EX_TEMPFAIL` from `sysexits.h`), so a parent such as
-/// `upgrade --apply` can tell retryable contention from a failure without
-/// parsing output. Every other `db start` failure exits with status 1.
-pub(crate) const SCHEMA_BUSY_EXIT_STATUS: u8 = 75;
 /// Stable code for a SCIP import that could not restore the project's
 /// previous overlay after its forced index failed or was cancelled.
 const SCIP_OVERLAY_ROLLBACK_FAILED_CODE: &str = "scip_overlay_rollback_failed";
@@ -453,7 +448,8 @@ mod tests {
         assert!(message.contains("resolve_generation_capacity_exceeded"));
         assert!(message.contains(GENERATION_CAPACITY_LIMIT));
         assert!(message.contains(GENERATION_CAPACITY_SCOPE));
-        assert!(message.contains("generationStorage=postgres"));
+        assert!(!message.contains("generationStorage=postgres"));
+        assert!(message.contains("native working limits"));
         assert!(message.contains("8589934592 bytes (8 GiB)"));
         assert!(message.contains("exclude machine-generated or compiled artifacts"));
         assert!(!message.contains("raise maxGenerationBytes"));

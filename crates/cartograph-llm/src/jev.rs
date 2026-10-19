@@ -5,22 +5,20 @@ use std::{
     time::Duration,
 };
 
-use futures_util::StreamExt as _;
-use reqwest::{StatusCode, header};
-use secrecy::SecretString;
+use cartograph_domain::DecisionRequestMetrics;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
-use crate::credential::{
-    CredentialCommandError, CredentialedRequest, CredentialedRequestError, TierCredential,
-    bearer_header, send_credentialed,
-};
+use crate::credential::{CredentialCommandError, CredentialedRequestError, TierCredential};
 use crate::transport::{ModelTransport, RequestPriority, TransportSettings, model_transport};
 use crate::{
     ProjectLlmProvider, ProjectLlmTier, ProjectLlmTierConfig, load_exact_project_llm_tier,
 };
+
+mod cache;
+mod request;
 
 /// Pinned decision endpoint. Jev is not an OpenAI-compatible chat model.
 pub const JEV_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
@@ -102,6 +100,7 @@ pub struct JevSettings {
     credential: TierCredential,
     timeout: Duration,
     features: BTreeSet<JevFeature>,
+    cache_scope: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for JevSettings {
@@ -124,7 +123,13 @@ impl JevSettings {
         let Some(config) = config else {
             return Ok(None);
         };
-        Self::from_config(&config).map(Some)
+        let mut settings = Self::from_config(&config)?;
+        settings.cache_scope = root.canonicalize().ok().map(|root| {
+            let mut digest = blake3::Hasher::new_derive_key("cartograph.jev-project-scope.v1");
+            digest.update(root.as_os_str().as_encoded_bytes());
+            *digest.finalize().as_bytes()
+        });
+        Ok(Some(settings))
     }
 
     /// Validate a loaded decision tier, retaining a missing credential's variable name.
@@ -152,6 +157,7 @@ impl JevSettings {
             credential: decision_credential(config)?,
             timeout,
             features: configured_features(config),
+            cache_scope: None,
         })
     }
 
@@ -244,6 +250,22 @@ pub struct JevDecision {
     /// Exactly one valid answer per requested question.
     #[serde(deserialize_with = "unique_map")]
     pub answers: BTreeMap<String, JevAnswer>,
+    /// Provider-reported usage; absent counts remain unknown. Cached returns
+    /// clear this field because the caller performed no provider work.
+    #[serde(default)]
+    pub usage: Option<JevUsage>,
+    /// Locally measured accounting. Provider-supplied metrics are ignored.
+    #[serde(skip)]
+    pub metrics: Option<DecisionRequestMetrics>,
+}
+
+/// Nonnegative provider token counts, when available.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct JevUsage {
+    /// Billable input tokens for the successful provider response.
+    pub input_tokens: Option<u64>,
+    /// Output tokens for the successful provider response.
+    pub output_tokens: Option<u64>,
 }
 
 /// Stable, secret-free decision-provider failure categories.
@@ -320,6 +342,7 @@ impl Serialize for JevError {
 pub struct JevClient {
     settings: JevSettings,
     transport: Arc<ModelTransport>,
+    priority: RequestPriority,
 }
 
 impl JevClient {
@@ -338,82 +361,8 @@ impl JevClient {
         Ok(Self {
             settings,
             transport,
+            priority: RequestPriority::Foreground,
         })
-    }
-
-    /// Evaluate all questions in one request. Dropping this future cancels its work
-    /// and releases admission; no detached task is created. A credential command
-    /// runs on first use; when the provider rejects its value, the command runs
-    /// once more and the request is resent only with a changed credential.
-    /// # Errors
-    /// Returns a stable redacted failure for credential, admission, HTTP or
-    /// response-contract errors.
-    pub async fn decide(
-        &self,
-        state: &Value,
-        questions: &BTreeMap<String, JevQuestion>,
-    ) -> Result<JevDecision, JevError> {
-        let body = encode_request(state, questions)?;
-        let current = self
-            .settings
-            .credential
-            .current()
-            .await
-            .map_err(JevError::CredentialUnavailable)?;
-        let admission = self
-            .transport
-            .admit(RequestPriority::Foreground, self.settings.timeout)
-            .await
-            .map_err(|()| JevError::EndpointUnavailable)?;
-        let response = send_credentialed(CredentialedRequest {
-            credential: &self.settings.credential,
-            current,
-            build: |key: Option<&SecretString>| {
-                let authorization = key
-                    .and_then(bearer_header)
-                    .ok_or(JevError::ConfigurationUnavailable)?;
-                Ok(self
-                    .transport
-                    .client
-                    .post(self.settings.endpoint.clone())
-                    .timeout(
-                        admission
-                            .remaining()
-                            .map_err(|()| JevError::EndpointUnavailable)?,
-                    )
-                    .header(header::AUTHORIZATION, authorization)
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(body.clone()))
-            },
-        })
-        .await?;
-        match response.status() {
-            StatusCode::OK => {}
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-                return Err(JevError::AuthenticationFailed);
-            }
-            status if status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529 => {
-                return Err(JevError::RateLimited);
-            }
-            status if status.is_server_error() => return Err(JevError::EndpointUnavailable),
-            _ => return Err(JevError::BackendRejected),
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAXIMUM_RESPONSE_BYTES as u64)
-        {
-            return Err(JevError::ResponseLimit);
-        }
-        let mut stream = response.bytes_stream();
-        let mut body = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| JevError::EndpointUnavailable)?;
-            if body.len().saturating_add(chunk.len()) > MAXIMUM_RESPONSE_BYTES {
-                return Err(JevError::ResponseLimit);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        decode_response(&body, questions)
     }
 }
 

@@ -20,7 +20,6 @@ allow = [
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-3-Clause",
-  "BSL-1.0",
   "CC0-1.0",
   "ISC",
   "MIT",
@@ -39,18 +38,20 @@ workspace-default-features = "allow"
 external-default-features = "allow"
 allow-workspace = true
 deny = [
+  { crate = "sqlx", reason = "The PostgreSQL runtime was retired in the native storage cutover" },
+  { crate = "sqlx-core", reason = "The PostgreSQL runtime was retired in the native storage cutover" },
+  { crate = "sqlx-postgres", reason = "The PostgreSQL runtime was retired in the native storage cutover" },
+  { crate = "tokio-postgres", reason = "Cartograph has one native RocksDB storage backend" },
+  { crate = "postgres", reason = "Cartograph has one native RocksDB storage backend" },
   { crate = "aws-lc-rs", reason = "Cartograph standardizes Rustls on ring to avoid duplicate crypto providers" },
   { crate = "aws-lc-sys", reason = "Cartograph standardizes Rustls on ring to avoid duplicate crypto providers" },
-  { crate = "libsqlite3-sys", reason = "Cartograph v2 is PostgreSQL-only" },
-  { crate = "rusqlite", reason = "Cartograph v2 is PostgreSQL-only" },
-  { crate = "sqlx-sqlite", reason = "Cartograph v2 is PostgreSQL-only" },
+  { crate = "libsqlite3-sys", reason = "Cartograph uses only the native RocksDB runtime" },
+  { crate = "rusqlite", reason = "Cartograph uses only the native RocksDB runtime" },
+  { crate = "sqlx-sqlite", reason = "Cartograph uses only the native RocksDB runtime" },
 ]
 skip = [
-  { crate = "base64@0.22.1", reason = "SQLx 0.9 and hyper-util still require base64 0.22; reqwest 0.13.5 now requires 0.23" },
   { crate = "tree-sitter@0.26.13", reason = "Local ABAP compatibility facade reexports 0.27 types and has no native code; the workspace gate verifies exactly one 0.27 runtime" },
   { crate = "getrandom@0.2.17", reason = "ring/rustls has not yet adopted getrandom 0.4" },
-  { crate = "hashbrown@0.16.1", reason = "sqlx hashlink and serde indexmap currently require adjacent releases" },
-  { crate = "syn@2.0.119", reason = "Tokio and ICU derive macros have not yet adopted syn 3" },
   { crate = "windows-sys@0.60.2", reason = "notify 8.2.0 has not yet adopted the workspace's windows-sys 0.61 line" },
 ]
 
@@ -58,4 +59,6 @@ skip = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+# Immutable Cargo pin includes the upstream bindgen 0.73 update; no version ban
+# is bypassed. Return to crates.io after that update is published.
+allow-git = ["https://github.com/zaidoon1/rust-rocksdb"]

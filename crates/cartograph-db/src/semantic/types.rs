@@ -4,7 +4,7 @@ use cartograph_domain::{
     ContentDigest, DocumentId, DocumentKind, FileId, GenerationId, ModelId, ProjectId, SymbolId,
     SymbolKind,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const MAXIMUM_MODEL_DIMENSION: usize = 2_000;
@@ -19,7 +19,7 @@ const MAXIMUM_SIMILAR_SYMBOL_RESULTS: u16 = 50;
 const MAXIMUM_STATEMENT_TIMEOUT: Duration = Duration::from_mins(30);
 
 /// Whether vectors are retained as emitted or must already have unit L2 norm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingNormalization {
     /// Preserve any finite nonzero vector magnitude.
@@ -28,27 +28,10 @@ pub enum EmbeddingNormalization {
     L2,
 }
 
-impl EmbeddingNormalization {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::L2 => "l2",
-        }
-    }
-
-    pub(crate) fn parse(value: &str) -> Result<Self, SemanticStorageError> {
-        match value {
-            "none" => Ok(Self::None),
-            "l2" => Ok(Self::L2),
-            _ => Err(SemanticStorageError::CorruptStoredValue {
-                field: "normalization",
-            }),
-        }
-    }
-}
+impl EmbeddingNormalization {}
 
 /// Durable lifecycle of one model registry entry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingModelState {
     /// New current-generation vectors may be written and queried.
@@ -58,16 +41,6 @@ pub enum EmbeddingModelState {
 }
 
 impl EmbeddingModelState {
-    pub(crate) fn parse(value: &str) -> Result<Self, SemanticStorageError> {
-        match value {
-            "active" => Ok(Self::Active),
-            "retired" => Ok(Self::Retired),
-            _ => Err(SemanticStorageError::CorruptStoredValue {
-                field: "model_state",
-            }),
-        }
-    }
-
     /// Whether the model has passed the audited active-to-retired transition.
     #[must_use]
     pub const fn is_retired(self) -> bool {
@@ -103,11 +76,11 @@ pub struct EmbeddingModelRegistrationInput {
 }
 
 impl EmbeddingModelRegistration {
-    /// Validate non-secret model metadata and the pgvector HNSW dimension ceiling.
+    /// Validate non-secret model metadata and the native vector dimension ceiling.
     /// # Errors
     ///
     /// Returns an error if provider/model text is empty, oversized, or
-    /// NUL-containing, or `dimension` is zero/above the HNSW ceiling.
+    /// NUL-containing, or `dimension` is zero/above the vector ceiling.
     pub fn new(input: EmbeddingModelRegistrationInput) -> Result<Self, SemanticStorageError> {
         let provider = bounded_text(input.provider, "provider", MAXIMUM_PROVIDER_BYTES)?;
         let model_name = bounded_text(input.model_name, "model_name", MAXIMUM_MODEL_NAME_BYTES)?;
@@ -154,17 +127,13 @@ impl EmbeddingModelRegistration {
         &self.model_name
     }
 
-    pub(crate) const fn dimension(&self) -> u16 {
-        self.dimension
-    }
-
     pub(crate) const fn normalization(&self) -> EmbeddingNormalization {
         self.normalization
     }
 }
 
 /// Exact model identity, fingerprint, and dimension expected by one operation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmbeddingModelSelector {
     pub(crate) model_id: ModelId,
     pub(crate) fingerprint: ContentDigest,
@@ -192,7 +161,7 @@ impl EmbeddingModelSelector {
 }
 
 /// Registry row returned without endpoint, credential, or project path data.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegisteredEmbeddingModel {
     pub(crate) selector: EmbeddingModelSelector,
     pub(crate) provider: String,
@@ -233,28 +202,34 @@ impl RegisteredEmbeddingModel {
     }
 }
 
-/// Verified catalog state for one deterministic model-specific HNSW index.
+/// Verified reader state for one exact registered vector model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EmbeddingHnswStatus {
+pub struct EmbeddingIndexStatus {
     pub(crate) model_id: ModelId,
     pub(crate) index_name: String,
+    pub(crate) algorithm: &'static str,
     pub(crate) ready: bool,
 }
 
-impl EmbeddingHnswStatus {
+impl EmbeddingIndexStatus {
+    /// Actual search algorithm provided by this index implementation.
+    #[must_use]
+    pub const fn algorithm(&self) -> &'static str {
+        self.algorithm
+    }
     /// Exact registry model guarded by this index.
     #[must_use]
     pub const fn model_id(&self) -> &ModelId {
         &self.model_id
     }
 
-    /// Deterministic PostgreSQL identifier reserved for this model.
+    /// Deterministic native reader identifier for this model.
     #[must_use]
     pub fn index_name(&self) -> &str {
         &self.index_name
     }
 
-    /// Whether the catalog proves the expected HNSW expression/predicate is valid and ready.
+    /// Whether the model-specific vector reader is ready.
     #[must_use]
     pub const fn ready(&self) -> bool {
         self.ready
@@ -275,7 +250,7 @@ impl EmbeddingPageCursor {
         &self.generation_id
     }
 
-    /// Last consumed PostgreSQL keyset identity.
+    /// Last consumed native document ordinal.
     #[must_use]
     pub const fn after_row_id(&self) -> u64 {
         self.after_row_id
@@ -302,7 +277,7 @@ pub struct PendingEmbeddingPageInput {
     pub maximum_documents: u16,
     /// Maximum retained source text returned by one page.
     pub maximum_source_bytes: u64,
-    /// PostgreSQL statement deadline.
+    /// Native operation deadline.
     pub statement_timeout: Duration,
 }
 
@@ -444,7 +419,7 @@ pub struct EmbeddingUpsertRow {
 }
 
 impl EmbeddingUpsertRow {
-    /// Validate one finite, nonzero, HNSW-compatible vector.
+    /// Validate one finite, nonzero, dimension-bounded vector.
     /// # Errors
     ///
     /// Returns an error if the vector is empty, oversized, all-zero, or
@@ -493,7 +468,7 @@ pub struct EmbeddingBatchUpsertInput {
     pub model: EmbeddingModelSelector,
     /// Source-digest-bound vectors to sort and validate.
     pub rows: Vec<EmbeddingUpsertRow>,
-    /// PostgreSQL statement deadline.
+    /// Native operation deadline.
     pub statement_timeout: Duration,
 }
 
@@ -563,10 +538,10 @@ impl EmbeddingBatchUpsertReport {
 }
 
 /// Semantic retrieval readiness state with explicit fail-closed reasons.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SemanticReadinessState {
-    /// Fingerprint, dimension, coverage, HNSW, and query probe all passed.
+    /// Fingerprint, dimension, coverage, vector reader, and query probe all passed.
     Ready,
     /// The requested model UUID is not registered.
     ModelMissing,
@@ -580,8 +555,8 @@ pub enum SemanticReadinessState {
     NoDocuments,
     /// One or more current documents lack this model's vector.
     CoverageIncomplete,
-    /// The expected model-specific HNSW index is absent, invalid, or malformed.
-    HnswUnavailable,
+    /// The expected model-specific vector reader is absent, invalid, or malformed.
+    IndexUnavailable,
     /// A bounded live nearest-neighbor probe did not succeed.
     QueryProbeFailed,
 }
@@ -620,7 +595,7 @@ pub struct SemanticReadinessReport {
     pub(crate) generation_id: Option<GenerationId>,
     pub(crate) documents: u64,
     pub(crate) embedded: u64,
-    pub(crate) hnsw_ready: bool,
+    pub(crate) index_ready: bool,
     pub(crate) query_probe_ready: bool,
     pub(crate) state: SemanticReadinessState,
 }
@@ -656,10 +631,10 @@ impl SemanticReadinessReport {
         self.embedded
     }
 
-    /// Whether the deterministic model-specific HNSW catalog proof passed.
+    /// Whether the model-specific vector reader check passed.
     #[must_use]
-    pub const fn hnsw_ready(&self) -> bool {
-        self.hnsw_ready
+    pub const fn index_ready(&self) -> bool {
+        self.index_ready
     }
 
     /// Whether a live nearest-neighbor probe executed successfully.
@@ -697,7 +672,7 @@ pub struct VectorSearchInput {
     pub vector: Vec<f32>,
     /// Maximum current-generation hits.
     pub limit: u16,
-    /// PostgreSQL statement deadline.
+    /// Native operation deadline.
     pub statement_timeout: Duration,
 }
 
@@ -783,7 +758,7 @@ pub struct SimilarSymbolsInput {
     pub minimum_score: f64,
     /// Restrict candidates to the source symbol's indexed language.
     pub same_language: bool,
-    /// PostgreSQL statement deadline.
+    /// Native operation deadline.
     pub statement_timeout: Duration,
 }
 
@@ -972,7 +947,7 @@ impl VectorSearchHit {
         self.rerank_text.as_deref()
     }
 
-    /// Cosine distance reported by pgvector; smaller is nearer.
+    /// Exact native cosine distance; smaller is nearer.
     #[must_use]
     pub const fn distance(&self) -> f64 {
         self.distance
@@ -1030,7 +1005,7 @@ pub enum SemanticStorageError {
     /// New writes and searches are forbidden after retirement.
     #[error("embedding model is retired")]
     ModelRetired,
-    /// A replacement lacked complete current-generation coverage or a valid HNSW index.
+    /// A replacement lacked complete current-generation coverage or a ready vector reader.
     #[error("replacement embedding model is not ready for audited retirement")]
     ReplacementNotReady,
     /// The project or current generation is absent.
@@ -1070,9 +1045,9 @@ pub enum SemanticStorageError {
         field: &'static str,
     },
     /// Driver details are redacted because they may contain deployment/source data.
-    #[error("Cartograph PostgreSQL semantic operation failed during {operation}")]
+    #[error("Cartograph native semantic operation failed during {operation}")]
     DatabaseOperation {
-        /// Bounded operation label identifying the failed PostgreSQL phase.
+        /// Bounded operation label identifying the failed native phase.
         operation: &'static str,
     },
 }

@@ -1,20 +1,13 @@
-mod common;
-mod hnsw;
 mod maintenance;
 mod materialize;
-mod model;
-mod pending;
-mod readiness;
-mod search;
-mod similar;
+pub(crate) mod native;
 mod types;
-mod upsert;
 
 pub use maintenance::{EmbeddingStorageAudit, RetiredEmbeddingCleanupReport};
 pub use materialize::{SimilarityMaterializationPolicy, SimilarityMaterializationReport};
 pub use types::{
     EmbeddingBatchUpsertInput, EmbeddingBatchUpsertReport, EmbeddingBatchUpsertRequest,
-    EmbeddingHnswStatus, EmbeddingModelRegistration, EmbeddingModelRegistrationInput,
+    EmbeddingIndexStatus, EmbeddingModelRegistration, EmbeddingModelRegistrationInput,
     EmbeddingModelSelector, EmbeddingModelState, EmbeddingNormalization, EmbeddingPageCursor,
     EmbeddingUpsertRow, PendingEmbeddingDocument, PendingEmbeddingPage, PendingEmbeddingPageInput,
     PendingEmbeddingPageRequest, RegisteredEmbeddingModel, RetireEmbeddingModelRequest,
@@ -22,3 +15,5 @@ pub use types::{
     SemanticStorageError, SimilarSymbolHit, SimilarSymbolsInput, SimilarSymbolsRequest,
     SimilarSymbolsResult, VectorSearchHit, VectorSearchInput, VectorSearchRequest,
 };
+
+mod common;

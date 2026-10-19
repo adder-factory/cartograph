@@ -70,6 +70,14 @@ if (-not [string]::IsNullOrWhiteSpace($RunnerTemp)) {
   )
 }
 
+if ([string]::IsNullOrWhiteSpace($env:LIBCLANG_PATH)) {
+  $NativeClangDirectory = Join-Path $env:ProgramFiles 'LLVM/bin'
+  if (!(Test-Path (Join-Path $NativeClangDirectory 'libclang.dll'))) {
+    throw 'Native RocksDB bindings require LIBCLANG_PATH containing libclang.dll'
+  }
+  $env:LIBCLANG_PATH = $NativeClangDirectory
+}
+
 cargo build --locked --release --package cartograph-cli
 if ($LASTEXITCODE -ne 0) { throw 'cargo release build failed' }
 
@@ -85,7 +93,8 @@ Copy-Item $Binary (Join-Path $Stage 'bin/cartograph.exe')
 Copy-Item (Join-Path $Root 'LICENSE') (Join-Path $Stage 'LICENSE')
 Copy-Item (Join-Path $Root 'README.md') (Join-Path $Stage 'README.md')
 Copy-Item (Join-Path $Root 'ACKNOWLEDGEMENTS.md') (Join-Path $Stage 'ACKNOWLEDGEMENTS.md')
-Copy-Item (Join-Path $Root 'docs/v2/LICENSING.md') (Join-Path $Stage 'share/cartograph/PARADEDB-NOTICE.md')
+Copy-Item (Join-Path $Root 'docs/v2/LICENSING.md') (Join-Path $Stage 'share/cartograph/NATIVE-STORAGE-NOTICE.md')
+Copy-Item (Join-Path $Root 'docs/v2/THIRD-PARTY-STORAGE-LICENSES.txt') (Join-Path $Stage 'share/cartograph/THIRD-PARTY-STORAGE-LICENSES.txt')
 
 $Version = (& $Binary --version).Trim()
 $Metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
@@ -108,7 +117,8 @@ $ExpectedFiles = @(
   'LICENSE',
   'README.md',
   'bin/cartograph.exe',
-  'share/cartograph/PARADEDB-NOTICE.md'
+  'share/cartograph/NATIVE-STORAGE-NOTICE.md',
+  'share/cartograph/THIRD-PARTY-STORAGE-LICENSES.txt'
 )
 $ActualFiles = Get-ChildItem -Recurse -File $Stage |
   ForEach-Object { $_.FullName.Substring($Stage.Length + 1).Replace('\', '/') } |
