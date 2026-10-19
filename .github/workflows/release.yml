@@ -134,6 +134,7 @@ jobs:
               and .runId == $runId
               and .requiredJobs == [
                 "quality",
+                "unit-tests",
                 "windows-portability",
                 "macos-portability",
                 "linux-release-portability",

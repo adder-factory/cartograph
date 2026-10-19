@@ -81,9 +81,39 @@ jobs:
           git diff --no-renames --name-only -z "$diff_range" |
             scripts/classify-v2-ci-change.sh >>"$GITHUB_OUTPUT"
 
+  unit-tests:
+    name: All-feature workspace unit tests
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore Rust dependency cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cartograph-rust-${{ runner.os }}-v2-ubuntu-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml') }}
+          restore-keys: |
+            cartograph-rust-${{ runner.os }}-v2-ubuntu-
+
+      - name: Install native C++ binding prerequisites
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Unit tests
+        run: cargo test --locked --workspace --all-features
+
   quality:
     name: format + clippy + rustdoc + unit + RocksDB-only
-    needs: classify
+    needs: [classify, unit-tests]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -93,14 +123,15 @@ jobs:
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           FULL_GATE: ${{ needs.classify.outputs.full }}
           DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$CLASSIFY_RESULT" == success ]]
+          [[ "$CLASSIFY_RESULT" == success ]] || exit 1
           if [[ "$FULL_GATE" == true ]]; then
-            [[ "$DOCS_ONLY" == false ]]
+            [[ "$DOCS_ONLY" == false && "$UNIT_RESULT" == success ]] || exit 1
           else
-            [[ "$FULL_GATE" == false && "$DOCS_ONLY" == true ]]
+            [[ "$FULL_GATE" == false && "$DOCS_ONLY" == true && "$UNIT_RESULT" == skipped ]] || exit 1
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -154,10 +185,6 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --workspace --all-features --no-deps
-
-      - name: Unit tests
-        if: needs.classify.outputs.full == 'true'
-        run: cargo test --locked --workspace --all-features
 
       - name: Dependency advisories, licenses, bans, and sources
         if: needs.classify.outputs.full == 'true'
@@ -491,6 +518,7 @@ jobs:
     needs:
       - classify
       - quality
+      - unit-tests
       - windows-portability
       - macos-portability
       - linux-release-portability
@@ -526,6 +554,7 @@ jobs:
               runAttempt: $runAttempt,
               requiredJobs: [
                 "quality",
+                "unit-tests",
                 "windows-portability",
                 "macos-portability",
                 "linux-release-portability",

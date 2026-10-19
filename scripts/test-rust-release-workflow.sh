@@ -67,8 +67,10 @@ workspace_version="$(
 sonar_project_version="$(sed -n 's/^sonar\.projectVersion=//p' "$SONAR_CONFIG")"
 [[ "$sonar_project_version" == "$workspace_version" ]] || \
   fail 'the Sonar project version does not match the Cargo workspace version'
-ruby - "$VALIDATION" <<'RUBY'
+ruby - "$VALIDATION" "$RELEASE" <<'RUBY'
 require "yaml"
+require "open3"
+require "json"
 
 def contract_failure(message)
   abort("release workflow contract failed: #{message}")
@@ -160,6 +162,63 @@ validation_path = ARGV.fetch(0)
 if nonblocking_quality?(File.read(validation_path), "validation workflow")
   contract_failure("quality job and its required steps may not continue on error")
 end
+document = parse_workflow(File.read(validation_path), "validation workflow")
+quality, quality_steps = quality_job(document, "validation workflow")
+unit = document.fetch("jobs")["unit-tests"]
+contract_failure("ordinary tests must have a separate required job") unless unit.is_a?(Hash)
+contract_failure("unit tests must depend only on classification") unless unit["needs"] == "classify"
+contract_failure("unit tests must run for every full gate") unless \
+  unit["if"] == "needs.classify.outputs.full == 'true'"
+contract_failure("ordinary test and quality time limits must stay at 25 minutes") unless \
+  unit["timeout-minutes"] == 25 && quality["timeout-minutes"] == 25
+contract_failure("quality must require the ordinary test result") unless \
+  quality["needs"] == ["classify", "unit-tests"] && quality["if"] == "always()"
+unit_steps = unit.fetch("steps")
+contract_failure("unit tests may not change test concurrency or continue on error") if \
+  unit.key?("continue-on-error") || unit.key?("env") || unit_steps.any? do |step|
+    step.key?("continue-on-error") || step.key?("env")
+  end
+test_steps = unit_steps.select { |step| step["name"] == "Unit tests" }
+contract_failure("ordinary tests must run the complete unfiltered workspace suite") unless \
+  test_steps == [{"name" => "Unit tests", "run" => "cargo test --locked --workspace --all-features"}]
+contract_failure("ordinary tests need native binding prerequisites") unless unit_steps.any? do |step|
+  step["run"] == "sudo apt-get update && sudo apt-get install -y clang libclang-dev"
+end
+prerequisite = quality_steps.first
+contract_failure("quality must bind the actual unit job result") unless \
+  prerequisite.fetch("env")["UNIT_RESULT"] == '${{ needs.unit-tests.result }}'
+guard = prerequisite.fetch("run")
+[
+  ["success", "true", "false", "success", true],
+  ["success", "false", "true", "skipped", true],
+  ["failure", "true", "false", "success", false],
+  ["success", "true", "false", "failure", false],
+  ["success", "true", "false", "cancelled", false],
+  ["success", "true", "false", "skipped", false],
+  ["success", "false", "true", "success", false],
+  ["success", "true", "true", "success", false],
+  ["success", "false", "false", "skipped", false]
+].each do |classify, full, docs, result, expected|
+  environment = {
+    "CLASSIFY_RESULT" => classify, "FULL_GATE" => full,
+    "DOCS_ONLY" => docs, "UNIT_RESULT" => result
+  }
+  _stdout, _stderr, status = Open3.capture3(environment, "bash", "-eu", "-c", guard)
+  contract_failure("quality result guard accepted an invalid prerequisite state") unless \
+    status.success? == expected
+end
+contract_failure("attestation must require every validation job directly") unless \
+  document.fetch("jobs").fetch("attest-main-gate").fetch("needs") == \
+    ["classify", "quality", "unit-tests", "windows-portability", "macos-portability",
+     "linux-release-portability", "rocksdb"]
+expected_jobs = ["quality", "unit-tests", "windows-portability", "macos-portability",
+                 "linux-release-portability", "rocksdb/database", "rocksdb/runtime",
+                 "rocksdb/operations"]
+ARGV.each do |path|
+  arrays = File.read(path).scan(/requiredJobs\s*(?::|==)\s*(\[[^\]]*\])/).flatten
+  contract_failure("gate provenance must bind all eight validation jobs") unless \
+    arrays.length == 1 && JSON.parse(arrays.first) == expected_jobs
+end
 RUBY
 
 grep -Fq 'attest-main-gate:' "$VALIDATION" || fail 'main-gate attestation job is missing'
@@ -207,7 +266,7 @@ job_ids="$(awk '
     print job
   }
 ' "$VALIDATION")"
-expected_job_ids=$'classify\nquality\nwindows-portability\nmacos-portability\nlinux-release-portability\nrocksdb\nattest-main-gate'
+expected_job_ids=$'classify\nunit-tests\nquality\nwindows-portability\nmacos-portability\nlinux-release-portability\nrocksdb\nattest-main-gate'
 [[ "$job_ids" == "$expected_job_ids" ]] || \
   fail 'validation jobs changed without an explicit documentation-scope contract'
 
@@ -268,7 +327,7 @@ workspace_contract_run_count="$(awk '
 ' "$VALIDATION")"
 [[ "$workspace_contract_run_count" == 1 ]] || \
   fail 'workspace dependency contract command must appear exactly once'
-grep -Fq 'needs: classify' <<<"$quality_block" || \
+grep -Fq 'needs: [classify, unit-tests]' <<<"$quality_block" || \
   fail 'required quality result does not depend on change classification'
 if grep -Eq '^    (container|services):' <<<"$quality_block"; then
   fail 'documentation-only quality job cannot allocate a container or service'
@@ -536,7 +595,7 @@ if grep -Fq 'Swatinem/rust-cache@' "$VALIDATION" "$RELEASE"; then
 fi
 CACHE_ACTION_SHA='55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
 restore_count="$(literal_count "actions/cache/restore@$CACHE_ACTION_SHA")"
-[[ "$restore_count" == 5 ]] || fail 'every Rust cache restore must use pinned actions/cache v6.1.0'
+[[ "$restore_count" == 6 ]] || fail 'every Rust cache restore must use pinned actions/cache v6.1.0'
 save_count="$(literal_count "actions/cache/save@$CACHE_ACTION_SHA")"
 [[ "$save_count" == 4 ]] || fail 'bounded main, Windows, macOS, and release cache saves are missing'
 for cache_path in \
@@ -545,7 +604,7 @@ for cache_path in \
   '.cargo/git/db/' \
   'target/'; do
   path_count="$(awk -v expected="$cache_path" '{ $1=$1; if ($0 == expected || $0 == "~/" expected) n++ } END { print n+0 }' "$VALIDATION" "$RELEASE")"
-  [[ "$path_count" == 9 ]] || fail "Rust cache path coverage changed for $cache_path"
+  [[ "$path_count" == 10 ]] || fail "Rust cache path coverage changed for $cache_path"
 done
 grep -Fq 'steps.rust-cache.outputs.cache-primary-key' "$VALIDATION" || \
   fail 'main cache saves are not bound to their exact restored primary key'
