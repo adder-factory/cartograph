@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [CLI reference](CLI-REFERENCE.md) ·
 [MCP usage](MCP-USAGE.md) · [Project overview](../README.md)
 
-Last release audit: 2026-10-19 (`v3.0.2`).
+Last release audit: 2026-10-20 (`v3.0.3`).
 
 Cartograph exposes one native Rust feature surface through human CLI commands
 and 35 bounded MCP tools. Shared schemas generate ordinary CLI adapters where

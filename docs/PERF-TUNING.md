@@ -1,6 +1,6 @@
 # Performance and freshness tuning
 
-This guide applies to Cartograph `v3.0.2` and its native RocksDB backend.
+This guide applies to Cartograph `v3.0.3` and its native RocksDB backend.
 Published PostgreSQL benchmarks remain historical; they do not prove native
 performance. See [storage](STORAGE-BACKENDS.md) for exact limits and commands.
 
