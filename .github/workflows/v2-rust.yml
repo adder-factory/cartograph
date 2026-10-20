@@ -101,9 +101,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
+          # Old compiler targets take minutes to restore and are invalidated
+          # on a toolchain update. This bounded job restores exact matches only.
           key: cartograph-rust-${{ runner.os }}-v2-ubuntu-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml') }}
-          restore-keys: |
-            cartograph-rust-${{ runner.os }}-v2-ubuntu-
 
       - name: Install native C++ binding prerequisites
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
