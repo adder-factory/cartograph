@@ -1,6 +1,6 @@
 # Install and use Cartograph v3
 
-Cartograph `v3.0.1` stores each project in embedded RocksDB. Install the native
+Cartograph `v3.0.2` stores each project in embedded RocksDB. Install the native
 release with the [quick start](../README.md#quick-start), or build from source
 with the pinned toolchain. No database server or Docker bootstrap is needed.
 

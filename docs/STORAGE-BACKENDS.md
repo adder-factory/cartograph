@@ -1,6 +1,6 @@
 # Native RocksDB storage
 
-Cartograph `v3.0.1` uses RocksDB exclusively. Earlier v2 releases used
+Cartograph `v3.0.2` uses RocksDB exclusively. Earlier v2 releases used
 PostgreSQL; install v3 and follow the source-rebuild migration below.
 
 Cartograph stores each project's graph and agent state in its own

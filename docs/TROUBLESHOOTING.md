@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [CLI reference](CLI-REFERENCE.md) ·
 [Native storage](STORAGE-BACKENDS.md)
 
-These commands describe the RocksDB backend in `v3.0.1`. Earlier v2 binaries
+These commands describe the RocksDB backend in `v3.0.2`. Earlier v2 binaries
 use PostgreSQL. Install v3 and rebuild the graph from source before using
 the native commands below.
 

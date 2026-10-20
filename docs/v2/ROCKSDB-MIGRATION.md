@@ -1,6 +1,6 @@
 # PostgreSQL to RocksDB cutover
 
-Cartograph `v3.0.1` replaces PostgreSQL with native RocksDB. Install the v3
+Cartograph `v3.0.2` replaces PostgreSQL with native RocksDB. Install the v3
 release first; earlier v2 binaries and already attached MCP children continue
 to use PostgreSQL until explicitly replaced.
 

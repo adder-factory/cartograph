@@ -692,9 +692,10 @@ mod dirtiness_tests {
             git_worktree_is_dirty(project.path()).await,
             "an unavailable Git repository is not clean evidence"
         );
+        // Keep host Git templates out of this bounded dirtiness fixture.
         let initialized = run_git_bounded(
             project.path(),
-            &["init", "--initial-branch=main"],
+            &["init", "--initial-branch=main", "--template="],
             GitCommandBounds::new(1_024, Duration::from_secs(2)),
         )
         .await
