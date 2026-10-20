@@ -4,7 +4,7 @@
 [Grammar provenance](GRAMMAR-ASSETS.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-10-19 (`v3.0.1`).
+Last release audit: 2026-10-19 (`v3.0.2`).
 
 This report states what "supported" means for a language mode and where the
 evidence for each admitted mode lives. For the per-language inventory, read the

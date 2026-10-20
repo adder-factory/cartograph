@@ -88,11 +88,37 @@ async fn native_startup_reconciliation_builds_an_unindexed_project() -> TestResu
     )?;
     let request = StorageRequest::new(Duration::from_secs(30))?;
     let runtime = RocksProjectRuntime::open(project.path(), &request).await?;
-    let watcher = ProjectAutoSync::start(runtime.clone(), true)?;
-    wait_for_name(&runtime, "startup_target").await?;
-    assert!(watcher.status().reconciliations > 0);
-    watcher.shutdown().await;
-    runtime.shutdown().await?;
+    // An OS watcher may deliver earlier writes after registration. Keep its
+    // channel open without events so only startup reconciliation can publish.
+    let (_events, receiver) = mpsc::channel(WATCH_CHANNEL_CAPACITY);
+    let (_cancellation, cancellation) = watch::channel(false);
+    let state = Arc::new(AutoSyncState::default());
+    state.active.store(true, Ordering::Release);
+    let observed: TestResult = {
+        let synchronization = run_auto_sync(AutoSyncTask {
+            runtime: runtime.clone(),
+            events: receiver,
+            cancellation,
+            event_debounce: EventDebounce {
+                quiet_window: DEFAULT_DEBOUNCE,
+                maximum_latency: maximum_debounce_latency(DEFAULT_DEBOUNCE),
+            },
+            state: state.clone(),
+            startup_reconciliation_enabled: true,
+        });
+        tokio::pin!(synchronization);
+        tokio::select! {
+            () = &mut synchronization => Err("startup synchronization ended before publication".into()),
+            result = wait_for_name(&runtime, "startup_target") => result,
+        }
+    };
+    // Dropping the owned synchronization future cancels its loops; native
+    // operations remain owned by the runtime until this shutdown drains them.
+    let shutdown = runtime.shutdown().await;
+    observed?;
+    shutdown?;
+    assert!(state.reconciliations.load(Ordering::Acquire) > 0);
+    assert_eq!(state.events.load(Ordering::Acquire), 0);
     Ok(())
 }
 

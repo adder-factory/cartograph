@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last release audit: 2026-10-19 (`v3.0.1`).
+Last release audit: 2026-10-19 (`v3.0.2`).
 
 Cartograph v3 is a native Rust code-intelligence server for AI coding agents.
 Each project owns an embedded RocksDB 11.8.1 store. Rust implements

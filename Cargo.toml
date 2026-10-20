@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "3.0.1"
+version = "3.0.2"
 edition = "2024"
 rust-version = "1.99.0"
 authors = ["Adder Factory"]
@@ -89,8 +89,8 @@ clap = { version = "4.6.7", default-features = false, features = [
 getrandom = "0.4.3"
 ignore = "0.4.33"
 itoa = "=1.0.18"
-jiff = { version = "=0.2.35", default-features = false, features = ["std"] }
-libc = "0.2.190"
+jiff = { version = "=0.2.38", default-features = false, features = ["std"] }
+libc = "0.2.191"
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-encode", "safe-decode"] }
 memchr = "=2.8.3"
 notify = "=8.2.0"
@@ -112,7 +112,7 @@ sha2 = "=0.11.1"
 signal-hook = { version = "0.4.5", default-features = false }
 thiserror = "2.0.21"
 tempfile = "3.27.0"
-tokio = { version = "1.53.2", features = [
+tokio = { version = "1.54.0", features = [
   "fs",
   "io-std",
   "io-util",
