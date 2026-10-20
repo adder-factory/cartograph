@@ -392,7 +392,7 @@ audience.
 
 ## Development
 
-The repository pins its Rust toolchain in `rust-toolchain.toml`.
+The repository pins Rust 1.99.1 in `rust-toolchain.toml` and uses edition 2024.
 
 ```sh
 git clone https://github.com/adder-factory/cartograph.git

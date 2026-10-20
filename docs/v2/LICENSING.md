@@ -1,6 +1,6 @@
 # Native storage distribution notices
 
-This notice describes Cartograph `v3.0.2` and its native RocksDB backend.
+This notice describes Cartograph `v3.0.3` and its native RocksDB backend.
 Cartograph code remains MIT licensed. The executable now includes native
 RocksDB and compression libraries; their upstream terms remain in force.
 

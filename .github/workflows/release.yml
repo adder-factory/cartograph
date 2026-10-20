@@ -156,14 +156,14 @@ jobs:
             asset_target: linux-x64
             shell: bash
             cache_key: unused-linux-x64
-            build_image: rust:1.99.0-trixie@sha256:d3ba1ad5d5b5a180ca8428b4fab8543a1b3933b32a8a7ad90a7ebbaf5497203a
+            build_image: rust:1.99.1-trixie@sha256:d7c9d46725b95c89b733b30883c02fc39d6cbf829be6cdfdc2ace077c7c830e8
             runtime_image: debian:13-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483
           - os: ubuntu-24.04-arm
             rust_target: aarch64-unknown-linux-gnu
             asset_target: linux-arm64
             shell: bash
             cache_key: unused-linux-arm64
-            build_image: rust:1.99.0-trixie@sha256:585dced3da590f4f7dc2719172ead5b39ea781bd8b698c092112da8ef3be0659
+            build_image: rust:1.99.1-trixie@sha256:3a24abf17df2ba07041a07dc9af812921cbc28aa9cbafb5ce6bafa48f197ea33
             runtime_image: debian:13-slim@sha256:a2ca65377c251208de42e1a2722cb949211236c161b634f6f3663754e2d06850
           - os: macos-26
             rust_target: aarch64-apple-darwin
