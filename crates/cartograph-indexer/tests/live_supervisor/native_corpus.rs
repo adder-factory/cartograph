@@ -220,8 +220,10 @@ const CORPUS_FINGERPRINT_DOMAIN: &[u8] = b"cartograph-v2-native-real-corpus-v1";
 const EXPECTED_CORPUS_FINGERPRINT: &str =
     "ab91088c482ed36d31759382283342654ce6958be4e601429b8181da531c5fc1";
 
+// V24 changes the digest domain; the source fingerprint, rows, kinds, native report,
+// and exact BM25 identities below remain pinned independently.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "aced86f5078a2a4c09bfd95a94fffa28cb9e307c7322fbad691166964f98c30a";
+    "4eb8a0630403e317e91ea2451e73afc8078037779c91f9ccffff3b071e994214";
 
 // Native scoring uses k1=1.2, b=.75 and name/code/natural weights 4/1/2.
 // Independently checked corpus statistics: N=6362, weighted tokens=348835,

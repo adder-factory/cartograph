@@ -14743,14 +14743,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V23 changes the digest domain; facts unchanged in these fixtures.
+    // V24 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "c815a90bbd9ef26e7c1e78e8815521b093c5201bfd083a70a569de8010005c40";
+        "fe6f362d549305c90c00a8f809c2220538c01cbea9492dc97b386b50ed75480c";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "27bbe648cd9df325036cdc45b0a0a5da3543b8ab5426776c264f54f0595e05b0";
+        "418497df86720f6f97b504db9c3f03cf144406bb48f80ad230c3b31a79339130";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -14777,7 +14777,7 @@ mod tests {
     // references and centrality; bridge_digest_proof then removes six alias
     // links to recover 04a9f9b9... exactly under the V23 domain.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "f8fcb94e21167161c49c6b3afb36b2761f07f53ab7ea2a84e8fd138b20f58ea6";
+        "49061755aaf661a9eb48cbeb2397586d0989aca675d34f29350c5603976f606a";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 260, 292, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
@@ -14788,7 +14788,7 @@ mod tests {
     // frameworks::routes::mybatis_local_sql_roles_preserve_the_frozen_custom_digest
     // regression removes the hint and compares every fact table and digest.
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "bbe52f322847c48aa491ac48c2308911553640a03945e73218b795c1be53ed28";
+        "49f115009fec6492cdedc49539e994cf9b69b134fe0bffd114bb5549fd57c910";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
@@ -18889,6 +18889,42 @@ pub fn score(a: u16, b: u16, value: f32) -> f32 {
             TEST_CONVENTION_CONFIDENCE,
         ),
     ];
+
+    #[test]
+    fn rust_leaf_test_modules_publish_test_documents_including_unannotated_helpers() {
+        let fixtures = [
+            (
+                "src/cache/tests.rs",
+                "fn prepare_fixture() {}\n#[test]\nfn stores() { prepare_fixture(); }\n",
+            ),
+            ("src/cache.rs", "pub fn store() {}\n"),
+        ];
+        let facts = build_capability_generation(&fixtures, false);
+        let test_documents = facts
+            .documents()
+            .iter()
+            .filter(|document| document.path() == "src/cache/tests.rs")
+            .collect::<Vec<_>>();
+        assert_eq!(test_documents.len(), 3);
+        assert!(
+            test_documents
+                .iter()
+                .all(|document| document.kind() == DocumentKind::Test)
+        );
+        assert!(
+            test_documents
+                .iter()
+                .any(|document| document.qualified_name() == "prepare_fixture")
+        );
+        assert!(
+            facts
+                .documents()
+                .iter()
+                .any(|document| document.path() == "src/cache.rs"
+                    && document.qualified_name() == "store"
+                    && document.kind() == DocumentKind::Symbol)
+        );
+    }
 
     #[test]
     fn test_subject_edges_cover_conventions_imports_jvm_and_rust_native_patterns() {

@@ -17,9 +17,9 @@ pub use source::{
     FileParseStatus, InvalidNormalizedPath, InvalidSourceSpan, NormalizedPath, ReferenceKind,
     SourceLanguage, SourcePosition, SourceSpan, SymbolExecutionFlags, SymbolExportFlags,
     SymbolImplementationFlags, SymbolKind, Visibility, callable_signature_is_literal_free,
-    declaration_value_is_search_safe, is_sensitive_value_token, symbol_signature_is_search_safe,
-    token_has_provider_key_shape, v1_language_registry_digest, v2_language_additions_digest,
-    value_token_is_sensitive,
+    declaration_value_is_search_safe, is_sensitive_value_token, is_test_source_path,
+    symbol_signature_is_search_safe, token_has_provider_key_shape, v1_language_registry_digest,
+    v2_language_additions_digest, value_token_is_sensitive,
 };
 
 const UUID_TEXT_LENGTH: usize = 36;
@@ -341,17 +341,19 @@ pub enum GenerationDigestVersion {
     V22 = 22,
     /// V1 framework/bridge detail and deferred resolution parity across languages.
     V23 = 23,
+    /// Shared language-aware test paths, including Rust leaf test modules.
+    V24 = 24,
 }
 
 impl GenerationDigestVersion {
     /// Current digest contract emitted by this Cartograph v2 binary.
-    pub const CURRENT: Self = Self::V23;
+    pub const CURRENT: Self = Self::V24;
 
     /// Every admitted contract version in ascending order.
     ///
     /// A new version is added here and nowhere else; validation walks this list
     /// rather than repeating one guarded arm per version.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::V1,
         Self::V2,
         Self::V3,
@@ -375,6 +377,7 @@ impl GenerationDigestVersion {
         Self::V21,
         Self::V22,
         Self::V23,
+        Self::V24,
     ];
 
     /// Stable PostgreSQL `smallint` representation.
@@ -710,7 +713,8 @@ mod tests {
     const DIGEST_V21_DATABASE_VALUE: i16 = 21;
     const DIGEST_V22_DATABASE_VALUE: i16 = 22;
     const DIGEST_V23_DATABASE_VALUE: i16 = 23;
-    const UNKNOWN_DIGEST_DATABASE_VALUE: i16 = 24;
+    const DIGEST_V24_DATABASE_VALUE: i16 = 24;
+    const UNKNOWN_DIGEST_DATABASE_VALUE: i16 = 25;
 
     #[test]
     fn branded_ids_canonicalize_and_validate_deserialized_values() {
@@ -772,6 +776,7 @@ mod tests {
             (DIGEST_V21_DATABASE_VALUE, GenerationDigestVersion::V21),
             (DIGEST_V22_DATABASE_VALUE, GenerationDigestVersion::V22),
             (DIGEST_V23_DATABASE_VALUE, GenerationDigestVersion::V23),
+            (DIGEST_V24_DATABASE_VALUE, GenerationDigestVersion::V24),
         ];
         for (value, version) in versions {
             assert_eq!(version.database_value(), value);
@@ -782,7 +787,7 @@ mod tests {
         }
         assert_eq!(
             GenerationDigestVersion::CURRENT.database_value(),
-            DIGEST_V23_DATABASE_VALUE
+            DIGEST_V24_DATABASE_VALUE
         );
         assert!(
             GenerationDigestVersion::from_database_value(UNKNOWN_DIGEST_DATABASE_VALUE).is_err()

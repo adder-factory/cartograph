@@ -6,6 +6,7 @@ mod intent;
 mod model;
 mod packet;
 mod qualified;
+mod query;
 mod review;
 mod traversal;
 
@@ -271,6 +272,9 @@ mod contract_tests {
         assert!(is_test_path("src/search/__tests__/packet.ts"));
         assert!(is_test_path("src/search/packet.test.ts"));
         assert!(is_test_path("src/search/packet_spec.rb"));
+        assert!(is_test_path("src/cache/tests.rs"));
+        assert!(is_test_path("src\\cache\\tests.rs"));
+        assert!(is_test_path("src/OrderServiceTest.java"));
         assert!(!is_test_path("src/contest/parser.ts"));
         assert!(!is_test_path("src/testing_helpers.ts"));
     }
@@ -1013,12 +1017,7 @@ mod contract_tests {
             20,
         )
         .unwrap_or_else(|error| panic!("BM25 query expansion failed: {error}"));
-        for term in [
-            "generation_search_relation",
-            "relation",
-            "require",
-            "validate",
-        ] {
+        for term in ["lexical", "postings", "validate", "verify"] {
             assert!(bm25.query().contains(term), "missing expansion: {term}");
         }
 
@@ -1027,7 +1026,7 @@ mod contract_tests {
             20,
         )
         .unwrap_or_else(|error| panic!("freshness query expansion failed: {error}"));
-        for term in ["project_status", "source_revision", "scan_source", "digest"] {
+        for term in ["source_revision", "scan_source", "digest"] {
             assert!(
                 freshness.query().contains(term),
                 "missing expansion: {term}",

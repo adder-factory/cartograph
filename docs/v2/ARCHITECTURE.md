@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last release audit: 2026-10-20 (`v3.0.3`).
+Last release audit: 2026-10-20 (`v3.0.4`).
 
 Cartograph v3 is a native Rust code-intelligence server for AI coding agents.
 Each project owns an embedded RocksDB 11.8.1 store. Rust implements
@@ -189,9 +189,9 @@ every per-file fact v1.1.33 extracted from each v1 mode's fixture corpus to
 have a unique exact identity, committed exact alignment pins, or a
 pending/intentional ledger entry. Ambiguous identities never match and stale
 rows fail; the linked report owns current counts and the update procedure.
-The V23 generation-digest contract fences these families,
-v1 framework/bridge detail, and deferred resolution parity, so generations
-from older binaries report stale once and republish.
+The V24 generation-digest contract fences these families, v1 framework/bridge
+detail, deferred resolution parity, and shared test-path classification, so
+generations from older binaries report stale once and republish.
 
 For each admitted file:
 
@@ -213,7 +213,7 @@ not prove. It never stores the source expression or literal. Static heuristic
 evidence is not relabeled as a runtime observation or formal proof;
 `cartograph_numerical`, status, and numerical review report observation and
 formal adapters as `not_configured`. Generations recorded under an older digest
-contract (anything before the current V23) remain explicitly stale until an
+contract (anything before the current V24) remain explicitly stale until an
 ordinary index republishes them; for generations older than V7, which predate
 numerical sites, that republication is also what publishes numerical evidence.
 
@@ -387,14 +387,25 @@ scores. Explicit auxiliary-code tasks retain neutral RRF ordering.
 
 ### Reranking
 
-When `rerankerLlm` is configured, the agent sends only the bounded query and
-bounded source-bearing semantic Top-K candidates to its OpenAI-compatible
-`/v1/rerank` endpoint. A complete finite response replaces semantic rank and
-raw score before reciprocal-rank fusion; lexical rank and evidence remain
-unchanged. Candidate source is never serialized in vector-search or retrieval
-responses. Timeout, endpoint, configuration, missing-text, and malformed-result
-paths retain cosine order and emit an explicit rerank outcome instead of
-failing lexical retrieval.
+When `rerankerLlm` is configured, the agent first merges and deduplicates lexical
+and eligible semantic candidates, then scores at most 100 fused documents at its
+OpenAI-compatible `/v1/rerank` endpoint. The shortlist uses the existing per-channel
+candidate limit, capped at 100, independently of the smaller output limit.
+Lower fused candidates remain available after the scored shortlist within the
+same preference tier.
+Generation-fenced source hydration uses the existing bounded native storage workers.
+Text is capped at 1,536 UTF-8 bytes per document and places the declaration name,
+path, summary, and documentation before a bounded code excerpt. This view does
+not change embedding inputs or source digests.
+
+A complete finite response orders results within their disclosed retrieval
+preference tier. `rerank_score` is separate from the unchanged BM25/cosine ranks,
+raw scores, and reciprocal-rank contributions. Equal reranker scores use the
+original fusion order. Candidate source is never serialized in vector-search
+or retrieval responses. Timeout, endpoint, configuration, missing-text, and
+malformed-result paths retain fusion order and emit an explicit rerank outcome.
+Lexical candidates can be reranked even when semantic retrieval is unavailable;
+the semantic fallback remains disclosed. Deterministic mode bypasses reranking.
 
 ### Optional decision ranking
 

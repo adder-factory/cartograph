@@ -51,7 +51,7 @@ Work through these steps in order. Each links to the detailed rules below.
 2. **Detection.** Resolve shared or ambiguous extensions in the `detect_*`
    helpers of `crates/cartograph-domain/src/source.rs`, and route
    language-specific test filenames in
-   `crates/cartograph-extract/src/snapshot.rs`.
+   `crates/cartograph-domain/src/source/test_paths.rs` (shared by extraction and retrieval).
    See [§2](#2-discovery-and-snapshot-admission).
 3. **Registry tests.** In the `source.rs` tests, update the count assertions
    (132 modes / 73 v1 modes / 52 game modes), the frozen
@@ -82,8 +82,8 @@ Work through these steps in order. Each links to the detailed rules below.
     `pending` (gap id and wave) or `intentional` (reason id). See
     [§8](#8-v1-parity-oracle).
 11. **Generation contract.** When the change alters the facts an existing
-    language publishes, add a new generation-digest contract and its
-    migration. See [§9](#9-generation-digest-contract).
+    language publishes, add a new generation-digest contract.
+    See [§9](#9-generation-digest-contract).
 12. **Documentation.** Update [`SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md), the
     [coverage report](LANGUAGE-COVERAGE-REPORT.md), and `ACKNOWLEDGEMENTS.md`
     when a grammar is added.
@@ -118,11 +118,11 @@ Extension ownership comes from the `source_languages!` table in
 resolved by its `detect_*` helpers (for example `detect_source_language`,
 `detect_content_gated_language`, `detect_colliding_game_extension`, and
 `detect_header_language`), which gate a mode by path or content without
-changing the frozen v1 classifier. `crates/cartograph-extract/src/snapshot.rs`
-only routes language-specific test filenames.
+changing the frozen v1 classifier. `crates/cartograph-domain/src/source/test_paths.rs`
+owns the shared language-aware test-path policy used by extraction and retrieval.
 
 - map canonical extensions to the language (`source.rs`);
-- route language-specific test filenames (`snapshot.rs`);
+- route language-specific test filenames (`source/test_paths.rs`);
 - cover case normalization and compound extensions;
 - prove unsupported extensions still fail explicitly.
 
@@ -304,19 +304,17 @@ The key contract, correction policy and current disposition counts are in the
 Generation freshness includes the native generation-digest contract, so a
 change to the facts an existing language publishes needs a new contract;
 otherwise an unchanged checkout keeps reporting fresh with the old facts. The
-V23 contract (migration 50) fences v1 framework/bridge detail and deferred
-resolution parity across languages and is the latest example:
+V24 contract fences shared test-path classification, including Rust leaf test
+modules. Native RocksDB generations carry this contract directly:
 
 - add the `GenerationDigestVersion` variant and move `CURRENT` in
   `crates/cartograph-domain/src/lib.rs`;
 - add its digest domain in `crates/cartograph-db/src/ingest/digest.rs`;
-- add a migration in `crates/cartograph-db/src/migrations.rs` that widens
-  `index_generations_digest_version_check`, with its pinned checksum;
 - update the frozen digests in `crates/cartograph-indexer/src/native_pipeline.rs`
-  and the live fixtures that pin the schema version;
+  and corresponding fact-restoration proofs without changing the frozen corpus;
 - record the contract in the
   [native extraction contract history](v2/EXTRACTION.md#complete-source-revision)
-  and the [migration ledger](v2/ARCHITECTURE.md#migration-ledger).
+  and verify that an older contract requires an index even when source bytes match.
 
 ## Framework facts and bridges
 

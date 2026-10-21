@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-agent"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "cartograph-config",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-cli"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "cartograph-agent",
@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-config"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "cartograph-domain",
  "libc",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-db"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "cartograph-domain",
@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-domain"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "serde",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-extract"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "arborium-bash",
  "arborium-c",
@@ -785,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-indexer"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "cartograph-config",
@@ -803,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-llm"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "cartograph-config",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-mcp"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-scip"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "blake3",
  "cartograph-db",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "cartograph-search"
-version = "3.0.3"
+version = "3.0.4"
 dependencies = [
  "cartograph-db",
  "cartograph-domain",

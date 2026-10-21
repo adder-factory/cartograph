@@ -30,7 +30,7 @@ use std::{
 
 type BenchResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "a321a3c8c0333159b3f034110132874c6d591465c99f3719376dbaa7c5f8eb48";
+    "d410d908867febaa3b5ba4b3b30f2d834290d9f8fef6cdbf7d2a5e765303ca20";
 
 #[tokio::main]
 async fn main() -> BenchResult {

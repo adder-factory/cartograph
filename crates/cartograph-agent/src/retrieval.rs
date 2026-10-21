@@ -19,6 +19,8 @@ use cartograph_search::{
 
 use crate::{ProjectCancellation, ProjectError, ProjectRuntime};
 
+mod rerank;
+
 const DEFAULT_CANDIDATE_LIMIT: u16 = 20;
 const MAXIMUM_CANDIDATE_LIMIT: u16 = 100;
 const SEMANTIC_ENDPOINT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -475,14 +477,12 @@ struct SemanticChannelRequest<'runtime> {
     query: String,
     limit: u16,
     client: &'runtime SemanticClientState,
-    reranker: &'runtime RerankClientState,
     cancellation: ProjectCancellation,
 }
 
 struct SemanticChannelResult {
     readiness: SemanticReadiness,
     channel: Option<ChannelResults>,
-    rerank: RerankReport,
 }
 
 struct SemanticEmbedding {
@@ -574,7 +574,6 @@ async fn hybrid_retrieval(
         query: query.to_owned(),
         limit: options.candidate_limit,
         client: semantic_client,
-        reranker: rerank_client,
         cancellation: cancellation.clone(),
     });
     let (lexical, semantic) = tokio::join!(lexical, semantic);
@@ -589,7 +588,19 @@ async fn hybrid_retrieval(
             .with_channel(channel)
             .map_err(|_| RetrievalStageError::Failed)?;
     }
-    channels = channels.with_rerank_report(semantic.rerank);
+    channels = rerank::rerank_merged_candidates(rerank::MergedRerankRequest {
+        runtime,
+        project_id,
+        generation: &expected_generation_id,
+        query,
+        options,
+        readiness: semantic.readiness,
+        preference,
+        channels,
+        client: rerank_client,
+        cancellation,
+    })
+    .await?;
     ensure_generation_current(runtime, project_id, &expected_generation_id).await?;
     Ok(PreparedRetrieval {
         semantic_readiness: semantic.readiness,
@@ -720,20 +731,21 @@ async fn semantic_channel(
         query,
         limit,
         client,
-        reranker,
         cancellation,
     } = input;
     let client = match client {
         SemanticClientState::NotConfigured => {
-            return semantic_without_candidates(SemanticReadiness::NotConfigured, reranker);
+            return Ok(semantic_without_candidates(
+                SemanticReadiness::NotConfigured,
+            ));
         }
         SemanticClientState::Unavailable => {
-            return semantic_without_candidates(SemanticReadiness::Unavailable, reranker);
+            return Ok(semantic_without_candidates(SemanticReadiness::Unavailable));
         }
         SemanticClientState::Ready(client) => client,
     };
     let Some(embedding) = semantic_embedding(client, &query, &cancellation).await? else {
-        return semantic_without_candidates(SemanticReadiness::Unavailable, reranker);
+        return Ok(semantic_without_candidates(SemanticReadiness::Unavailable));
     };
     let readiness_request = SemanticReadinessRequest::new(
         project_id.clone(),
@@ -744,7 +756,7 @@ async fn semantic_channel(
     let readiness_report =
         native_semantic_readiness(runtime, readiness_request, &cancellation).await?;
     let Some(readiness_report) = readiness_report else {
-        return semantic_without_candidates(SemanticReadiness::Unavailable, reranker);
+        return Ok(semantic_without_candidates(SemanticReadiness::Unavailable));
     };
     if readiness_report
         .generation_id()
@@ -756,7 +768,7 @@ async fn semantic_channel(
     }
     let readiness = semantic_readiness_from_database(readiness_report.state());
     if readiness != SemanticReadiness::Ready {
-        return semantic_without_candidates(readiness, reranker);
+        return Ok(semantic_without_candidates(readiness));
     }
     let request = VectorSearchRequest::new(VectorSearchInput {
         project_id,
@@ -786,21 +798,12 @@ async fn semantic_channel(
     .await?;
     let hits = match hits {
         Ok(hits) => hits,
-        Err(readiness) => return semantic_without_candidates(readiness, reranker),
+        Err(readiness) => return Ok(semantic_without_candidates(readiness)),
     };
     let channel = semantic_results(&hits).map_err(|_| RetrievalStageError::Failed)?;
-    let (channel, rerank) = rerank_semantic_channel(RerankSemanticRequest {
-        query: &query,
-        hits: &hits,
-        channel,
-        client: reranker,
-        cancellation: &cancellation,
-    })
-    .await?;
     Ok(SemanticChannelResult {
         readiness: SemanticReadiness::Ready,
         channel: Some(channel),
-        rerank,
     })
 }
 
@@ -825,147 +828,11 @@ async fn native_semantic_readiness(
     .await
 }
 
-struct RerankSemanticRequest<'request> {
-    query: &'request str,
-    hits: &'request [VectorSearchHit],
-    channel: ChannelResults,
-    client: &'request RerankClientState,
-    cancellation: &'request ProjectCancellation,
-}
-
-async fn rerank_semantic_channel(
-    input: RerankSemanticRequest<'_>,
-) -> Result<(ChannelResults, RerankReport), RetrievalStageError> {
-    let RerankSemanticRequest {
-        query,
-        hits,
-        channel,
-        client,
-        cancellation,
-    } = input;
-    let client = match client {
-        RerankClientState::NotRequested => {
-            return Ok((channel, RerankReport::not_requested()));
-        }
-        RerankClientState::NotConfigured => {
-            return Ok((channel, RerankReport::not_configured()));
-        }
-        RerankClientState::Unavailable { model } => {
-            return Ok((
-                channel,
-                RerankReport::unavailable(model.clone())
-                    .map_err(|_| RetrievalStageError::Failed)?,
-            ));
-        }
-        RerankClientState::Ready(client) => client,
-    };
-    if hits.is_empty() {
-        return Ok((
-            channel,
-            RerankReport::skipped_no_candidates(client.model())
-                .map_err(|_| RetrievalStageError::Failed)?,
-        ));
-    }
-    let documents = hits
-        .iter()
-        .map(|hit| {
-            hit.rerank_text()
-                .filter(|text| !text.trim().is_empty())
-                .map(str::to_owned)
-        })
-        .collect::<Option<Vec<_>>>();
-    let Some(documents) = documents else {
-        return Ok((
-            channel,
-            RerankReport::skipped_no_text(client.model())
-                .map_err(|_| RetrievalStageError::Failed)?,
-        ));
-    };
-    let batch = tokio::select! {
-        biased;
-        () = cancellation.cancelled() => return Err(RetrievalStageError::RequestCancelled),
-        result = tokio::time::timeout(
-            RERANK_ENDPOINT_TIMEOUT,
-            client.rerank(query, &documents),
-        ) => match result {
-            Ok(Ok(batch)) => batch,
-            Ok(Err(_)) | Err(_) => {
-                return Ok((
-                    channel,
-                    RerankReport::unavailable(Some(client.model().to_owned()))
-                        .map_err(|_| RetrievalStageError::Failed)?,
-                ));
-            }
-        },
-    };
-    let Ok(reranked) = apply_rerank_scores(&channel, batch.scores()) else {
-        return Ok((
-            channel,
-            RerankReport::unavailable(Some(client.model().to_owned()))
-                .map_err(|_| RetrievalStageError::Failed)?,
-        ));
-    };
-    let reranked_documents =
-        u16::try_from(documents.len()).map_err(|_| RetrievalStageError::Failed)?;
-    let report = RerankReport::applied(batch.model(), reranked_documents)
-        .map_err(|_| RetrievalStageError::Failed)?;
-    Ok((reranked, report))
-}
-
-fn apply_rerank_scores(
-    channel: &ChannelResults,
-    scores: &[f32],
-) -> Result<ChannelResults, ProjectError> {
-    if channel.channel() != RetrievalChannel::Semantic
-        || channel.candidates().len() != scores.len()
-        || scores.iter().any(|score| !score.is_finite())
-    {
-        return Err(ProjectError::RetrievalOperationFailed);
-    }
-    let mut order = scores.iter().copied().enumerate().collect::<Vec<_>>();
-    order.sort_by(|(left_index, left_score), (right_index, right_score)| {
-        right_score
-            .total_cmp(left_score)
-            .then_with(|| {
-                channel.candidates()[*left_index]
-                    .rank()
-                    .cmp(&channel.candidates()[*right_index].rank())
-            })
-            .then_with(|| {
-                channel.candidates()[*left_index]
-                    .document()
-                    .document_id()
-                    .cmp(channel.candidates()[*right_index].document().document_id())
-            })
-    });
-    let candidates = order
-        .into_iter()
-        .enumerate()
-        .map(|(index, (candidate_index, score))| {
-            let rank = u16::try_from(index.saturating_add(1))
-                .map_err(|_| ProjectError::RetrievalOperationFailed)?;
-            ChannelCandidate::new(
-                channel.candidates()[candidate_index].document().clone(),
-                rank,
-                f64::from(score),
-            )
-            .map_err(|_| ProjectError::RetrievalOperationFailed)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    ChannelResults::new(RetrievalChannel::Semantic, candidates)
-        .map(|results| results.with_truncated(channel.truncated()))
-        .map_err(|_| ProjectError::RetrievalOperationFailed)
-}
-
-fn semantic_without_candidates(
-    readiness: SemanticReadiness,
-    reranker: &RerankClientState,
-) -> Result<SemanticChannelResult, RetrievalStageError> {
-    Ok(SemanticChannelResult {
+fn semantic_without_candidates(readiness: SemanticReadiness) -> SemanticChannelResult {
+    SemanticChannelResult {
         readiness,
         channel: None,
-        rerank: rerank_report_without_candidates(reranker)?,
-    })
+    }
 }
 
 fn rerank_report_without_candidates(
@@ -1214,35 +1081,6 @@ mod tests {
             semantic_readiness_from_database(SemanticReadinessState::QueryProbeFailed),
             SemanticReadiness::Unavailable
         );
-    }
-
-    #[test]
-    fn rerank_scores_replace_only_semantic_order_with_stable_ties() {
-        let channel = ChannelResults::new(
-            RetrievalChannel::Semantic,
-            vec![
-                semantic_fixture_candidate("a", "src/a.rs", 1, 0.95),
-                semantic_fixture_candidate("b", "src/b.rs", 2, 0.90),
-                semantic_fixture_candidate("c", "src/c.rs", 3, 0.85),
-            ],
-        )
-        .unwrap_or_else(|error| panic!("semantic fixture failed: {error}"));
-        let reranked = apply_rerank_scores(&channel, &[0.1, 0.9, 0.9])
-            .unwrap_or_else(|error| panic!("semantic rerank failed: {error}"));
-        let paths = reranked
-            .candidates()
-            .iter()
-            .map(|candidate| candidate.document().path().as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(paths, vec!["src/b.rs", "src/c.rs", "src/a.rs"]);
-        assert!(
-            (reranked.candidates()[0].raw_score() - f64::from(0.9_f32)).abs() <= f64::EPSILON,
-            "rerank score changed: {}",
-            reranked.candidates()[0].raw_score()
-        );
-        assert_eq!(reranked.candidates()[0].rank(), 1);
-        assert!(apply_rerank_scores(&channel, &[0.1]).is_err());
     }
 
     #[test]

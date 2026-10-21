@@ -73,7 +73,6 @@ const SYMBOL_TERMS: &[&str] = &[
     "declaration",
     "define",
     "defined",
-    "file",
     "find",
     "function",
     "locate",
@@ -278,6 +277,11 @@ mod tests {
     fn representative_agent_tasks_route_to_stable_intents() {
         let cases = [
             ("where is ProjectRuntime defined?", TaskIntent::SymbolLookup),
+            (
+                "debounce file changes before publishing a fresh graph",
+                TaskIntent::ChangePlanning,
+            ),
+            ("find file src/cache.rs", TaskIntent::SymbolLookup),
             (
                 "trace callers through the authentication flow",
                 TaskIntent::ImplementationTrace,
