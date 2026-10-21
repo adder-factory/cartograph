@@ -6,7 +6,7 @@
   {"id":"rank-context","task":"How does optional decision relevance reorder context retrieval candidates?","path":"crates/cartograph-agent/src/decision_rerank.rs","symbol":"ContextRanker::rank"},
   {"id":"role-batch","task":"How are optional symbol role judgments grouped into ordered batches?","path":"crates/cartograph-agent/src/decision_roles.rs","symbol":"judge_batches"},
   {"id":"rename-mentions","task":"How are textual rename mentions judged while preserving references that need review?","path":"crates/cartograph-agent/src/decision_rename.rs","symbol":"triage_with"},
-  {"id":"semantic-rerank","task":"Where are semantic candidates rescored by the configured local cross encoder?","path":"crates/cartograph-agent/src/retrieval.rs","symbol":"rerank_semantic_channel"},
+  {"id":"semantic-rerank","task":"Where are merged lexical and semantic candidates rescored by the configured local cross encoder?","path":"crates/cartograph-agent/src/retrieval/rerank.rs","symbol":"rerank_merged_candidates"},
   {"id":"retrieve-channels","task":"Where are the lexical and semantic retrieval channels prepared for a query?","path":"crates/cartograph-agent/src/retrieval.rs","symbol":"ProjectRuntime::prepare_retrieval_with_cancellation"},
   {"id":"intent-routing","task":"How does task wording select the intent used to retrieve code context?","path":"crates/cartograph-search/src/intent.rs","symbol":"TaskIntent::classify"},
   {"id":"source-symbol","task":"Where does the runtime load a current source excerpt for a symbol?","path":"crates/cartograph-agent/src/source_context.rs","symbol":"ProjectRuntime::source_context_with_cancellation"},

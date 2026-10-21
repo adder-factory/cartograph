@@ -332,82 +332,7 @@ pub enum SnapshotError {
     ResourceLimit,
 }
 
-/// True when a supported source path uses a test directory or language-owned test filename.
-#[must_use]
-pub fn is_test_source_path(path: &str) -> bool {
-    let Some(language) = classify_extension(path) else {
-        return false;
-    };
-    let mut components = path.split('/').peekable();
-    while let Some(component) = components.next() {
-        if components.peek().is_some()
-            && matches_ignore_ascii_case(
-                component,
-                &[
-                    "test",
-                    "tests",
-                    "__tests__",
-                    "spec",
-                    "specs",
-                    "__specs__",
-                    "fixture",
-                    "fixtures",
-                    "test-bed",
-                    "test-beds",
-                    "testdata",
-                ],
-            )
-        {
-            return true;
-        }
-        if components.peek().is_none() {
-            return is_test_filename(language, component);
-        }
-    }
-    false
-}
-
-fn is_test_filename(language: SourceLanguage, filename: &str) -> bool {
-    let raw_stem = filename.rsplit_once('.').map_or(filename, |(stem, _)| stem);
-    let stem = raw_stem.to_ascii_lowercase();
-    match language {
-        SourceLanguage::TypeScript
-        | SourceLanguage::Tsx
-        | SourceLanguage::JavaScript
-        | SourceLanguage::Jsx => stem
-            .rsplit_once('.')
-            .is_some_and(|(_, suffix)| matches!(suffix, "test" | "spec")),
-        SourceLanguage::Python | SourceLanguage::Rust => {
-            stem.starts_with("test_") || stem.ends_with("_test")
-        }
-        SourceLanguage::Go => stem.ends_with("_test"),
-        SourceLanguage::Ruby => stem.ends_with("_spec") || stem.ends_with("_test"),
-        SourceLanguage::Java
-        | SourceLanguage::Kotlin
-        | SourceLanguage::CSharp
-        | SourceLanguage::Swift => {
-            raw_stem
-                .strip_suffix("Tests")
-                .or_else(|| raw_stem.strip_suffix("Test"))
-                .is_some_and(|subject| !subject.is_empty())
-                || matches!(language, SourceLanguage::Kotlin | SourceLanguage::Swift)
-                    && raw_stem
-                        .strip_suffix("Spec")
-                        .is_some_and(|subject| !subject.is_empty())
-        }
-        _ => false,
-    }
-}
-
-fn matches_ignore_ascii_case(value: &str, candidates: &[&str]) -> bool {
-    candidates
-        .iter()
-        .any(|candidate| value.eq_ignore_ascii_case(candidate))
-}
-
-fn classify_extension(path: &str) -> Option<SourceLanguage> {
-    SourceLanguage::for_normalized_path(path)
-}
+pub use cartograph_domain::is_test_source_path;
 
 #[cfg(test)]
 mod tests {
@@ -427,6 +352,8 @@ mod tests {
             "src/module.spec.xsjs",
             "src/module.test.xsjslib",
             "tests/native_test.rs",
+            "src/cache/tests.rs",
+            "src/test.rs",
             "tests/native_test.py",
             "tests/native_test.pyi",
             "tests/native_test.go",

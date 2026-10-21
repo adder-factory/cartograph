@@ -6772,6 +6772,9 @@ fn compact_fused_item(item: &FusedSearchItem) -> Value {
     if let Some(symbol_kind) = document.symbol_kind() {
         projection["symbolKind"] = json!(symbol_kind);
     }
+    if let Some(score) = item.rerank_score() {
+        projection["rerankScore"] = json!(score);
+    }
     projection
 }
 
@@ -29555,7 +29558,7 @@ pub fn target(value: u32) -> u32 {
         let path = NormalizedPath::parse("src/retrieval.rs")
             .unwrap_or_else(|error| panic!("path fixture failed: {error}"));
         let document = RetrievalDocument::new(RetrievalDocumentInput {
-            document_id,
+            document_id: document_id.clone(),
             generation_id,
             path,
             language: SourceLanguage::Rust,
@@ -29569,20 +29572,22 @@ pub fn target(value: u32) -> u32 {
             .unwrap_or_else(|error| panic!("lexical fixture failed: {error}"));
         let semantic = ChannelCandidate::new(document, 1, 0.95)
             .unwrap_or_else(|error| panic!("semantic fixture failed: {error}"));
-        let input = HybridSearchInput::new(SearchMode::Hybrid, SemanticReadiness::Ready, 8)
-            .and_then(|input| {
-                input.with_channel(ChannelResults::new(
-                    RetrievalChannel::Lexical,
-                    vec![lexical],
-                )?)
-            })
-            .and_then(|input| {
-                input.with_channel(ChannelResults::new(
+        let channels = cartograph_search::RetrievalChannels::new()
+            .with_channel(
+                ChannelResults::new(RetrievalChannel::Lexical, vec![lexical])
+                    .unwrap_or_else(|error| panic!("lexical fixture failed: {error}")),
+            )
+            .and_then(|channels| {
+                channels.with_channel(ChannelResults::new(
                     RetrievalChannel::Semantic,
                     vec![semantic],
                 )?)
             })
-            .unwrap_or_else(|error| panic!("hybrid input fixture failed: {error}"));
+            .and_then(|channels| channels.with_fused_rerank("fixture", vec![(document_id, 0.75)]))
+            .unwrap_or_else(|error| panic!("rerank fixture failed: {error}"));
+        let input = HybridSearchInput::new(SearchMode::Hybrid, SemanticReadiness::Ready, 8)
+            .unwrap_or_else(|error| panic!("hybrid input fixture failed: {error}"))
+            .with_channels(channels);
         let packet = fuse_search(input)
             .unwrap_or_else(|error| panic!("hybrid packet fixture failed: {error}"));
         let projection = compact_hybrid_packet(&packet);
@@ -29594,6 +29599,7 @@ pub fn target(value: u32) -> u32 {
         assert_eq!(projection["items"][0]["id"], symbol_id.as_str());
         assert_eq!(projection["items"][0]["path"], "src/retrieval.rs");
         assert_eq!(projection["items"][0]["symbolKind"], "function");
+        assert_eq!(projection["items"][0]["rerankScore"], 0.75);
         assert_eq!(
             projection["items"][0]["via"].as_array().map(Vec::len),
             Some(2)

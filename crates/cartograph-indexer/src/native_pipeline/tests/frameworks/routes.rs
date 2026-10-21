@@ -12,9 +12,9 @@ const INFERRED_RESOURCE_CONFIDENCE: f32 = 0.70;
 const DIRECTORY_ROUTE_CONFIDENCE: f32 = 0.80;
 const UNSUPPORTED_NAMESPACE_BYTES: usize = 1_025;
 const RESOURCE_LIMIT: usize = 256;
-// V23 changes the digest domain; facts unchanged in the restored projection.
+// V24 changes the digest domain; facts unchanged in the restored projection.
 const PREVIOUS_CUSTOM_FAMILY_DIGEST: &str =
-    "bbe52f322847c48aa491ac48c2308911553640a03945e73218b795c1be53ed28";
+    "49f115009fec6492cdedc49539e994cf9b69b134fe0bffd114bb5549fd57c910";
 
 #[test]
 fn flutter_route_widgets_bind_to_the_explicit_import_and_keep_ambiguity() {

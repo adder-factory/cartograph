@@ -787,11 +787,12 @@ credential.
 A low-load deployment may configure only `embeddingLlm` and `rerankerLlm` and
 set `summarizeLlm`, `askLlm`, `localLlm`, and `classifyLlm` to `null`.
 `cartograph llm smoke` tests configured tiers and reports those absent
-generative tiers as explicit skips. Reranking applies only to bounded semantic
-Top-K candidates before reciprocal-rank fusion. The source-bearing candidate
-text sent to that operator-configured endpoint is capped and is never included
-in Cartograph's serialized search response; reranker failure retains cosine
-ordering and reports the exact outcome.
+generative tiers as explicit skips. Reranking scores the deduplicated lexical and
+eligible semantic shortlist after reciprocal-rank fusion, up to 100 candidates.
+Each source-bearing input is capped at 1,536 UTF-8 bytes, with name and intent
+before code, and is never included in Cartograph's serialized search response.
+Original channel scores remain visible beside the separate `rerank_score`.
+Reranker failure retains fusion ordering and reports the exact outcome.
 
 ### Migrate inline credentials
 

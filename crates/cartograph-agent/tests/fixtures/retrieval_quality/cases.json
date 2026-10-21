@@ -1,0 +1,683 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "watch-debounce",
+      "split": "development",
+      "query": "How are filesystem events coalesced before automatic graph synchronization?",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/auto_sync.rs",
+          "symbol": "debounce_events"
+        }
+      ]
+    },
+    {
+      "id": "watch-filter",
+      "split": "development",
+      "query": "How does the watcher decide whether a changed path matters to the project?",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/auto_sync.rs",
+          "symbol": "event_relevant"
+        }
+      ]
+    },
+    {
+      "id": "watch-retry",
+      "split": "development",
+      "query": "How is the delay between automatic indexing retries calculated?",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/auto_sync.rs",
+          "symbol": "retry_interval"
+        }
+      ]
+    },
+    {
+      "id": "watch-retention",
+      "split": "development",
+      "query": "Where does the automatic synchronization service schedule retention maintenance?",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/auto_sync.rs",
+          "symbol": "run_retention"
+        }
+      ]
+    },
+    {
+      "id": "rank-context",
+      "split": "development",
+      "query": "How does optional decision relevance reorder context retrieval candidates?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/decision_rerank.rs",
+          "symbol": "ContextRanker::rank"
+        }
+      ]
+    },
+    {
+      "id": "role-batch",
+      "split": "development",
+      "query": "How are optional symbol role judgments grouped into ordered batches?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/decision_roles.rs",
+          "symbol": "judge_batches"
+        }
+      ]
+    },
+    {
+      "id": "rename-mentions",
+      "split": "development",
+      "query": "How are textual rename mentions judged while preserving references that need review?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/decision_rename.rs",
+          "symbol": "triage_with"
+        }
+      ]
+    },
+    {
+      "id": "retrieve-channels",
+      "split": "development",
+      "query": "Where are the lexical and semantic retrieval channels prepared for a query?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/retrieval.rs",
+          "symbol": "ProjectRuntime::prepare_retrieval_with_cancellation"
+        }
+      ]
+    },
+    {
+      "id": "intent-routing",
+      "split": "development",
+      "query": "How does task wording select the intent used to retrieve code context?",
+      "targets": [
+        {
+          "path": "crates/cartograph-search/src/intent.rs",
+          "symbol": "TaskIntent::classify"
+        }
+      ]
+    },
+    {
+      "id": "source-symbol",
+      "split": "development",
+      "query": "Where does the runtime load a current source excerpt for a symbol?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/source_context.rs",
+          "symbol": "ProjectRuntime::source_context_with_cancellation"
+        }
+      ]
+    },
+    {
+      "id": "source-file",
+      "split": "development",
+      "query": "Where does the runtime load a bounded file excerpt with cancellation?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/source_context.rs",
+          "symbol": "ProjectRuntime::file_source_with_cancellation"
+        }
+      ]
+    },
+    {
+      "id": "test-evidence",
+      "split": "development",
+      "query": "How are literal test cases collected from affected test files?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/test_intelligence.rs",
+          "symbol": "literal_test_cases"
+        }
+      ]
+    },
+    {
+      "id": "graph-publish",
+      "split": "development",
+      "query": "Where is a complete native code graph published to its project store?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/rocks/graph.rs",
+          "symbol": "ProjectStore::publish_graph"
+        }
+      ]
+    },
+    {
+      "id": "revision-publish",
+      "split": "development",
+      "query": "Where does native storage make a staged revision current?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/rocks/engine.rs",
+          "symbol": "ProjectStore::publish"
+        }
+      ]
+    },
+    {
+      "id": "vector-search",
+      "split": "development",
+      "query": "Where does native semantic storage perform a bounded vector similarity query?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/semantic/native/vectors.rs",
+          "symbol": "NativeDatabase::vector_top_k"
+        }
+      ]
+    },
+    {
+      "id": "vector-write",
+      "split": "development",
+      "query": "Where are document embedding vectors validated and written for the current graph?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/semantic/native/vectors.rs",
+          "symbol": "NativeDatabase::upsert_current_document_embeddings"
+        }
+      ]
+    },
+    {
+      "id": "vector-readiness",
+      "split": "development",
+      "query": "Where is semantic retrieval readiness checked for a model and generation?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/semantic/native/vectors.rs",
+          "symbol": "NativeDatabase::semantic_readiness"
+        }
+      ]
+    },
+    {
+      "id": "pending-embeddings",
+      "split": "development",
+      "query": "How does native storage select current documents that still need embeddings?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/semantic/native/vectors.rs",
+          "symbol": "NativeDatabase::pending_current_embedding_documents"
+        }
+      ]
+    },
+    {
+      "id": "similarity-materialize",
+      "split": "development",
+      "query": "Where are similarity edges rebuilt for the current native graph?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/semantic/native/materialize.rs",
+          "symbol": "NativeDatabase::rebuild_current_similarity_edges"
+        }
+      ]
+    },
+    {
+      "id": "artifact-replace",
+      "split": "development",
+      "query": "How can an existing scoped role or summary artifact be replaced atomically?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/artifacts/native.rs",
+          "symbol": "NativeDatabase::replace_scoped_agent_artifact"
+        }
+      ],
+      "allow_unindexed": true,
+      "unindexed_reason": "The installed project policy excludes **/artifacts/**, including this source directory. Retain this known coverage miss in the total."
+    },
+    {
+      "id": "storage-usage",
+      "split": "development",
+      "query": "Where does the native database report its allocated storage usage?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/native_database.rs",
+          "symbol": "NativeDatabase::storage_usage"
+        }
+      ]
+    },
+    {
+      "id": "model-cache-key",
+      "split": "development",
+      "query": "How are model transports separated by endpoint, credential and timeout settings?",
+      "targets": [
+        {
+          "path": "crates/cartograph-llm/src/transport.rs",
+          "symbol": "transport_key"
+        }
+      ]
+    },
+    {
+      "id": "decision-schema",
+      "split": "development",
+      "query": "Where are the allowed options and probabilities of decision responses validated?",
+      "targets": [
+        {
+          "path": "crates/cartograph-llm/src/jev.rs",
+          "symbol": "decode_response"
+        }
+      ]
+    },
+    {
+      "id": "observed-missing-embeddings",
+      "split": "development",
+      "query": "fill missing document vectors for the current generation",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/embeddings.rs",
+          "symbol": "ProjectRuntime::embed_current"
+        }
+      ]
+    },
+    {
+      "id": "observed-incomplete-semantic-coverage",
+      "split": "development",
+      "query": "refuse semantic queries when some documents have no vectors",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/semantic/native/vectors.rs",
+          "symbol": "NativeDatabase::semantic_readiness"
+        },
+        {
+          "path": "crates/cartograph-agent/src/retrieval.rs",
+          "symbol": "NativeDatabase::semantic_readiness"
+        }
+      ]
+    },
+    {
+      "id": "observed-owner-forwarding",
+      "split": "development",
+      "query": "only one process can own the project database while other clients forward requests",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/rocks_cli/owner.rs",
+          "symbol": "OwnerClient::connect"
+        },
+        {
+          "path": "crates/cartograph-cli/src/rocks_cli/owner/unix.rs",
+          "symbol": "OwnerClient::connect"
+        },
+        {
+          "path": "crates/cartograph-db/src/rocks/engine/ownership.rs",
+          "symbol": "OwnerClient::connect"
+        }
+      ]
+    },
+    {
+      "id": "observed-watcher-debounce",
+      "split": "development",
+      "query": "debounce file changes before publishing a fresh graph",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/auto_sync.rs",
+          "symbol": "debounce_events"
+        },
+        {
+          "path": "crates/cartograph-cli/src/auto_sync/runtime.rs",
+          "symbol": "debounce_events"
+        }
+      ]
+    },
+    {
+      "id": "observed-bm25-postings",
+      "split": "development",
+      "query": "lookup code using generation scoped BM25 inverted postings",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/rocks/graph/lexical.rs",
+          "symbol": "GraphSnapshot::lexical_postings"
+        }
+      ]
+    },
+    {
+      "id": "observed-doctor-readiness",
+      "split": "development",
+      "query": "why doctor still says incomplete after everything else is ready",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/main.rs",
+          "symbol": "build_project_readiness"
+        }
+      ]
+    },
+    {
+      "id": "query-expand",
+      "split": "development",
+      "query": "How are ordinary code search questions expanded into bounded identifier terms?",
+      "targets": [
+        {
+          "path": "crates/cartograph-search/src/model.rs",
+          "symbol": "LexicalQuery::for_code_search"
+        }
+      ]
+    },
+    {
+      "id": "test-paths",
+      "split": "development",
+      "query": "How does affected test selection recognize a test filename?",
+      "targets": [
+        {
+          "path": "crates/cartograph-search/src/traversal.rs",
+          "symbol": "is_test_path"
+        }
+      ]
+    },
+    {
+      "id": "hybrid-fusion",
+      "split": "development",
+      "query": "How are independently ranked lexical and vector hits combined without mixing raw scores?",
+      "targets": [
+        {
+          "path": "crates/cartograph-search/src/hybrid.rs",
+          "symbol": "fuse_search"
+        }
+      ]
+    },
+    {
+      "id": "production-preference",
+      "split": "development",
+      "query": "How are test fixtures and parameters demoted when looking for implementation code?",
+      "targets": [
+        {
+          "path": "crates/cartograph-search/src/hybrid.rs",
+          "symbol": "preference_tier"
+        }
+      ]
+    },
+    {
+      "id": "semantic-fallback",
+      "split": "development",
+      "query": "How does search choose the fallback when semantic evidence is unavailable?",
+      "targets": [
+        {
+          "path": "crates/cartograph-search/src/hybrid.rs",
+          "symbol": "retrieval_fallback"
+        }
+      ]
+    },
+    {
+      "id": "rename-plan",
+      "split": "development",
+      "query": "How can a source symbol rename be planned without editing the checkout?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/rename.rs",
+          "symbol": "ProjectRuntime::plan_rename"
+        }
+      ]
+    },
+    {
+      "id": "rename-mentions-scan",
+      "split": "development",
+      "query": "Where are literal textual mentions collected for a proposed rename?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/rename.rs",
+          "symbol": "collect_textual_rename_mentions"
+        }
+      ]
+    },
+    {
+      "id": "embedding-batches",
+      "split": "development",
+      "query": "How are pending embedding batches executed with bounded concurrency?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/embeddings.rs",
+          "symbol": "run_embedding_batches"
+        }
+      ]
+    },
+    {
+      "id": "source-batch",
+      "split": "development",
+      "query": "How can current source excerpts for several symbols be loaded in one request?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/source_context.rs",
+          "symbol": "ProjectRuntime::source_context_batch_with_cancellation"
+        }
+      ]
+    },
+    {
+      "id": "owner-lock",
+      "split": "development",
+      "query": "Where does storage acquire the exclusive native primary process lock?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/rocks/engine/ownership.rs",
+          "symbol": "lock_primary"
+        }
+      ]
+    },
+    {
+      "id": "directory-owner",
+      "split": "development",
+      "query": "How are unsafe project data directory permissions rejected?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/rocks/engine/ownership.rs",
+          "symbol": "secure_directory"
+        }
+      ]
+    },
+    {
+      "id": "lcov-load",
+      "split": "held_out",
+      "query": "How does the project load test coverage from LCOV reports?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/coverage.rs",
+          "symbol": "ProjectRuntime::load_lcov"
+        }
+      ]
+    },
+    {
+      "id": "lcov-lines",
+      "split": "held_out",
+      "query": "Where are LCOV source lines and execution counts parsed?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/coverage.rs",
+          "symbol": "parse_report"
+        }
+      ]
+    },
+    {
+      "id": "lcov-path",
+      "split": "held_out",
+      "query": "How is an LCOV source filename normalized against the project root?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/coverage.rs",
+          "symbol": "normalize_lcov_path"
+        }
+      ]
+    },
+    {
+      "id": "layer-globs",
+      "split": "held_out",
+      "query": "Where are architectural layer glob patterns compiled?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/layering.rs",
+          "symbol": "compile_globs"
+        }
+      ]
+    },
+    {
+      "id": "layer-config",
+      "split": "held_out",
+      "query": "How are architectural layer rules validated before dependency analysis?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/layering.rs",
+          "symbol": "compile_config"
+        }
+      ]
+    },
+    {
+      "id": "native-bm25",
+      "split": "held_out",
+      "query": "Where does the native search engine calculate field weighted BM25 scores?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/search/native.rs",
+          "symbol": "bm25"
+        }
+      ]
+    },
+    {
+      "id": "native-tokenizer",
+      "split": "held_out",
+      "query": "How are query identifiers split into lexical search tokens?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/search/native.rs",
+          "symbol": "tokens"
+        }
+      ]
+    },
+    {
+      "id": "fuzzy-distance",
+      "split": "held_out",
+      "query": "How does fuzzy name search compare Unicode identifiers with a bounded edit distance?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/search/native.rs",
+          "symbol": "within_distance"
+        }
+      ]
+    },
+    {
+      "id": "config-write",
+      "split": "held_out",
+      "query": "How can project configuration be updated without losing concurrent edits?",
+      "targets": [
+        {
+          "path": "crates/cartograph-config/src/project.rs",
+          "symbol": "update_project_config"
+        }
+      ]
+    },
+    {
+      "id": "config-compare",
+      "split": "held_out",
+      "query": "Where is a project configuration write guarded against an intervening change?",
+      "targets": [
+        {
+          "path": "crates/cartograph-config/src/project.rs",
+          "symbol": "write_project_config_if_unchanged"
+        }
+      ]
+    },
+    {
+      "id": "config-lock",
+      "split": "held_out",
+      "query": "How are concurrent configuration writers serialized?",
+      "targets": [
+        {
+          "path": "crates/cartograph-config/src/project.rs",
+          "symbol": "acquire_config_write_lock"
+        }
+      ]
+    },
+    {
+      "id": "generation-validate",
+      "split": "held_out",
+      "query": "Where are complete generation facts validated before publication?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/ingest/validate.rs",
+          "symbol": "validate_generation_facts"
+        }
+      ]
+    },
+    {
+      "id": "source-manifest",
+      "split": "held_out",
+      "query": "Where is the deterministic digest of the exact source manifest finalized?",
+      "targets": [
+        {
+          "path": "crates/cartograph-domain/src/lib.rs",
+          "symbol": "SourceManifestDigestBuilder::finish"
+        }
+      ]
+    },
+    {
+      "id": "safe-signatures",
+      "split": "held_out",
+      "query": "How are literal default values kept out of searchable callable signatures?",
+      "targets": [
+        {
+          "path": "crates/cartograph-domain/src/source.rs",
+          "symbol": "callable_signature_is_literal_free"
+        }
+      ]
+    },
+    {
+      "id": "safe-values",
+      "split": "held_out",
+      "query": "How are secret shaped declaration values excluded from code search text?",
+      "targets": [
+        {
+          "path": "crates/cartograph-domain/src/source.rs",
+          "symbol": "declaration_value_is_search_safe"
+        }
+      ]
+    },
+    {
+      "id": "provider-key",
+      "split": "held_out",
+      "query": "Where are path segments checked for a provider issued access key shape?",
+      "targets": [
+        {
+          "path": "crates/cartograph-domain/src/source.rs",
+          "symbol": "token_has_provider_key_shape"
+        }
+      ]
+    },
+    {
+      "id": "request-cancel",
+      "split": "held_out",
+      "query": "How does a project read cancel and drain its admitted native operation?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/lib.rs",
+          "symbol": "cancellable_native_read"
+        }
+      ]
+    },
+    {
+      "id": "event-backoff",
+      "split": "held_out",
+      "query": "How does the watcher bound the maximum delay while file events keep arriving?",
+      "targets": [
+        {
+          "path": "crates/cartograph-cli/src/auto_sync.rs",
+          "symbol": "maximum_debounce_latency"
+        }
+      ]
+    },
+    {
+      "id": "history-parser",
+      "split": "held_out",
+      "query": "Where are git log records reduced into churn and file cochange facts?",
+      "targets": [
+        {
+          "path": "crates/cartograph-agent/src/history.rs",
+          "symbol": "parse_git_log"
+        }
+      ]
+    },
+    {
+      "id": "retention-vectors",
+      "split": "held_out",
+      "query": "How does bounded retention collect vectors that no longer belong to live documents?",
+      "targets": [
+        {
+          "path": "crates/cartograph-db/src/native_database/retention.rs",
+          "symbol": "collect_vectors"
+        }
+      ]
+    }
+  ]
+}

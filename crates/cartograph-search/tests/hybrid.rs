@@ -22,6 +22,103 @@ const LEXICAL_SECONDARY_SCORE: f64 = 8.25;
 const SEMANTIC_PRIMARY_SCORE: f64 = 0.91;
 const SEMANTIC_SECONDARY_SCORE: f64 = 0.82;
 
+#[test]
+fn merged_rerank_promotes_lexical_only_results_and_preserves_both_raw_channels() {
+    let lexical = channel(
+        RetrievalChannel::Lexical,
+        vec![
+            lexical_candidate("a", "src/a.rs", (1, 12.5)),
+            lexical_candidate("b", "src/b.rs", (2, 8.25)),
+        ],
+    );
+    let semantic = channel(
+        RetrievalChannel::Semantic,
+        vec![
+            candidate("b", "src/b.rs", (1, 0.91)),
+            candidate("c", "src/c.rs", (2, 0.82)),
+        ],
+    );
+    let channels = RetrievalChannels::new()
+        .with_channel(lexical)
+        .and_then(|channels| channels.with_channel(semantic))
+        .unwrap_or_else(|error| panic!("channels failed: {error}"));
+    let original = fuse_search(
+        input(SearchMode::Hybrid, SemanticReadiness::Ready).with_channels(channels.clone()),
+    )
+    .unwrap_or_else(|error| panic!("fusion failed: {error}"));
+    let scores = [("a", 0.9), ("b", 0.1), ("c", 0.1)]
+        .into_iter()
+        .map(|(id, score)| {
+            (
+                document(id, &format!("src/{id}.rs")).document_id().clone(),
+                score,
+            )
+        })
+        .collect();
+    let reranked = channels
+        .with_fused_rerank("fixture-cross-encoder", scores)
+        .unwrap_or_else(|error| panic!("rerank failed: {error}"));
+    let packet = fuse_search(
+        input(SearchMode::Hybrid, SemanticReadiness::Ready).with_channels(reranked.clone()),
+    )
+    .unwrap_or_else(|error| panic!("fusion failed: {error}"));
+    assert_eq!(paths(&original), ["src/b.rs", "src/a.rs", "src/c.rs"]);
+    assert_eq!(paths(&packet), ["src/a.rs", "src/b.rs", "src/c.rs"]);
+    assert_eq!(packet.rerank_report().reranked_documents(), 3);
+    for item in packet.items() {
+        let before = original
+            .items()
+            .iter()
+            .find(|prior| prior.document() == item.document())
+            .unwrap_or_else(|| panic!("lost original candidate"));
+        assert_eq!(item.contributions(), before.contributions());
+        assert_score(item.reciprocal_rank_score(), before.reciprocal_rank_score());
+        assert!(item.rerank_score().is_some());
+    }
+    let deterministic = fuse_search(
+        input(SearchMode::Deterministic, SemanticReadiness::Ready).with_channels(reranked),
+    )
+    .unwrap_or_else(|error| panic!("deterministic fusion failed: {error}"));
+    assert_eq!(paths(&deterministic), ["src/a.rs", "src/b.rs"]);
+    assert!(
+        deterministic
+            .items()
+            .iter()
+            .all(|item| item.rerank_score().is_none())
+    );
+    assert_eq!(
+        deterministic.rerank_report().state(),
+        RerankState::NotRequested
+    );
+}
+
+#[test]
+fn merged_rerank_rejects_partial_malformed_scores_and_unknown_documents() {
+    let id = document("a", "src/a.rs").document_id().clone();
+    let unknown = document("b", "src/b.rs").document_id().clone();
+    let channels = RetrievalChannels::new()
+        .with_channel(channel(
+            RetrievalChannel::Lexical,
+            vec![lexical_candidate("a", "src/a.rs", (1, 12.5))],
+        ))
+        .unwrap_or_else(|error| panic!("channels failed: {error}"));
+    for scores in [
+        vec![],
+        vec![(unknown, 0.5)],
+        vec![(id.clone(), f32::NAN)],
+        vec![(id.clone(), -0.1)],
+        vec![(id.clone(), 1.1)],
+        vec![(id.clone(), 0.1), (id, 0.2)],
+    ] {
+        assert!(
+            channels
+                .clone()
+                .with_fused_rerank("fixture", scores)
+                .is_err()
+        );
+    }
+}
+
 fn assert_score(actual: f64, expected: f64) {
     assert!(
         (actual - expected).abs() <= f64::EPSILON,
@@ -190,8 +287,8 @@ fn production_preference_promotes_definitions_without_hiding_tests_or_parameters
     let ranked = vec![
         typed_candidate(
             "a",
-            "tests/search.rs",
-            DocumentKind::Test,
+            "src/cache/tests.rs",
+            DocumentKind::Symbol,
             SymbolKind::Function,
             (1, 12.0),
         ),
@@ -224,7 +321,7 @@ fn production_preference_promotes_definitions_without_hiding_tests_or_parameters
     assert_eq!(
         paths(&neutral),
         vec![
-            "tests/search.rs",
+            "src/cache/tests.rs",
             "src/search.rs",
             "src/search.rs",
             "src/search.rs",
@@ -256,7 +353,7 @@ fn production_preference_promotes_definitions_without_hiding_tests_or_parameters
     );
     assert_eq!(
         preferred.items()[3].document().document_kind(),
-        DocumentKind::Test
+        DocumentKind::Symbol
     );
 }
 

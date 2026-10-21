@@ -62,7 +62,7 @@ pub enum RetrievalChannel {
     Semantic,
 }
 
-/// Observable outcome of the optional semantic cross-encoder stage.
+/// Observable outcome of the optional cross-encoder stage over merged candidates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RerankState {
@@ -70,7 +70,7 @@ pub enum RerankState {
     NotRequested,
     /// No reranker tier is configured for this project.
     NotConfigured,
-    /// A configured reranker had no semantic candidates to score.
+    /// A configured reranker had no candidates to score.
     SkippedNoCandidates,
     /// Candidate metadata contained no bounded text safe to score.
     SkippedNoText,
@@ -115,7 +115,7 @@ impl RerankReport {
         }
     }
 
-    /// Record a configured model that had no semantic candidates.
+    /// Record a configured model that had no candidates.
     /// # Errors
     ///
     /// Returns an error if `model` is empty, contains a NUL byte, or exceeds
@@ -176,7 +176,7 @@ impl RerankReport {
         self.model.as_deref()
     }
 
-    /// Number of semantic documents scored by a complete response.
+    /// Number of deduplicated documents scored by a complete response.
     #[must_use]
     pub const fn reranked_documents(&self) -> u16 {
         self.reranked_documents
@@ -536,6 +536,7 @@ pub struct RetrievalChannels {
     lexical: Option<ChannelResults>,
     semantic: Option<ChannelResults>,
     rerank: RerankReport,
+    rerank_scores: BTreeMap<DocumentId, f32>,
 }
 
 impl RetrievalChannels {
@@ -546,6 +547,7 @@ impl RetrievalChannels {
             lexical: None,
             semantic: None,
             rerank: RerankReport::not_configured(),
+            rerank_scores: BTreeMap::new(),
         }
     }
 
@@ -582,10 +584,46 @@ impl RetrievalChannels {
     #[must_use]
     pub fn with_rerank_report(mut self, report: RerankReport) -> Self {
         self.rerank = report;
+        self.rerank_scores.clear();
         self
     }
 
-    /// Optional semantic reranker outcome carried into fusion provenance.
+    /// Attach validated cross-encoder scores without replacing either channel's evidence.
+    ///
+    /// A bounded shortlist may omit lower fused candidates. Unscored candidates retain their
+    /// original ordering after scored candidates within the same retrieval preference tier.
+    /// # Errors
+    /// Rejects empty/oversized batches, duplicates, unknown documents, and scores outside [0, 1].
+    pub fn with_fused_rerank(
+        mut self,
+        model: impl Into<String>,
+        scores: Vec<(DocumentId, f32)>,
+    ) -> Result<Self, RetrievalError> {
+        let count = u16::try_from(scores.len()).map_err(|_| invalid("reranked_documents"))?;
+        let report = RerankReport::applied(model, count)?;
+        let known = self
+            .lexical
+            .iter()
+            .chain(self.semantic.iter())
+            .flat_map(ChannelResults::candidates)
+            .map(|candidate| candidate.document().document_id())
+            .collect::<BTreeSet<_>>();
+        let mut validated = BTreeMap::new();
+        for (document, score) in scores {
+            if !score.is_finite()
+                || !(0.0..=1.0).contains(&score)
+                || !known.contains(&document)
+                || validated.insert(document, score).is_some()
+            {
+                return Err(invalid("rerank_scores"));
+            }
+        }
+        self.rerank = report;
+        self.rerank_scores = validated;
+        Ok(self)
+    }
+
+    /// Optional reranker outcome carried into fusion provenance.
     #[must_use]
     pub const fn rerank_report(&self) -> &RerankReport {
         &self.rerank
@@ -698,6 +736,8 @@ pub struct FusedSearchItem {
     document: RetrievalDocument,
     rank: u16,
     reciprocal_rank_score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rerank_score: Option<f32>,
     contributions: Vec<ChannelContribution>,
 }
 
@@ -718,6 +758,12 @@ impl FusedSearchItem {
     #[must_use]
     pub const fn reciprocal_rank_score(&self) -> f64 {
         self.reciprocal_rank_score
+    }
+
+    /// Separate cross-encoder score, when this document was in the merged shortlist.
+    #[must_use]
+    pub const fn rerank_score(&self) -> Option<f32> {
+        self.rerank_score
     }
 
     /// Contributions ordered lexical then semantic.
@@ -838,6 +884,14 @@ pub fn fuse_search(input: HybridSearchInput) -> Result<HybridSearchPacket, Retri
     let fallback = retrieval_fallback(mode, semantic_readiness, &selected);
     let abstention = retrieval_abstention(&selected);
     let (generation_id, mut items) = fuse_selected_channels(&selected)?;
+    if mode != SearchMode::Deterministic {
+        for item in &mut items {
+            item.rerank_score = channels
+                .rerank_scores
+                .get(item.document.document_id())
+                .copied();
+        }
+    }
     items.sort_by(|left, right| fused_item_order(left, right, preference));
     assign_fused_ranks(&mut items)?;
     let packet_was_truncated = items.len() > usize::from(result_limit);
@@ -1028,6 +1082,7 @@ fn fused_item(mut accumulator: FusionAccumulator) -> FusedSearchItem {
         document: accumulator.document,
         rank: 0,
         reciprocal_rank_score,
+        rerank_score: None,
         contributions: accumulator.contributions,
     }
 }
@@ -1039,6 +1094,12 @@ fn fused_item_order(
 ) -> Ordering {
     preference_tier(left, preference)
         .cmp(&preference_tier(right, preference))
+        .then_with(|| match (left.rerank_score, right.rerank_score) {
+            (Some(left), Some(right)) => right.total_cmp(&left),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        })
         .then_with(|| {
             right
                 .reciprocal_rank_score
@@ -1063,7 +1124,9 @@ fn preference_tier(item: &FusedSearchItem, preference: RetrievalPreference) -> u
         return 0;
     }
     let document = item.document();
-    if document.document_kind() == DocumentKind::Test {
+    if document.document_kind() == DocumentKind::Test
+        || cartograph_domain::is_test_source_path(document.path().as_str())
+    {
         return 3;
     }
     if is_auxiliary_path(document.path().as_str()) {

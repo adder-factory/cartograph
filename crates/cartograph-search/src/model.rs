@@ -620,7 +620,7 @@ impl LexicalQuery {
         validate_limit(limit, MAX_CANDIDATES, "candidate_limit")?;
         let query = validate_query(query.into())?;
         Ok(Self {
-            query: expand_code_query(&query),
+            query: crate::query::expand_code_query(&query),
             limit,
         })
     }
@@ -631,57 +631,6 @@ impl LexicalQuery {
 
     pub(crate) const fn limit(&self) -> u16 {
         self.limit
-    }
-}
-
-fn expand_code_query(query: &str) -> String {
-    let normalized = query
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' {
-                character.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>();
-    let mut seen = normalized
-        .split_ascii_whitespace()
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>();
-    let mut expanded = query.to_owned();
-    for term in normalized.split_ascii_whitespace() {
-        for alias in code_query_aliases(term) {
-            if seen.contains(*alias)
-                || expanded.len().saturating_add(alias.len()).saturating_add(1)
-                    > CONTEXT_QUERY_MAXIMUM_BYTES
-            {
-                continue;
-            }
-            expanded.push(' ');
-            expanded.push_str(alias);
-            seen.insert((*alias).to_owned());
-        }
-    }
-    expanded
-}
-
-fn code_query_aliases(term: &str) -> &'static [&'static str] {
-    match term {
-        "bm25" => &["generation_search_relation", "search_relation", "relation"],
-        "table" | "tables" => &["relation", "catalog"],
-        "check" | "checked" | "checking" | "checks" => &["require", "validate", "verify"],
-        "run" | "running" | "runs" => &["execute", "query", "request"],
-        "fresh" | "freshness" => &[
-            "project_status",
-            "source_revision",
-            "digest_version",
-            "scan_source",
-        ],
-        "checkout" | "checkouts" => &["source", "project_root"],
-        "match" | "matched" | "matches" | "matching" => &["compare", "digest", "source_revision"],
-        "immutable" => &["content_digest", "generation"],
-        _ => &[],
     }
 }
 

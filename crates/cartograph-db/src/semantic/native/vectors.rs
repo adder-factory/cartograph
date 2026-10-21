@@ -619,16 +619,7 @@ pub(super) fn hit(
         .transpose()?
         .flatten()
         .and_then(|symbol| SymbolKind::from_stable_str(&symbol.symbol_kind));
-    let rerank = format!(
-        "{}\n{}\n{}\n{}",
-        document.path,
-        document.qualified_name,
-        document.code.chars().take(4096).collect::<String>(),
-        document.natural_text.chars().take(2048).collect::<String>()
-    );
-    if rerank.len() > 32 * 1024 {
-        return Err(Error::DocumentTooLarge);
-    }
+    let rerank = crate::semantic::rerank::render_rerank_text(&document, "")?;
     Ok(VectorSearchHit {
         generation_id: generation.clone(),
         document_id: document.document_id,

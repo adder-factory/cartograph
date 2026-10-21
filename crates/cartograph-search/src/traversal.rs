@@ -5,9 +5,6 @@ use cartograph_domain::SymbolId;
 
 use crate::{AffectedTest, TraversalDirection, TraversalResult};
 
-const TEST_SEGMENTS: [&str; 3] = ["test", "tests", "__tests__"];
-const TEST_INFIXES: [&str; 4] = [".test.", ".spec.", "_test.", "_spec."];
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GraphArc {
     pub(crate) source: SymbolId,
@@ -174,14 +171,7 @@ fn strongest_arc_order(left: &GraphArc, right: &GraphArc) -> std::cmp::Ordering 
 /// Return whether a canonical path uses a conventional test directory or filename.
 #[must_use]
 pub fn is_test_path(path: &str) -> bool {
-    let normalized = path.replace('\\', "/").to_ascii_lowercase();
-    let mut components = normalized.split('/').collect::<Vec<_>>();
-    let filename = components.pop().unwrap_or_default();
-    components
-        .iter()
-        .any(|component| TEST_SEGMENTS.contains(component))
-        || filename.starts_with("test_")
-        || TEST_INFIXES.iter().any(|infix| filename.contains(infix))
+    cartograph_domain::is_test_source_path(path)
 }
 
 pub(crate) fn affected_tests_from_traversal(

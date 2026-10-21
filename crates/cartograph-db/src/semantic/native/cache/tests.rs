@@ -19,6 +19,48 @@ use std::time::Duration;
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rerank_sources_preserve_order_and_reject_foreign_generations_and_missing_ids() -> TestResult
+{
+    let fixture = Fixture::new(false).await?;
+    let project = fixture.database.project_id().clone();
+    let query = |generation, documents| {
+        crate::RerankDocumentsRequest::new(project.clone(), generation, documents, TIMEOUT)
+    };
+    let inputs = fixture
+        .database
+        .rerank_documents(query(generation(), vec![document(2), document(1)])?)
+        .await?;
+    assert_eq!(
+        inputs
+            .iter()
+            .map(crate::RerankDocument::document_id)
+            .collect::<Vec<_>>(),
+        [&document(2), &document(1)]
+    );
+    assert!(inputs[0].text().starts_with("name: function_2\n"));
+    assert!(!fixture.readiness().await?.ready());
+    assert!(matches!(
+        fixture
+            .database
+            .rerank_documents(query(
+                GenerationId::from_uuid_v8([9; 16]),
+                vec![document(1)]
+            )?)
+            .await,
+        Err(crate::SemanticStorageError::CurrentGenerationChanged)
+    ));
+    assert!(
+        fixture
+            .database
+            .rerank_documents(query(generation(), vec![document(255)])?)
+            .await
+            .is_err()
+    );
+    fixture.runtime.shutdown(&request()?).await?;
+    Ok(())
+}
+
 #[test]
 fn packing_destroys_corpus_before_releasing_builder() -> TestResult {
     use std::sync::atomic::{AtomicBool, Ordering};

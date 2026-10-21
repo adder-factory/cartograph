@@ -118,11 +118,11 @@ pub use semantic::{
     EmbeddingModelSelector, EmbeddingModelState, EmbeddingNormalization, EmbeddingPageCursor,
     EmbeddingStorageAudit, EmbeddingUpsertRow, PendingEmbeddingDocument, PendingEmbeddingPage,
     PendingEmbeddingPageInput, PendingEmbeddingPageRequest, RegisteredEmbeddingModel,
-    RetireEmbeddingModelRequest, RetiredEmbeddingCleanupReport, SemanticReadinessReport,
-    SemanticReadinessRequest, SemanticReadinessState, SemanticStorageError, SimilarSymbolHit,
-    SimilarSymbolsInput, SimilarSymbolsRequest, SimilarSymbolsResult,
-    SimilarityMaterializationPolicy, SimilarityMaterializationReport, VectorSearchHit,
-    VectorSearchInput, VectorSearchRequest,
+    RerankDocument, RerankDocumentsRequest, RetireEmbeddingModelRequest,
+    RetiredEmbeddingCleanupReport, SemanticReadinessReport, SemanticReadinessRequest,
+    SemanticReadinessState, SemanticStorageError, SimilarSymbolHit, SimilarSymbolsInput,
+    SimilarSymbolsRequest, SimilarSymbolsResult, SimilarityMaterializationPolicy,
+    SimilarityMaterializationReport, VectorSearchHit, VectorSearchInput, VectorSearchRequest,
 };
 pub use sessions::{
     McpMacroRecord, McpMacroStep, McpSessionCallsQuery, McpSessionKind, McpSessionLookup,

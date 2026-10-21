@@ -5,6 +5,9 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 
 mod go_manifest;
+mod test_paths;
+
+pub use test_paths::is_test_source_path;
 
 const MAX_NORMALIZED_PATH_BYTES: usize = 4_096;
 const LITERAL_SIGNATURE_KEYWORDS: &[&str] = &[

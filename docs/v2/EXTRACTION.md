@@ -135,11 +135,11 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V23 (migration 50) fences wave 3 of v1 parity: framework/bridge
-detail and deferred resolution across languages, building on V22's cross-file
-resolution and V21's per-file extraction parity.
+contract. Contract V24 shares language-aware test-path classification between extraction,
+retrieval, and affected-test selection, including Rust leaf `test.rs` and `tests.rs` modules.
+It builds on V23's framework/bridge detail and deferred resolution parity across languages.
 A generation published by an older binary no longer matches what this binary
-builds, so an unchanged V22 project reports stale once and publishes new facts.
+builds, so an unchanged V23 project reports stale once and publishes new facts.
 
 After an upgrade from an older contract, unchanged source remains stale until a
 normal index publishes current-contract facts. This contract check stays
@@ -147,10 +147,11 @@ separate from the source-manifest digest so v1 import still compares exact
 checkout bytes rather than a binary-specific identity.
 
 <details>
-<summary>Details: generation-digest contract history (V5–V23)</summary>
+<summary>Details: generation-digest contract history (V5–V24)</summary>
 
 | Contract | What it fences |
 | --- | --- |
+| V24 | Shared language-aware test paths, including Rust leaf test modules; requires a native source rebuild from older contracts |
 | V23 | v1 framework/bridge detail and deferred resolution parity across languages; forces an unchanged V22 project to publish new facts |
 | V22 | v1 cross-file resolution parity across languages; forces an unchanged V21 project to publish new facts |
 | V21 | v1 language parity: dedicated extraction families replace the generic walker for 22 v1 modes, Astro/Vue/Svelte scripts run through the JavaScript/TypeScript walker, and the TypeScript/JavaScript, Python, Go, Rust, JVM, and .NET walkers restore v1's per-file facts; forces an unchanged V20 project to publish new facts |
