@@ -3,6 +3,8 @@
 #[path = "rocks_project/concurrency.rs"]
 mod concurrency;
 mod dependency_ownership;
+#[path = "rocks_project/idle_retention.rs"]
+mod idle_retention;
 #[path = "rocks_project/regressions.rs"]
 mod regressions;
 

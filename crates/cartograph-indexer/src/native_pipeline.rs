@@ -65,6 +65,7 @@ mod rust_use_bindings;
 mod salesforce_resolution;
 mod script_modules;
 mod shell_resolution;
+mod telephony_resolution;
 
 pub use local_edit::{NativeLocalEditRequest, try_native_local_edit};
 pub use observed_source::{NativeObservedFile, NativeObservedManifest};
@@ -10236,6 +10237,7 @@ where
     if resolution.target.is_some()
         || request.language != SourceLanguage::Xml.as_str()
         || route_bridges::authoritative_lookup(request.name)
+        || telephony_resolution::authoritative_lookup(request.name)
         || !package_qualified
         || index.candidates.contains_key(request.name)
     {
@@ -10267,6 +10269,9 @@ fn resolve_reference<Cancel>(
 where
     Cancel: FnMut() -> bool,
 {
+    if let Some(resolution) = telephony_resolution::resolve(index, request, cancelled)? {
+        return Ok(resolution);
+    }
     if let Some(target) = framework_imports::resolve(index, request, cancelled)? {
         return Ok(ReferenceResolution::resolved(target));
     }
@@ -14662,6 +14667,7 @@ mod tests {
     mod rust_use_bindings;
     mod rust_use_regressions;
     mod script_modules;
+    mod telephony;
     mod types_digest_proof;
     mod types_final;
     mod types_scope_repair;
@@ -14743,14 +14749,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V24 changes the digest domain; facts unchanged in these fixtures.
+    // V25 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "fe6f362d549305c90c00a8f809c2220538c01cbea9492dc97b386b50ed75480c";
+        "856b582c36b94f1ce276117ee2b618ab50c8488ae2acea52785725786888e45f";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "418497df86720f6f97b504db9c3f03cf144406bb48f80ad230c3b31a79339130";
+        "c20eaec6ba854b79703c8f084074c9ba7231f258de0ade48d440bcf505335bac";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -14777,7 +14783,7 @@ mod tests {
     // references and centrality; bridge_digest_proof then removes six alias
     // links to recover 04a9f9b9... exactly under the V23 domain.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "49061755aaf661a9eb48cbeb2397586d0989aca675d34f29350c5603976f606a";
+        "92f8fd8c8721e577794be14c173f0685afc434fc51f4052f2cd399e18c5ccda8";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 260, 292, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
@@ -14788,7 +14794,7 @@ mod tests {
     // frameworks::routes::mybatis_local_sql_roles_preserve_the_frozen_custom_digest
     // regression removes the hint and compares every fact table and digest.
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "49f115009fec6492cdedc49539e994cf9b69b134fe0bffd114bb5549fd57c910";
+        "ad892526a41cfad2f08d3d7763fcb0e461aff985554e2e04968360afd7217c1b";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =

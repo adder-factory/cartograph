@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last release audit: 2026-10-20 (`v3.0.4`).
+Last release audit: 2026-10-22 (`v3.0.5`).
 
 Cartograph v3 is a native Rust code-intelligence server for AI coding agents.
 Each project owns an embedded RocksDB 11.8.1 store. Rust implements
@@ -147,7 +147,7 @@ state lowers confidence and is never treated as a clean result.
 
 ## Native extraction
 
-Current production admission covers 132 modes in total:
+Current admission covers 134 modes in total:
 
 | Mode family | Modes |
 | --- | ---: |
@@ -156,9 +156,10 @@ Current production admission covers 132 modes in total:
 | Dedicated textual game-scripting modes | 52 |
 | WGSL, Metal, Slang, and WESL shader additions | 4 |
 | Ada/SPARK and VHDL | 2 |
-| **Total** | **132** |
+| Kamailio and rtpengine configuration | 2 |
+| **Total** | **134** |
 
-Of those, 67 are pinned grammar-backed modes and 65 use bounded Rust custom
+Of those, 67 are pinned grammar-backed modes and 67 use bounded Rust custom
 scanners. The 163-extension v1 manifest is
 exact; `.pyi` and every dedicated game-script extension are additive
 improvements. Every family has
@@ -189,8 +190,9 @@ every per-file fact v1.1.33 extracted from each v1 mode's fixture corpus to
 have a unique exact identity, committed exact alignment pins, or a
 pending/intentional ledger entry. Ambiguous identities never match and stale
 rows fail; the linked report owns current counts and the update procedure.
-The V24 generation-digest contract fences these families, v1 framework/bridge
-detail, deferred resolution parity, and shared test-path classification, so
+The V25 generation-digest contract fences these families, FreeSWITCH XML and
+telephony configuration facts, v1 framework/bridge detail, deferred resolution
+parity, and shared test-path classification, so
 generations from older binaries report stale once and republish.
 
 For each admitted file:
@@ -213,7 +215,7 @@ not prove. It never stores the source expression or literal. Static heuristic
 evidence is not relabeled as a runtime observation or formal proof;
 `cartograph_numerical`, status, and numerical review report observation and
 formal adapters as `not_configured`. Generations recorded under an older digest
-contract (anything before the current V24) remain explicitly stale until an
+contract (anything before the current V25) remain explicitly stale until an
 ordinary index republishes them; for generations older than V7, which predate
 numerical sites, that republication is also what publishes numerical evidence.
 
@@ -326,7 +328,15 @@ Readers hold immutable snapshots and protected revision visibility. Publication
 and mutable-state transactions recheck their original request controls.
 
 Graph retention drains obsolete versions in finite resumable batches while
-preserving the current revision and live snapshots. Auxiliary retention tracks
+preserving the current revision and live snapshots. A durable completion marker
+binds the last reserved revision, retained floor, and keep policy. With no live
+writer or pending cursor, unchanged maintenance returns without fact traversal
+or a WAL write. Partial progress clears that marker atomically; new revisions,
+changed policies and older-executable floor/cursor changes invalidate reuse.
+Partial cursors keep their starting reservation and continue bounded progress
+while new revisions arrive. A changed or unknown watermark starts a new pass
+at traversal's end before completion can be certified.
+Auxiliary retention tracks
 orphan grace markers, validates embedded record identity before deletion, and
 removes marker state when an explicit delete finishes. Parse-cache and derived
 cleanup have independent phase reports; a later failure does not erase earlier

@@ -4,7 +4,7 @@
 [Coverage report](LANGUAGE-COVERAGE-REPORT.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last implementation audit: 2026-10-20 (`v3.0.4`).
+Last release audit: 2026-10-22 (`v3.0.5`).
 
 Use this page to decide whether Cartograph can extract useful graph structure
 from a project before you install it. A supported language means files are
@@ -16,18 +16,19 @@ known framework shape.
 
 | Inventory | Modes | Detail |
 |---|---:|---|
-| Production-admitted total | **132** | Source of truth: `cartograph_domain::SourceLanguage::ALL` |
+| Production-admitted total | **134** | Source of truth: `cartograph_domain::SourceLanguage::ALL` |
 | v1.1.33 parity modes | 73 | All 163 v1 extensions, plus additive v2 `.pyi` for Python |
 | Dedicated game scripting | 52 | Bounded, non-executing scanners; see [below](#dedicated-game-scripting-modes) |
-| Additive v2 modes | 7 | Native TOML; WGSL and Metal (v2.1.12); first-class Slang and WESL (v2.1.15); Ada/SPARK and VHDL (v2.1.27) |
+| Additive v2 modes | 9 | Native TOML; WGSL and Metal (v2.1.12); first-class Slang and WESL (v2.1.15); Ada/SPARK and VHDL (v2.1.27); Kamailio and rtpengine |
 | Grammar-backed | 67 | 61 pinned native grammar bindings; some are shared: Metal→C++, WESL→WGSL, Zsh→Bash, JSX→JavaScript, Jupyter→JSON, KHN→Lua |
-| Bounded Rust scanners | 65 | 12 custom v1 modes (Vue and Svelte also parse their script regions with the JavaScript/TypeScript grammar), TOML, and the 52 game-scripting modes |
+| Bounded Rust scanners | 67 | 12 custom v1 modes (Vue and Svelte also parse their script regions with the JavaScript/TypeScript grammar), TOML, Kamailio, rtpengine, and the 52 game-scripting modes |
 | Covered by the v1 parity oracle | 73 | Every v1.1.33 mode has a fixture corpus and the facts the real v1.1.33 binary extracted from it; see the [coverage report](LANGUAGE-COVERAGE-REPORT.md#v1-parity-oracle) |
 
 Cartograph v2 supports all 73 v1.1.33 language modes, native TOML, 52
 dedicated textual game-scripting modes, the WGSL and Metal shader modes added
 in v2.1.12, first-class Slang and WESL added in v2.1.15, and Ada/SPARK and VHDL
-added in v2.1.27: 132 modes total. Native extractor strategy lives in
+added in v2.1.27, plus Kamailio and rtpengine: 134 modes total. Native extractor
+strategy lives in
 `crates/cartograph-extract/src/language.rs`, grammar selection in
 `crates/cartograph-extract/src/grammars.rs`, and framework/cross-language
 enrichment in the focused Rust modules beside them.
@@ -144,9 +145,44 @@ The **Extractor path** column uses these terms:
 | Vue | `.vue` | Custom extractor; `<script>` / `<script setup>` blocks and template expressions run through the JavaScript/TypeScript walker |
 | WESL | `.wesl` | WGSL grammar plus bounded WESL import/module extraction |
 | WGSL | `.wgsl` | Tree-sitter shader-family slice |
-| XML (MyBatis) | `.xml` | Custom extractor |
+| XML (MyBatis, FreeSWITCH) | `.xml`, including `.conf.xml` | Custom extractor |
+| Kamailio | Product-qualified `.cfg` / `.conf`, or a Kamailio header / route-block marker | Custom extractor |
+| rtpengine | Product-qualified `.conf` / `.ini`, or a `[rtpengine]` section marker | Custom extractor |
 | YAML | `.yml`, `.yaml` | Tree-sitter generic walker |
 | Zsh | `.zsh`, `.zshrc`, `.zshenv`, `.zprofile`, `.zlogin` | Tree-sitter shell family |
+
+### Telephony configuration
+
+FreeSWITCH stays in the XML mode. The scanner recognizes FreeSWITCH configuration
+directories or bounded XML structure markers (`freeswitch/xml`, `X-PRE-PROCESS`, dialplan
+contexts/extensions, Sofia profiles/settings, gateways/params, directory
+domains/users). It emits scoped declarations, containment, parameter and variable
+names, application/module references, preprocessor variable names, and literal
+include evidence. Static XML includes resolve relative to the including file;
+external absolute paths remain unresolved. Ordinary XML and the existing MyBatis extractor retain their
+own behavior.
+
+Kamailio and rtpengine have stable `kamailio` and `rtpengine` language IDs.
+Shared `.cfg`, `.conf`, and `.ini` extensions require a product filename/directory
+or a bounded content marker; arbitrary INI and other applications' configuration
+files are excluded. Kamailio includes named and default routing blocks, static
+route calls and transaction callbacks, module loads and parameter names, core
+option names, defines, and literal includes (including `#!include_file`, its
+`!!` equivalent, and includes within route blocks). Continued macro bodies stay
+opaque. Route targets require a unique
+same-file or directly included declaration. rtpengine emits section namespaces
+and section-qualified option names, including signalling template names.
+
+These are structural scanners, not runtime validators. They never execute
+preprocessors or configuration, expand macros or include globs, read external
+files, or retain option values. Conditional definitions can remain ambiguous;
+dynamic routes, external module functions and targets requiring transitive
+includes remain unresolved. Malformed structure is partial; cancellation, token
+and output budgets, and nesting ceilings remain enforced.
+
+Syntax references: [FreeSWITCH Sofia XML](https://developer.signalwire.com/freeswitch/users-and-endpoints/sip-profiles/),
+[Kamailio core cookbook](https://www.kamailio.org/wikidocs/cookbooks/6.0.x/core/),
+and [rtpengine configuration](https://rtpengine.readthedocs.io/en/latest/rtpengine.html).
 
 ### Dedicated game scripting modes
 

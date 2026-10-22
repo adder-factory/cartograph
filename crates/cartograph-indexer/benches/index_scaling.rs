@@ -29,8 +29,9 @@ use std::{
 };
 
 type BenchResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+// V25 identity for the frozen fixture; its inputs and fingerprint stay fixed.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "d410d908867febaa3b5ba4b3b30f2d834290d9f8fef6cdbf7d2a5e765303ca20";
+    "8fded6e120574bf49b9a58d49079a1e3c90ad03f07b8d057ca1fb9003fdbbc3c";
 
 #[tokio::main]
 async fn main() -> BenchResult {

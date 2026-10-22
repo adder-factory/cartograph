@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [MCP usage](MCP-USAGE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-20 (`v3.0.4`).
+Last release audit: 2026-10-22 (`v3.0.5`).
 
 The installed executable is `cartograph`. Run `cartograph <command> --help` for
 the exact bounds in the installed version. Bounded maintenance and its

@@ -1,0 +1,10 @@
+<include>
+  <context name="default">
+    <extension name="inbound">
+      <condition field="destination_number" expression="^1000$">
+        <action application="answer"/>
+        <action application="bridge" data="telephony_fixture_value_sentinel_834"/>
+      </condition>
+    </extension>
+  </context>
+</include>

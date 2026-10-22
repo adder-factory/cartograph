@@ -5,6 +5,7 @@ use crate::rocks::StorageRequest;
 
 mod batching;
 mod cache;
+mod idle_retention;
 
 type TestResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 

@@ -1,0 +1,6 @@
+<include>
+  <profile name="internal">
+    <gateways><gateway name="carrier"><param name="password" value="telephony_fixture_value_sentinel_834"/></gateway></gateways>
+    <settings><param name="sip-port" value="5060"/></settings>
+  </profile>
+</include>

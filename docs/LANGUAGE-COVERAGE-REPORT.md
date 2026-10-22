@@ -4,7 +4,7 @@
 [Grammar provenance](GRAMMAR-ASSETS.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-10-20 (`v3.0.4`).
+Last release audit: 2026-10-22 (`v3.0.5`).
 
 This report states what "supported" means for a language mode and where the
 evidence for each admitted mode lives. For the per-language inventory, read the
@@ -18,16 +18,16 @@ evidence for each admitted mode lives. For the per-language inventory, read the
 
 ## Current inventory
 
-Cartograph v2.1.42 production-admits all 73 v1.1.33 language modes and all 163 v1
+Cartograph production-admits all 73 v1.1.33 language modes and all 163 v1
 extensions, plus additive Python `.pyi`, native TOML, and 52 dedicated textual
 game-scripting modes, the WGSL and Metal shader modes added in v2.1.12, and
-Slang and WESL added in v2.1.15, plus Ada/SPARK and VHDL added in v2.1.27: 132
+Slang and WESL added in v2.1.15, plus Ada/SPARK and VHDL added in v2.1.27, and Kamailio and rtpengine: 134
 modes total.
 
 | Parsing path | Modes | What it covers |
 | --- | ---: | --- |
 | Pinned native tree-sitter grammar | 67 | 61 native grammar bindings; Metal (C++), WESL (WGSL), Zsh (Bash), JSX (JavaScript), Jupyter (JSON), and BG3 KHN (Lua) share another mode's grammar |
-| Bounded Rust structural scanner | 65 | The 12 custom v1 mixed-markup, configuration, and domain-specific modes, TOML, and the 52 game-scripting modes |
+| Bounded Rust structural scanner | 67 | The 12 custom v1 mixed-markup, configuration, and domain-specific modes, TOML, Kamailio, rtpengine, and the 52 game-scripting modes |
 
 Where the inventory is defined:
 

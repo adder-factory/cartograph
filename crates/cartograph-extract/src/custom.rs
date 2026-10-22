@@ -31,6 +31,7 @@ mod go_manifest;
 mod liquid;
 mod pascal_form;
 mod rhai;
+mod telephony;
 mod web_component;
 
 pub(crate) use web_component::file_component_symbol;
@@ -74,6 +75,9 @@ pub(crate) fn extract(
     }
     if snapshot.language() == SourceLanguage::Rhai {
         let parse_status = rhai::extract(&mut builder)?;
+        return builder.finish(parse_status);
+    }
+    if let Some(parse_status) = telephony::extract(&mut builder)? {
         return builder.finish(parse_status);
     }
     if game_scripting::supports(snapshot.language()) {
