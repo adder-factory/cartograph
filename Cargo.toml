@@ -112,7 +112,7 @@ sha2 = "=0.11.1"
 signal-hook = { version = "0.4.5", default-features = false }
 thiserror = "2.0.21"
 tempfile = "3.27.0"
-tokio = { version = "1.54.0", features = [
+tokio = { version = "1.54.1", features = [
   "fs",
   "io-std",
   "io-util",
