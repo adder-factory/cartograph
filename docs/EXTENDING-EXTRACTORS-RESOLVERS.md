@@ -54,7 +54,7 @@ Work through these steps in order. Each links to the detailed rules below.
    `crates/cartograph-domain/src/source/test_paths.rs` (shared by extraction and retrieval).
    See [§2](#2-discovery-and-snapshot-admission).
 3. **Registry tests.** In the `source.rs` tests, update the count assertions
-   (132 modes / 73 v1 modes / 52 game modes), the frozen
+   (134 modes / 73 v1 modes / 52 game modes), the frozen
    `v2_language_additions_digest` value, and `representative_path` /
    `representative_source` when the default sample path does not route to the
    new mode. See [§1](#1-stable-language-identity).
@@ -102,7 +102,7 @@ The registry is guarded by tests in the same file:
 
 | Test | What it pins | What to change |
 | --- | --- | --- |
-| `language_registry_preserves_v1_contract_and_tracks_v2_additions_separately` | Sorted, distinct stable ids (132), v1 modes (73), game-scripting modes (52), and the 163 v1 extensions | Bump the total, plus the game count for a game mode. The v1 counts are frozen. |
+| `language_registry_preserves_v1_contract_and_tracks_v2_additions_separately` | Sorted, distinct stable ids (134), v1 modes (73), game-scripting modes (52), and the 163 v1 extensions | Bump the total, plus the game count for a game mode. The v1 counts are frozen. |
 | `language_registry_matches_independently_frozen_manifests` | BLAKE3 digests of the v1 manifest (`v1_language_registry_digest`) and of the additive extensions (`v2_language_additions_digest`) | A new extension in `additions` changes the frozen v2 digest; update it deliberately. The v1 digest must not change. |
 | The first test's stable-id and detection round trip | `from_stable_str` and `SourceLanguage::detect(representative_path(..), Some(representative_source(..)))` for every language | Add a `representative_path` / `representative_source` entry when `src/sample<first extension>` with empty source does not route to the new mode (path- or content-gated modes). |
 
@@ -304,8 +304,9 @@ The key contract, correction policy and current disposition counts are in the
 Generation freshness includes the native generation-digest contract, so a
 change to the facts an existing language publishes needs a new contract;
 otherwise an unchanged checkout keeps reporting fresh with the old facts. The
-V24 contract fences shared test-path classification, including Rust leaf test
-modules. Native RocksDB generations carry this contract directly:
+V25 contract fences FreeSWITCH XML facts and the Kamailio and rtpengine
+configuration modes, on top of V24 shared test-path classification. Native
+RocksDB generations carry this contract directly:
 
 - add the `GenerationDigestVersion` variant and move `CURRENT` in
   `crates/cartograph-domain/src/lib.rs`;

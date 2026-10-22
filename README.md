@@ -326,11 +326,12 @@ Read the [architecture](docs/v2/ARCHITECTURE.md) for crate ownership and limits.
 
 ## Language support
 
-The stable registry production-admits **132 language modes**: all 73 v1.1.33
+The stable registry production-admits **134 language modes**: all 73 v1.1.33
 modes with the complete 163 v1 extension manifest, additive Python `.pyi` stubs,
-and 59 new modes: TOML, WGSL, Metal, Slang, WESL, Ada/SPARK, VHDL, and 52
+and 61 new modes: TOML, WGSL, Metal, Slang, WESL, Ada/SPARK, VHDL, Kamailio,
+rtpengine, and 52
 game-scripting languages. Sixty-seven modes use pinned native tree-sitter
-grammars; 65 mixed-markup, configuration, domain-specific, and game-scripting
+grammars; 67 mixed-markup, configuration, domain-specific, and game-scripting
 modes use bounded Rust structural scanners.
 
 Every admitted mode must prove deterministic facts, cancellation, literal

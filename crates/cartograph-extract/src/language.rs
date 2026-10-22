@@ -323,8 +323,10 @@ const fn fallback_strategy(language: SourceLanguage) -> ExtractionStrategy {
         | SourceLanguage::Bg3Resource
         | SourceLanguage::Bg3Stats
         | SourceLanguage::Liquid
+        | SourceLanguage::Kamailio
         | SourceLanguage::Osiris
         | SourceLanguage::Properties
+        | SourceLanguage::RtpEngine
         | SourceLanguage::Svelte
         | SourceLanguage::Toml
         | SourceLanguage::Vb6

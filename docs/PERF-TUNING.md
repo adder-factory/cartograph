@@ -98,6 +98,19 @@ revisions store record changes and retain snapshot-visible versions. Bounded
 pruning removes obsolete versions; LSM compaction reclaims physical files later.
 Inspect deferred maintenance and phase failures before repeating a batch.
 
+Completed graph retention records its last reserved revision, retained floor,
+and keep policy in the same durable transaction as its final progress. Repeated
+maintenance of an unchanged graph returns a complete zero-work report without
+rescanning fact versions or syncing another WAL batch. New reservations,
+policy changes and unfinished cursors invalidate reuse; live writers and
+expired-writer cleanup still pass through the original fences. Mutable notes,
+sessions and other feature state do not force a graph rescan. Parse-cache and
+auxiliary retention remain independent and continue their bounded maintenance.
+Partial scans bind their starting reservation and keep progressing while new
+reservations arrive. At the end of a pass, a changed or unknown watermark
+starts another traversal, so failed writes behind a saved position are
+collected before completion can be reused without starving later records.
+
 ## Current retrieval limits
 
 Exact symbol-name lookup uses generation-scoped postings when their workspace

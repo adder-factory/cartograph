@@ -9,6 +9,7 @@ use super::{
 use serde::{Deserialize, Serialize};
 
 const CURSOR_KEY: &[u8] = b"retention/cursor";
+const COMPLETED_KEY: &[u8] = b"retention/completed-v1";
 pub(super) const FLOOR_KEY: &[u8] = b"retention/floor";
 
 /// Committed progress from one bounded project-local retention transaction.
@@ -29,11 +30,20 @@ pub struct PruneReport {
 #[derive(Default, Serialize, Deserialize)]
 struct Cursor {
     floor: u64,
+    #[serde(default)]
+    reservation_sequence: Option<u64>,
     collection: usize,
     resume: Option<Vec<u8>>,
     logical_key: Option<Vec<u8>>,
     kept_anchor: bool,
     obsolete_tombstone: Option<Vec<u8>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Completed {
+    last_sequence: u64,
+    floor: u64,
+    keep_superseded: u8,
 }
 
 impl ProjectStore {
@@ -45,7 +55,12 @@ impl ProjectStore {
     /// after its older values have been drained, preventing resurrection.
     /// Progress and reference counts commit with each deletion batch, so a
     /// later call resumes after interruption without rescanning the prefix.
+    /// Partial traversal keeps progressing when new revisions are reserved.
+    /// A changed or unknown reservation watermark starts another pass only
+    /// after that traversal ends, before completion can be certified.
     /// Existing `RocksDB` read snapshots remain valid while cleanup commits.
+    /// A completed traversal is reused without scanning or writing until a
+    /// revision is reserved or the retention policy/progress changes.
     ///
     /// # Errors
     /// Rejects a live writer, invalid limits, exhausted read allowance, corrupt
@@ -65,10 +80,21 @@ impl ProjectStore {
                 resource: "retention_policy",
             });
         }
+        budget.checkpoint()?;
+        self.check_control()?;
         let _serial = self.lock_mutation()?;
         let _guard = self.retention_guard()?;
+        let last_sequence = self.optional_sequence(LAST_SEQUENCE_KEY)?.unwrap_or(0);
+        if let Some(report) = self.completed_retention(keep_superseded, last_sequence)? {
+            budget.checkpoint()?;
+            self.check_control()?;
+            return Ok(report);
+        }
         let meta = self.meta()?;
         let mut batch = WriteBatch::default();
+        // Invalidate completion in the same transaction as partial progress.
+        // Returning to an earlier keep policy must still resume that cursor.
+        batch.delete_cf(&meta, COMPLETED_KEY);
         let snapshot = self.inner.database.snapshot();
         let plan = self.prune_generation_metadata(
             &snapshot,
@@ -78,23 +104,7 @@ impl ProjectStore {
             budget,
         )?;
         batch.put_cf(&meta, FLOOR_KEY, plan.floor.to_be_bytes());
-        let cursor: Cursor = self
-            .get_meta(CURSOR_KEY)?
-            .map(|bytes| {
-                serde_json::from_slice(&bytes).map_err(|_| RocksError::Corrupt {
-                    field: "retention_cursor",
-                })
-            })
-            .transpose()?
-            .unwrap_or(Cursor {
-                floor: plan.floor,
-                ..Cursor::default()
-            });
-        if cursor.collection > Collection::ALL.len() || cursor.floor > plan.floor {
-            return Err(RocksError::Corrupt {
-                field: "retention_cursor",
-            });
-        }
+        let cursor = self.retention_cursor(plan.floor, last_sequence)?;
         let report = PruneReport {
             generations_removed: plan.removed,
             versions_visited: 0,
@@ -109,6 +119,47 @@ impl ProjectStore {
             decrements: BTreeMap::new(),
         };
         self.prune_versions(&snapshot, &mut traversal, maximum_versions, budget)?;
+        self.commit_retention(traversal, &plan, last_sequence, keep_superseded)
+    }
+
+    fn retention_cursor(&self, floor: u64, last_sequence: u64) -> Result<Cursor> {
+        let cursor: Cursor = self
+            .get_meta(CURSOR_KEY)?
+            .map(|bytes| {
+                serde_json::from_slice(&bytes).map_err(|_| RocksError::Corrupt {
+                    field: "retention_cursor",
+                })
+            })
+            .transpose()?
+            .unwrap_or(Cursor {
+                floor,
+                reservation_sequence: Some(last_sequence),
+                ..Cursor::default()
+            });
+        if cursor.collection > Collection::ALL.len()
+            || cursor.floor > floor
+            || cursor
+                .reservation_sequence
+                .is_some_and(|sequence| sequence > last_sequence)
+        {
+            return Err(RocksError::Corrupt {
+                field: "retention_cursor",
+            });
+        }
+        // Preserve suffix progress even when reservations keep arriving. At
+        // traversal's end, a changed or unknown starting watermark forces a
+        // fresh pass so newly inserted versions behind this cursor are visited.
+        Ok(cursor)
+    }
+
+    fn commit_retention(
+        &self,
+        traversal: VersionTraversal,
+        plan: &MetadataPlan,
+        last_sequence: u64,
+        keep_superseded: u8,
+    ) -> Result<PruneReport> {
+        let meta = self.meta()?;
         let VersionTraversal {
             mut cursor,
             mut report,
@@ -132,9 +183,10 @@ impl ProjectStore {
             }
         }
         if cursor.collection == Collection::ALL.len() {
-            if cursor.floor < plan.floor {
+            if cursor.floor < plan.floor || cursor.reservation_sequence != Some(last_sequence) {
                 cursor = Cursor {
                     floor: plan.floor,
+                    reservation_sequence: Some(last_sequence),
                     ..Cursor::default()
                 };
                 put_cursor(&mut batch, &meta, &cursor)?;
@@ -145,6 +197,15 @@ impl ProjectStore {
         } else {
             put_cursor(&mut batch, &meta, &cursor)?;
         }
+        if report.complete {
+            let completed = serde_json::to_vec(&Completed {
+                last_sequence,
+                floor: report.oldest_retained_sequence,
+                keep_superseded,
+            })
+            .map_err(|_| operation("retention_completed"))?;
+            batch.put_cf(&meta, COMPLETED_KEY, completed);
+        }
         if batch.size_in_bytes() > self.inner.policy.maximum_batch_bytes {
             return Err(RocksError::Limit {
                 resource: "retention_batch_bytes",
@@ -152,6 +213,36 @@ impl ProjectStore {
         }
         self.write(&batch)?;
         Ok(report)
+    }
+
+    fn completed_retention(
+        &self,
+        keep_superseded: u8,
+        last_sequence: u64,
+    ) -> Result<Option<PruneReport>> {
+        let Some(bytes) = self.get_meta(COMPLETED_KEY)? else {
+            return Ok(None);
+        };
+        let completed: Completed =
+            serde_json::from_slice(&bytes).map_err(|_| RocksError::Corrupt {
+                field: "retention_completed",
+            })?;
+        // Every graph write requires a reservation and a live writer. The
+        // caller holds both mutation and writer guards before checking this
+        // watermark. Mutable feature state does not dirty graph retention.
+        // Floor/cursor checks also fence maintenance by an older executable
+        // that does not know about this optional completion marker.
+        Ok((completed.last_sequence == last_sequence
+            && completed.keep_superseded == keep_superseded
+            && self.optional_sequence(FLOOR_KEY)? == Some(completed.floor)
+            && self.get_meta(CURSOR_KEY)?.is_none())
+        .then_some(PruneReport {
+            generations_removed: 0,
+            versions_visited: 0,
+            versions_removed: 0,
+            oldest_retained_sequence: completed.floor,
+            complete: true,
+        }))
     }
 
     fn retention_guard(&self) -> Result<super::MutexGuard<'_, Option<super::ActiveWriter>>> {

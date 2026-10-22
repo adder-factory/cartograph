@@ -24,6 +24,7 @@ provenance live on GitHub Releases.
 
 | Version | Date | Schema · Contract | Headline |
 | --- | --- | --- | --- |
+| [v3.0.5](releases/v3.0.5.md) | 2026-10-22 | Rocks v1 · V25 ↑ | FreeSWITCH, Kamailio, and rtpengine configuration support; idle retention CPU optimization |
 | [v3.0.4](releases/v3.0.4.md) | 2026-10-20 | Rocks v1 · V24 ↑ | Source-aware hybrid reranking, bounded query cleanup, and Rust test discovery |
 | [v3.0.3](releases/v3.0.3.md) | 2026-10-20 | Rocks v1 · V23 | Rust 1.99.1 compiler and build images; TLS certificate validation update |
 | [v3.0.2](releases/v3.0.2.md) | 2026-10-19 | Rocks v1 · V23 | Tokio, Jiff, libc, and native build/certificate dependency refresh |

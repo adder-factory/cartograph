@@ -5,6 +5,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 
 mod go_manifest;
+mod telephony;
 mod test_paths;
 
 pub use test_paths::is_test_source_path;
@@ -492,6 +493,7 @@ source_languages!(
     Jsx => { stable: "jsx", v1_extensions: [".jsx"], additions: [], native: true },
     Julia => { stable: "julia", v1_extensions: [".jl"], additions: [], native: true },
     Jupyter => { stable: "jupyter", v1_extensions: [".ipynb"], additions: [], native: true },
+    Kamailio => { stable: "kamailio", v1_extensions: [], additions: [".cfg", ".conf"], native: true },
     KerboScript => { stable: "kerboscript", v1_extensions: [], additions: [".ks"], native: true },
     Khn => { stable: "khn", v1_extensions: [".khn"], additions: [], native: true },
     Kotlin => { stable: "kotlin", v1_extensions: [".kt", ".kts"], additions: [], native: true },
@@ -527,6 +529,7 @@ source_languages!(
     Renpy => { stable: "renpy", v1_extensions: [], additions: [".rpy"], native: true },
     ReScript => { stable: "rescript", v1_extensions: [".res", ".resi"], additions: [], native: true },
     Rhai => { stable: "rhai", v1_extensions: [], additions: [".rhai"], native: true },
+    RtpEngine => { stable: "rtpengine", v1_extensions: [], additions: [".conf", ".ini"], native: true },
     Ruby => { stable: "ruby", v1_extensions: [".rb", ".rake"], additions: [], native: true },
     Rust => { stable: "rust", v1_extensions: [".rs"], additions: [], native: true },
     Scala => { stable: "scala", v1_extensions: [".scala", ".sc"], additions: [], native: true },
@@ -822,6 +825,9 @@ fn language_registry_digest(
 }
 
 fn detect_source_language(path: &str, source: Option<&str>) -> Option<SourceLanguage> {
+    if telephony::candidate(path) {
+        return telephony::detect(path, source);
+    }
     if let Some(language) = fixed_path_language(path) {
         return Some(language);
     }
@@ -2089,7 +2095,7 @@ mod tests {
     fn language_registry_preserves_v1_contract_and_tracks_v2_additions_separately() {
         let stable_ids = SourceLanguage::ALL.map(SourceLanguage::as_str);
         assert!(stable_ids.is_sorted_by(|previous, next| previous < next));
-        assert_eq!(stable_ids.into_iter().collect::<BTreeSet<_>>().len(), 132);
+        assert_eq!(stable_ids.into_iter().collect::<BTreeSet<_>>().len(), 134);
         assert_eq!(
             SourceLanguage::ALL
                 .into_iter()
@@ -2177,7 +2183,7 @@ mod tests {
             blake3::Hash::from_bytes(v2_language_additions_digest())
                 .to_hex()
                 .as_str(),
-            "65bfecbd7dabef18d1e0d567e26d286cd949c2c40089bd7bef31269fc699e3c1"
+            "5fe7cd4d3d3e3f7ae5ebf33cbe7905d0d5ed032b97337a2ce3f0cc4eb6d0b6c1"
         );
     }
 
@@ -2558,6 +2564,8 @@ mod tests {
 
     fn representative_path(language: SourceLanguage) -> String {
         match language {
+            SourceLanguage::Kamailio => "etc/kamailio/kamailio.cfg".to_owned(),
+            SourceLanguage::RtpEngine => "etc/rtpengine/rtpengine.conf".to_owned(),
             SourceLanguage::Bg3Stats => "game/Stats/Generated/sample.txt".to_owned(),
             SourceLanguage::Aura => "force-app/main/default/aura/Sample/Sample.cmp".to_owned(),
             SourceLanguage::ChoiceScript => "game/scenes/startup.txt".to_owned(),

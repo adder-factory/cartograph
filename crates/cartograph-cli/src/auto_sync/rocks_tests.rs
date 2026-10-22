@@ -32,6 +32,18 @@ async fn wait_for_name(runtime: &Arc<RocksProjectRuntime>, name: &str) -> TestRe
     Ok(())
 }
 
+async fn wait_for_watched_name(
+    runtime: &Arc<RocksProjectRuntime>,
+    name: &str,
+    watcher: &ProjectAutoSync,
+) -> TestResult {
+    let result = wait_for_name(runtime, name).await;
+    if result.is_err() {
+        eprintln!("native watcher timed out: {:?}", watcher.status());
+    }
+    result
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_watcher_publishes_an_edit_and_removes_the_old_declaration() -> TestResult {
     let project = tempfile::tempdir()?;
@@ -44,7 +56,7 @@ async fn native_watcher_publishes_an_edit_and_removes_the_old_declaration() -> T
         .await?;
     let watcher = ProjectAutoSync::start(runtime.clone(), false)?;
     std::fs::write(source, "pub fn replacement() {}\n")?;
-    wait_for_name(&runtime, "replacement").await?;
+    wait_for_watched_name(&runtime, "replacement", &watcher).await?;
     // The published generation is queryable before the watcher records its
     // completed index attempt, including maintenance and publication counters.
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -134,7 +146,7 @@ async fn native_watcher_reports_a_proven_local_replacement_and_its_duration() ->
         .await?;
     let watcher = ProjectAutoSync::start(runtime.clone(), false)?;
     std::fs::write(&source, "pub fn current_value() -> u32 { 2 + 1 }\n")?;
-    wait_for_name(&runtime, "current_value").await?;
+    wait_for_watched_name(&runtime, "current_value", &watcher).await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while watcher.status().publications == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;

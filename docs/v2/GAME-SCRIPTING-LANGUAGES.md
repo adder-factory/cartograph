@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Language matrix](../SUPPORT-MATRIX.md) · [Native extraction](EXTRACTION.md)
 
-Last implementation audit: 2026-10-20 (`v3.0.4`).
+Last implementation audit: 2026-10-22 (`v3.0.5`).
 
 Research inventory last reviewed: 2026-08-02 (`v2.1.7`).
 
