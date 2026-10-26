@@ -86,7 +86,7 @@ async fn telephony_publishes_searchable_identical_facts_at_all_worker_counts()
         let published = store.publish_graph(input, &request).await?;
         assert_eq!(
             published.revision.digest_version,
-            Some(GenerationDigestVersion::V25)
+            Some(GenerationDigestVersion::V26)
         );
         let mut identities = Vec::new();
         for (query, qualified) in [

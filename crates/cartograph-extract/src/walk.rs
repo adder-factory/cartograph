@@ -1345,6 +1345,33 @@ fn visit_javascript_binding_value(
     builder: &mut ExtractionBuilder<'_, '_>,
     input: JavaScriptBindingValue<'_, '_>,
 ) -> Result<(), ExtractError> {
+    // Preserve binding qualification/containment while references in a data
+    // initializer execute in the enclosing callable, including `this.#m()`.
+    let execution_owner =
+        if input.callable.is_none() && initializer_runs_in_callable(builder, input.value)? {
+            builder.initializer_execution_owner(builder.owners.last())
+        } else {
+            None
+        };
+    if let Some(owner) = &execution_owner {
+        // Include vector growth and the two retained ID strings.
+        let bytes = std::mem::size_of::<(SymbolId, SymbolId)>() * 4
+            + input.id.as_str().len()
+            + owner.as_str().len();
+        builder
+            .context
+            .budget
+            .reserve_working_bytes(u64::try_from(bytes).map_err(|_| ExtractError::OutputLimit)?)?;
+        builder
+            .javascript
+            .initializer_reference_owners
+            .try_reserve(1)
+            .map_err(|_| ExtractError::OutputLimit)?;
+        builder
+            .javascript
+            .initializer_reference_owners
+            .push((input.id.clone(), owner.clone()));
+    }
     builder.owners.push(input.id.clone());
     builder.qualifiers.push(input.name.to_owned());
     if let Some(callable_node) = input.callable {
@@ -1362,7 +1389,34 @@ fn visit_javascript_binding_value(
     }
     builder.qualifiers.pop();
     builder.owners.pop();
+    if execution_owner.is_some() {
+        builder.javascript.initializer_reference_owners.pop();
+    }
     Ok(())
+}
+
+fn initializer_runs_in_callable(
+    builder: &mut ExtractionBuilder<'_, '_>,
+    value: Node<'_>,
+) -> Result<bool, ExtractError> {
+    let mut ancestor = value.parent();
+    for _ in 0..crate::MAXIMUM_AST_DEPTH {
+        builder.context.ensure_active()?;
+        let Some(node) = ancestor else {
+            return Ok(false);
+        };
+        match node.kind() {
+            "method_definition"
+            | "function_declaration"
+            | "function_expression"
+            | "generator_function"
+            | "generator_function_declaration"
+            | "arrow_function" => return Ok(true),
+            "class_body" | "program" => return Ok(false),
+            _ => ancestor = node.parent(),
+        }
+    }
+    Ok(false)
 }
 
 fn visit_javascript_binding(
@@ -1468,6 +1522,26 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
     }
 
     fn visit(&mut self, node: Node<'_>, depth: usize) -> Result<(), ExtractError> {
+        // A callback inside an initializer has its own execution scope even
+        // when it has no declaration symbol. Its locals remain qualified by
+        // the containing binding; outer initializer overrides cannot cross it.
+        let suspended = if !self.javascript.initializer_reference_owners.is_empty()
+            && javascript_scopes::FUNCTION_SCOPE_KINDS.contains(&node.kind())
+        {
+            Some(std::mem::take(
+                &mut self.javascript.initializer_reference_owners,
+            ))
+        } else {
+            None
+        };
+        let result = self.visit_node(node, depth);
+        if let Some(owners) = suspended {
+            self.javascript.initializer_reference_owners = owners;
+        }
+        result
+    }
+
+    fn visit_node(&mut self, node: Node<'_>, depth: usize) -> Result<(), ExtractError> {
         self.context.ensure_active()?;
         if depth > self.maximum_ast_depth {
             return Err(ExtractError::NestingLimit);
@@ -1654,8 +1728,37 @@ impl<'source, 'cancel> ExtractionBuilder<'source, 'cancel> {
         })
     }
 
+    fn initializer_execution_owner(&self, owner: Option<&SymbolId>) -> Option<SymbolId> {
+        let owner = owner?;
+        Some(
+            self.javascript
+                .initializer_reference_owners
+                .iter()
+                .rev()
+                .find_map(|(binding, execution)| (binding == owner).then_some(execution))
+                .unwrap_or(owner)
+                .clone(),
+        )
+    }
+
+    fn execution_reference_owner(
+        &self,
+        owner: Option<&SymbolId>,
+        kind: ReferenceKind,
+    ) -> Option<SymbolId> {
+        if matches!(
+            kind,
+            ReferenceKind::Calls | ReferenceKind::Instantiates | ReferenceKind::Imports
+        ) {
+            self.initializer_execution_owner(owner)
+        } else {
+            owner.cloned()
+        }
+    }
+
     fn emit_reference(&mut self, reference: ExtractedReference) -> Result<(), ExtractError> {
         let reference = ExtractedReference {
+            owner: self.execution_reference_owner(reference.owner.as_ref(), reference.kind),
             name: self.bound_canonical_name(
                 reference.name,
                 crate::bounded_name::MAX_CANONICAL_REFERENCE_NAME_BYTES,

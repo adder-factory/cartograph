@@ -1,11 +1,11 @@
 //! Remove six physical `ObjC` alias links after restoring the receiver delta
-//! to recover the exact wave-2 facts, rehashed under V25.
+//! to recover the exact wave-2 facts, rehashed under V26.
 
 use super::*;
 
-// V25 changes the digest domain; facts unchanged in the restored projection.
+// V26 changes the digest domain; facts unchanged in the restored projection.
 pub(super) const PREVIOUS_GENERIC_DIGEST: &str =
-    "c682e5f2e956136f520967a7d106a5a7fea475633c207de34bbd411cddf1d36c";
+    "d3ab9cfb2088643857d410f1c9a766868df2eabc3aaeb6f323eeec4555cffbb6";
 const PHYSICAL_ALIAS_EDGES: usize = 6;
 
 pub(super) fn restore(facts: &CanonicalGenerationFacts) -> CanonicalGenerationFacts {

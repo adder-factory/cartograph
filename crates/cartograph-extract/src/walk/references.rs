@@ -1255,6 +1255,10 @@ fn push_resolved_reference(
     if pending.name.is_empty() {
         return Ok(());
     }
+    let pending = PendingReference {
+        owner: builder.execution_reference_owner(pending.owner.as_ref(), pending.kind),
+        ..pending
+    };
     super::current_class_calls::capture(builder, &pending)?;
     builder.emit_reference(ExtractedReference {
         owner: pending.owner,

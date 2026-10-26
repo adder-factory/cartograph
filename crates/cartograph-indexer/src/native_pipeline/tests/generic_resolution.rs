@@ -20,6 +20,102 @@ fn assert_call(facts: &CanonicalGenerationFacts, call: &ReferenceInput, target: 
 }
 
 #[test]
+fn private_method_calls_in_initializers_belong_to_the_enclosing_method() {
+    let source = r"class Store {
+      #read() { return 1; }
+      async #load() { return 2; }
+      #log() {}
+      #finish() { return 3; }
+      async run() {
+        const value = this.#read();
+        let loaded = await this.#load();
+        var flight = this.#load().finally(() => {});
+        const { result } = { result: this.#read() };
+        this.#log();
+        return this.#finish() + value + loaded + result;
+      }
+    }";
+    for path in [
+        "src/store.ts",
+        "src/store.tsx",
+        "src/store.js",
+        "src/store.jsx",
+    ] {
+        let facts = build_capability_generation(&[(path, source)], false);
+        let owner = capability_symbol(&facts, path, "Store::run");
+        for (name, count) in [("#read", 2), ("#load", 2), ("#log", 1), ("#finish", 1)] {
+            let target = capability_symbol(&facts, path, &format!("Store::{name}"));
+            let calls = facts
+                .references()
+                .iter()
+                .filter(|reference| {
+                    reference.owner_symbol_id.as_ref() == Some(&owner.symbol_id)
+                        && reference.reference_kind == ReferenceKind::Calls.as_str()
+                        && reference.reference_name == format!("this.{name}")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                calls.len(),
+                count,
+                "{path}::{name}: {:?}",
+                facts.references()
+            );
+            for call in calls {
+                assert_call(&facts, call, target);
+                assert_eq!(call.resolution_provenance, "native-current-class-call");
+            }
+        }
+    }
+}
+
+#[test]
+fn initializer_call_ownership_preserves_anonymous_callback_scopes() {
+    for callback in ["async () =>", "async function ()"] {
+        let source = format!(
+            "function factory() {{ return () => {{}}; }}\nfunction run() {{ const pending = queue({callback} {{ const restore = factory(); try {{ work(); }} finally {{ restore(); }} }}); }}"
+        );
+        let path = "src/callbacks.ts";
+        let facts = build_capability_generation(&[(path, source.as_str())], false);
+        let run = capability_symbol(&facts, path, "run");
+        CapabilityReferenceQuery::new(&facts, run).named("queue", ReferenceKind::Calls);
+        let callback = capability_symbol(&facts, path, "run::pending");
+        let restore = capability_symbol(&facts, path, "run::pending::restore");
+        let call =
+            CapabilityReferenceQuery::new(&facts, callback).named("restore", ReferenceKind::Calls);
+        assert_call(&facts, call, restore);
+        assert_eq!(call.resolution_provenance, "native-exact-lexical");
+        let factory = capability_symbol(&facts, path, "factory");
+        let call =
+            CapabilityReferenceQuery::new(&facts, callback).named("factory", ReferenceKind::Calls);
+        assert_call(&facts, call, factory);
+    }
+}
+
+#[test]
+fn initializer_member_calls_do_not_target_the_data_binding_being_initialized() {
+    let path = "src/initializers.ts";
+    let facts = build_capability_generation(
+        &[(
+            path,
+            "function run(handle, extractor) { const stat = handle.stat(); const isConst = extractor.isConst?.(); const instance = new instance(); callback(); return [stat, isConst]; }\nconst callback = () => {};",
+        )],
+        false,
+    );
+    let owner = capability_symbol(&facts, path, "run");
+    for name in ["stat", "isConst"] {
+        let call = CapabilityReferenceQuery::new(&facts, owner).named(name, ReferenceKind::Calls);
+        assert!(call.target_symbol_id.is_none(), "{call:?}");
+        assert_eq!(call.resolution_provenance, "native-dynamic-unresolved");
+    }
+    let instance =
+        CapabilityReferenceQuery::new(&facts, owner).named("instance", ReferenceKind::Instantiates);
+    assert!(instance.target_symbol_id.is_none(), "{instance:?}");
+    let callback = capability_symbol(&facts, path, "callback");
+    let call = CapabilityReferenceQuery::new(&facts, owner).named("callback", ReferenceKind::Calls);
+    assert_call(&facts, call, callback);
+}
+
+#[test]
 fn current_class_calls_cover_managed_cpp_swift_and_ruby_scopes() {
     let fixtures = [
         (

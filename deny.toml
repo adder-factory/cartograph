@@ -52,7 +52,6 @@ deny = [
 skip = [
   { crate = "tree-sitter@0.26.13", reason = "Local ABAP compatibility facade reexports 0.27 types and has no native code; the workspace gate verifies exactly one 0.27 runtime" },
   { crate = "getrandom@0.2.17", reason = "ring/rustls has not yet adopted getrandom 0.4" },
-  { crate = "windows-sys@0.60.2", reason = "notify 8.2.0 has not yet adopted the workspace's windows-sys 0.61 line" },
 ]
 
 [sources]

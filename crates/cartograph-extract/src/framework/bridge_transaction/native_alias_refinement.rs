@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn rollback_restores_the_original_dynamic_reference() -> Result<(), Box<dyn std::error::Error>>
     {
-        let source = "function ordinary(m) { m.run(); }";
+        let source = "function ordinary(m) { const result = m.run(); return result; }";
         let snapshot = SourceSnapshot::from_bytes(
             "src/undo.js",
             source.as_bytes(),
@@ -36,6 +36,7 @@ mod tests {
         )?;
         let file = NativeExtractor::new(SourceLanguage::JavaScript)?.extract(&snapshot)?;
         let original = serde_json::to_value(&file.references)?;
+        let original_count = file.references.len();
         let dynamic = format!("{DYNAMIC_DISPATCH_RESOLUTION_PREFIX}run");
         assert!(
             file.references
@@ -63,6 +64,7 @@ mod tests {
                 .iter()
                 .any(|reference| reference.resolution_name.as_deref() == Some(&refined))
         );
+        assert_eq!(builder.references().len(), original_count);
         builder.bridge.omit_facts(checkpoint);
         assert_eq!(serde_json::to_value(builder.references())?, original);
         Ok(())

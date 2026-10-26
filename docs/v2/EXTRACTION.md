@@ -135,10 +135,10 @@ path/content-digest pairs in deterministic order. The encoding lives in
 source context, indexing, and v1 import. An exact set mismatch fails closed.
 
 Generation freshness additionally requires the current native generation-digest
-contract. Contract V25 adds FreeSWITCH XML structure, Kamailio route/configuration
-facts and scoped route resolution, and rtpengine sections/options. It builds on
-V24's shared test-path policy. An unchanged V24 project reports stale once and
-publishes current-contract facts.
+contract. Contract V26 corrects JavaScript-family initializer call ownership and updates
+the Ada grammar to 0.9.1. V25 added FreeSWITCH XML, Kamailio routes and
+configuration, and rtpengine sections/options. An unchanged older-contract
+project reports stale once and publishes current-contract facts.
 
 After an upgrade from an older contract, unchanged source remains stale until a
 normal index publishes current-contract facts. This contract check stays
@@ -146,10 +146,11 @@ separate from the source-manifest digest so v1 import still compares exact
 checkout bytes rather than a binary-specific identity.
 
 <details>
-<summary>Details: generation-digest contract history (V5–V25)</summary>
+<summary>Details: generation-digest contract history (V5–V26)</summary>
 
 | Contract | What it fences |
 | --- | --- |
+| V26 | JavaScript-family initializer calls belong to the enclosing callable; Ada grammar 0.9.1; requires a source rebuild from older contracts |
 | V25 | FreeSWITCH XML, Kamailio routes and configuration, rtpengine sections and keys; requires a source rebuild from older contracts |
 | V24 | Shared language-aware test paths, including Rust leaf test modules; requires a native source rebuild from older contracts |
 | V23 | v1 framework/bridge detail and deferred resolution parity across languages; forces an unchanged V22 project to publish new facts |

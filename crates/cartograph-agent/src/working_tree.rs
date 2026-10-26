@@ -10,8 +10,8 @@ use cartograph_search::{
 };
 
 use crate::{
-    GitChangeKind, ProjectCancellation, ProjectError, ProjectRuntime, ReviewOptions,
-    discover_git_comparison,
+    GitChangeKind, ProjectCancellation, ProjectError, ProjectRuntime, RetrievalFailureCause,
+    RetrievalFailureStage, ReviewOptions, discover_git_comparison,
 };
 
 const OVERLAY_MAXIMUM_FILE_BYTES: usize = 512 * 1_024;
@@ -123,7 +123,7 @@ impl ProjectRuntime {
                 files: Vec::new(),
                 truncated: comparison_truncated,
             })
-            .map_err(|_| ProjectError::RetrievalOperationFailed);
+            .map_err(|_| overlay_evidence_error());
         }
         let cancellation = request.cancellation.clone();
         let scan = match tokio::task::spawn_blocking(move || {
@@ -148,7 +148,14 @@ impl ProjectRuntime {
             files: scan.files,
             truncated: scan.truncated,
         })
-        .map_err(|_| ProjectError::RetrievalOperationFailed)
+        .map_err(|_| overlay_evidence_error())
+    }
+}
+
+fn overlay_evidence_error() -> ProjectError {
+    ProjectError::RetrievalFailed {
+        stage: RetrievalFailureStage::WorkingTreeOverlay,
+        cause: RetrievalFailureCause::InvalidEvidence,
     }
 }
 
@@ -297,7 +304,7 @@ fn match_source(
         matched_terms,
     })
     .map(Some)
-    .map_err(|_| ProjectError::RetrievalOperationFailed)
+    .map_err(|_| overlay_evidence_error())
 }
 
 struct LiveExcerpt {

@@ -745,6 +745,12 @@ impl FileTestImpactResult {
         self.affected_test_file_count
     }
 
+    /// Whether file counts cover every node within the requested depth.
+    #[must_use]
+    pub const fn counts_complete(&self) -> bool {
+        !self.nodes_truncated
+    }
+
     /// Whether more distinct symbols existed than the requested traversal node budget.
     #[must_use]
     pub const fn nodes_truncated(&self) -> bool {
@@ -835,6 +841,7 @@ pub struct StructuralFindingGroupQuery {
     minimum_severity: StructuralFindingSeverity,
     per_finding_limit: u16,
     exclude_fixtures: bool,
+    path_prefix: Option<String>,
 }
 
 impl StructuralFindingGroupQuery {
@@ -862,6 +869,7 @@ impl StructuralFindingGroupQuery {
             minimum_severity: StructuralFindingSeverity::default(),
             per_finding_limit,
             exclude_fixtures: false,
+            path_prefix: None,
         })
     }
 
@@ -878,6 +886,23 @@ impl StructuralFindingGroupQuery {
         self.exclude_fixtures = exclude;
         self
     }
+
+    /// Restrict detector findings and pre-limit counts to a canonical path prefix.
+    /// # Errors
+    /// Rejects an invalid project-relative path prefix.
+    pub fn with_path_prefix(mut self, prefix: Option<&str>) -> Result<Self, StorageError> {
+        validate_finding_path(prefix, "finding_path_prefix")?;
+        self.path_prefix = prefix
+            .map(|prefix| {
+                NormalizedPath::parse(prefix.trim_end_matches('/'))
+                    .map(|path| path.as_str().to_owned())
+                    .map_err(|_| StorageError::InvalidInput {
+                        field: "finding_path_prefix",
+                    })
+            })
+            .transpose()?;
+        Ok(self)
+    }
 }
 
 /// Independently bounded detector groups plus complete pre-limit counts.
@@ -886,6 +911,7 @@ impl StructuralFindingGroupQuery {
 pub struct StructuralFindingGroup {
     findings: Vec<StructuralFinding>,
     counts: BTreeMap<String, u64>,
+    computation: Option<StructuralFindingComputation>,
 }
 
 impl StructuralFindingGroup {
@@ -899,6 +925,42 @@ impl StructuralFindingGroup {
     #[must_use]
     pub fn counts(&self) -> &BTreeMap<String, u64> {
         &self.counts
+    }
+
+    /// Complete computation provenance read in the same snapshot as these rows.
+    /// Absent when no complete relation exists for the snapshot's inputs.
+    #[must_use]
+    pub const fn computation(&self) -> Option<&StructuralFindingComputation> {
+        self.computation.as_ref()
+    }
+}
+
+/// One complete detector relation and its exact generation/input identity.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuralFindingComputation {
+    generation_id: GenerationId,
+    input_fingerprint: ContentDigest,
+    stats: StructuralFindingStats,
+}
+
+impl StructuralFindingComputation {
+    /// Generation whose source and auxiliary inputs produced this relation.
+    #[must_use]
+    pub const fn generation_id(&self) -> &GenerationId {
+        &self.generation_id
+    }
+
+    /// Fingerprint including the generation and auxiliary detector inputs.
+    #[must_use]
+    pub const fn input_fingerprint(&self) -> &ContentDigest {
+        &self.input_fingerprint
+    }
+
+    /// Complete unfiltered project totals from this same relation.
+    #[must_use]
+    pub const fn stats(&self) -> &StructuralFindingStats {
+        &self.stats
     }
 }
 

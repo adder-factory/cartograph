@@ -136,11 +136,13 @@ fn react_native_destructured_and_qualified_members_keep_native_resolution() {
             "#import <React/RCTBridgeModule.h>\n@implementation RNThing\nRCT_EXPORT_MODULE()\nRCT_EXPORT_METHOD(doSomething:(NSString *)name) {}\nRCT_REMAP_METHOD(getThing, getThingWithResolver:(RCTPromiseResolveBlock)resolve) {}\n- (void)plainMethod {}\n@end\n",
         ),
     ]);
-    for (owner, method) in [
-        ("loadThing::value", "doSomething"),
-        ("loadThing::other", "getThing"),
-    ] {
-        let owner = capability_symbol(&facts, "src/native.js", owner);
+    // Both the framework alias post-pass and the ordinary reference walk must
+    // attribute execution to the callable, while retaining binding declarations.
+    for binding in ["loadThing::value", "loadThing::other"] {
+        capability_symbol(&facts, "src/native.js", binding);
+    }
+    let owner = capability_symbol(&facts, "src/native.js", "loadThing");
+    for method in ["doSomething", "getThing"] {
         let (provenance, confidence) = if method == "doSomething" {
             (
                 native_bridge_details::ALIAS_PROVENANCE,
@@ -163,7 +165,6 @@ fn react_native_destructured_and_qualified_members_keep_native_resolution() {
             ),
         );
     }
-    let owner = capability_symbol(&facts, "src/native.js", "loadThing");
     assert_unexported_bridge_member(&facts, owner);
 }
 

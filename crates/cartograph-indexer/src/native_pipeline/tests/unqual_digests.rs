@@ -1,6 +1,6 @@
 //! V24 retains the merged tracks' facts while reconstructing the removed Lua
 //! subfeature: three symbol flags, three document records and two provenances.
-//! V25 changes the digest domain; facts unchanged in the restored projection.
+//! V26 changes the digest domain; facts unchanged in the restored projection.
 use super::{
     CanonicalGenerationFacts, EXPECTED_GENERIC_FAMILY_DIGEST, GenerationFacts, PipelineStage,
     SERIAL_WORKERS, SearchDocumentInput, SymbolExportFlags, TEST_GENERATION_BYTES, build,
@@ -57,7 +57,7 @@ async fn deleting_lua_proof_restores_the_legacy_digest_fact_by_fact() {
         .unwrap_or_else(|error| panic!("legacy fact validation failed: {error}"));
     assert_eq!(
         legacy.digest().as_str(),
-        "adc1c8138abad9aa1a7768854f7cd33965fa2f828451752b39d9991140d9676a"
+        "b0ca3f65ce555cbdf35336428c1a684465282260765c0347ed290f7b7fd8f515"
     );
     assert_eq!(current.edges(), legacy.edges());
     assert_eq!(

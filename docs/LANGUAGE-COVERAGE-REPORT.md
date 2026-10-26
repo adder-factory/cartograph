@@ -4,7 +4,7 @@
 [Grammar provenance](GRAMMAR-ASSETS.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-10-22 (`v3.0.5`).
+Last release audit: 2026-10-26 (`v3.0.6`).
 
 This report states what "supported" means for a language mode and where the
 evidence for each admitted mode lives. For the per-language inventory, read the
@@ -160,8 +160,8 @@ after the extraction fixes are:
 
 | Disposition | Distinct selectors |
 | --- | ---: |
-| Identity | 6,052 |
-| Aligned | 2,037 |
+| Identity | 6,059 |
+| Aligned | 2,030 |
 | Pending, wave 3 | 3 |
 | Intentional | 73 |
 
@@ -221,10 +221,10 @@ target file and declaration, a pinned alignment, or a ledger entry. Its
 [README](../crates/cartograph-indexer/tests/fixtures/v1_resolution/README.md)
 owns the tables, update procedure and pending inventory.
 
-| Disposition (v2.1.42) | Distinct facts |
+| Disposition (v3.0.6) | Distinct facts |
 | --- | ---: |
-| Matched exactly | 679 |
-| Aligned by exact pins | 386 |
+| Matched exactly | 686 |
+| Aligned by exact pins | 379 |
 | Intentional | 563 |
 | Pending, wave 3 | 96 |
 
