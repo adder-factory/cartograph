@@ -47,6 +47,70 @@ enum RetrievalStageError {
     RequestCancelled,
     GenerationChanged,
     Failed,
+    StorageTimeout,
+    StorageUnavailable,
+    InvalidRequest,
+}
+
+/// Source-free stage at which context evidence could not be assembled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetrievalFailureStage {
+    /// Reading and fusing lexical and optional semantic channels.
+    Retrieval,
+    /// Assembling generation-fenced structural context.
+    ContextAssembly,
+    /// Validating live working-tree evidence.
+    WorkingTreeOverlay,
+}
+
+impl RetrievalFailureStage {
+    /// Stable public stage name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Retrieval => "retrieval",
+            Self::ContextAssembly => "context_assembly",
+            Self::WorkingTreeOverlay => "working_tree_overlay",
+        }
+    }
+}
+
+/// Redacted cause of a context failure; provider and driver strings are omitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetrievalFailureCause {
+    /// Publication changed repeatedly during the bounded read.
+    GenerationChanged,
+    /// A native read exceeded its deadline.
+    StorageTimeout,
+    /// A required native read could not complete.
+    StorageUnavailable,
+    /// Request bounds or shape were invalid.
+    InvalidRequest,
+    /// Evidence failed its typed assembly contract.
+    InvalidEvidence,
+}
+
+impl RetrievalFailureCause {
+    /// Stable public cause name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::GenerationChanged => "generation_changed",
+            Self::StorageTimeout => "storage_timeout",
+            Self::StorageUnavailable => "storage_unavailable",
+            Self::InvalidRequest => "invalid_request",
+            Self::InvalidEvidence => "invalid_evidence",
+        }
+    }
+
+    /// Whether retrying the same read can recover without changing its inputs.
+    #[must_use]
+    pub const fn retryable(self) -> bool {
+        matches!(
+            self,
+            Self::GenerationChanged | Self::StorageTimeout | Self::StorageUnavailable
+        )
+    }
 }
 
 /// Validated deterministic/auto/hybrid policy for one natural-language retrieval.
@@ -320,7 +384,9 @@ impl ProjectRuntime {
                 Ok(prepared) => return Ok(prepared),
             }
         }
-        Err(ProjectError::RetrievalOperationFailed)
+        Err(project_retrieval_error(
+            RetrievalStageError::GenerationChanged,
+        ))
     }
 
     async fn prepare_retrieval_attempt(
@@ -346,7 +412,7 @@ impl ProjectRuntime {
         };
         let expected_generation_id = generation.generation_id().clone();
         let lexical_query = LexicalQuery::for_code_search(query, options.candidate_limit)
-            .map_err(|_| RetrievalStageError::Failed)?;
+            .map_err(|_| RetrievalStageError::InvalidRequest)?;
         let retriever = DeterministicRetriever::new(self.database().clone());
         if options.mode == SearchMode::Deterministic {
             return deterministic_retrieval(DeterministicRetrievalRequest {
@@ -616,7 +682,12 @@ fn optional_lexical_result(
         Ok(channel) => Ok(Some(channel)),
         Err(RetrievalStageError::RequestCancelled) => Err(RetrievalStageError::RequestCancelled),
         Err(RetrievalStageError::GenerationChanged) => Err(RetrievalStageError::GenerationChanged),
-        Err(RetrievalStageError::Failed) => Ok(None),
+        Err(
+            RetrievalStageError::Failed
+            | RetrievalStageError::StorageTimeout
+            | RetrievalStageError::StorageUnavailable
+            | RetrievalStageError::InvalidRequest,
+        ) => Ok(None),
     }
 }
 
@@ -940,6 +1011,8 @@ async fn ensure_generation_current(
 fn storage_stage_error(error: &StorageError) -> RetrievalStageError {
     match error {
         StorageError::CurrentGenerationChanged => RetrievalStageError::GenerationChanged,
+        StorageError::StatementTimeout { .. } => RetrievalStageError::StorageTimeout,
+        StorageError::DatabaseOperation { .. } => RetrievalStageError::StorageUnavailable,
         _ => RetrievalStageError::Failed,
     }
 }
@@ -950,18 +1023,29 @@ fn retrieval_stage_error(error: &RetrievalError) -> RetrievalStageError {
         | RetrievalError::Semantic(SemanticStorageError::CurrentGenerationChanged) => {
             RetrievalStageError::GenerationChanged
         }
-        RetrievalError::InvalidInput { .. }
-        | RetrievalError::Storage(_)
-        | RetrievalError::Semantic(_) => RetrievalStageError::Failed,
+        RetrievalError::InvalidInput { .. } => RetrievalStageError::InvalidRequest,
+        RetrievalError::Storage(error) => storage_stage_error(error),
+        RetrievalError::Semantic(_) => RetrievalStageError::Failed,
     }
 }
 
 fn project_retrieval_error(error: RetrievalStageError) -> ProjectError {
     match error {
         RetrievalStageError::RequestCancelled => ProjectError::RequestCancelled,
-        RetrievalStageError::GenerationChanged | RetrievalStageError::Failed => {
-            ProjectError::RetrievalOperationFailed
-        }
+        error => ProjectError::RetrievalFailed {
+            stage: RetrievalFailureStage::Retrieval,
+            cause: match error {
+                RetrievalStageError::GenerationChanged => RetrievalFailureCause::GenerationChanged,
+                RetrievalStageError::StorageTimeout => RetrievalFailureCause::StorageTimeout,
+                RetrievalStageError::StorageUnavailable => {
+                    RetrievalFailureCause::StorageUnavailable
+                }
+                RetrievalStageError::InvalidRequest => RetrievalFailureCause::InvalidRequest,
+                RetrievalStageError::Failed | RetrievalStageError::RequestCancelled => {
+                    RetrievalFailureCause::InvalidEvidence
+                }
+            },
+        },
     }
 }
 
@@ -988,6 +1072,49 @@ mod tests {
     use super::*;
     use cartograph_domain::{DocumentId, DocumentKind};
     use cartograph_search::RerankState;
+
+    #[test]
+    fn retrieval_failures_preserve_safe_cause_and_retry_policy() {
+        for (storage, expected, retryable) in [
+            (
+                StorageError::CurrentGenerationChanged,
+                RetrievalFailureCause::GenerationChanged,
+                true,
+            ),
+            (
+                StorageError::StatementTimeout {
+                    operation: "private-operation-token",
+                },
+                RetrievalFailureCause::StorageTimeout,
+                true,
+            ),
+            (
+                StorageError::DatabaseOperation {
+                    operation: "private-operation-token",
+                },
+                RetrievalFailureCause::StorageUnavailable,
+                true,
+            ),
+            (
+                StorageError::CorruptStoredValue {
+                    field: "private-field-token",
+                },
+                RetrievalFailureCause::InvalidEvidence,
+                false,
+            ),
+        ] {
+            let error = project_retrieval_error(storage_stage_error(&storage));
+            assert!(
+                matches!(error, ProjectError::RetrievalFailed { stage: RetrievalFailureStage::Retrieval, cause } if cause == expected)
+            );
+            assert_eq!(expected.retryable(), retryable);
+            assert!(!error.to_string().contains("private-"));
+        }
+        assert!(matches!(
+            project_retrieval_error(RetrievalStageError::RequestCancelled),
+            ProjectError::RequestCancelled
+        ));
+    }
 
     #[test]
     fn retrieval_options_default_to_auto_and_reject_unbounded_top_k() {

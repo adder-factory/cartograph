@@ -10676,6 +10676,7 @@ fn lexical_target_allowed(
     let not_self = request.dispatch == ReferenceDispatch::RustSelf
         || request.owner != Some(&candidate.symbol_id);
     not_self
+        && !javascript_data_initializer_call_target(request, candidate)
         && receiver_resolution::lexical_member_eligible(index, request, candidate)
         && reference_kind_candidate(request.kind, candidate)
 }
@@ -10839,9 +10840,27 @@ fn lexical_candidate_matches(
     (is_lexical_candidate(request.kind, request.name, candidate)
         || swift_implicit_member_call(request, candidate))
         && &candidate.file_id == request.file_id
+        && !javascript_data_initializer_call_target(request, candidate)
         && receiver_resolution::lexical_member_eligible(index, request, candidate)
         && (request.owner != Some(&candidate.symbol_id)
             || generic_resolution::recursive_owner_call(index, request, candidate))
+}
+
+/// Moving call ownership to its callable must not make a data binding under
+/// initialization a target of its own initializer (`const stat = handle.stat()`).
+/// Function-valued declarations have callable kinds and keep their eligibility.
+fn javascript_data_initializer_call_target(
+    request: &ResolutionRequest<'_>,
+    candidate: &ResolutionCandidate,
+) -> bool {
+    matches!(
+        request.kind,
+        ReferenceKind::Calls | ReferenceKind::Instantiates
+    ) && javascript_family_name(request.language)
+        && matches!(candidate.kind, SymbolKind::Constant | SymbolKind::Variable)
+        && &candidate.file_id == request.file_id
+        && candidate.declaration_span.0 <= request.span.start_byte()
+        && request.span.end_byte() <= candidate.declaration_span.1
 }
 
 /// Resolve a def-use site to the local it reads: the unique same-file binding
@@ -14749,14 +14768,14 @@ mod tests {
 
     const FULL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::FULL;
     const STRUCTURAL_TEST_EVIDENCE: NativeEvidencePolicy = NativeEvidencePolicy::STRUCTURAL;
-    // V25 changes the digest domain; facts unchanged in these fixtures.
+    // V26 changes the digest domain; facts unchanged in these fixtures.
     const PARSER_ONLY_FILE_COUNT: usize = 6;
     const EXPECTED_PARSER_ONLY_DIGEST: &str =
-        "856b582c36b94f1ce276117ee2b618ab50c8488ae2acea52785725786888e45f";
+        "768ca1d314bcc97617447b4089eb2393cae0b8f06ae83b183fb84c34f7b36f02";
     const EXPECTED_PARSER_ONLY_PROJECTION: (usize, usize, usize, usize, usize) = (6, 6, 0, 0, 6);
     const ADMITTED_FAMILY_FILE_COUNT: usize = 14;
     const EXPECTED_ADMITTED_FAMILY_DIGEST: &str =
-        "c20eaec6ba854b79703c8f084074c9ba7231f258de0ade48d440bcf505335bac";
+        "ab27daea5e132d764ae28033c597375af08ff1388a2763b6d77c934acaecbd47";
     const EXPECTED_ADMITTED_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (14, 33, 19, 6, 33);
     const GENERIC_FAMILY_FILE_COUNT: usize = 28;
@@ -14783,7 +14802,7 @@ mod tests {
     // references and centrality; bridge_digest_proof then removes six alias
     // links to recover 04a9f9b9... exactly under the V23 domain.
     const EXPECTED_GENERIC_FAMILY_DIGEST: &str =
-        "92f8fd8c8721e577794be14c173f0685afc434fc51f4052f2cd399e18c5ccda8";
+        "0b6c1e0a1dc85108f7fa2a56507a8fba967d415fff93cb3b8b70816cb2261e85";
     const EXPECTED_GENERIC_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =
         (28, 260, 292, 135, 260);
     const CUSTOM_FAMILY_FILE_COUNT: usize = 13;
@@ -14794,7 +14813,7 @@ mod tests {
     // frameworks::routes::mybatis_local_sql_roles_preserve_the_frozen_custom_digest
     // regression removes the hint and compares every fact table and digest.
     const EXPECTED_CUSTOM_FAMILY_DIGEST: &str =
-        "ad892526a41cfad2f08d3d7763fcb0e461aff985554e2e04968360afd7217c1b";
+        "15c746f02c0db8736a5d24aa73ffcf6598988af416dd343f9f08f9b25b196d4b";
     // A Liquid `{% render %}` partner is a Component as well as an Import
     // (+1 symbol and its containment).
     const EXPECTED_CUSTOM_FAMILY_PROJECTION: (usize, usize, usize, usize, usize) =

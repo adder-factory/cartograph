@@ -3,7 +3,7 @@
 [Documentation home](README.md) · [Project overview](../README.md) ·
 [CLI reference](CLI-REFERENCE.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-Last release audit: 2026-10-22 (`v3.0.5`).
+Last release audit: 2026-10-26 (`v3.0.6`).
 
 Cartograph v2 exposes a compact native stdio MCP server. Its core returns
 bounded, generation-scoped evidence and never makes the database a source of
@@ -305,6 +305,15 @@ a clean ready lens.
   packet already reports immutable graph freshness separately, while non-Git
   review lenses continue to use it as an explicit stale-evidence opt-in.
 
+`agent-audit` also accepts `pathFilter` as a project-relative segment prefix.
+Filtering happens before detector counts and per-detector limits; complete
+project totals remain separately labeled as unfiltered. Readiness, totals, and
+rows share one native snapshot with its generation and input fingerprint.
+Missing biomarker data returns top-level `state: not_computed`, null findings/counts, and the confirmed
+refresh action. `state: ready` with zero counts means the computation completed.
+An argument unsupported by a review mode names that argument, the selected mode,
+and its allowed arguments.
+
 ### Biomarkers
 
 - `cartograph_biomarkers` is read-only. When the current fingerprint has no
@@ -338,13 +347,26 @@ fragment therefore scopes the scanned inventory directly. Invalid expressions
 return a safe parser category and zero-based byte offset without echoing the
 query text.
 
-### Node batches
+### Node and graph batches
 
 `cartograph_node` accepts either one `symbol` or a batch of up to 20 exact
 `symbols`. A batch preserves every resolvable result, lists missing inputs in
 `unresolved`, and lists each ambiguous input in `ambiguous` with up to ten
 candidate identities and an explicit `truncated` flag. A single-symbol request
 continues to fail closed when its name is ambiguous.
+
+Traversal `cartograph_graph` batches use the same bounded candidate diagnostics
+and retain every uniquely resolved root. `resolutionState` is `complete` or
+`partial`; an entirely unresolved batch returns `unresolved` with `graph: null`
+and instructions to select an exact candidate identity. Path and similarity
+queries continue to require unambiguous endpoints.
+
+File-based `cartograph_affected` and `cartograph_tests_for` preserve admitted tests
+when traversal is partial. `countsComplete: false` labels incomplete counts.
+If the node budget runs out before any test is found, they return
+`truncated_before_any_result` with guidance to increase `maxNodes` or split the
+input files. A truncated empty search does not establish that no tests are
+affected.
 
 ### Context intents, Jev ranking, and the live overlay
 
@@ -361,6 +383,12 @@ relevant judged files (basis `decision_relevance`), and `decision_rank` reports
 the model, outcome and judged count in every output format. A provider failure
 rebuilds the packet through the configured reranker.
 `mode: deterministic` never consults the provider.
+
+Required context failures return `context_retrieval_failed` in text and
+`structuredContent.error`, with a redacted `stage`, `cause`, `retryable`, and
+`nextAction`. Generation changes, storage timeouts, unavailable storage, invalid
+requests, and invalid evidence remain distinct. These diagnostics omit source,
+query text, credentials, driver messages, and absolute checkout paths.
 
 When the durable generation is stale, supported changed/untracked files may
 contribute a separate live working-tree overlay. Overlay items include path,

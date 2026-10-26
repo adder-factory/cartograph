@@ -67,8 +67,8 @@ or the corpus seal, widen matching, or convert a corrected target into parity.
 
 | Disposition | Distinct facts |
 | --- | ---: |
-| Matched exactly | 679 |
-| Aligned by exact pins | 386 |
+| Matched exactly | 686 |
+| Aligned by exact pins | 379 |
 | Pending Wave 3 | 96 |
 | Intentional | 563 |
 | Total | 1,724 |

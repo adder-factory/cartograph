@@ -130,8 +130,8 @@ pub use rename::{
     RenameTextualMention,
 };
 pub use retrieval::{
-    PreparedRetrieval, RetrievalClientRequest, RetrievalOptions, RetrievalRequest,
-    semantic_readiness_from_database,
+    PreparedRetrieval, RetrievalClientRequest, RetrievalFailureCause, RetrievalFailureStage,
+    RetrievalOptions, RetrievalRequest, semantic_readiness_from_database,
 };
 pub use review::{
     GitChangeKind, GitChangedFile, GitComparison, ReviewError, ReviewOptions, ReviewReport,
@@ -1691,6 +1691,14 @@ pub enum ProjectError {
     /// Natural-language retrieval could not validate or assemble its bounded channels.
     #[error("Cartograph retrieval operation failed")]
     RetrievalOperationFailed,
+    /// Context failure preserving its source-free stage and cause across adapters.
+    #[error("Cartograph context failed during {stage:?}: {cause:?}")]
+    RetrievalFailed {
+        /// Stage that could not complete.
+        stage: RetrievalFailureStage,
+        /// Source-free failure category.
+        cause: RetrievalFailureCause,
+    },
     /// Optional enrichment could not read its generation-fenced candidates.
     #[error("Cartograph enrichment candidate read failed")]
     EnrichmentReadFailed,

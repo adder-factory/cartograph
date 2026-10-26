@@ -382,7 +382,11 @@ impl ToolResult {
         metadata.insert("code".to_owned(), error.code().as_str().to_owned());
         Self {
             content: vec![TextContent::new(error.wire_message())],
-            structured_content: None,
+            structured_content: error.diagnostic().map(|diagnostic| {
+                let mut fields = Map::new();
+                fields.insert("error".to_owned(), serde_json::json!(diagnostic));
+                fields
+            }),
             is_error: true,
             metadata: Some(metadata),
         }
@@ -423,6 +427,39 @@ enum TextContentKind {
 mod ceiling_tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn tool_failure_keeps_diagnostics_in_the_public_payload() -> Result<(), ToolContractError> {
+        let error = crate::ToolError::safe(
+            crate::ToolErrorCode::Unavailable,
+            "context_retrieval_failed: storage timed out",
+        )?
+        .with_diagnostic(crate::ToolErrorDiagnostic {
+            code: "context_retrieval_failed",
+            stage: "retrieval",
+            cause: "storage_timeout",
+            retryable: true,
+            next_action: "Retry once",
+        });
+        let wire = serde_json::to_value(ToolResult::from_error(&error))
+            .unwrap_or_else(|error| panic!("serialize tool failure: {error}"));
+        assert_eq!(wire["isError"], true);
+        assert_eq!(
+            wire["structuredContent"]["error"]["code"],
+            "context_retrieval_failed"
+        );
+        assert_eq!(wire["structuredContent"]["error"]["stage"], "retrieval");
+        assert_eq!(
+            wire["structuredContent"]["error"]["cause"],
+            "storage_timeout"
+        );
+        assert_eq!(wire["structuredContent"]["error"]["retryable"], true);
+        assert_eq!(
+            wire["structuredContent"]["error"]["nextAction"],
+            "Retry once"
+        );
+        Ok(())
+    }
 
     #[test]
     fn nested_ceilings_intersect_without_changing_deadline_or_cancellation()

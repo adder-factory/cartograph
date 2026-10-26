@@ -9,7 +9,7 @@ use super::{corrupt, workspace};
 use crate::{
     NativeDatabase, StorageError, StructuralFindingRefresh,
     insights::{
-        DEFAULT_INSIGHT_TIMEOUT, StructuralFinding,
+        DEFAULT_INSIGHT_TIMEOUT, StructuralFinding, StructuralFindingComputation,
         StructuralFindingComputationState as Computation, StructuralFindingGroup,
         StructuralFindingGroupQuery, StructuralFindingQuery, StructuralFindingSeverity,
         StructuralFindingStats, validate_limit,
@@ -232,10 +232,17 @@ impl NativeDatabase {
                 .collect::<BTreeMap<_, _>>();
             let mut groups = BTreeMap::<String, Vec<StructuralFinding>>::new();
             let mut bytes = 0_usize;
-            visit_current(transaction, budget, |row, _| {
+            let computation = visit_current(transaction, budget, |row, _| {
                 if let Some(count) = counts.get_mut(&row.finding)
                     && rank(&row.severity)? >= request.minimum_severity.rank()
                     && (!request.exclude_fixtures || !framework::fixture(&row.path)?)
+                    && request.path_prefix.as_ref().is_none_or(|prefix| {
+                        row.path == *prefix
+                            || row
+                                .path
+                                .strip_prefix(prefix)
+                                .is_some_and(|suffix| suffix.starts_with('/'))
+                    })
                 {
                     *count += 1;
                     let rows = groups.entry(row.finding.clone()).or_default();
@@ -256,6 +263,7 @@ impl NativeDatabase {
             Ok(StructuralFindingGroup {
                 findings: groups.into_values().flatten().collect(),
                 counts,
+                computation,
             })
         })
         .await
@@ -356,12 +364,12 @@ fn visit_current(
     transaction: &StateTransaction<'_>,
     budget: &mut ReadBudget,
     mut visit: impl FnMut(StructuralFinding, &mut ReadBudget) -> Result<(), RocksError>,
-) -> Result<(), RocksError> {
+) -> Result<Option<StructuralFindingComputation>, RocksError> {
     let Some(fingerprint) = fingerprint(transaction, budget)? else {
-        return Ok(());
+        return Ok(None);
     };
-    let Some((manifest, _)) = cached(transaction, budget, &fingerprint)? else {
-        return Ok(());
+    let Some((manifest, run)) = cached(transaction, budget, &fingerprint)? else {
+        return Ok(None);
     };
     dataset::visit(
         transaction,
@@ -381,7 +389,12 @@ fn visit_current(
             rank(&row.severity)?;
             visit(row, budget)
         },
-    )
+    )?;
+    Ok(Some(StructuralFindingComputation {
+        generation_id: fingerprint.generation,
+        input_fingerprint: fingerprint.digest,
+        stats: run.stats,
+    }))
 }
 fn prepare(
     transaction: &mut StateTransaction<'_>,

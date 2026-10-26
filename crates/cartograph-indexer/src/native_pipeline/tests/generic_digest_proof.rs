@@ -5,9 +5,9 @@ use super::{
     validate_generation_facts,
 };
 
-// V25 changes the digest domain; facts unchanged in the restored projection.
+// V26 changes the digest domain; facts unchanged in the restored projection.
 const PREVIOUS_GENERIC_DIGEST: &str =
-    "c6034301ecc6713788a9a85ed0c340a23c4745bb508defd5aa025ae601e5d385";
+    "290ec37f55eb450a44dbc97c8d7f28d95e88b0d7dd18f8bff991ce42405a5b6a";
 
 pub(super) fn unordered_copy(facts: &CanonicalGenerationFacts) -> GenerationFacts {
     GenerationFacts {

@@ -35,7 +35,7 @@ const FRAMEWORK_SYMBOL_DOMAIN: &str = "cartograph.v2.framework-symbol.2026-07-24
 const FRAMEWORK_DIGEST_DOMAIN: &str = "cartograph.v2.framework-digest.2026-07-24";
 const LANDMARK_SITE_INDEX_ENTRY_BYTES: u64 = 128;
 const CANCELLATION_INTERVAL_FRAMEWORK_ITEMS: usize = 256;
-type ReferenceSite = (Option<SymbolId>, ReferenceKind, String, u64, u64);
+type ReferenceSite = (ReferenceKind, String, u64, u64, Option<SymbolId>);
 const MAX_ROUTE_BYTES: usize = 1_024;
 const MAX_SIGNAL_BYTES: usize = 4_096;
 const PYTHON_MULTILINE_DELIMITER_BYTES: usize = 3;
@@ -718,11 +718,11 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
             self.source().len(),
         ))?;
         let key = (
-            input.owner.clone(),
             input.kind,
             name.clone(),
             span.start_byte(),
             span.end_byte(),
+            input.owner.clone(),
         );
         if let Some(index) = self.reference_keys.get(&key).copied() {
             if let Some(resolution_name) = resolution_name {
@@ -760,7 +760,11 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         &mut self,
         input: FrameworkNearReferenceInput<'_>,
     ) -> Result<(), ExtractError> {
-        let owner = self.owner_near(input.start);
+        // Refinement must preserve an existing reference's explicit execution owner;
+        // a containing data binding only describes its declaration scope.
+        let owner = self
+            .reference_owner_at(&input)
+            .or_else(|| self.owner_near(input.start));
         self.add_reference(FrameworkReferenceInput {
             owner,
             name: input.name,
@@ -776,6 +780,29 @@ impl<'source, 'cancel> FrameworkBuilder<'source, 'cancel> {
         input: FrameworkNearReferenceInput<'_>,
     ) -> Result<(), ExtractError> {
         self.add_reference_near(input)
+    }
+
+    fn reference_owner_at(&self, input: &FrameworkNearReferenceInput<'_>) -> Option<SymbolId> {
+        let prefix = (
+            input.kind,
+            safe_signal(input.name)?,
+            u64::try_from(input.start).ok()?,
+            u64::try_from(input.end).ok()?,
+        );
+        let matches = |key: &ReferenceSite| {
+            (key.0, key.1.as_str(), key.2, key.3)
+                == (prefix.0, prefix.1.as_str(), prefix.2, prefix.3)
+        };
+        let mut sites = self
+            .reference_keys
+            .range((prefix.0, prefix.1.clone(), prefix.2, prefix.3, None)..);
+        let (first, _) = sites.next().filter(|(key, _)| matches(key))?;
+        // At most two indexed rows are inspected. Distinct owners at the same
+        // exact site are ambiguous and cannot select an execution owner.
+        if sites.next().is_some_and(|(key, _)| matches(key)) {
+            return None;
+        }
+        first.4.clone()
     }
 
     fn owner_near(&self, offset: usize) -> Option<SymbolId> {
@@ -812,11 +839,11 @@ fn index_reference_sites(
         }
         sites
             .entry((
-                reference.owner.clone(),
                 reference.kind,
                 reference.name.clone(),
                 reference.span.start_byte(),
                 reference.span.end_byte(),
+                reference.owner.clone(),
             ))
             .or_insert(index);
     }

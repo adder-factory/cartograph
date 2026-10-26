@@ -220,10 +220,12 @@ const CORPUS_FINGERPRINT_DOMAIN: &[u8] = b"cartograph-v2-native-real-corpus-v1";
 const EXPECTED_CORPUS_FINGERPRINT: &str =
     "ab91088c482ed36d31759382283342654ce6958be4e601429b8181da531c5fc1";
 
-// V25 changes the digest domain; the source fingerprint, rows, kinds, native report,
-// and exact BM25 identities below remain pinned independently.
+// V26 reassigns 2,381 executable initializer references to containing owners.
+// An independent edge reconstruction coalesces 28 edges (11,278 -> 11,250);
+// targets, declarations, documents, source bytes and BM25 identities stay fixed.
+// Independent wire encoding reproduces the old V25 digest before deriving V26.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "4801ce5ec3f7b1645e77279107ac483bcda1d6c7390f093300856904f86c37da";
+    "c75fca59e7a4a9addcd263d889d29e3b965c479bff35879e430acedf2f0b56a8";
 
 // Native scoring uses k1=1.2, b=.75 and name/code/natural weights 4/1/2.
 // Independently checked corpus statistics: N=6362, weighted tokens=348835,
@@ -253,7 +255,7 @@ const EXPECTED_FILES: i64 = 34;
 
 const EXPECTED_SYMBOLS: i64 = 6_362;
 
-const EXPECTED_EDGES: i64 = 11_278;
+const EXPECTED_EDGES: i64 = 11_250;
 
 const EXPECTED_REFERENCES: i64 = 21_320;
 
@@ -284,11 +286,11 @@ const EXPECTED_UNRESOLVED_REFERENCES: u64 = 13_414;
 
 // Derived allocation pins include spare capacity retained by geometrically
 // grown canonical metadata buffers. Corpus bytes and logical facts are fixed.
-const EXPECTED_MODELED_GENERATION_BYTES: u64 = 25_643_876;
+const EXPECTED_MODELED_GENERATION_BYTES: u64 = 25_638_779;
 
-const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 127_504_883;
+const EXPECTED_RESOLVE_HIGH_WATER_BYTES: u64 = 127_405_291;
 
-const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 153_394_819;
+const EXPECTED_VALIDATION_HIGH_WATER_BYTES: u64 = 153_392_355;
 
 const CORPUS_QUERY: &str = "detectSecretsHandling";
 

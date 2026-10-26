@@ -12,6 +12,10 @@ use super::{
 /// What the JavaScript-family passes of one file remember between nodes.
 #[derive(Default)]
 pub(super) struct JavaScriptState<'source> {
+    /// Active data-binding initializers keep declaration scopes but execute
+    /// calls in their enclosing callable. Suspended at nested callable nodes;
+    /// bounded by AST depth and charged to the working budget.
+    pub(super) initializer_reference_owners: Vec<(SymbolId, SymbolId)>,
     /// Contract generics this file declares (an object shape with a member
     /// typed by its string name parameter); their first string-literal
     /// argument names a contract property.

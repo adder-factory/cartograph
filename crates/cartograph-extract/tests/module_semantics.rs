@@ -15,6 +15,79 @@ use cartograph_extract::{
 const SOURCE_LIMIT: usize = 1024 * 1024;
 
 #[test]
+fn initializer_execution_preserves_nested_declaration_names_and_containment() {
+    let extracted = extract(
+        "src/owners.ts",
+        r"
+function build() {
+  const left = { run() { leftCall(); } };
+  const right = { run() { rightCall(); } };
+  const factory = function named() { factoryCall(); };
+  const Local = class Nested { run() { classCall(); } };
+  const value: Result = outerCall();
+}
+",
+    );
+    for (binding, method, call) in [
+        ("build::left", "build::left::run", "leftCall"),
+        ("build::right", "build::right::run", "rightCall"),
+    ] {
+        let parent = extracted
+            .symbols
+            .iter()
+            .find(|s| s.qualified_name == binding)
+            .unwrap_or_else(|| panic!("missing binding {binding}"));
+        let child = extracted
+            .symbols
+            .iter()
+            .find(|s| s.qualified_name == method)
+            .unwrap_or_else(|| panic!("missing nested method {method}"));
+        assert!(
+            extracted
+                .containments
+                .iter()
+                .any(|edge| edge.parent == parent.id && edge.child == child.id)
+        );
+        assert!(
+            extracted
+                .references
+                .iter()
+                .any(|reference| reference.name == call
+                    && reference.owner.as_ref() == Some(&child.id))
+        );
+    }
+    for (call, owner) in [
+        ("outerCall", "build"),
+        ("factoryCall", "build::factory"),
+        ("classCall", "build::Local::run"),
+    ] {
+        let symbol = extracted
+            .symbols
+            .iter()
+            .find(|s| s.qualified_name == owner)
+            .unwrap_or_else(|| panic!("missing call owner {owner}"));
+        assert!(
+            extracted
+                .references
+                .iter()
+                .any(|reference| reference.name == call
+                    && reference.owner.as_ref() == Some(&symbol.id)),
+            "wrong execution owner for {call}"
+        );
+    }
+    let binding = extracted
+        .symbols
+        .iter()
+        .find(|symbol| symbol.qualified_name == "build::value")
+        .unwrap_or_else(|| panic!("missing value declaration"));
+    assert!(extracted.references.iter().any(|reference| {
+        reference.name == "Result"
+            && reference.kind == ReferenceKind::TypeOf
+            && reference.owner.as_ref() == Some(&binding.id)
+    }));
+}
+
+#[test]
 fn angle_bracket_casts_keep_awaited_dynamic_import_selected_aliases() {
     let extracted = extract(
         "src/casts.ts",
@@ -32,7 +105,7 @@ export async function load() {
             && binding.imported_name == "catch"
             && binding.local_name == "selected"
     }));
-    assert_one_module_site(&extracted, "./m", Some("selected"));
+    assert_one_module_site(&extracted, "./m", Some("load"));
     assert_one_module_site(&extracted, "./path", Some("load"));
 }
 
@@ -108,10 +181,7 @@ type Then = import('./types').then;
         })
         .collect::<Vec<_>>();
     assert_eq!(references.len(), 6);
-    for (reference, owner) in references
-        .into_iter()
-        .zip(["selected", "wrapped", "load", "load", "load", "load"])
-    {
+    for reference in references {
         assert_eq!(
             extracted
                 .references
@@ -127,7 +197,7 @@ type Then = import('./types').then;
             extracted
                 .symbols
                 .iter()
-                .find(|symbol| symbol.name == owner)
+                .find(|symbol| symbol.name == "load")
                 .map(|symbol| symbol.id.clone())
         );
     }

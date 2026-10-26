@@ -8,10 +8,10 @@ use super::{
     capability_symbol, generation_validation_limits, validate_generation_facts,
 };
 
-// V25 changes the digest domain; facts unchanged in both restored projections.
+// V26 changes the digest domain; facts unchanged in both restored projections.
 const PREVIOUS_RECEIVER_DIGEST: &str =
-    "c682e5f2e956136f520967a7d106a5a7fea475633c207de34bbd411cddf1d36c";
-const BRIDGE_ONLY_DIGEST: &str = "38c9a387ac2d9452e976840c4c19da4a495198c2e1231ce1ee9d98130c8832fa";
+    "d3ab9cfb2088643857d410f1c9a766868df2eabc3aaeb6f323eeec4555cffbb6";
+const BRIDGE_ONLY_DIGEST: &str = "459177d90b8bdb6a4f382787977787aca95ecda272fe087cb4c41cbbb611222b";
 const EXPECTED_RECEIVER_CONFIDENCE: f32 = 0.95;
 const RECEIVER_DELTA: &[(&str, u64, u64, &str)] = &[
     ("generic/fixture.rb", 293, 296, "native-unresolved"),

@@ -134,6 +134,23 @@ impl ToolErrorCode {
 pub struct ToolError {
     code: ToolErrorCode,
     safe_message: Option<String>,
+    diagnostic: Option<ToolErrorDiagnostic>,
+}
+
+/// Source-free failure evidence shared by text-only and structured MCP clients.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolErrorDiagnostic {
+    /// Stable operation-specific failure identifier.
+    pub code: &'static str,
+    /// Stage which could not complete.
+    pub stage: &'static str,
+    /// Redacted failure category, never provider or driver text.
+    pub cause: &'static str,
+    /// Whether the same read can reasonably be retried.
+    pub retryable: bool,
+    /// Bounded corrective action independent of user input.
+    pub next_action: &'static str,
 }
 
 impl ToolError {
@@ -156,6 +173,7 @@ impl ToolError {
         Ok(Self {
             code,
             safe_message: Some(safe_message),
+            diagnostic: None,
         })
     }
 
@@ -165,7 +183,21 @@ impl ToolError {
         Self {
             code: ToolErrorCode::Internal,
             safe_message: None,
+            diagnostic: None,
         }
+    }
+
+    /// Attach an explicitly safe, source-free operation diagnostic.
+    #[must_use]
+    pub const fn with_diagnostic(mut self, diagnostic: ToolErrorDiagnostic) -> Self {
+        self.diagnostic = Some(diagnostic);
+        self
+    }
+
+    /// Source-free operation diagnostic when the adapter supplied one.
+    #[must_use]
+    pub const fn diagnostic(&self) -> Option<&ToolErrorDiagnostic> {
+        self.diagnostic.as_ref()
     }
 
     /// Stable safe category for adapters composing or auditing tool calls.
@@ -189,6 +221,7 @@ impl fmt::Debug for ToolError {
             .debug_struct("ToolError")
             .field("code", &self.code)
             .field("message", &self.safe_message.as_ref().map(|_| "<safe>"))
+            .field("diagnostic", &self.diagnostic)
             .finish()
     }
 }

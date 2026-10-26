@@ -70,9 +70,10 @@ pub use insights::{
     ExternalImportRecord, FileTestImpact, FileTestImpactQuery, FileTestImpactResult,
     GroupedPathInput, GroupedSymbolPeer, GroupedSymbolPeers, GroupedSymbolQuery, ImportInsight,
     IndexedFileFingerprint, RenameReferenceSite, StructuralCoverageRow, StructuralFinding,
-    StructuralFindingGroup, StructuralFindingGroupQuery, StructuralFindingQuery,
-    StructuralFindingSeverity, StructuralFindingStats, StructuralHotspot,
-    StructuralHotspotCategory, StructuralHotspotQuery, StructuralHotspotSort,
+    StructuralFindingComputation, StructuralFindingComputationState, StructuralFindingGroup,
+    StructuralFindingGroupQuery, StructuralFindingQuery, StructuralFindingSeverity,
+    StructuralFindingStats, StructuralHotspot, StructuralHotspotCategory, StructuralHotspotQuery,
+    StructuralHotspotSort,
 };
 pub use interchange::{
     InterchangeEdge, InterchangeFile, InterchangeReference, InterchangeSnapshot,

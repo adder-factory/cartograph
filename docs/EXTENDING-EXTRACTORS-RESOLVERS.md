@@ -304,8 +304,9 @@ The key contract, correction policy and current disposition counts are in the
 Generation freshness includes the native generation-digest contract, so a
 change to the facts an existing language publishes needs a new contract;
 otherwise an unchanged checkout keeps reporting fresh with the old facts. The
-V25 contract fences FreeSWITCH XML facts and the Kamailio and rtpengine
-configuration modes, on top of V24 shared test-path classification. Native
+V26 contract fences callable initializer reference ownership and the updated
+Ada grammar, retaining V25 FreeSWITCH XML, Kamailio and rtpengine configuration
+facts and V24 shared test-path classification. Native
 RocksDB generations carry this contract directly:
 
 - add the `GenerationDigestVersion` variant and move `CURRENT` in

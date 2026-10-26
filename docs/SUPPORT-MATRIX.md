@@ -4,7 +4,7 @@
 [Coverage report](LANGUAGE-COVERAGE-REPORT.md) ·
 [Extend support](EXTENDING-EXTRACTORS-RESOLVERS.md)
 
-Last release audit: 2026-10-22 (`v3.0.5`).
+Last release audit: 2026-10-26 (`v3.0.6`).
 
 Use this page to decide whether Cartograph can extract useful graph structure
 from a project before you install it. A supported language means files are

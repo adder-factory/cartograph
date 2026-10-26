@@ -14,7 +14,7 @@ mod transport;
 pub use cancellation::CancellationToken;
 pub use error::{
     ConfigError, ErrorCode, ServeError, StableErrorCode, ToolContractError, ToolError,
-    ToolErrorCode,
+    ToolErrorCode, ToolErrorDiagnostic,
 };
 pub use profile::{ToolProfile, ToolProfiles};
 pub use protocol::{

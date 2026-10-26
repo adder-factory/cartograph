@@ -21,13 +21,13 @@ use cartograph_agent::{
     IssueHistoryIndexRequest, JEV_ROLE_MODEL, LayerAnalysisError, LayerAnalysisReport,
     LcovLoadOptions, MAXIMUM_UNIX_MILLISECONDS, NavigationPolicy, NavigationRequest,
     PipelineFailureReason, PipelineStage, ProjectCancellation, ProjectError, ProjectRuntime,
-    ProjectStatus, RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalOptions,
-    RetrievalRequest, ReviewError, ReviewOptions, RoleCandidate, RoleVerdict, ScipExportRequest,
-    ScipImportLimits, ScipImportRequest, SourceCompareError, SourceCompareOptions,
-    SourceContextOptions, SourceContextRequest, SourceSearchError, SourceSearchHit,
-    SourceSearchOptions, SupervisorStatus, SymbolSourceContext, TestEvidenceError,
-    TestEvidenceOptions, TestEvidenceReport, VerificationCommand, WorkingTreeOverlayRequest,
-    judge_dead_code_candidates,
+    ProjectStatus, RenamePlanError, RenamePlanOptions, RenamePlanRequest, RetrievalFailureCause,
+    RetrievalFailureStage, RetrievalOptions, RetrievalRequest, ReviewError, ReviewOptions,
+    RoleCandidate, RoleVerdict, ScipExportRequest, ScipImportLimits, ScipImportRequest,
+    SourceCompareError, SourceCompareOptions, SourceContextOptions, SourceContextRequest,
+    SourceSearchError, SourceSearchHit, SourceSearchOptions, SupervisorStatus, SymbolSourceContext,
+    TestEvidenceError, TestEvidenceOptions, TestEvidenceReport, VerificationCommand,
+    WorkingTreeOverlayRequest, judge_dead_code_candidates,
 };
 use cartograph_db::{
     AgentArtifactContent, AgentArtifactKind, AgentArtifactQuery, AgentArtifactScope,
@@ -73,8 +73,8 @@ use cartograph_llm::{
 };
 use cartograph_mcp::{
     BoxShutdownFuture, BoxToolFuture, ToolAnnotations, ToolCall, ToolCallContext,
-    ToolContractError, ToolDefinition, ToolDefinitionInput, ToolError, ToolErrorCode, ToolHandler,
-    ToolProfiles, ToolResult,
+    ToolContractError, ToolDefinition, ToolDefinitionInput, ToolError, ToolErrorCode,
+    ToolErrorDiagnostic, ToolHandler, ToolProfiles, ToolResult,
 };
 use cartograph_search::{
     AffectedTest, AffectedTestsResult, BidirectionalTraversalResult, CONTEXT_ANCHOR_MAXIMUM_BYTES,
@@ -1168,9 +1168,44 @@ struct TraversalGraphExecution<'input> {
     cursor: GraphCursorContext<'input>,
     requested_roots: Vec<String>,
     roots: Vec<SymbolId>,
+    resolution: GraphRootDiagnostics,
     direction: GraphDirection,
     traversal: GraphTraversalOptions<'input>,
     presentation: GraphPresentationOptions<'input>,
+}
+
+#[derive(Default)]
+struct GraphRootDiagnostics {
+    unresolved: Vec<Value>,
+    ambiguous: Vec<Value>,
+}
+
+impl GraphRootDiagnostics {
+    fn state(&self) -> &'static str {
+        if self.unresolved.is_empty() && self.ambiguous.is_empty() {
+            "complete"
+        } else {
+            "partial"
+        }
+    }
+
+    fn unresolved_result(
+        &self,
+        freshness: IndexFreshness,
+        requested_roots: &[String],
+    ) -> Result<ToolResult, ToolError> {
+        fresh_json_result(
+            freshness,
+            &json!({
+                "requestedRoots": requested_roots,
+                "resolutionState": "unresolved",
+                "unresolved": self.unresolved,
+                "ambiguous": self.ambiguous,
+                "graph": null,
+                "nextAction": "Retry with an exact candidate symbolId or qualifiedName",
+            }),
+        )
+    }
 }
 
 struct GraphProjectionOptions<'a> {
@@ -3301,6 +3336,7 @@ const fn project_error_class(error: &ProjectError) -> ProjectErrorClass {
         | ProjectError::SchemaBusy
         | ProjectError::SchemaVersionAhead { .. } => ProjectErrorClass::Schema,
         ProjectError::RetrievalOperationFailed
+        | ProjectError::RetrievalFailed { .. }
         | ProjectError::SourceChangedDuringIndex
         | ProjectError::ScipOverlayInvalid
         | ProjectError::InvalidOptions
@@ -5201,7 +5237,7 @@ async fn retrieve_context_packet(
         .retrieval
         .context_packet_with_channels(&request, prepared.into_channels())
         .await
-        .map_err(internal_error)
+        .map_err(|error| context_assembly_error(&error))
 }
 
 async fn with_stale_overlay(
@@ -7857,9 +7893,21 @@ impl GraphTools<'_> {
         let direction = direction_kind.as_str();
         let (project_id, freshness) =
             current_project_for_evidence(self, cancellation.clone(), allow_stale).await?;
-        let roots = self
-            .resolve_graph_roots(&project_id, &requested_roots, &cancellation)
+        let (roots, resolution) = self
+            .resolve_graph_roots(
+                &project_id,
+                &requested_roots,
+                &cancellation,
+                arguments.contains_key("symbols")
+                    && !matches!(
+                        direction_kind,
+                        GraphDirection::Path | GraphDirection::Similar
+                    ),
+            )
             .await?;
+        if roots.is_empty() {
+            return resolution.unresolved_result(freshness, &requested_roots);
+        }
         let cursor = GraphCursorContext {
             project_id: &project_id,
             freshness,
@@ -7893,6 +7941,7 @@ impl GraphTools<'_> {
             cursor,
             requested_roots,
             roots,
+            resolution,
             direction: direction_kind,
             traversal: GraphTraversalOptions {
                 budget,
@@ -8103,6 +8152,9 @@ impl GraphTools<'_> {
             },
             &json!({
                 "requestedRoots": execution.requested_roots,
+                "resolutionState": execution.resolution.state(),
+                "unresolved": execution.resolution.unresolved,
+                "ambiguous": execution.resolution.ambiguous,
                 "direction": execution.direction.as_str(),
                 "minimumConfidence": execution.traversal.minimum_confidence,
                 "rankBy": execution.traversal.rank_by,
@@ -8121,8 +8173,10 @@ impl GraphTools<'_> {
         project_id: &ProjectId,
         requested_roots: &[String],
         cancellation: &ProjectCancellation,
-    ) -> Result<Vec<SymbolId>, ToolError> {
+        batch: bool,
+    ) -> Result<(Vec<SymbolId>, GraphRootDiagnostics), ToolError> {
         let mut roots = Vec::with_capacity(requested_roots.len());
+        let mut diagnostics = GraphRootDiagnostics::default();
         for requested in requested_roots {
             if cancellation.is_cancelled() {
                 return Err(safe_error(
@@ -8130,12 +8184,27 @@ impl GraphTools<'_> {
                     "Cartograph graph request was cancelled",
                 ));
             }
-            roots.push(
-                self.resolve_symbol_id_or_name(project_id, requested)
-                    .await?,
-            );
+            if batch && SymbolId::parse(requested).is_err() {
+                match resolve_node_batch_name(self, project_id, requested).await? {
+                    NodeBatchNameResolution::Resolved(symbol) => roots.push(symbol.symbol_id().clone()),
+                    NodeBatchNameResolution::Unresolved => diagnostics.unresolved.push(json!({"requested": requested, "reason": "symbol_not_found"})),
+                    NodeBatchNameResolution::Ambiguous { candidates, truncated } => diagnostics.ambiguous.push(json!({
+                        "requested": requested,
+                        "candidates": candidates.iter().map(node_ambiguous_candidate).collect::<Vec<_>>(),
+                        "truncated": truncated,
+                    })),
+                }
+            } else {
+                match self.resolve_symbol_id_or_name(project_id, requested).await {
+                    Ok(id) => roots.push(id),
+                    Err(error) if batch && error.code() == ToolErrorCode::NotFound => diagnostics
+                        .unresolved
+                        .push(json!({"requested": requested, "reason": "symbol_not_found"})),
+                    Err(error) => return Err(error),
+                }
+            }
         }
-        Ok(roots)
+        Ok((roots, diagnostics))
     }
 
     async fn resolve_symbol_id_or_name(
@@ -8365,6 +8434,7 @@ impl GraphTools<'_> {
                 "None of the requested file paths exist in the current generation",
             ));
         }
+        require_test_impact_results(&impact, request.max_nodes)?;
         let commands = if optional_bool(request.arguments, "includeCommands")?.unwrap_or(false) {
             self.runtime.repository_verification_commands().await
         } else {
@@ -11686,6 +11756,7 @@ impl SummaryReviewTools<'_> {
             ],
         )?;
         let mode = infer_review_mode(&arguments)?;
+        validate_review_mode_arguments(&arguments, mode)?;
         match mode {
             "context" => self.review_context(arguments, cancellation).await,
             "neighbors" => self.review_neighbors(arguments, cancellation).await,
@@ -11855,7 +11926,6 @@ impl SummaryReviewTools<'_> {
                 "limit",
                 "minCentrality",
                 "coverageSource",
-                "pathFilter",
                 "deep",
                 "timeoutMs",
             ],
@@ -11868,6 +11938,7 @@ impl SummaryReviewTools<'_> {
         let minimum_severity = optional_text(&arguments, "minSeverity")?.unwrap_or("info");
         let minimum_severity_value = parse_finding_severity(minimum_severity)?;
         let allow_stale = optional_bool(&arguments, "allowStale")?.unwrap_or(false);
+        let path_prefix = optional_bounded_text(&arguments, "pathFilter", MAX_PROJECT_PATH_BYTES)?;
         let (project_id, freshness) =
             current_project_for_evidence(self, cancellation, allow_stale).await?;
         let database = self.runtime.database();
@@ -11880,12 +11951,20 @@ impl SummaryReviewTools<'_> {
         )
         .map(|query| query.with_minimum_severity(minimum_severity_value))
         .map(|query| query.with_exclude_fixtures(true))
-        .map_err(internal_error)?;
-        let (group, stats) = tokio::join!(
-            database.query_current_structural_findings_per_detector(&project_id, &query),
-            database.current_structural_finding_stats(&project_id),
-        );
-        let group = group.map_err(internal_error)?;
+        .and_then(|query| query.with_path_prefix(path_prefix))
+        .map_err(|_| {
+            safe_error(
+                ToolErrorCode::InvalidArguments,
+                "agent-audit pathFilter must be a normalized project-relative path prefix",
+            )
+        })?;
+        let group = database
+            .query_current_structural_findings_per_detector(&project_id, &query)
+            .await
+            .map_err(internal_error)?;
+        let Some(computation) = group.computation().cloned() else {
+            return uncomputed_agent_audit_result(freshness);
+        };
         let counts = group.counts().clone();
         let mut grouped = AGENT_AUDIT_FINDINGS
             .iter()
@@ -11910,6 +11989,8 @@ impl SummaryReviewTools<'_> {
             freshness,
             &json!({
                 "mode": "agent-audit",
+                "state": "ready",
+                "pathFilter": path_prefix,
                 "minimumSeverity": minimum_severity,
                 "perDetectorLimit": per_detector,
                 "detectors": AGENT_AUDIT_FINDINGS,
@@ -11917,7 +11998,9 @@ impl SummaryReviewTools<'_> {
                 "countsByDetector": counts,
                 "truncatedByDetector": truncated_detectors,
                 "fixturesExcluded": true,
-                "completeCounts": stats.map_err(internal_error)?,
+                "generationId": computation.generation_id(),
+                "inputFingerprint": computation.input_fingerprint(),
+                "completeCounts": computation.stats(),
                 "completeCountsScope": "complete_project_all_detectors_unfiltered",
             }),
         )
@@ -17704,6 +17787,7 @@ async fn tests_for_files(
         .await
         .map_err(internal_error)?
         .ok_or_else(no_published_generation_error)?;
+    require_test_impact_results(&impact, max_nodes)?;
     let test_paths = impact
         .tests()
         .iter()
@@ -17745,6 +17829,7 @@ async fn tests_for_files(
             "filter": filter,
             "unmatchedInputs": unmatched_inputs,
             "inputBarrels": input_barrels,
+            "countsComplete": impact.counts_complete(),
             "impact": impact,
             "testNames": test_evidence,
             "testNamesStatus": test_evidence_status(freshness),
@@ -19292,6 +19377,7 @@ fn affected_file_presentation(input: &AffectedFilePresentation<'_>) -> Value {
         "unmatchedInputs": input.unmatched_inputs,
         "filter": input.filter,
         "maxNodes": input.max_nodes,
+        "countsComplete": input.impact.counts_complete(),
         "impact": input.impact,
         "commands": input.commands,
         "commandsExecuted": false
@@ -21953,6 +22039,90 @@ fn reject_present(arguments: &Map<String, Value>, rejected: &[&str]) -> Result<(
     } else {
         Ok(())
     }
+}
+
+fn uncomputed_agent_audit_result(freshness: IndexFreshness) -> Result<ToolResult, ToolError> {
+    fresh_json_result(
+        freshness,
+        &json!({
+            "mode": "agent-audit",
+            "state": "not_computed",
+            "reason": "biomarkers_not_computed_for_current_generation",
+            "findings": null,
+            "countsByDetector": null,
+            "completeCounts": null,
+            "nextAction": "Run cartograph admin biomarkers-refresh --no-dry-run --confirm",
+            "refreshTool": ADMIN_TOOL,
+        }),
+    )
+}
+
+fn require_test_impact_results(
+    impact: &FileTestImpactResult,
+    max_nodes: u16,
+) -> Result<(), ToolError> {
+    if impact.nodes_truncated() && impact.tests().is_empty() {
+        return Err(safe_error(
+            ToolErrorCode::NotReady,
+            format!("truncated_before_any_result: affected-test traversal reached maxNodes={max_nodes} before finding a test; increase maxNodes or split the input files before deciding which tests to run"),
+        ).with_diagnostic(ToolErrorDiagnostic {
+            code: "truncated_before_any_result",
+            stage: "affected_test_traversal",
+            cause: "node_budget_exhausted",
+            retryable: false,
+            next_action: "Increase maxNodes or split the input files; an empty truncated search does not establish that no tests are affected",
+        }));
+    }
+    Ok(())
+}
+
+fn validate_review_mode_arguments(
+    arguments: &Map<String, Value>,
+    mode: &str,
+) -> Result<(), ToolError> {
+    const COMMON_ARGUMENTS: &[&str] = &["mode", "allowStale"];
+    let mode_arguments: &[&str] = match mode {
+        "context" => &[
+            "baseRef",
+            "maxChangedFiles",
+            "diff",
+            "maxCallersPerSymbol",
+            "maxCalleesPerSymbol",
+            "maxCoChangeWarnings",
+            "minCoChangeJaccard",
+            "minDiffMagnitude",
+            "pathFilter",
+        ],
+        "neighbors" => &["files", "symbols", "k", "dedupeByName", "modelId"],
+        "risk" => &[
+            "topN",
+            "limit",
+            "minCentrality",
+            "coverageSource",
+            "pathFilter",
+        ],
+        "agent-audit" => &["perDetectorLimit", "minSeverity", "pathFilter"],
+        "numerical" => &["topN", "limit", "pathFilter"],
+        "trust" => &["deep", "timeoutMs"],
+        _ => return Err(invalid_arguments()),
+    };
+    if let Some(key) = arguments.keys().find(|key| {
+        !COMMON_ARGUMENTS.contains(&key.as_str()) && !mode_arguments.contains(&key.as_str())
+    }) {
+        return Err(safe_error(
+            ToolErrorCode::InvalidArguments,
+            format!(
+                "Argument {key} is not accepted for review mode {mode}; allowed arguments: {}",
+                COMMON_ARGUMENTS
+                    .iter()
+                    .chain(mode_arguments)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn reject_admin_extras(arguments: &Map<String, Value>, allowed: &[&str]) -> Result<(), ToolError> {
@@ -25208,10 +25378,11 @@ fn project_lookup_error(error: &ProjectError) -> ToolError {
 
 fn project_operation_error(error: &ProjectError) -> ToolError {
     match error {
-        ProjectError::RetrievalOperationFailed => safe_error(
-            ToolErrorCode::Unavailable,
-            "Cartograph retrieval operation is unavailable",
+        ProjectError::RetrievalOperationFailed => context_failure_error(
+            RetrievalFailureStage::ContextAssembly,
+            RetrievalFailureCause::InvalidEvidence,
         ),
+        ProjectError::RetrievalFailed { stage, cause } => context_failure_error(*stage, *cause),
         ProjectError::SourceChangedDuringIndex => safe_error(
             ToolErrorCode::Unavailable,
             "Source changed repeatedly while Cartograph was indexing; retry after the active writes settle",
@@ -25242,6 +25413,65 @@ fn project_operation_error(error: &ProjectError) -> ToolError {
         ),
         _ => ToolError::internal(),
     }
+}
+
+fn context_assembly_error(error: &RetrievalError) -> ToolError {
+    let cause = match error {
+        RetrievalError::Storage(StorageError::CurrentGenerationChanged)
+        | RetrievalError::Semantic(SemanticStorageError::CurrentGenerationChanged) => {
+            RetrievalFailureCause::GenerationChanged
+        }
+        RetrievalError::Storage(StorageError::StatementTimeout { .. }) => {
+            RetrievalFailureCause::StorageTimeout
+        }
+        RetrievalError::Storage(StorageError::DatabaseOperation { .. }) => {
+            RetrievalFailureCause::StorageUnavailable
+        }
+        RetrievalError::InvalidInput { .. } => RetrievalFailureCause::InvalidRequest,
+        _ => RetrievalFailureCause::InvalidEvidence,
+    };
+    context_failure_error(RetrievalFailureStage::ContextAssembly, cause)
+}
+
+fn context_failure_error(stage: RetrievalFailureStage, cause: RetrievalFailureCause) -> ToolError {
+    let next_action = match cause {
+        RetrievalFailureCause::GenerationChanged => {
+            "Retry after indexing or active source writes settle"
+        }
+        RetrievalFailureCause::StorageTimeout => {
+            "Retry once; if repeated, check Cartograph status and reduce the request scope"
+        }
+        RetrievalFailureCause::StorageUnavailable => {
+            "Check Cartograph status and doctor before retrying"
+        }
+        RetrievalFailureCause::InvalidRequest => {
+            "Check the request bounds and supported argument combinations"
+        }
+        RetrievalFailureCause::InvalidEvidence => {
+            "Run Cartograph doctor and reindex; report repeated failures with this code and stage"
+        }
+    };
+    let diagnostic = ToolErrorDiagnostic {
+        code: "context_retrieval_failed",
+        stage: stage.as_str(),
+        cause: cause.as_str(),
+        retryable: cause.retryable(),
+        next_action,
+    };
+    safe_error(
+        if cause == RetrievalFailureCause::InvalidRequest {
+            ToolErrorCode::InvalidArguments
+        } else {
+            ToolErrorCode::Unavailable
+        },
+        format!(
+            "context_retrieval_failed: stage={}, cause={}, retryable={}; {next_action}",
+            stage.as_str(),
+            cause.as_str(),
+            cause.retryable()
+        ),
+    )
+    .with_diagnostic(diagnostic)
 }
 
 fn project_actionable_index_error(error: &ProjectError) -> ToolError {
@@ -25373,6 +25603,49 @@ impl CartographMcpHandler {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn context_errors_expose_redacted_stage_cause_and_retry_guidance() {
+        for (failure, cause, retryable) in [
+            (
+                RetrievalError::Storage(StorageError::CurrentGenerationChanged),
+                "generation_changed",
+                true,
+            ),
+            (
+                RetrievalError::Storage(StorageError::StatementTimeout {
+                    operation: "private-token",
+                }),
+                "storage_timeout",
+                true,
+            ),
+            (
+                RetrievalError::Storage(StorageError::DatabaseOperation {
+                    operation: "private-token",
+                }),
+                "storage_unavailable",
+                true,
+            ),
+            (
+                RetrievalError::InvalidInput {
+                    field: "private-token",
+                },
+                "invalid_request",
+                false,
+            ),
+        ] {
+            let error = context_assembly_error(&failure);
+            let details = error
+                .diagnostic()
+                .unwrap_or_else(|| panic!("missing context diagnostic"));
+            assert_eq!(details.code, "context_retrieval_failed");
+            assert_eq!(details.stage, "context_assembly");
+            assert_eq!(details.cause, cause);
+            assert_eq!(details.retryable, retryable);
+            assert!(!error.wire_message().contains("private-token"));
+            assert!(error.wire_message().contains("context_retrieval_failed"));
+        }
+    }
+
     use std::assert_matches;
     use std::{
         fmt::Write as _,
@@ -30773,6 +31046,24 @@ pub fn target(value: u32) -> u32 {
             Some(2)
         );
         assert_eq!(node_batch["ambiguous"][0]["truncated"], false);
+
+        let graph_batch = execute_live_tool(
+            handler,
+            GRAPH_TOOL,
+            json!({"symbols": ["root", "duplicateName", "missingSymbol"], "direction": "callees"}),
+        )
+        .await;
+        let graph_batch = &graph_batch["structuredContent"]["evidence"];
+        assert_eq!(graph_batch["resolutionState"], "partial");
+        assert_eq!(graph_batch["ambiguous"][0]["requested"], "duplicateName");
+        assert_eq!(
+            graph_batch["ambiguous"][0]["candidates"]
+                .as_array()
+                .map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(graph_batch["unresolved"][0]["requested"], "missingSymbol");
+        assert!(graph_batch["graph"].is_object());
     }
 
     async fn verify_agent_file_surfaces(handler: &CartographMcpHandler) {
@@ -30873,6 +31164,22 @@ pub fn target(value: u32) -> u32 {
         ] {
             execute_live_tool(handler, AFFECTED_TOOL, arguments).await;
         }
+        for tool in [AFFECTED_TOOL, TESTS_FOR_TOOL] {
+            let exhausted = CoreTools(handler)
+                .execute(
+                    policy_call(tool, json!({"files": ["src/lib.rs"], "maxNodes": 1})),
+                    ToolCallContext::local(Duration::from_secs(30)),
+                )
+                .await;
+            assert!(
+                exhausted.as_ref().is_err_and(|error| {
+                    error.code() == ToolErrorCode::NotReady
+                        && error.wire_message().contains("truncated_before_any_result")
+                        && error.wire_message().contains("maxNodes")
+                }),
+                "{tool}: {exhausted:?}"
+            );
+        }
         execute_live_tool(
             handler,
             TESTS_FOR_TOOL,
@@ -30887,7 +31194,39 @@ pub fn target(value: u32) -> u32 {
         .await;
     }
 
+    async fn verify_uncomputed_audit_surface(handler: &CartographMcpHandler) {
+        let audit = execute_live_tool(
+            handler,
+            REVIEW_TOOL,
+            json!({"mode": "agent-audit", "pathFilter": "src", "minSeverity": "warning"}),
+        )
+        .await;
+        let audit = &audit["structuredContent"]["evidence"];
+        assert_eq!(audit["state"], "not_computed");
+        assert!(audit["countsByDetector"].is_null());
+        assert!(
+            audit["nextAction"]
+                .as_str()
+                .is_some_and(|action| action.contains("biomarkers-refresh"))
+        );
+        let invalid = CoreTools(handler)
+            .execute(
+                policy_call(REVIEW_TOOL, json!({"mode": "agent-audit", "k": 5})),
+                ToolCallContext::local(Duration::from_secs(30)),
+            )
+            .await;
+        assert!(
+            invalid.as_ref().is_err_and(|error| {
+                error.wire_message().contains("Argument k")
+                    && error.wire_message().contains("agent-audit")
+                    && error.wire_message().contains("perDetectorLimit")
+            }),
+            "{invalid:?}"
+        );
+    }
+
     async fn verify_agent_analysis_surfaces(handler: &CartographMcpHandler, project: &Path) {
+        verify_uncomputed_audit_surface(handler).await;
         let pending = execute_live_tool(handler, BIOMARKERS_TOOL, json!({"mode": "stats"})).await;
         assert_eq!(
             pending["structuredContent"]["evidence"]["state"],

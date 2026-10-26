@@ -167,6 +167,165 @@ async fn complete_findings_exclude_test_documents_and_invalidate_on_publication(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn detector_group_keeps_computation_provenance_across_refresh_and_publication() -> TestResult
+{
+    use cartograph_db::StructuralFindingGroupQuery;
+    let fixture = Fixture::new(detector_facts()).await?;
+    let database = &fixture.database;
+    let project = database.project_id();
+    let query = StructuralFindingGroupQuery::new(vec!["duplicate_code".into()], 1)?
+        .with_minimum_severity(StructuralFindingSeverity::Info);
+    let pending = database
+        .query_current_structural_findings_per_detector(project, &query)
+        .await?;
+    assert!(pending.computation().is_none());
+    database
+        .refresh_current_structural_findings(project, Duration::from_secs(30))
+        .await?;
+    // A refresh between the group read and a later stats read cannot relabel
+    // the retained uncomputed group as a ready zero-result audit.
+    assert!(
+        database
+            .current_structural_finding_stats(project)
+            .await?
+            .total_findings()
+            > 0
+    );
+    assert!(pending.computation().is_none());
+    let ready = database
+        .query_current_structural_findings_per_detector(project, &query)
+        .await?;
+    let computation = ready
+        .computation()
+        .cloned()
+        .ok_or("missing complete computation")?;
+    assert_eq!(computation.generation_id(), &generation(1));
+    assert!(computation.stats().total_findings() > 0);
+    assert_ne!(ready.clone().into_findings(), []);
+    fixture
+        .store
+        .publish_graph(input(2, canonical(searchable(1))?)?, &request()?)
+        .await?;
+    let invalidated = database
+        .query_current_structural_findings_per_detector(project, &query)
+        .await?;
+    assert!(invalidated.computation().is_none());
+    assert_eq!(ready.computation(), Some(&computation));
+    database
+        .refresh_current_structural_findings(project, Duration::from_secs(30))
+        .await?;
+    let empty = database
+        .query_current_structural_findings_per_detector(project, &query)
+        .await?;
+    let new_computation = empty.computation().ok_or("missing completed empty query")?;
+    assert_eq!(new_computation.generation_id(), &generation(2));
+    assert_ne!(
+        new_computation.input_fingerprint(),
+        computation.input_fingerprint()
+    );
+    assert_eq!(empty.counts().get("duplicate_code"), Some(&0));
+    assert_eq!(empty.into_findings(), []);
+    fixture.runtime.shutdown(&request()?).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn detector_group_path_filter_applies_before_counts_and_limits() -> TestResult {
+    use cartograph_db::StructuralFindingGroupQuery;
+    let fixture = Fixture::new(detector_facts()).await?;
+    let database = &fixture.database;
+    database
+        .refresh_current_structural_findings(database.project_id(), Duration::from_secs(30))
+        .await?;
+    let query = StructuralFindingGroupQuery::new(vec!["duplicate_code".into()], 1)?
+        .with_minimum_severity(StructuralFindingSeverity::Info);
+    let all = database
+        .query_current_structural_findings_per_detector(database.project_id(), &query)
+        .await?;
+    assert_ne!(all.clone().into_findings(), []);
+    let included = database
+        .query_current_structural_findings_per_detector(
+            database.project_id(),
+            &query.clone().with_path_prefix(Some("src/"))?,
+        )
+        .await?;
+    assert_eq!(all, included);
+    for prefix in ["src-other", "src/li", "other"] {
+        let excluded = database
+            .query_current_structural_findings_per_detector(
+                database.project_id(),
+                &query.clone().with_path_prefix(Some(prefix))?,
+            )
+            .await?;
+        assert_eq!(excluded.counts().get("duplicate_code"), Some(&0));
+        assert_eq!(excluded.into_findings(), []);
+    }
+    assert!(query.with_path_prefix(Some("../src")).is_err());
+    fixture.runtime.shutdown(&request()?).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_limited_test_impact_retains_admitted_tests() -> TestResult {
+    use cartograph_db::FileTestImpactQuery;
+    use cartograph_domain::NormalizedPath;
+    let mut facts = searchable(4);
+    for id in 2_u8..=4 {
+        let mut file = facts.files[0].clone();
+        file.file_id = FileId::from_uuid_v8([id; 16]);
+        file.normalized_path = format!("tests/test_{id}.rs");
+        let ordinal = usize::from(id - 1);
+        facts.symbols[ordinal].file_id = file.file_id.clone();
+        facts.documents[ordinal].file_id = Some(file.file_id.clone());
+        facts.documents[ordinal]
+            .path
+            .clone_from(&file.normalized_path);
+        facts.documents[ordinal].kind = DocumentKind::Test;
+        facts.files.push(file);
+        facts.edges.push(edge(u64::from(id), 1, "native"));
+    }
+    let fixture = Fixture::new(facts).await?;
+    let paths = [NormalizedPath::parse("src/lib.rs")?];
+    let partial = fixture
+        .database
+        .current_file_test_impact(FileTestImpactQuery {
+            project_id: fixture.database.project_id(),
+            paths: &paths,
+            max_depth: 2,
+            max_nodes: 2,
+            limit: 10,
+            test_path_regex: None,
+        })
+        .await?
+        .ok_or("missing generation")?;
+    assert!(partial.nodes_truncated());
+    assert_eq!(partial.affected_test_file_count(), 1);
+    assert_eq!(partial.tests().len(), 1);
+    assert_eq!(partial.tests()[0].path(), "tests/test_2.rs");
+    let wire = serde_json::to_value(&partial)?;
+    assert!(!partial.counts_complete());
+    assert_eq!(wire["testsTruncated"], true);
+    let complete = fixture
+        .database
+        .current_file_test_impact(FileTestImpactQuery {
+            project_id: fixture.database.project_id(),
+            paths: &paths,
+            max_depth: 2,
+            max_nodes: 8,
+            limit: 10,
+            test_path_regex: None,
+        })
+        .await?
+        .ok_or("missing generation")?;
+    assert!(!complete.nodes_truncated());
+    assert!(complete.counts_complete());
+    assert_eq!(complete.affected_test_file_count(), 3);
+    assert_eq!(complete.tests().len(), 3);
+    fixture.runtime.shutdown(&request()?).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn semantic_clone_cache_follows_vector_epochs_and_canonicalizes_components() -> TestResult {
     use cartograph_db::{
         EmbeddingBatchUpsertInput, EmbeddingBatchUpsertRequest, EmbeddingUpsertRow,

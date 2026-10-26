@@ -3,7 +3,7 @@
 [Documentation home](../README.md) · [Project overview](../../README.md) ·
 [Native extraction](EXTRACTION.md) · [Language matrix](../SUPPORT-MATRIX.md)
 
-Last release audit: 2026-10-22 (`v3.0.5`).
+Last release audit: 2026-10-26 (`v3.0.6`).
 
 Cartograph v3 is a native Rust code-intelligence server for AI coding agents.
 Each project owns an embedded RocksDB 11.8.1 store. Rust implements
@@ -190,7 +190,9 @@ every per-file fact v1.1.33 extracted from each v1 mode's fixture corpus to
 have a unique exact identity, committed exact alignment pins, or a
 pending/intentional ledger entry. Ambiguous identities never match and stale
 rows fail; the linked report owns current counts and the update procedure.
-The V25 generation-digest contract fences these families, FreeSWITCH XML and
+The V26 generation-digest contract additionally fences callable initializer
+reference ownership and the updated Ada grammar. It retains the V25 families,
+FreeSWITCH XML and
 telephony configuration facts, v1 framework/bridge detail, deferred resolution
 parity, and shared test-path classification, so
 generations from older binaries report stale once and republish.
@@ -215,7 +217,7 @@ not prove. It never stores the source expression or literal. Static heuristic
 evidence is not relabeled as a runtime observation or formal proof;
 `cartograph_numerical`, status, and numerical review report observation and
 formal adapters as `not_configured`. Generations recorded under an older digest
-contract (anything before the current V25) remain explicitly stale until an
+contract (anything before the current V26) remain explicitly stale until an
 ordinary index republishes them; for generations older than V7, which predate
 numerical sites, that republication is also what publishes numerical evidence.
 

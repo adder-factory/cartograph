@@ -29,9 +29,10 @@ use std::{
 };
 
 type BenchResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
-// V25 identity for the frozen fixture; its inputs and fingerprint stay fixed.
+// V26 identity for the frozen fixture; its inputs and fingerprint stay fixed.
+// An independent wire encoder reproduced V25 and changed only the domain.
 const EXPECTED_LOGICAL_DIGEST: &str =
-    "8fded6e120574bf49b9a58d49079a1e3c90ad03f07b8d057ca1fb9003fdbbc3c";
+    "0218e0d4c2a5568602dd59cd0faf06971890e737640adf8b918307429aef8352";
 
 #[tokio::main]
 async fn main() -> BenchResult {
